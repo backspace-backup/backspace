@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Backspace.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!--
+      Turn off parallel test execution. Several tests mutate process-wide
+      state (env vars, ServiceLocator, Avalonia's Dispatcher) and would
+      interfere with each other if run concurrently.
+    -->
+    <ParallelizeTestCollections>false</ParallelizeTestCollections>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- xUnit + MS test SDK. -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="coverlet.collector" Version="6.0.2" />
+
+    <!-- Avalonia's headless test harness: renders windows without a display,
+         lets us assert on resolved layout bounds. Skia is pulled in so we
+         can rasterize views to PNG for visual review — without it the
+         headless platform only supports layout, not drawing. -->
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Headless" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Skia" Version="11.2.3" />
+
+    <!-- Pixel compare for the screenshot baseline diff. ImageSharp
+         decodes PNGs to Rgba32 buffers we can walk directly — no
+         System.Drawing.Common (deprecated on non-Windows) needed.
+         3.1.5 has known CVEs (NU1903 / NU1902); pinned because newer
+         3.2+ requires an Avalonia.Skia version we haven't yet
+         compatibility-tested. Suppress the audit warnings here so
+         the rest of the build stays clean. -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.5" NoWarn="NU1902;NU1903" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Backspace\Backspace.csproj" />
+  </ItemGroup>
+
+  <!--
+    Copy the engine sidecar binaries (backrest + restic + rclone) from
+    the main project's Assets/ folder into the test host's bin/ so
+    AppPaths.{BackrestBinary,ResticBinary,RcloneBinary} (which resolve
+    relative to the process exe) find them when the test launches
+    BackrestSidecar. AvaloniaResource embedding is only active in the
+    app's single-file Release publish; Debug + test runs use loose
+    files.
+
+    Each entry is Condition'd on the file existing so a build with
+    `-p:SkipBackrestDownload=true` (or a checkout that hasn't run
+    FetchBackrest.targets yet) doesn't fail; the RealEngineFixture's
+    BinariesPresent check will simply skip any real-engine scenarios.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\src\Backspace\Assets\backrest.exe"
+             Condition="Exists('..\..\src\Backspace\Assets\backrest.exe')"
+             Link="backrest.exe"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\Backspace\Assets\restic.exe"
+             Condition="Exists('..\..\src\Backspace\Assets\restic.exe')"
+             Link="restic.exe"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\Backspace\Assets\rclone.exe"
+             Condition="Exists('..\..\src\Backspace\Assets\rclone.exe')"
+             Link="rclone.exe"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

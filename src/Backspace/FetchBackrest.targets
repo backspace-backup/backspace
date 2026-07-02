@@ -1,0 +1,98 @@
+<Project>
+
+  <!--
+    Auto-fetches the Backrest sidecar daemon (plus restic and rclone) into
+    Assets/ before Avalonia collects embedded resources. Runs exactly once
+    per clean checkout: each binary is skipped if it already exists on
+    disk.
+
+    What it fetches, by host:
+      • Windows  → Assets/backrest.exe, Assets/restic.exe, Assets/rclone.exe
+      • macOS    → Assets/backrest,     Assets/restic,     Assets/rclone
+      • Linux    → Assets/backrest,     Assets/restic,     Assets/rclone
+
+    Source repos:
+      • backrest  https://github.com/garethgeorge/backrest/releases/latest
+      • restic    https://github.com/restic/restic/releases/latest
+      • rclone    https://downloads.rclone.org/rclone-current-<os>-<arch>.zip
+
+    Cross-host fetch:
+      • Windows builds invoke fetch-backrest.ps1 (PowerShell 5.1+).
+      • Unix builds invoke fetch-backrest.sh (bash + curl + jq).
+
+    Escape hatches:
+      • Set -p:SkipBackrestDownload=true to build offline.
+      • Drop your own backrest/restic/rclone executables into Assets/
+        manually; the target will skip whichever is already present.
+  -->
+
+  <PropertyGroup>
+    <SkipBackrestDownload Condition="'$(SkipBackrestDownload)' == ''">false</SkipBackrestDownload>
+
+    <BackrestAssetExt Condition="'$(OS)' == 'Windows_NT'">.exe</BackrestAssetExt>
+    <BackrestAssetExt Condition="'$(OS)' != 'Windows_NT'"></BackrestAssetExt>
+
+    <!-- Forward slashes so the bash invocation on macOS/Linux gets a
+         path it can pass to curl + unzip + mv without backslash-as-
+         escape headaches. Windows MSBuild + cmd.exe also accept
+         forward slashes in passed paths. -->
+    <BackrestAssetPath>$(MSBuildThisFileDirectory)Assets/backrest$(BackrestAssetExt)</BackrestAssetPath>
+    <ResticAssetPath>$(MSBuildThisFileDirectory)Assets/restic$(BackrestAssetExt)</ResticAssetPath>
+    <RcloneAssetPath>$(MSBuildThisFileDirectory)Assets/rclone$(BackrestAssetExt)</RcloneAssetPath>
+  </PropertyGroup>
+
+  <!--
+    Idempotent fetch: only re-runs when one of the assets is missing.
+    The fetch scripts pull the LATEST release of each upstream (no
+    pin file), so a build doesn't track upstream-version drift
+    automatically. To force a refresh of the bundled binaries
+    against the current upstream "latest" tag, delete the relevant
+    Assets/<binary> file(s) and re-build:
+
+      del src\Backspace\Assets\backrest.exe ^
+          src\Backspace\Assets\restic.exe ^
+          src\Backspace\Assets\rclone.exe
+      dotnet build src\Backspace
+
+    On macOS / Linux:
+
+      rm -f src/Backspace/Assets/{backrest,restic,rclone}
+      dotnet build src/Backspace
+
+    The next build then re-runs the fetch script and stamps fresh
+    binaries into Assets/. This is the supported "upgrade the
+    bundled sidecar" workflow. Backlog: pin exact upstream versions
+    in a manifest with SHA-256 checksums so a build that grabs an
+    unintended (or tampered) upstream release doesn't ship silently.
+  -->
+  <Target Name="EnsureBackrestBinaries"
+          BeforeTargets="GenerateAvaloniaResources;PrepareResources;BeforeBuild"
+          Condition="'$(SkipBackrestDownload)' != 'true' and (!Exists('$(BackrestAssetPath)') or !Exists('$(ResticAssetPath)') or !Exists('$(RcloneAssetPath)'))">
+
+    <Message Importance="high"
+             Text="[Backspace] Fetching missing Backrest sidecar binaries (backrest/restic/rclone)..."/>
+
+    <!-- Windows host: PowerShell 5.1 ships with every Windows install.
+         The script is idempotent — it skips any binary that already
+         exists, so passing all three paths every time is safe. -->
+    <Exec Condition="'$(OS)' == 'Windows_NT'"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)fetch-backrest.ps1&quot; -BackrestOutPath &quot;$(BackrestAssetPath)&quot; -ResticOutPath &quot;$(ResticAssetPath)&quot; -RcloneOutPath &quot;$(RcloneAssetPath)&quot;"
+          IgnoreExitCode="false"
+          ContinueOnError="false"/>
+
+    <!-- macOS / Linux host: bash + curl + jq. Same idempotency
+         semantics as the Windows path. -->
+    <Exec Condition="'$(OS)' != 'Windows_NT'"
+          Command="bash &quot;$(MSBuildThisFileDirectory)fetch-backrest.sh&quot; &quot;$(BackrestAssetPath)&quot; &quot;$(ResticAssetPath)&quot; &quot;$(RcloneAssetPath)&quot;"
+          IgnoreExitCode="false"
+          ContinueOnError="false"/>
+
+    <Error Condition="!Exists('$(BackrestAssetPath)')"
+           Text="Failed to fetch backrest$(BackrestAssetExt). Either set -p:SkipBackrestDownload=true, or manually download the matching backrest_(Windows|Darwin|Linux)_(x86_64|arm64).(zip|tar.gz) from https://github.com/garethgeorge/backrest/releases/latest, extract its backrest binary, and save it to $(BackrestAssetPath)."/>
+    <Error Condition="!Exists('$(ResticAssetPath)')"
+           Text="Failed to fetch restic$(BackrestAssetExt). Either set -p:SkipBackrestDownload=true, or manually download the matching restic_(windows|darwin|linux)_(amd64|arm64).(zip|bz2) from https://github.com/restic/restic/releases/latest, extract its restic binary, and save it to $(ResticAssetPath)."/>
+    <Error Condition="!Exists('$(RcloneAssetPath)')"
+           Text="Failed to fetch rclone$(BackrestAssetExt). Either set -p:SkipBackrestDownload=true, or manually download rclone-current-(windows|osx|linux)-(amd64|arm64).zip from https://downloads.rclone.org/, extract its rclone binary, and save it to $(RcloneAssetPath)."/>
+  </Target>
+
+</Project>

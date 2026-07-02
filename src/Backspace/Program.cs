@@ -1,0 +1,531 @@
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia;
+using Backspace.Services;
+
+namespace Backspace;
+
+internal static class Program
+{
+    /// <summary>
+    /// Set when the app is launched via the Explorer right-click "Restore
+    /// an older version" verb — carries the file/folder path Windows
+    /// passed on the command line. The MainWindow reads this on load
+    /// and routes the user to the Restore tab pre-filled. Cleared after
+    /// it's been consumed so a stale path doesn't fire on next launch.
+    /// </summary>
+    public static string? PendingRestorePath { get; set; }
+
+    [STAThread]
+    public static int Main(string[] args)
+    {
+        try
+        {
+            // WinFSP DLL resolver: WinFSP's installer doesn't add
+            // its bin folder to PATH, so the first reference to a
+            // Fsp.* type otherwise throws on the type initializer.
+            // Register the resolver before any code path can touch
+            // the WinFsp.Net managed wrapper — applies to GUI launch,
+            // headless --run, and scheduled-task invocations alike.
+            // No-op on macOS / Linux.
+#if WINDOWS
+            Backspace.Services.WinFsp.WinFspNativeLoader.EnsureRegistered();
+#endif
+
+            // CLI dispatch. GUI is the default; anything else runs headlessly and exits.
+            var mode = ParseMode(args);
+
+            // Log the invocation up front (before the dispatch) — useful when
+            // a scheduled-task run silently fails to reach the orchestrator.
+            // Skip the heavy ServiceLocator.InitializeCore for the
+            // print-and-exit modes (Version, Help, UsageError); they
+            // don't need config / secrets / a started Backrest sidecar
+            // and the user shouldn't pay 200ms+ + AppData dir creation
+            // for `--help`.
+            // VSS helper mode initialises ServiceLocator inside
+            // VssElevationCoordinator.RunHelperAsync so the engine
+            // bootstrap matches whatever path the parent took. The
+            // Program-level skipInit keeps us from double-initialising.
+            var skipInit = mode.Mode is RunMode.Version
+                                       or RunMode.Help
+                                       or RunMode.UsageError
+                                       or RunMode.VssElevatedHelper;
+            if (!skipInit)
+            {
+                ServiceLocator.InitializeCore();
+                AppLogger.For("Program").Information(
+                    "Invoked: mode={Mode} args={Args}",
+                    mode.Mode, string.Join(" ", args));
+
+                // Reap orphan rclone processes from prior sessions
+                // BEFORE the new Backrest sidecar (and its rclone
+                // children) start. See RcloneOrphanReaper docs for
+                // the heuristic and BACKSPACE_PORT_DESIGN § 6.3 for
+                // the original bug report this guards against.
+                RcloneOrphanReaper.Sweep();
+            }
+
+            var exit = mode.Mode switch
+            {
+                RunMode.Gui         => RunGui(args),
+                RunMode.RunOne      => RunUnattended(mode.BackupName!, onlyThisOne: true).GetAwaiter().GetResult(),
+                RunMode.RunAll      => RunUnattended(null, onlyThisOne: false).GetAwaiter().GetResult(),
+                RunMode.PruneOne    => RunUnattendedMaintenance(mode.BackupName!, Models.RunKind.Prune).GetAwaiter().GetResult(),
+                RunMode.CheckOne    => RunUnattendedMaintenance(mode.BackupName!, Models.RunKind.Check).GetAwaiter().GetResult(),
+                RunMode.Migrate     => RunMigrate(mode.Path!),
+                RunMode.Version     => PrintVersion(),
+                RunMode.Help        => PrintUsage(exitCode: 0),
+                RunMode.UsageError  => PrintUsage(exitCode: 2),
+                RunMode.VssElevatedHelper => RunVssElevatedHelper(args),
+                _                   => RunGui(args),
+            };
+            return exit;
+        }
+        catch (Exception ex)
+        {
+            // Last-chance catch so an unhandled exception still lands in the log.
+            try { AppLogger.Log.Fatal(ex, "Unhandled exception in Main"); } catch { }
+            throw;
+        }
+        finally
+        {
+            AppLogger.Shutdown();
+        }
+    }
+
+    /// <summary>
+    /// Process-wide single-instance coordinator. Owned by Program for
+    /// the lifetime of the GUI; <c>App.OnFrameworkInitializationCompleted</c>
+    /// reads <see cref="SingleInstanceCoordinator.SecondInstanceForwarded"/>
+    /// to surface forwarded args (right-click "restore" paths, etc.)
+    /// to the live MainWindow.
+    /// </summary>
+    public static SingleInstanceCoordinator? Coordinator { get; private set; }
+
+    // ---- GUI ----
+
+    private static int RunGui(string[] args)
+    {
+        // Single-instance gate: if another GUI is already running for
+        // this user + this exe path, forward our args to it and exit.
+        // The primary's pipe server picks them up and the existing
+        // MainWindow handles the path (e.g. routes a --restore-prompt
+        // path to the Restore tab).
+        Coordinator = new SingleInstanceCoordinator();
+        if (!Coordinator.TryAcquireMutex())
+        {
+            var forwarded = Coordinator.ForwardArgsToPrimary(args);
+            AppLogger.For("Program").Information(
+                "Second instance: forwarded={Forwarded}; exiting", forwarded);
+            Coordinator.Dispose();
+            // Exit 0 even if forward failed — there's already a primary;
+            // failing here would just mean the user clicked too fast.
+            return 0;
+        }
+
+        Coordinator.StartServer();
+
+        // Stub-extract + scheduler-task re-upsert are deferred to
+        // App.OnFrameworkInitializationCompleted so the Avalonia
+        // IAssetLoader is registered before we resolve any avares://
+        // URIs (the embedded stub binary). See RunPostInitStartup
+        // below for what fires at that point.
+
+        // Wrap the Avalonia run-loop in a defensive catch so a
+        // platform-level Win32 exception thrown from a dispatcher post
+        // (e.g. icon-handle exhaustion crashing a notification window
+        // build) doesn't take down the whole process. Such a bug should
+        // be visible in logs as a FATAL — but the user shouldn't lose
+        // their session because a toast couldn't allocate a GDI
+        // handle. Re-throw if cancellation/shutdown was the cause.
+        try
+        {
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
+        catch (OperationCanceledException) { /* clean shutdown */ }
+        catch (Exception ex)
+        {
+            try { AppLogger.Log.Fatal(ex, "Avalonia run loop crashed; shutting down"); } catch { }
+        }
+        Coordinator.Dispose();
+        return 0;
+    }
+
+    /// <summary>
+    /// Post-Avalonia-init startup work. Invoked from
+    /// <see cref="App.OnFrameworkInitializationCompleted"/> once the
+    /// IAssetLoader service is registered, so avares:// URI lookups
+    /// (used by <see cref="StubEmbedder"/>) resolve correctly.
+    ///
+    /// Engine-binary readiness is handled lazily inside
+    /// <c>BackrestSidecar.StartAsync</c> — a missing backrest /
+    /// restic / rclone surfaces as a FileNotFoundException the
+    /// orchestrator catches and renders as a normal cell failure;
+    /// no need for a synchronous startup probe.
+    ///
+    /// Off-thread housekeeping covers stub extract, scheduled-task
+    /// re-upsert, and the missed-run check. Background because
+    /// schtasks.exe rebinds (50-200ms each) on a user with many
+    /// backups would otherwise freeze the splash.
+    /// </summary>
+    public static void RunPostInitStartup()
+    {
+        // Fire deferred housekeeping off-thread. By now Avalonia is
+        // initialized, so any avares:// resolution inside
+        // ExtractStub() / re-upsert succeeds.
+        _ = System.Threading.Tasks.Task.Run(RunDeferredStartupHousekeeping);
+    }
+
+    /// <summary>
+    /// Stub-extract + scheduler-task re-upsert + missed-run check +
+    /// eager Backrest sidecar boot. Runs after first paint so a slow
+    /// path (user moved the exe → N schtasks.exe spawns) doesn't
+    /// freeze the splash. Idempotent and failure-tolerant; the GUI
+    /// is never blocked on this.
+    ///
+    /// Eager sidecar start: the SnapshotBrowser and SnapshotMounts
+    /// commands need <c>BackrestSidecar.IsRunning == true</c> to
+    /// not surface "isn't ready yet" the first time the user clicks
+    /// them — lazy on-first-engine-RPC was correct for headless test
+    /// scenarios but a poor user experience in the GUI. Boots the
+    /// sidecar on the background thread so the splash isn't blocked
+    /// on the ~1-2s readiness probe.
+    /// </summary>
+    private static void RunDeferredStartupHousekeeping()
+    {
+        try
+        {
+            CanonicalInstaller.ExtractStub();
+            CanonicalInstaller.ReupsertIfExePathChanged(ServiceLocator.Config, ServiceLocator.Scheduler);
+
+            if (CanonicalInstaller.CheckAndClearStubFiredFlag() is DateTime stubFiredAt)
+            {
+                AppLogger.For("Program").Information(
+                    "Stub-fired flag found (last fire {Fired:o}); scheduled tasks have been refreshed to current exe path.",
+                    stubFiredAt);
+                _ = ServiceLocator.Notifier.NotifyAsync(
+                    title: "Scheduled backups are back online",
+                    detail: "A scheduled backup couldn't run while Backspace was moved. " +
+                            "Tasks have been refreshed — the next scheduled run will work normally.",
+                    severity: NotificationSeverity.Info);
+            }
+
+            // Sidecar bootstrap. Best-effort: a missing binary, port
+            // conflict, or AV interference logs a warning and the
+            // first engine RPC will retry. Subscribing commands
+            // (Browse / Mount) check IsRunning themselves so they
+            // can render a friendly toast if the boot failed.
+            try
+            {
+                ServiceLocator.BackrestSidecar
+                    .EnsureStartedAsync(System.Threading.CancellationToken.None)
+                    .GetAwaiter().GetResult();
+                AppLogger.For("Program").Information(
+                    "Backrest sidecar ready at {Url}",
+                    ServiceLocator.BackrestSidecar.WebUiUrl);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.For("Program").Warning(ex,
+                    "Backrest sidecar didn't start at app startup; first engine RPC will retry");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLogger.For("Program").Warning(ex, "Deferred startup housekeeping failed");
+        }
+    }
+
+    public static AppBuilder BuildAvaloniaApp() =>
+        AppBuilder.Configure<App>()
+            .UsePlatformDetect()
+            .WithInterFont()
+            .LogToTrace();
+
+    // ---- unattended ----
+
+    private static async Task<int> RunUnattended(string? backupName, bool onlyThisOne)
+    {
+        ServiceLocator.InitializeCore();
+        if (!ServiceLocator.Config.IsLoaded)
+        {
+            // Load hit a transient IO error or a permission denial.
+            // Don't enumerate cfg.Backups — it's the empty default
+            // AppConfig and would silently report "No backup named X"
+            // which a scheduled task would translate into a no-op
+            // success. Fail loudly with a distinct exit code so the
+            // operator can see in the scheduler log that the run was
+            // skipped due to config-read failure, not config content.
+            Console.Error.WriteLine("Backspace config couldn't be read at startup (see app log for the cause). Aborting unattended run.");
+            return 3;
+        }
+        if (ServiceLocator.Secrets.LoadErrorMessage is { Length: > 0 } secretsErr)
+        {
+            // Secrets vault failed to decrypt — typically a portable
+            // config moved between machines (DPAPI is per-user-per-
+            // machine on Windows; AES-GCM keyfile is bound to the
+            // specific machine that created it). Without this guard,
+            // the run proceeds with empty credentials and restic /
+            // rclone fail with cryptic "wrong password" or auth
+            // errors deep in the cell loop after the 85s retry
+            // cascade. Surface the actual cause to the operator.
+            Console.Error.WriteLine($"Backspace's secrets vault couldn't be opened on this machine. {secretsErr}");
+            return 4;
+        }
+        var cfg = ServiceLocator.Config.Current;
+
+        var backups = onlyThisOne
+            ? cfg.Backups.Where(b => string.Equals(b.Name, backupName, StringComparison.OrdinalIgnoreCase)).ToList()
+            : cfg.Backups.Where(b => b.Enabled).ToList();
+
+        if (backups.Count == 0)
+        {
+            Console.Error.WriteLine(onlyThisOne
+                ? $"No backup named '{backupName}' found."
+                : "No enabled backups.");
+            return 2;
+        }
+
+        int exit = 0;
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+        foreach (var b in backups)
+        {
+            Console.WriteLine($"=== {b.Name} ===");
+
+            // Respect schedule's PausedUntilUtc when called headlessly.
+            if (b.Schedule.PausedUntilUtc is DateTime until && DateTime.UtcNow < until)
+            {
+                Console.WriteLine($"Paused until {until:o} — skipping.");
+                continue;
+            }
+
+            try
+            {
+                var r = await ServiceLocator.Orchestrator.RunBackupAsync(b, cts.Token);
+                Console.WriteLine($"{b.Name}: {r.Status} — {r.Summary}");
+                if (r.Status == Models.BackupRunStatus.Failed) exit = 1;
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine($"{b.Name}: cancelled");
+                exit = 1;
+                break;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"{b.Name}: {ex.Message}");
+                exit = 1;
+            }
+        }
+
+        return exit;
+    }
+
+    // ---- standalone maintenance (prune / check) ----
+    //
+    // Fired by the OS scheduler from a Backup.PruneSchedule /
+    // Backup.CheckSchedule entry. Same headless model as --run: the
+    // task action is `Backspace.exe --prune <name>` (or --check), the
+    // process starts, runs the maintenance, exits.
+    private static async Task<int> RunUnattendedMaintenance(string backupName, Models.RunKind kind)
+    {
+        if (!ServiceLocator.Config.IsLoaded)
+        {
+            // Mirror RunUnattended — distinguish "config unread" from
+            // "backup name doesn't exist" so a scheduled prune/check
+            // failing because of a transient IO error doesn't look
+            // identical to the user having deleted the backup.
+            Console.Error.WriteLine("Backspace config couldn't be read at startup (see app log for the cause). Aborting unattended maintenance run.");
+            return 3;
+        }
+        if (ServiceLocator.Secrets.LoadErrorMessage is { Length: > 0 } secretsErr)
+        {
+            Console.Error.WriteLine($"Backspace's secrets vault couldn't be opened on this machine. {secretsErr}");
+            return 4;
+        }
+        var backup = ServiceLocator.Config.Current.Backups
+            .FirstOrDefault(b => b.Name == backupName);
+        if (backup is null)
+        {
+            Console.Error.WriteLine($"No backup named '{backupName}' found.");
+            return 2;
+        }
+
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+        Console.WriteLine($"=== {backup.Name} :: {kind} ===");
+        try
+        {
+            var record = kind switch
+            {
+                Models.RunKind.Prune => await ServiceLocator.Orchestrator.RunPruneAsync(backup, cts.Token),
+                Models.RunKind.Check => await ServiceLocator.Orchestrator.RunCheckAsync(backup, cts.Token),
+                _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+            };
+            Console.WriteLine($"{backup.Name}: {record.Status} — {record.Summary}");
+            return record.Status == Models.BackupRunStatus.Failed ? 1 : 0;
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine($"{backup.Name}: cancelled");
+            return 1;
+        }
+    }
+
+    // ---- migration ----
+
+    private static int RunMigrate(string legacyPath)
+    {
+        ServiceLocator.InitializeCore();
+        var report = ServiceLocator.Migrator.MigrateFrom(legacyPath);
+        if (report.Skipped)
+        {
+            Console.WriteLine($"Skipped: {report.Reason}");
+            return 0;
+        }
+        Console.WriteLine($"Imported {report.ImportedBackups.Count} backup(s) from {legacyPath}");
+        foreach (var name in report.ImportedBackups) Console.WriteLine("  - " + name);
+        foreach (var e in report.Errors) Console.Error.WriteLine("  ! " + e);
+        return report.Errors.Count > 0 ? 1 : 0;
+    }
+
+    // ---- version ----
+
+    private static int PrintVersion()
+    {
+        var asm = System.Reflection.Assembly.GetExecutingAssembly();
+        var ver = asm.GetName().Version?.ToString(3) ?? "?";
+        Console.WriteLine($"Backspace {ver}");
+        return 0;
+    }
+
+    /// <summary>
+    /// Prints usage and returns exit code 2 (POSIX convention for
+    /// usage/argument errors). Triggered by <c>--help</c>, <c>-h</c>,
+    /// <c>/?</c>, AND any malformed CLI invocation that
+    /// <see cref="ParseMode"/> classifies as <c>RunMode.Help</c>
+    /// (e.g. <c>--run</c> with no backup name, <c>--migrate</c> with
+    /// no path). Without this dispatch, those misuses silently
+    /// fell through to <c>RunGui</c> — a scheduled task with a
+    /// broken <c>--run</c> would launch the GUI under SYSTEM.
+    /// </summary>
+    private static int PrintUsage(int exitCode = 0)
+    {
+        var asm = System.Reflection.Assembly.GetExecutingAssembly();
+        var ver = asm.GetName().Version?.ToString(3) ?? "?";
+        // Binary name + scheduler tag vary by platform; keep the help
+        // line accurate so a user reading "Task Scheduler entry point"
+        // on macOS doesn't go hunting for taskschd.msc.
+        var bin = Services.Platform.PlatformInfo.IsWindows ? "Backspace.exe" : "Backspace";
+        var schedTag = Services.Platform.PlatformInfo.IsWindows ? "Windows Task Scheduler"
+                     : Services.Platform.PlatformInfo.IsMacOS   ? "launchd"
+                     :                                            "systemd user timer";
+        Console.WriteLine($"Backspace {ver}");
+        Console.WriteLine();
+        Console.WriteLine("Usage:");
+        Console.WriteLine($"  {bin}                    Launch the GUI (default).");
+        Console.WriteLine($"  {bin} --run <name>       Run one backup unattended ({schedTag} entry point).");
+        Console.WriteLine($"  {bin} --run-all          Run every backup unattended.");
+        Console.WriteLine($"  {bin} --prune <name>     Run prune (forget + repack) standalone — driven by Backup.PruneSchedule.");
+        Console.WriteLine($"  {bin} --check <name>     Run integrity check standalone — driven by Backup.CheckSchedule.");
+        Console.WriteLine($"  {bin} --migrate <path>   Import an existing Duplicacy setup (a repo folder or a parent of many).");
+        Console.WriteLine($"  {bin} --version          Print version and exit.");
+        Console.WriteLine($"  {bin} --help | -h | /?   Show this help.");
+        Console.WriteLine();
+        Console.WriteLine("Notes:");
+        Console.WriteLine($"  • Config + logs live under {AppPaths.ConfigRoot}");
+        return exitCode;
+    }
+
+    // ---- argv parser ----
+
+    /// <summary>
+    /// CLI invocation modes. <see cref="Help"/> = explicit user request
+    /// (--help / -h / /?), exits 0 (POSIX). <see cref="UsageError"/> =
+    /// malformed CLI (e.g. --run with no name), exits 2 — same printed
+    /// usage but a different exit code so a scheduled-task wrapper that
+    /// runs `backspace --help && echo ok` sees the success.
+    /// </summary>
+    /// <summary>Helper-mode dispatch. Parses the per-cell request the
+    /// parent encoded on argv, runs the backup through the same
+    /// <see cref="ServiceLocator.Engine"/> the parent uses, and writes
+    /// a JSON-encoded <see cref="Models.RunRecord"/> to the
+    /// caller-supplied result file. Exit codes follow
+    /// <see cref="VssElevationCoordinator.RunHelperAsync"/>: 0 = run
+    /// committed (Success / Warning); 1 = engine threw; 2 = usage
+    /// error / config lookup failed; 3 = cancelled; 4 = Skipped.</summary>
+    private static int RunVssElevatedHelper(string[] args)
+    {
+        var parsed = VssElevationCoordinator.ParseHelperArgs(args);
+        if (parsed is null)
+        {
+            Console.Error.WriteLine(
+                "Backspace VSS helper: missing one of --backup-id / --source-path / " +
+                "--destination-id / --storage-name / --result-file. Exiting with code 2.");
+            return 2;
+        }
+        return VssElevationCoordinator.RunHelperAsync(parsed, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    private enum RunMode { Gui, RunOne, RunAll, Migrate, Version, Help, UsageError, VssElevatedHelper, PruneOne, CheckOne }
+
+    private readonly record struct ParsedMode(RunMode Mode, string? BackupName = null, string? Path = null);
+
+    private static ParsedMode ParseMode(string[] args)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--run":
+                    if (i + 1 < args.Length) return new(RunMode.RunOne, BackupName: args[++i]);
+                    return new(RunMode.UsageError);
+                case "--run-all":
+                    return new(RunMode.RunAll);
+                case "--prune":
+                    // Entry point for an OS scheduler task wired to a
+                    // Backup.PruneSchedule. Just like --run, but skips
+                    // the backup itself and runs only the prune
+                    // (forget + repack) phase against the backup's
+                    // configured targets.
+                    if (i + 1 < args.Length) return new(RunMode.PruneOne, BackupName: args[++i]);
+                    return new(RunMode.UsageError);
+                case "--check":
+                    // Same shape as --prune, for the standalone
+                    // integrity-check pass driven by Backup.CheckSchedule.
+                    if (i + 1 < args.Length) return new(RunMode.CheckOne, BackupName: args[++i]);
+                    return new(RunMode.UsageError);
+                case "--migrate":
+                    if (i + 1 < args.Length) return new(RunMode.Migrate, Path: args[++i]);
+                    return new(RunMode.UsageError);
+                case "--restore-prompt":
+                    // Stash the path on the static so MainWindow picks
+                    // it up when it's loaded; fall through to GUI mode.
+                    if (i + 1 < args.Length) PendingRestorePath = args[++i];
+                    return new(RunMode.Gui);
+                case VssElevationCoordinator.HelperCliArgument:
+                    // The elevated child of a parent process that
+                    // needed VSS. Helper-mode IPC (consuming the
+                    // request, running the cell, replying with a
+                    // RunRecord) is still TBD; for now we recognise
+                    // the flag so the parent's UAC-launched child
+                    // exits cleanly with code 2 instead of falling
+                    // into the GUI bootstrap.
+                    return new(RunMode.VssElevatedHelper);
+                case "--version":
+                case "-v":
+                    return new(RunMode.Version);
+                case "--help":
+                case "-h":
+                case "/?":
+                    return new(RunMode.Help);
+            }
+        }
+        return new(RunMode.Gui);
+    }
+}

@@ -1,0 +1,67 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Backspace.ViewModels"
+             xmlns:svc="using:Backspace.Services"
+             x:Class="Backspace.Views.ActiveRestoresView"
+             x:DataType="vm:ActiveRestoresViewModel">
+  <Border Padding="36,28">
+    <Grid RowDefinitions="Auto,Auto,*">
+      <TextBlock Grid.Row="0" Classes="page-title" Text="Restores"/>
+      <TextBlock Grid.Row="1" Classes="dim" Margin="0,4,0,18"
+                 Text="Live restore operations. Each card shows progress; click a card to return to the restore screen for that operation."/>
+
+      <!-- Empty state -->
+      <Border Grid.Row="2"
+              IsVisible="{Binding HasNone}"
+              Background="{DynamicResource BS.Brush.BgSurface}"
+              CornerRadius="12" Padding="32" HorizontalAlignment="Stretch">
+        <StackPanel Spacing="6" HorizontalAlignment="Center">
+          <TextBlock Classes="body" HorizontalAlignment="Center"
+                     Text="Nothing being restored right now."/>
+          <TextBlock Classes="dim" HorizontalAlignment="Center"
+                     Text="When a restore starts, it'll appear here as a card with live progress."/>
+        </StackPanel>
+      </Border>
+
+      <!-- Cards list -->
+      <ScrollViewer Grid.Row="2"
+                    IsVisible="{Binding !HasNone}"
+                    HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl ItemsSource="{Binding Sessions}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate DataType="svc:ActiveRestoreSession">
+              <Button Classes="card"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                      Margin="0,0,0,12"
+                      Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).OpenSessionCommand}"
+                      CommandParameter="{Binding}">
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" Margin="6">
+                  <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
+                    <TextBlock Classes="body" FontWeight="SemiBold"
+                               Text="{Binding BackupName}"/>
+                    <TextBlock Classes="dim" FontSize="12"
+                               Text="{Binding TargetPath}"/>
+                  </StackPanel>
+                  <TextBlock Grid.Row="0" Grid.Column="1"
+                             Classes="dim" FontSize="12"
+                             VerticalAlignment="Top"
+                             Text="{Binding DestinationName}"/>
+                  <ProgressBar Grid.Row="1" Grid.ColumnSpan="2"
+                               Margin="0,12,0,6"
+                               Minimum="0" Maximum="1"
+                               Value="{Binding PercentComplete, Mode=OneWay}"/>
+                  <Grid Grid.Row="2" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Classes="dim" FontSize="12"
+                               Text="{Binding ProgressLabel}"/>
+                    <TextBlock Grid.Column="1" Classes="dim" FontSize="12"
+                               Text="{Binding StatusLabel}"/>
+                  </Grid>
+                </Grid>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Grid>
+  </Border>
+</UserControl>

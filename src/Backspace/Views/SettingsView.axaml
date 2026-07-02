@@ -1,0 +1,692 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Backspace.ViewModels"
+             xmlns:m="using:Backspace.Models"
+             xmlns:conv="using:Avalonia.Data.Converters"
+             x:Class="Backspace.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel"
+             Background="{DynamicResource BS.Brush.BgBase}">
+
+  <!-- Always-visible scrollbar so users never miss that there's
+       more below the fold — earlier `Auto` (the default) only
+       showed the scrollbar while actively scrolling, easy to miss
+       when the window was maximised. Padding ensures the
+       scrollbar doesn't visually crowd the right edge of the
+       cards. -->
+  <ScrollViewer VerticalScrollBarVisibility="Visible">
+    <StackPanel Margin="48,40,48,48" Spacing="14" HorizontalAlignment="Stretch">
+
+      <StackPanel Margin="0,0,0,8">
+        <TextBlock Classes="page-title" Text="Settings"/>
+        <TextBlock Classes="page-subtitle"
+                   Text="Choose how Backspace looks, how it notifies you, and how it reaches you."/>
+      </StackPanel>
+
+      <!-- Appearance — expanded by default; the two most-touched
+           controls (Theme, Accent) live here so the user sees them
+           on first open without clicking. -->
+      <Border Classes="settings-card">
+        <Expander Classes="settings" IsExpanded="True">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <Border Classes="section-glyph">
+              <PathIcon Data="{StaticResource Icon.Palette}"/>
+            </Border>
+            <TextBlock Classes="section-title" Text="Appearance" Margin="0" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel Spacing="18" Margin="0,8,0,0">
+          <Grid ColumnDefinitions="*,22,*">
+            <StackPanel Grid.Column="0" Spacing="6">
+              <TextBlock Classes="label-caps" Text="THEME"/>
+              <ComboBox ItemsSource="{Binding AvailableThemes}"
+                        SelectedItem="{Binding Theme}"
+                        HorizontalAlignment="Stretch"/>
+              <TextBlock Classes="helper"
+                         Text="System follows your Windows setting."/>
+            </StackPanel>
+            <StackPanel Grid.Column="2" Spacing="6">
+              <TextBlock Classes="label-caps" Text="ACCENT COLOR"/>
+              <ComboBox ItemsSource="{Binding AvailableAccents}"
+                        SelectedItem="{Binding Accent}"
+                        HorizontalAlignment="Stretch"/>
+              <TextBlock Classes="helper"
+                         Text="Applies to primary buttons, the active nav item and status highlights."/>
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+        </Expander>
+      </Border>
+
+      <!-- Window behavior — new section with the close-to-tray
+           toggle. Collapsed by default; the only entry today is
+           the close-X behaviour but it sets a slot for future
+           start-with-Windows / always-on-top etc. controls. -->
+      <Border Classes="settings-card">
+        <Expander Classes="settings" IsExpanded="False">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <Border Classes="section-glyph">
+              <PathIcon Data="{StaticResource Icon.Backup}"/>
+            </Border>
+            <TextBlock Classes="section-title" Text="Window behavior" Margin="0" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel Spacing="12" Margin="0,8,0,0">
+          <CheckBox IsChecked="{Binding MinimizeToTrayOnClose}"
+                    Content="When I close the window, keep Backspace in the tray for faster reopen"/>
+          <TextBlock Classes="helper" TextWrapping="Wrap"
+                     Text="When parked in the tray Backspace uses essentially no CPU — it's just waiting for you to click. Right-click the tray icon to quit completely."/>
+
+          <!-- Quit-vs-tray reassurance. Users asked: what happens to
+               scheduled backups if I just quit? Answer: Windows Task
+               Scheduler runs them — Backspace doesn't need to be open
+               for a scheduled backup to fire. Spell this out so the
+               tray-or-quit choice is purely about reopen speed and
+               at-a-glance status, never about "will my data be
+               protected if I close this." -->
+          <Border CornerRadius="8" Padding="12,10"
+                  Background="{DynamicResource BS.Brush.AccentTint}"
+                  BorderBrush="{DynamicResource BS.Brush.BorderSubtle}"
+                  BorderThickness="1">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="helper" FontWeight="SemiBold" TextWrapping="Wrap"
+                         Foreground="{DynamicResource BS.Brush.FgPrimary}"
+                         Text="Scheduled backups always run, even if Backspace isn't open."/>
+              <TextBlock Classes="helper" TextWrapping="Wrap"
+                         Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                         Text="Each backup is registered with the operating system's scheduler (Task Scheduler on Windows, launchd on macOS, systemd on Linux). Closing Backspace — to the tray OR fully — never disables a schedule. Quit if you prefer a smaller surface; reopen any time."/>
+              <TextBlock Classes="helper" TextWrapping="Wrap"
+                         Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                         Text="One caveat: if a backup is actively running when you quit, that single run is cancelled — the next scheduled run still happens normally."/>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+        </Expander>
+      </Border>
+
+      <!-- Logs & diagnostics — collapsed by default. -->
+      <Border Classes="settings-card">
+        <Expander Classes="settings" IsExpanded="False">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <Border Classes="section-glyph">
+              <PathIcon Data="{StaticResource Icon.FileText}"/>
+            </Border>
+            <TextBlock Classes="section-title" Text="Logs &amp; diagnostics" Margin="0" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel Spacing="14" Margin="0,8,0,0">
+          <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
+                     Text="Backspace writes a structured log of everything it does. The backup engine also writes a per-run transcript. If you ever need to send logs for help, these two folders are what to grab."/>
+
+          <Grid ColumnDefinitions="*,22,*">
+            <StackPanel Grid.Column="0" Spacing="6">
+              <TextBlock Classes="label-caps" Text="KEEP LOGS FOR"/>
+              <Grid ColumnDefinitions="120,Auto">
+                <NumericUpDown Grid.Column="0" Value="{Binding LogRetentionDays}" Minimum="1" Maximum="365"/>
+                <TextBlock Grid.Column="1" Text="days" VerticalAlignment="Center" Margin="10,0,0,0"
+                           Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
+              </Grid>
+              <TextBlock Classes="helper"
+                         Text="Older daily log files are deleted automatically."/>
+            </StackPanel>
+            <StackPanel Grid.Column="2" Spacing="6">
+              <TextBlock Classes="label-caps" Text="DETAIL LEVEL"/>
+              <CheckBox IsChecked="{Binding LogsVerbose}"
+                        Content="Show verbose diagnostic logs"/>
+              <TextBlock Classes="helper"
+                         Text="Off by default — only high-level events are logged. Turn on when debugging a specific problem."/>
+            </StackPanel>
+          </Grid>
+
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Classes="ghost" Command="{Binding OpenAppLogFolderCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.FolderOpen}" Width="14" Height="14"/>
+                <TextBlock Text="Open app log folder" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
+            <Button Classes="ghost" Command="{Binding OpenEngineLogFolderCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.FolderOpen}" Width="14" Height="14"/>
+                <TextBlock Text="Open engine log folder" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
+          </StackPanel>
+        </StackPanel>
+        </Expander>
+      </Border>
+
+      <!-- Cloud OAuth apps — collapsed by default. Advanced; most
+           users keep Backspace's defaults. -->
+      <Border Classes="settings-card">
+        <Expander Classes="settings" IsExpanded="False">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <Border Classes="section-glyph">
+              <PathIcon Data="{StaticResource Icon.HardDrive}"/>
+            </Border>
+            <TextBlock Classes="section-title" Text="Cloud OAuth apps" Margin="0" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel Spacing="14" Margin="0,8,0,0">
+          <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
+                     Text="Backspace ships its own OAuth apps for Dropbox / OneDrive / Google Drive — clicking Connect on a cloud destination uses those. If you'd rather route through your own registered OAuth app (e.g. for separate quota or auditing), paste its client_id + client_secret here. Leave blank to keep using Backspace's defaults."/>
+          <TextBlock Classes="helper" TextWrapping="Wrap"
+                     Text="Leave any pair blank to keep using rclone's default. The client_secret is optional — installed-app OAuth registrations don't mint one."/>
+
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label-caps" Text="DROPBOX"/>
+            <Grid ColumnDefinitions="*,12,*">
+              <TextBox Grid.Column="0"
+                       Text="{Binding DropboxClientId}"
+                       Watermark="client_id (e.g. 1a2b3c4d5e6f7g8)"/>
+              <TextBox Grid.Column="2"
+                       Text="{Binding DropboxClientSecret}" PasswordChar="•"
+                       Watermark="client_secret (optional)"/>
+            </Grid>
+          </StackPanel>
+
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label-caps" Text="ONEDRIVE"/>
+            <Grid ColumnDefinitions="*,12,*">
+              <TextBox Grid.Column="0"
+                       Text="{Binding OneDriveClientId}"
+                       Watermark="Application (client) ID from Microsoft Entra"/>
+              <TextBox Grid.Column="2"
+                       Text="{Binding OneDriveClientSecret}" PasswordChar="•"
+                       Watermark="client_secret (optional)"/>
+            </Grid>
+          </StackPanel>
+
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label-caps" Text="GOOGLE DRIVE"/>
+            <Grid ColumnDefinitions="*,12,*">
+              <TextBox Grid.Column="0"
+                       Text="{Binding GoogleDriveClientId}"
+                       Watermark="client_id from Google Cloud Console"/>
+              <TextBox Grid.Column="2"
+                       Text="{Binding GoogleDriveClientSecret}" PasswordChar="•"
+                       Watermark="client_secret (optional)"/>
+            </Grid>
+          </StackPanel>
+        </StackPanel>
+        </Expander>
+      </Border>
+
+      <!-- Notifications. Three event classes (Success / Skipped /
+           Failure) line up as parallel rows; each has its own
+           independent triplet of channels (toast / sound / email).
+           Email opt-in on any row reveals the nested provider
+           subsection further down. Collapsed by default. -->
+      <Border Classes="settings-card">
+        <Expander Classes="settings" IsExpanded="False">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <Border Classes="section-glyph">
+              <PathIcon Data="{StaticResource Icon.Bell}"/>
+            </Border>
+            <TextBlock Classes="section-title" Text="Notifications" Margin="0" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel Spacing="14" Margin="0,8,0,0">
+          <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
+                     Text="A scheduled backup ends in one of three ways — pick the channels you want Backspace to use for each. One-off actions you trigger yourself (Restore complete, Send test email, etc.) always show on screen regardless of these settings."/>
+
+          <!-- ─── SUCCESS row ─────────────────────────────────── -->
+          <Border Classes="inset-card">
+            <StackPanel Spacing="10">
+              <!-- Grid (not horizontal StackPanel) so the title/helper
+                   column gets a real "*" width: a StackPanel measures
+                   children at unbounded width, leaving the helper
+                   TextWrapping=Wrap with nothing to wrap against and
+                   spilling off the right edge of the card. -->
+              <Grid ColumnDefinitions="Auto,10,*" VerticalAlignment="Center">
+                <Border Grid.Column="0" Classes="event-pip" Background="{DynamicResource BS.Brush.SuccessTint}">
+                  <PathIcon Data="{StaticResource Icon.Check}"
+                            Foreground="{DynamicResource BS.Brush.SuccessTintFg}"/>
+                </Border>
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
+                  <TextBlock Classes="event-title" Text="Successful backups"/>
+                  <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
+                             Text="Everything went through — files uploaded, verified, done."/>
+                </StackPanel>
+              </Grid>
+              <StackPanel Orientation="Horizontal" Spacing="20" Margin="42,0,0,0">
+                <CheckBox IsChecked="{Binding SuccessToast}" Content="Show a Windows notification"/>
+                <CheckBox IsChecked="{Binding SuccessSound}" Content="Play a short sound"/>
+                <CheckBox IsChecked="{Binding SuccessEmail}" Content="Send an email"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <!-- ─── SKIPPED row ─────────────────────────────────── -->
+          <Border Classes="inset-card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="Auto,10,*" VerticalAlignment="Center">
+                <Border Grid.Column="0" Classes="event-pip" Background="{DynamicResource BS.Brush.WarnTint}">
+                  <PathIcon Data="{StaticResource Icon.Skipped}"
+                            Foreground="{DynamicResource BS.Brush.WarnTintFg}"/>
+                </Border>
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
+                  <TextBlock Classes="event-title" Text="Skipped runs"/>
+                  <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
+                             Text="Backspace didn't run this time — drive wasn't connected, network was metered, or you stopped it manually."/>
+                </StackPanel>
+              </Grid>
+              <StackPanel Orientation="Horizontal" Spacing="20" Margin="42,0,0,0">
+                <CheckBox IsChecked="{Binding SkippedToast}" Content="Show a Windows notification"/>
+                <CheckBox IsChecked="{Binding SkippedSound}" Content="Play a short sound"/>
+                <CheckBox IsChecked="{Binding SkippedEmail}" Content="Send an email"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <!-- ─── FAILURE row ─────────────────────────────────── -->
+          <Border Classes="inset-card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="Auto,10,*" VerticalAlignment="Center">
+                <Border Grid.Column="0" Classes="event-pip" Background="{DynamicResource BS.Brush.DangerTint}">
+                  <PathIcon Data="{StaticResource Icon.Fail}"
+                            Foreground="{DynamicResource BS.Brush.DangerTintFg}"/>
+                </Border>
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
+                  <TextBlock Classes="event-title" Text="Failures and warnings"/>
+                  <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
+                             Text="Backspace tried but couldn't finish — or finished with errors. Windows notifications for failures pop in front of you (even with Focus Assist on) and stay until you dismiss them."/>
+                </StackPanel>
+              </Grid>
+              <StackPanel Orientation="Horizontal" Spacing="20" Margin="42,0,0,0">
+                <CheckBox IsChecked="{Binding FailureToast}" Content="Show a Windows notification"/>
+                <CheckBox IsChecked="{Binding FailureSound}" Content="Play a short sound"/>
+                <CheckBox IsChecked="{Binding FailureEmail}" Content="Send an email"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <!-- ─── Nested EMAIL setup ───────────────────────────────
+               Only shown when AT LEAST ONE event has Email enabled.
+               Lays out provider + key + FROM + TO + Send-test all
+               in one place so the user can complete it without
+               jumping around. -->
+          <Border Classes="nested-card"
+                  IsVisible="{Binding AnyEmailEnabled}">
+            <StackPanel Spacing="12">
+              <Grid ColumnDefinitions="Auto,10,*" VerticalAlignment="Center">
+                <Border Grid.Column="0" Classes="subsection-glyph">
+                  <PathIcon Data="{StaticResource Icon.Mail}"/>
+                </Border>
+                <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Classes="event-title" Text="Email setup"/>
+                  <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
+                             Text="Pick a provider, paste the API key, set FROM and TO. Resend is free for 3,000 emails a month — Mailgun is here too if you already use it."/>
+                </StackPanel>
+              </Grid>
+
+              <!-- Required-fields callout. Shows the single most-
+                   relevant missing piece while the user is filling
+                   things out, then disappears once everything's in
+                   place. Style mirrors the test-email failure
+                   callout so the visual language stays consistent. -->
+              <Border IsVisible="{Binding !EmailConfigComplete}"
+                      Background="{DynamicResource BS.Brush.DangerTint}"
+                      CornerRadius="8" Padding="12,10">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="helper" FontWeight="SemiBold" TextWrapping="Wrap"
+                             Foreground="{DynamicResource BS.Brush.DangerTintFg}"
+                             Text="Email is enabled — finish setting it up."/>
+                  <TextBlock Classes="helper" TextWrapping="Wrap"
+                             Foreground="{DynamicResource BS.Brush.DangerTintFg}"
+                             Text="{Binding EmailConfigError}"/>
+                </StackPanel>
+              </Border>
+
+          <Grid ColumnDefinitions="*,22,*">
+            <StackPanel Grid.Column="0" Spacing="6">
+              <TextBlock Classes="label-caps" Text="PROVIDER"/>
+              <!-- Item template surfaces the "(recommended)" hint on
+                   Resend so the choice is one less thing to research
+                   for a user who hasn't picked a transactional-email
+                   provider before. -->
+              <ComboBox ItemsSource="{Binding AvailableMailProviders}"
+                        SelectedItem="{Binding MailProvider}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Converter={x:Static vm:MailProviderDisplay.To}}"/>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+            <!-- FROM is hidden for Mailgun until the user has typed a
+                 sending domain — Mailgun's API URL embeds the domain
+                 and there's nothing useful to type before that.
+                 IsMailgunFromVisible falls back to true for Resend
+                 because Resend has a fixed default sender. -->
+            <StackPanel Grid.Column="2" Spacing="6">
+              <StackPanel.IsVisible>
+                <MultiBinding Converter="{x:Static conv:BoolConverters.And}">
+                  <Binding Path="IsMailEnabled"/>
+                  <!-- Mailgun-specific gating: hide FROM until domain is set. -->
+                  <MultiBinding Converter="{x:Static conv:BoolConverters.Or}">
+                    <Binding Path="IsResendProvider"/>
+                    <Binding Path="IsMailgunFromVisible"/>
+                  </MultiBinding>
+                </MultiBinding>
+              </StackPanel.IsVisible>
+              <TextBlock Classes="label-caps" Text="FROM"/>
+              <!-- Sandbox: read-only and pre-populated with backspace@<sandbox>;
+                   any other sender is rejected by Mailgun anyway.
+                   Resend with default onboarding@resend.dev is editable
+                   but the helper line tells you not to. -->
+              <TextBox Text="{Binding MailFrom}"
+                       IsReadOnly="{Binding IsMailgunSandbox}"
+                       Watermark="Your name &lt;you@domain.com&gt;"/>
+              <!-- Resend: verified-domain note. -->
+              <TextBlock Classes="helper"
+                         IsVisible="{Binding IsResendProvider}"
+                         Text="Resend won't accept any other sender until you verify a domain you own (Resend dashboard → Domains)."/>
+              <!-- Mailgun sandbox: locked sender. -->
+              <TextBlock Classes="helper"
+                         IsVisible="{Binding IsMailgunSandbox}"
+                         Text="Sandbox accounts can only send from this fixed address. To use a custom sender, verify a real domain on your Mailgun account first."/>
+              <!-- Mailgun custom domain: tell user what's typically valid. -->
+              <TextBlock Classes="helper">
+                <TextBlock.IsVisible>
+                  <MultiBinding Converter="{x:Static conv:BoolConverters.And}">
+                    <Binding Path="IsMailgunFromVisible"/>
+                    <Binding Path="!IsMailgunSandbox"/>
+                    <Binding Path="!IsResendProvider"/>
+                  </MultiBinding>
+                </TextBlock.IsVisible>
+                <Run Text="Use any sender on the verified domain you entered, e.g. "/>
+                <Run Text="backups@yourdomain.com" FontWeight="SemiBold"/>
+                <Run Text=". Mailgun rejects senders on unverified domains."/>
+              </TextBlock>
+            </StackPanel>
+          </Grid>
+
+          <StackPanel Spacing="6"
+                      IsVisible="{Binding IsMailEnabled}">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Grid.Column="0" Classes="label-caps" Text="TO (UP TO 5)"/>
+              <TextBlock Grid.Column="1" Classes="dim" FontSize="12"
+                         VerticalAlignment="Center"
+                         Text="{Binding MailToCount, StringFormat='{}{0} of 5'}"/>
+            </Grid>
+            <!-- Pills: one per recipient with an X to remove. Wraps if
+                 there are several. -->
+            <ItemsControl ItemsSource="{Binding MailToList}"
+                          IsVisible="{Binding MailToCount}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Background="{DynamicResource BS.Brush.AccentTint}"
+                          CornerRadius="14" Padding="10,4,4,4" Margin="0,0,6,6">
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding}" VerticalAlignment="Center"
+                                 Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                      <Button Classes="row-action"
+                              Padding="6,2" Width="22" Height="22"
+                              FontSize="12" Content="✕"
+                              ToolTip.Tip="Remove this address"
+                              Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemoveRecipientCommand}"
+                              CommandParameter="{Binding}"/>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <!-- Entry row. Enter or click ADD to commit. Disabled when
+                 already at the cap. -->
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Grid.Column="0"
+                       Text="{Binding MailToInput}"
+                       Watermark="you@example.com"
+                       IsEnabled="{Binding CanAddMoreRecipients}">
+                <TextBox.KeyBindings>
+                  <KeyBinding Gesture="Enter" Command="{Binding AddRecipientCommand}"/>
+                </TextBox.KeyBindings>
+              </TextBox>
+              <Button Grid.Column="1" Classes="ghost" Content="Add" Margin="8,0,0,0"
+                      Command="{Binding AddRecipientCommand}"
+                      IsEnabled="{Binding CanAddMoreRecipients}"/>
+            </Grid>
+          </StackPanel>
+
+          <Border Classes="rule" IsVisible="{Binding IsMailEnabled}"/>
+
+          <!-- Resend block -->
+          <StackPanel Spacing="10"
+                      IsVisible="{Binding MailProvider, Converter={x:Static vm:Eq.To}, ConverterParameter=Resend}">
+            <TextBlock Classes="label-caps" Text="RESEND API KEY"/>
+            <TextBox Text="{Binding ResendApiKey}" PasswordChar="•"
+                     Watermark="re_xxxxxxxxxxxxxxxxxxxx">
+              <ToolTip.Tip>
+                <StackPanel MaxWidth="380" Spacing="6">
+                  <TextBlock FontWeight="SemiBold" Text="How to get a Resend API key"/>
+                  <TextBlock TextWrapping="Wrap"
+                             Text="1.  Click &quot;Create a free account&quot; below (or sign in at resend.com)."/>
+                  <TextBlock TextWrapping="Wrap"
+                             Text="2.  In the Resend dashboard, click &quot;API Keys&quot; in the left sidebar."/>
+                  <TextBlock TextWrapping="Wrap"
+                             Text="3.  Click &quot;Create API Key&quot;, name it (e.g. Backspace), and choose &quot;Sending access&quot;."/>
+                  <TextBlock TextWrapping="Wrap"
+                             Text="4.  Copy the key (starts with re_) and paste it here. Resend shows it only once — save it elsewhere too if you might need it again."/>
+                </StackPanel>
+              </ToolTip.Tip>
+            </TextBox>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Classes="ghost" Content="Create a free account" Command="{Binding OpenResendSignupCommand}"/>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- Mailgun block -->
+          <StackPanel Spacing="10"
+                      IsVisible="{Binding MailProvider, Converter={x:Static vm:Eq.To}, ConverterParameter=Mailgun}">
+            <TextBlock Classes="helper" Margin="0"
+                       Text="You need a verified sending domain on your Mailgun account plus a project API key."/>
+            <!-- Sandbox-only callout. Mailgun doesn't expose an API for
+                 managing the authorized-recipient list (it's a dashboard-
+                 only feature), so we point the user at where to add
+                 recipients. -->
+            <Border Classes="callout" IsVisible="{Binding IsMailgunSandbox}">
+              <StackPanel Spacing="4">
+                <TextBlock Classes="body" FontWeight="SemiBold"
+                           Text="You're on a Mailgun sandbox domain."
+                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                <TextBlock Classes="body" TextWrapping="Wrap"
+                           Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                           Text="Sandbox accounts can only send to addresses you've explicitly added as &quot;authorized recipients&quot; (max 5). Each recipient must click a verification link before they'll receive mail. Add them in your Mailgun dashboard → Sending → Domain settings → Authorized Recipients."/>
+              </StackPanel>
+            </Border>
+            <Grid ColumnDefinitions="*,22,160">
+              <StackPanel Grid.Column="0" Spacing="6">
+                <TextBlock Classes="label-caps" Text="SENDING DOMAIN"/>
+                <TextBox Text="{Binding MailgunDomain}" Watermark="mg.yourdomain.com"
+                         ToolTip.Tip="The verified domain on your Mailgun account (e.g. mg.example.com). Mailgun won't accept sends from an unverified domain — sandbox accounts only allow sending to addresses you've explicitly added as &quot;authorized recipients&quot;."/>
+              </StackPanel>
+              <StackPanel Grid.Column="2" Spacing="6">
+                <TextBlock Classes="label-caps" Text="REGION"/>
+                <ComboBox ItemsSource="{Binding AvailableMailgunRegions}"
+                          SelectedItem="{Binding MailgunRegion}"
+                          HorizontalAlignment="Stretch"
+                          ToolTip.Tip="US (api.mailgun.net) for accounts created on the global site; EU (api.eu.mailgun.net) for accounts created on the EU site. Picking the wrong one returns &quot;domain not found&quot;."/>
+              </StackPanel>
+            </Grid>
+            <StackPanel Spacing="6">
+              <TextBlock Classes="label-caps" Text="MAILGUN API KEY"/>
+              <TextBox Text="{Binding MailgunApiKey}" PasswordChar="•"
+                       Watermark="Private API key from Mailgun → API security">
+                <ToolTip.Tip>
+                  <StackPanel MaxWidth="400" Spacing="6">
+                    <TextBlock FontWeight="SemiBold" Text="How to get a Mailgun API key"/>
+                    <TextBlock TextWrapping="Wrap"
+                               Text="1.  Sign in at mailgun.com (or sign up for a free trial)."/>
+                    <TextBlock TextWrapping="Wrap"
+                               Text="2.  In the dashboard, open the dropdown menu under your account name (top-right) and click &quot;API security&quot;."/>
+                    <TextBlock TextWrapping="Wrap"
+                               Text="3.  Click &quot;Add new key&quot; (or copy an existing &quot;Mailgun API key&quot; — NOT the public validation key)."/>
+                    <TextBlock TextWrapping="Wrap"
+                               Text="4.  Paste the key here. Backspace uses it to POST to Mailgun's /messages API directly — no SMTP credentials needed."/>
+                    <TextBlock TextWrapping="Wrap"
+                               Text="Note: Mailgun also requires a verified sending domain (above). For trial accounts, use the auto-created sandbox domain and add your inbox as an authorized recipient."/>
+                  </StackPanel>
+                </ToolTip.Tip>
+              </TextBox>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- Send-test row, shared across providers. Visible whenever
+               the user has a provider selected — they can verify their
+               key + recipient list works before saving. The status
+               banner below is colored red on failure (TestEmailFailed)
+               so a typo or rejected key is impossible to miss. -->
+          <StackPanel Spacing="6" IsVisible="{Binding IsMailEnabled}" Margin="0,4,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Classes="ghost" Content="Send test email"
+                      Command="{Binding SendTestEmailCommand}"
+                      IsEnabled="{Binding !TestEmailBusy}"/>
+              <TextBlock Classes="dim" VerticalAlignment="Center"
+                         Text="Sends to your TO addresses using the values you've typed (no Save needed)."/>
+            </StackPanel>
+            <!-- Status: success / in-flight rendered as plain helper
+                 text. Failure rendered as a single error callout (red
+                 tint + bold provider error + plain follow-up) so the
+                 actual error message is visible-as-an-error rather
+                 than two visually-disconnected lines. -->
+            <TextBlock Classes="helper"
+                       IsVisible="{Binding TestEmailStatus, Converter={x:Static vm:NotEmpty.To}}"
+                       Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                       Text="{Binding TestEmailStatus}">
+              <TextBlock.IsVisible>
+                <MultiBinding Converter="{x:Static vm:BoolAnd.To}">
+                  <Binding Path="TestEmailStatus" Converter="{x:Static vm:NotEmpty.To}"/>
+                  <Binding Path="!TestEmailFailed"/>
+                </MultiBinding>
+              </TextBlock.IsVisible>
+            </TextBlock>
+            <Border IsVisible="{Binding TestEmailFailed}"
+                    Background="{DynamicResource BS.Brush.DangerTint}"
+                    CornerRadius="8" Padding="12,10">
+              <StackPanel Spacing="4">
+                <TextBlock Classes="helper" FontWeight="SemiBold" TextWrapping="Wrap"
+                           Foreground="{DynamicResource BS.Brush.DangerTintFg}"
+                           Text="{Binding TestEmailStatus}"/>
+                <TextBlock Classes="helper" TextWrapping="Wrap"
+                           Foreground="{DynamicResource BS.Brush.DangerTintFg}"
+                           Text="The provider rejected the send — fix the error above and click again."/>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+
+            </StackPanel>
+          </Border>
+          <!-- end of nested email-setup card -->
+
+        </StackPanel>
+        </Expander>
+      </Border>
+
+      <!-- Watchdog (Healthchecks.io) — collapsed by default. -->
+      <Border Classes="settings-card">
+        <Expander Classes="settings" IsExpanded="False">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <Border Classes="section-glyph">
+              <PathIcon Data="{StaticResource Icon.HeartPulse}"/>
+            </Border>
+            <TextBlock Classes="section-title" Text="Watchdog (Healthchecks.io)" Margin="0" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel Spacing="14" Margin="0,8,0,0">
+          <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
+                     Text="If Backspace can’t reach you — say your PC is off for a week — Healthchecks.io will email you that your backup hasn’t run. Free for a handful of backups. Paste your API key and we’ll set up the rest automatically."/>
+          <CheckBox IsChecked="{Binding HealthchecksEnabled}" Content="Use Healthchecks.io"/>
+          <Grid ColumnDefinitions="*,22,*">
+            <StackPanel Grid.Column="0" Spacing="6">
+              <TextBlock Classes="label-caps" Text="API KEY"/>
+              <TextBox Text="{Binding HealthchecksApiKey}" PasswordChar="•">
+                <ToolTip.Tip>
+                  <StackPanel MaxWidth="400" Spacing="6">
+                    <TextBlock FontWeight="SemiBold" Text="How to get your Healthchecks.io API key"/>
+                    <TextBlock TextWrapping="Wrap"
+                               Text="1.  Click &quot;Create a free account&quot; below (or sign in at healthchecks.io)."/>
+                    <TextBlock TextWrapping="Wrap"
+                               Text="2.  Open the project you want Backspace to use (or create a new one — the default project is fine)."/>
+                    <TextBlock TextWrapping="Wrap"
+                               Text="3.  Click the project's &quot;Settings&quot; link (top of the page)."/>
+                    <TextBlock TextWrapping="Wrap"
+                               Text="4.  Find the &quot;API Access&quot; section and click &quot;Create&quot; next to API key."/>
+                    <TextBlock TextWrapping="Wrap"
+                               Text="5.  Copy the regular &quot;API key&quot; (NOT the read-only one — we need write access to create checks for you) and paste it here."/>
+                  </StackPanel>
+                </ToolTip.Tip>
+              </TextBox>
+              <TextBlock Classes="helper"
+                         Text="Find this under your project’s Settings → API Access on healthchecks.io."/>
+            </StackPanel>
+            <StackPanel Grid.Column="2" Spacing="6">
+              <TextBlock Classes="label-caps" Text="BASE URL (SELF-HOSTED ONLY)"/>
+              <TextBox Text="{Binding HealthchecksBaseUrl}"
+                       ToolTip.Tip="Only change this if you self-host Healthchecks. The hosted service at healthchecks.io is the default."/>
+              <TextBlock Classes="helper"
+                         Text="Leave as-is for healthchecks.io."/>
+            </StackPanel>
+          </Grid>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Classes="ghost" Content="Create a free account" Command="{Binding OpenHealthchecksSignupCommand}"/>
+          </StackPanel>
+        </StackPanel>
+        </Expander>
+      </Border>
+
+
+      <!-- Import from existing Duplicacy — collapsed by default. -->
+      <Border Classes="settings-card">
+        <Expander Classes="settings" IsExpanded="False">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <Border Classes="section-glyph">
+              <PathIcon Data="{StaticResource Icon.FolderOpen}"/>
+            </Border>
+            <TextBlock Classes="section-title" Text="Import existing backups" Margin="0" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel Spacing="12" Margin="0,8,0,0">
+          <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
+                     Text="Already using Duplicacy? Point at either (a) the folder that contains your .duplicacy directory, or (b) a parent folder containing several such repos (duplicacy-util layout). Backspace reads .duplicacy/preferences for storage + repository, any .duplicacy/filters file, and per-repo yaml settings if present. Your existing repository is left untouched — Backspace will start a fresh restic repo when you run the imported backup. Cloud tokens are not imported; you'll be prompted to re-authenticate the first time Backspace talks to each destination."/>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Classes="ghost" Command="{Binding ImportLegacyCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.FolderOpen}" Width="14" Height="14"/>
+                <TextBlock Text="Import existing backups" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
+          </StackPanel>
+          <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
+                     Text="{Binding MigrationStatus}"
+                     IsVisible="{Binding MigrationStatus, Converter={x:Static vm:NotEmpty.To}}"/>
+        </StackPanel>
+        </Expander>
+      </Border>
+
+      <!-- Save -->
+      <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+        <Button Classes="primary" Content="Save settings" Command="{Binding SaveCommand}"/>
+        <!-- Visible feedback that the click did something. "Saved."
+             on success, "Save failed: ..." on exception. Empty until
+             the first save attempt. -->
+        <TextBlock Classes="dim" FontSize="13" VerticalAlignment="Center"
+                   TextWrapping="Wrap"
+                   Text="{Binding SaveStatus}"
+                   IsVisible="{Binding SaveStatus, Converter={x:Static vm:NotEmpty.To}}"/>
+      </StackPanel>
+
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

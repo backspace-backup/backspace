@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy — Backspace</title>
+<meta name="description" content="What Backspace does and doesn't collect. Short answer: nothing leaves your machine except the backups you point at the destinations you pick.">
+<meta name="theme-color" content="#0061FF">
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+:root {
+    --bg:           #FBF8F2;
+    --bg-surface:   #FFFFFF;
+    --fg:           #1E1B16;
+    --fg-secondary: #5C5750;
+    --fg-dim:       #8C857A;
+    --accent:       #0061FF;
+    --accent-tint:  #E8F0FF;
+    --border:       #E6E1D6;
+}
+* { box-sizing: border-box; }
+html, body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.container { max-width: 740px; margin: 0 auto; padding: 0 24px; }
+
+header.hero {
+    padding: 72px 0 32px;
+    background: radial-gradient(ellipse at top, #FFF 0%, var(--bg) 70%);
+    border-bottom: 1px solid var(--border);
+}
+header.hero .container { text-align: center; }
+header.hero h1 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 600;
+    font-size: clamp(32px, 5vw, 48px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 16px 0 12px;
+}
+header.hero .tagline { color: var(--fg-secondary); margin: 0 0 8px; }
+header.hero .updated { color: var(--fg-dim); font-size: 14px; }
+
+main { padding: 48px 0 96px; }
+main h2 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 600;
+    font-size: 26px;
+    margin: 48px 0 12px;
+    letter-spacing: -0.01em;
+}
+main h2:first-child { margin-top: 0; }
+main p, main li { color: var(--fg-secondary); font-size: 16px; }
+main p { margin: 0 0 16px; }
+main ul { padding-left: 24px; margin: 0 0 16px; }
+main li { margin: 6px 0; }
+main strong { color: var(--fg); }
+main code {
+    background: var(--accent-tint);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 90%;
+}
+
+.tldr {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 0 0 32px;
+    color: var(--fg);
+}
+.tldr strong { color: var(--accent); }
+
+footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 0;
+    color: var(--fg-dim);
+    font-size: 14px;
+    text-align: center;
+}
+footer a { color: var(--fg-dim); }
+</style>
+</head>
+<body>
+
+<header class="hero">
+    <div class="container">
+        <h1>Privacy</h1>
+        <p class="tagline">What Backspace does and doesn't see.</p>
+        <p class="updated">Last updated 17 May 2026.</p>
+    </div>
+</header>
+
+<main>
+    <div class="container">
+
+        <div class="tldr">
+            <strong>TL;DR.</strong> Backspace is a desktop application that
+            runs entirely on your computer. It has no server-side component
+            of any kind. Nothing about your backups, your files, your usage
+            patterns, your destinations, your OAuth tokens, or your existence
+            ever leaves your machine — except the data you have explicitly
+            asked Backspace to copy to the cloud storage destinations
+            <em>you</em> configured, encrypted before it gets there.
+        </div>
+
+        <h2>What Backspace stores on your computer</h2>
+        <p>
+            All Backspace state lives under your operating system's per-user
+            configuration directory (on Windows that's
+            <code>%APPDATA%\Backspace\</code>; portable installs put it
+            next to the executable instead). That directory contains:
+        </p>
+        <ul>
+            <li>
+                <strong>Your config.</strong> The list of backups you
+                created, the source folders, the destinations, the
+                schedules, the filter rules. Plain JSON, human-readable.
+                Edit it if you like — Backspace reloads on save.
+            </li>
+            <li>
+                <strong>An encrypted secrets vault.</strong> Cloud OAuth
+                refresh tokens, S3 access keys, repository encryption
+                passwords. On Windows the vault is wrapped with DPAPI
+                so only the current Windows user account can read it;
+                on macOS and Linux a per-installation key file lives
+                alongside it with user-only file permissions.
+            </li>
+            <li>
+                <strong>Per-run logs.</strong> Each backup run writes a
+                log file capturing what the underlying engine printed
+                (file counts, durations, errors). These never leave
+                your machine. You can delete them whenever you want.
+            </li>
+            <li>
+                <strong>The Backrest sidecar's data.</strong> Backspace
+                bundles <a href="https://github.com/garethgeorge/backrest">Backrest</a>
+                and drives it as a localhost-only RPC sidecar. Its
+                state (operation history, scheduled-task records,
+                cached repo metadata) lives under
+                <code>backrest/</code> in the same config directory.
+                The sidecar binds to <code>127.0.0.1</code> only — it
+                is not reachable from any other computer.
+            </li>
+        </ul>
+
+        <h2>What Backspace sends out</h2>
+        <p>
+            Only the data you have explicitly told it to back up, to the
+            destinations <em>you</em> configured. Three sub-cases:
+        </p>
+        <ul>
+            <li>
+                <strong>Local destinations.</strong> No network traffic.
+                Bytes go from your source folder to your external
+                drive / NAS path.
+            </li>
+            <li>
+                <strong>S3 destinations.</strong> Restic's S3 driver
+                talks directly to the bucket you configured, with the
+                AWS credentials you supplied, over HTTPS.
+            </li>
+            <li>
+                <strong>Cloud destinations (Dropbox, OneDrive, Google
+                Drive).</strong> Restic talks to
+                <a href="https://rclone.org">rclone</a>, which talks
+                directly to the provider's API over HTTPS using the
+                OAuth refresh token you authorised. The token stays on
+                your machine; only your backup data crosses the wire,
+                always encrypted client-side before it leaves your
+                computer (AES-256, with a key derived from a password
+                only you know).
+            </li>
+        </ul>
+
+        <h2>What goes through Dropbox specifically</h2>
+        <p>
+            If you've authorised a Dropbox destination, Backspace requests
+            an OAuth refresh token from Dropbox via their standard
+            authorisation flow. The token is stored locally in the
+            encrypted secrets vault described above and used only to
+            upload your backup data to the folder you chose.
+        </p>
+        <p>
+            Backspace does <strong>not</strong>:
+        </p>
+        <ul>
+            <li>Send your Dropbox token to any Backspace-controlled server (there is no such server).</li>
+            <li>Read the contents of files outside the folder paths you're explicitly backing up.</li>
+            <li>Modify, share, or delete files in your Dropbox other than within the destination folder you picked.</li>
+            <li>Collect or log anything about your Dropbox account beyond the user-visible folder name where your backups land.</li>
+        </ul>
+        <p>
+            You can revoke Backspace's Dropbox access at any time from
+            your <a href="https://www.dropbox.com/account/connected_apps">Dropbox connected apps page</a>.
+            Backspace will stop being able to write new backups to that
+            destination; backups already at the destination remain
+            yours and untouched.
+        </p>
+
+        <h2>Telemetry, analytics, crash reporting</h2>
+        <p>
+            None. Backspace makes no outbound network calls of its own
+            beyond:
+        </p>
+        <ul>
+            <li>The backup / restore traffic described above.</li>
+            <li>An optional Healthchecks.io ping after each run if you
+                turned that feature on yourself. The ping carries the
+                check ID you configured and the run status (<code>ok</code> /
+                <code>fail</code>); no file paths, no file contents,
+                no identifying user data.</li>
+            <li>An optional email via your own Resend or Mailgun
+                account if you set that up yourself. Same scope as
+                Healthchecks: status only, never file contents.</li>
+            <li>A one-time download of release binaries from GitHub
+                (backrest, restic, rclone) the first time you build
+                Backspace from source. Disabled by passing
+                <code>-p:SkipBackrestDownload=true</code>.</li>
+        </ul>
+
+        <h2>Cookies, tracking, third-party scripts</h2>
+        <p>
+            This website (the page you're reading) is a static HTML
+            page hosted on GitHub Pages. It has no analytics tags, no
+            cookies, no third-party scripts, and no embedded
+            advertising. GitHub's standard hosting access logs apply
+            (per <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">their privacy statement</a>);
+            we do not have access to those logs and do not request them.
+        </p>
+
+        <h2>Children's privacy</h2>
+        <p>
+            Backspace is a developer tool not directed at children. It
+            does not knowingly collect any personal information from
+            anyone — including children — because, as described
+            above, it doesn't collect personal information from any
+            user.
+        </p>
+
+        <h2>Changes to this policy</h2>
+        <p>
+            If Backspace ever starts collecting any data, this page
+            will be updated to describe it, the "last updated" date
+            at the top will change, and the release notes for that
+            version will call it out prominently. The current intent
+            is to never collect anything.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+            Questions, concerns, or "actually I think you're collecting
+            something you didn't list here": open an issue on
+            <a href="https://github.com/backspace-backup/backspace/issues">GitHub</a>.
+            Or, if you'd rather not do that in public, email the
+            maintainer at the address in the
+            <a href="https://github.com/backspace-backup/backspace/blob/main/LICENSE">LICENSE</a>
+            file.
+        </p>
+
+    </div>
+</main>
+
+<footer>
+    <div class="container">
+        <p><a href="/">Back to Backspace</a></p>
+    </div>
+</footer>
+
+</body>
+</html>

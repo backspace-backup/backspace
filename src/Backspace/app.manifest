@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="Backspace.app"/>
+
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <!-- asInvoker — Backspace runs at the user's normal integrity
+             level (medium IL on a default Windows install). This is
+             what Kopia/KopiaUI does too, and it's the right baseline
+             for one specific reason: the WinFSP snapshot Mount
+             feature.
+             A WinFSP mount's drive letter lives in the creating
+             process's LSA logon session. An admin-mounted Z: shows
+             up at \??\Z: in the elevated session and is invisible to
+             the user's normal shell Explorer (medium IL) — so the
+             Mount button "succeeds" yet Explorer reports "Z: is
+             unavailable. Location is not available." (We verified
+             this empirically: Test-Path Z:\ returns True from admin
+             PowerShell and False from a non-admin shell, with the
+             same mount up.) Running at asInvoker puts the mount in
+             the user's normal session and Explorer sees it without
+             ceremony.
+             VSS shadow copies need admin. The cost of asInvoker is
+             that an INTERACTIVE backup of locked / in-use files
+             (live registry hives, mailbox files, lock-held SQLite
+             DBs from running apps) will skip those files when
+             Backspace isn't elevated. Users who need that coverage
+             can right-click → Run as administrator (same Kopia
+             workflow). Scheduled runs are unaffected: Task
+             Scheduler launches them with "highest available"
+             privileges (see TaskSchedulerService), which gives them
+             admin rights for VSS without an interactive UAC
+             prompt. -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 + 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/>
+    </application>
+  </compatibility>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+
+</assembly>
