@@ -547,13 +547,17 @@
                banner below is colored red on failure (TestEmailFailed)
                so a typo or rejected key is impossible to miss. -->
           <StackPanel Spacing="6" IsVisible="{Binding IsMailEnabled}" Margin="0,4,0,0">
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <Button Classes="ghost" Content="Send test email"
+            <!-- Grid so the hint wraps at narrow widths (a horizontal
+                 StackPanel measures it at infinite width and clips). -->
+            <Grid ColumnDefinitions="Auto,10,*">
+              <Button Grid.Column="0" Classes="ghost" Content="Send test email"
+                      VerticalAlignment="Center"
                       Command="{Binding SendTestEmailCommand}"
                       IsEnabled="{Binding !TestEmailBusy}"/>
-              <TextBlock Classes="dim" VerticalAlignment="Center"
+              <TextBlock Grid.Column="2" Classes="dim" VerticalAlignment="Center"
+                         TextWrapping="Wrap"
                          Text="Sends to your TO addresses using the values you've typed (no Save needed)."/>
-            </StackPanel>
+            </Grid>
             <!-- Status: success / in-flight rendered as plain helper
                  text. Failure rendered as a single error callout (red
                  tint + bold provider error + plain follow-up) so the
@@ -675,17 +679,20 @@
         </Expander>
       </Border>
 
-      <!-- Save -->
-      <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-        <Button Classes="primary" Content="Save settings" Command="{Binding SaveCommand}"/>
+      <!-- Save. Grid, not horizontal StackPanel: "Save failed: …"
+           carries arbitrary exception text and must wrap instead of
+           clipping at the window edge. -->
+      <Grid ColumnDefinitions="Auto,12,*">
+        <Button Grid.Column="0" Classes="primary" Content="Save settings"
+                VerticalAlignment="Center" Command="{Binding SaveCommand}"/>
         <!-- Visible feedback that the click did something. "Saved."
              on success, "Save failed: ..." on exception. Empty until
              the first save attempt. -->
-        <TextBlock Classes="dim" FontSize="13" VerticalAlignment="Center"
+        <TextBlock Grid.Column="2" Classes="dim" FontSize="13" VerticalAlignment="Center"
                    TextWrapping="Wrap"
                    Text="{Binding SaveStatus}"
                    IsVisible="{Binding SaveStatus, Converter={x:Static vm:NotEmpty.To}}"/>
-      </StackPanel>
+      </Grid>
 
     </StackPanel>
   </ScrollViewer>

@@ -356,14 +356,6 @@ public class ResticBackrestEngineTests
     }
 
     [Fact]
-    public async Task EnumOnlyAsync_TriggersLazySidecarStart()
-    {
-        var engine = MakeEngineWithoutSidecar();
-        await Assert.ThrowsAnyAsync<System.IO.FileNotFoundException>(() =>
-            engine.EnumOnlyAsync(new Backup(), "/x", new Destination(), "default", default));
-    }
-
-    [Fact]
     public async Task ChangeStoragePasswordAsync_FailureSurfacesHelpfulError()
     {
         // Two environments: CI (no bundled binary, AppPaths.ResticBinary

@@ -83,13 +83,19 @@
 
                     <StackPanel Grid.Column="1" Spacing="3" Margin="14,0,0,0">
                       <TextBlock Text="{Binding Name}" Classes="row-title"/>
-                      <StackPanel Orientation="Horizontal" Spacing="10">
-                        <TextBlock Text="{Binding Kind}" Classes="dim"/>
-                        <TextBlock Text="·" Foreground="{DynamicResource BS.Brush.FgDim}"/>
-                        <TextBlock Classes="mono" Text="{Binding Url}"
-                                   TextTrimming="CharacterEllipsis" MaxWidth="560"
+                      <!-- Grid so the URL's ellipsis tracks the actual
+                           remaining width at every window size instead
+                           of a hard MaxWidth cap that could overflow
+                           the row into the Edit/Delete buttons. -->
+                      <Grid ColumnDefinitions="Auto,10,Auto,10,*">
+                        <TextBlock Grid.Column="0" Text="{Binding Kind}" Classes="dim"/>
+                        <TextBlock Grid.Column="2" Text="·" Foreground="{DynamicResource BS.Brush.FgDim}"/>
+                        <TextBlock Grid.Column="4" Classes="mono" Text="{Binding Url}"
+                                   HorizontalAlignment="Left"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding Url}"
                                    FontSize="12"/>
-                      </StackPanel>
+                      </Grid>
                     </StackPanel>
 
                     <Button Grid.Column="2" Classes="row-action"

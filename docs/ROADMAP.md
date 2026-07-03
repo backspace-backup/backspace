@@ -46,10 +46,51 @@ Read the `**Proof:**` block on each, then say "validated" or redirect.
 
 ## 🚧 Open — in progress / queued
 
+- P1: Filters > Advanced > Simulate fails (RunCommand exit status 1) — raised 2026-07-03.
+- P1: Status text next to "Apply recommended exclusions" is cropped — raised 2026-07-03.
+- P1: Collapsible-section hover styling — re-opened 2026-07-03 (Settings still weird).
+- P2: UI copy overuses em dashes — raised 2026-07-03.
 - P0: Backrest restore-RPC deviation review — refactor done; `--json` summary parsing queued as a follow-up.
 - P3: OneDrive + Google Drive OAuth client_ids — awaiting maintainer registration.
 
 ---
+
+### P1: Filters > Advanced > Simulate fails with exit status 1
+
+- **Raised:** 2026-07-03
+- **Type:** bug
+- **Status:** In progress
+- **Context:** User clicked Filters > Advanced > Simulate and got:
+  `[error] /v1.Backrest/RunCommand failed: unknown: failed to run
+  command: command "backup --dry-run C:\\ntws": exit status 1`.
+  The simulation pane never produces results.
+- **Root cause + fix (short):** TBD — investigating how the dry-run
+  command is built and why restic exits 1.
+
+### P1: Status text next to "Apply recommended exclusions" is cropped
+
+- **Raised:** 2026-07-03
+- **Type:** bug (visual)
+- **Status:** In progress
+- **Context:** The message "Nothing in your sources matched the
+  recommended rules — that's normal for narrow source folders. The
+  rule…" is cut off at the right edge instead of wrapping. User asked
+  for a thorough pass: find and fix ALL text that can crop this way,
+  not just this instance.
+- **Root cause + fix (short):** TBD — likely a non-wrapping TextBlock
+  in a width-unconstrained horizontal layout; sweeping every view for
+  the same pattern.
+
+### P2: UI copy overuses em dashes
+
+- **Raised:** 2026-07-03
+- **Type:** polish (copy)
+- **Status:** In progress
+- **Context:** User: the app contains many em dashes, which look weird
+  in UI copy (and read as AI-written). Replace with natural punctuation
+  (comma, period, colon, parentheses) in all user-facing strings unless
+  an em dash is strictly the right choice. Code comments are out of
+  scope.
 
 ### P0: Restore wizard doesn't offer a revision picker (regression vs Duplimate) — Awaiting validation
 
@@ -378,7 +419,9 @@ Read the `**Proof:**` block on each, then say "validated" or redirect.
 
 ### P1: Skipped-run alerts block visibility logic
 
-- **Raised:** 2026-06-11
+- **Raised:** 2026-06-11 (user asked 2026-07-03 to confirm the Easy-mode
+  behavior: block hidden in Easy mode UNLESS the backup is currently in
+  grace, so the Reset-grace control stays reachable)
 - **Type:** bug
 - **Status:** Awaiting validation
 - **Context:** In Easy mode the "Skipped run alerts" block is shown
@@ -404,9 +447,14 @@ Read the `**Proof:**` block on each, then say "validated" or redirect.
 
 ### P1: Collapsible-section hover styling has weird stripe
 
-- **Raised:** 2026-06-11
+- **Raised:** 2026-06-11. **Re-opened 2026-07-03:** user reports the
+  hover background on collapsible section headers in Settings is still
+  weird — the earlier fix covered the restore wizard's expander but the
+  Settings sections still misbehave. Follow best-practice hover
+  treatment (subtle full-header overlay, matching corner radius,
+  smooth transition).
 - **Type:** bug (visual regression)
-- **Status:** Awaiting validation
+- **Status:** In progress (re-opened)
 - **Context:** User screenshot of the restore wizard's "Advanced"
   collapsible header showed a dark rectangular band across part of the
   header on hover — Fluent theme leaking the default ToggleButton

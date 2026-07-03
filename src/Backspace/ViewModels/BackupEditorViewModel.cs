@@ -819,32 +819,51 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     {
         var saved = CommitToWorking();
         if (saved is null) return;
-        if (saved.Targets.Count == 0) return;
 
         SimulationRunning = true;
         FilterSimulationLog = "";
-        var dest = ServiceLocator.Config.Current.Destinations.FirstOrDefault(d => d.Id == saved.Targets[0].DestinationId);
-        if (dest is null) { SimulationRunning = false; return; }
-        var storage = saved.Targets[0].StorageName;
+
+        // The simulator walks the local sources directly (no engine, no
+        // destination), so there's nothing to look up here. Entries
+        // arrive on a worker thread; buffer them and republish the pane
+        // text in batches — appending to the bound string per entry is
+        // quadratic and floods the dispatcher on big trees.
+        var sb = new System.Text.StringBuilder();
+        var pending = 0;
+
+        void Flush()
+        {
+            var text = sb.ToString();
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => FilterSimulationLog = text);
+        }
 
         void OnEntry(SimulatedEntry e)
         {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                var prefix = e.Included ? "✓  " : "✗  ";
-                FilterSimulationLog += prefix + e.Path + "\n";
-            });
+            sb.Append(e.Included ? "✓  " : "✗  ").Append(e.Path);
+            if (!e.Included && !string.IsNullOrEmpty(e.MatchingRule))
+                sb.Append("   (rule: ").Append(e.MatchingRule).Append(')');
+            sb.Append('\n');
+            if (++pending >= 100) { pending = 0; Flush(); }
         }
 
         try
         {
-            await ServiceLocator.Filters.SimulateAsync(saved, dest, storage, OnEntry, CancellationToken.None);
+            var result = await ServiceLocator.Filters.SimulateAsync(saved, OnEntry, CancellationToken.None);
+            if (result.Entries == 0)
+                sb.Append("No files found under the configured sources.\n");
+            else if (result.Truncated)
+                sb.Append("\n[note] Large tree: showing the first ")
+                  .Append(result.Entries.ToString("N0")).Append(" entries only.\n");
         }
         catch (Exception ex)
         {
-            FilterSimulationLog += $"\n[error] {ex.Message}";
+            sb.Append("\n[error] ").Append(ex.Message);
         }
-        finally { SimulationRunning = false; }
+        finally
+        {
+            Flush();
+            SimulationRunning = false;
+        }
     }
 
     [RelayCommand]

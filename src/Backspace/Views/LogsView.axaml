@@ -102,8 +102,11 @@
               <Ellipse Width="11" Height="11" Fill="#FFBD2E"/>
               <Ellipse Width="11" Height="11" Fill="#27C93F"/>
             </StackPanel>
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-              <Border Background="#3FB950"
+            <!-- Grid so a long backup name ellipsizes before running
+                 under the Copy/Clear buttons (horizontal StackPanels
+                 give the label infinite measure width). -->
+            <Grid Grid.Column="2" ColumnDefinitions="Auto,10,*" VerticalAlignment="Center">
+              <Border Grid.Column="0" Background="#3FB950"
                       CornerRadius="999"
                       Padding="10,3"
                       IsVisible="{Binding IsShowingLive}">
@@ -121,13 +124,16 @@
                              LetterSpacing="0.6"/>
                 </StackPanel>
               </Border>
-              <TextBlock Text="{Binding DisplayLabel}"
+              <TextBlock Grid.Column="2" Text="{Binding DisplayLabel}"
                          FontFamily="{DynamicResource BS.Font.Mono}"
                          FontSize="12"
                          FontWeight="SemiBold"
                          Foreground="#C9D1D9"
+                         HorizontalAlignment="Left"
+                         TextTrimming="CharacterEllipsis"
+                         ToolTip.Tip="{Binding DisplayLabel}"
                          VerticalAlignment="Center"/>
-            </StackPanel>
+            </Grid>
             <Button Grid.Column="3"
                     Classes="ghost"
                     Padding="10,5"

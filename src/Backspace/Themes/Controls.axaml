@@ -1483,14 +1483,16 @@
     <Setter Property="FontSize" Value="11"/>
     <Setter Property="FontWeight" Value="SemiBold"/>
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
+    <Setter Property="Cursor" Value="Hand"/>
   </Style>
-  <!-- Hover / pressed / checked: the FluentTheme leaks BorderBrush
-       (ToggleButtonBorderBrushPointerOver) onto the header even when
-       we override Background, surfacing as a dark band under the
-       label. Explicitly zero the brush on every interactive state.
-       Per DESIGN.md hover semantics: ~150ms ease-out on color only,
-       never on size; a flat header is the SOTA pattern for quiet
-       "Advanced" toggles. -->
+  <!-- Hover / pressed / checked: this class is a quiet inline
+       "Advanced" text toggle — genuinely flat, cursor is the only
+       affordance. Element-level overrides alone are NOT enough:
+       FluentTheme's ControlTheme also paints hover brushes directly
+       onto the template parts (Border#ToggleButtonBackground,
+       Border#ExpandCollapseChevronBorder), outranking the
+       TemplateBinding — that leak was the dark band under the label.
+       So zero both layers: the element states here, the parts below. -->
   <Style Selector="Expander.advanced /template/ ToggleButton#ExpanderHeader:pointerover">
     <Setter Property="Background" Value="Transparent"/>
     <Setter Property="BorderBrush" Value="Transparent"/>
@@ -1506,6 +1508,21 @@
   <Style Selector="Expander.advanced /template/ ToggleButton#ExpanderHeader:checked:pointerover">
     <Setter Property="Background" Value="Transparent"/>
     <Setter Property="BorderBrush" Value="Transparent"/>
+  </Style>
+  <!-- The pierced part-level kills — what actually stops the band. -->
+  <Style Selector="Expander.advanced /template/ ToggleButton#ExpanderHeader:pointerover /template/ Border#ToggleButtonBackground">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+  </Style>
+  <Style Selector="Expander.advanced /template/ ToggleButton#ExpanderHeader:pressed /template/ Border#ToggleButtonBackground">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+  </Style>
+  <Style Selector="Expander.advanced /template/ ToggleButton#ExpanderHeader:pointerover /template/ Border#ExpandCollapseChevronBorder">
+    <Setter Property="Background" Value="Transparent"/>
+  </Style>
+  <Style Selector="Expander.advanced /template/ ToggleButton#ExpanderHeader:pressed /template/ Border#ExpandCollapseChevronBorder">
+    <Setter Property="Background" Value="Transparent"/>
   </Style>
   <!-- Nested ContentPresenter inside the ToggleButton ALSO inherits
        a Background brush from the Fluent template; left unset, hover
@@ -1628,6 +1645,11 @@
     <Setter Property="BorderBrush" Value="Transparent"/>
     <Setter Property="BorderThickness" Value="0"/>
     <Setter Property="Padding" Value="0"/>
+    <!-- The Fluent header binds its hover-wash Border's CornerRadius
+         to $parent[Expander].CornerRadius; unset, that's the Fluent
+         default 3px, which clashes with the 10px settings-card and
+         snaps visibly while the hover wash fades out. -->
+    <Setter Property="CornerRadius" Value="{DynamicResource BS.CornerRadiusSmall}"/>
     <!-- Force the Expander to fill its wrapping Border.settings-card.
          Without this, a collapsed Expander shrinks to the natural
          width of its header content (glyph + title) and the chevron
@@ -1663,20 +1685,29 @@
          matches a real interactive control. -->
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
   </Style>
-  <!-- Hover/pressed/checked: KEEP THE BACKGROUND TRANSPARENT on every
-       interactive state. The previous iteration painted AccentTint
-       on :pointerover, but the ToggleButton header lives INSIDE the
-       parent Border.settings-card's 20,14 padding and has no
-       CornerRadius of its own — so the hover wash rendered as a
-       sharp rectangular block inside the rounded card, creating the
-       "weird stripe" the user flagged. SOTA pattern (macOS Settings,
-       Linear, GitHub Settings, Stripe Dashboard): collapsible
-       section headers use NO background hover affordance — the
-       interactive cue is the cursor change (Hand) plus a SUBTLE
-       chevron darkening, which we already set via FgPrimary on the
-       header foreground. Pressed and checked also stay transparent
-       so an expanded section doesn't carry a different tint than a
-       collapsed one. -->
+  <!-- Hover/pressed/checked, in two layers — BOTH are required.
+
+       Layer 1 (element level, below): neutralizes FluentTheme's
+       pseudo-class styles on the ToggleButton itself, whose value
+       would otherwise flow through the template's
+       Background="{TemplateBinding Background}".
+
+       Layer 2 (pierced, further below): FluentTheme's ControlTheme
+       ALSO writes hover brushes DIRECTLY onto the template parts
+       (Border#ToggleButtonBackground gets an 80%-alpha white/black
+       band, Border#ExpandCollapseChevronBorder a 10%-alpha square) —
+       a StyleTrigger on the part outranks the TemplateBinding, so
+       layer 1 alone is a silent no-op for those paints. That leak
+       WAS the "weird stripe/band" the user reported: a hard-edged
+       3px-cornered flash inside the 10px rounded card, with no
+       transition and a second mini-square around the chevron.
+       App-frame pierced styles on the same parts with the same
+       pseudo-classes win over the theme's (equal priority, app frame
+       first), and replace the band with the app's quiet hover
+       language: the same BS.Brush.NeutralHover wash the nav rows and
+       ghost buttons use, corner radius matched to the card, ~180ms
+       ease-out per DESIGN.md, pressed one tick darker, and the
+       chevron pill removed so the header reads as ONE surface. -->
   <Style Selector="Expander.settings /template/ ToggleButton#ExpanderHeader:pointerover">
     <Setter Property="Background" Value="Transparent"/>
     <Setter Property="BorderBrush" Value="Transparent"/>
@@ -1692,6 +1723,30 @@
   <Style Selector="Expander.settings /template/ ToggleButton#ExpanderHeader:checked:pointerover">
     <Setter Property="Background" Value="Transparent"/>
     <Setter Property="BorderBrush" Value="Transparent"/>
+  </Style>
+  <!-- Layer 2: the pierced styles that actually control what paints. -->
+  <Style Selector="Expander.settings /template/ ToggleButton#ExpanderHeader /template/ Border#ToggleButtonBackground">
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.18" Easing="QuadraticEaseOut"/>
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Expander.settings /template/ ToggleButton#ExpanderHeader:pointerover /template/ Border#ToggleButtonBackground">
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.NeutralHover}"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="CornerRadius" Value="{DynamicResource BS.CornerRadiusSmall}"/>
+  </Style>
+  <Style Selector="Expander.settings /template/ ToggleButton#ExpanderHeader:pressed /template/ Border#ToggleButtonBackground">
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.NeutralPressed}"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="CornerRadius" Value="{DynamicResource BS.CornerRadiusSmall}"/>
+  </Style>
+  <Style Selector="Expander.settings /template/ ToggleButton#ExpanderHeader:pointerover /template/ Border#ExpandCollapseChevronBorder">
+    <Setter Property="Background" Value="Transparent"/>
+  </Style>
+  <Style Selector="Expander.settings /template/ ToggleButton#ExpanderHeader:pressed /template/ Border#ExpandCollapseChevronBorder">
+    <Setter Property="Background" Value="Transparent"/>
   </Style>
   <!-- Fluent template's inner ContentPresenter also takes a Background
        brush on hover; explicitly zero it so no nested band leaks. -->

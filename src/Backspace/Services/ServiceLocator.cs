@@ -118,7 +118,7 @@ public static class ServiceLocator
         Maintenance = new MaintenanceCoordinator();
         Orchestrator = new BackupOrchestrator(Config, Secrets, Engine, Logs, Healthcheck, Mail, Notifier, Progress);
         Scheduler = TaskSchedulerService.Create();
-        Filters = new FilterSimulator(Engine);
+        Filters = new FilterSimulator();
         Migrator = new ConfigMigrator(Config);
         Restore = new RestoreEngine(Config, Engine, Secrets);
         ActiveRestores = new ActiveRestoreRegistry();
@@ -174,7 +174,8 @@ public static class ServiceLocator
     internal static void RebuildEngineDependents()
     {
         Orchestrator    = new BackupOrchestrator(Config, Secrets, Engine, Logs, Healthcheck, Mail, Notifier, Progress);
-        Filters         = new FilterSimulator(Engine);
+        // FilterSimulator walks the local filesystem directly and has no
+        // engine reference, so it doesn't need a rebuild on engine swap.
         Restore         = new RestoreEngine(Config, Engine, Secrets);
         Revisions       = new RevisionBrowser(Engine, Secrets);
         Cleaner         = new StorageCleaner(Config, Secrets, Engine) { Probe = DestProbe, LogStore = Logs };

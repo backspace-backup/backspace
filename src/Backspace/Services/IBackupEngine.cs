@@ -101,17 +101,6 @@ public interface IBackupEngine
         string storageName,
         CancellationToken ct);
 
-    /// <summary>Enumerate source files honoring the backup's filter rules,
-    /// without writing anything to the storage. Drives the
-    /// recommended-filters preview UI.</summary>
-    Task<RunRecord> EnumOnlyAsync(
-        Backup backup,
-        string sourcePath,
-        Destination destination,
-        string storageName,
-        CancellationToken ct,
-        Action<string>? lineSink = null);
-
     /// <summary>List revisions on the storage. Read-only; safe to call
     /// concurrently with backups.</summary>
     Task<RunRecord> ListRevisionsAsync(

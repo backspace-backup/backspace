@@ -732,16 +732,24 @@
                       </ItemsControl>
                     </StackPanel>
 
-                    <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,4,0,0" VerticalAlignment="Center">
-                      <Button Classes="primary"
+                    <!-- Grid (not StackPanel Horizontal): a horizontal
+                         StackPanel measures the status text at infinite
+                         width, so its Wrap never engages and long
+                         messages ("Nothing in your sources matched…")
+                         hard-clip at the card edge. The star column
+                         gives the wrap a real constraint. -->
+                    <Grid ColumnDefinitions="Auto,14,*" Margin="0,4,0,0">
+                      <Button Grid.Column="0" Classes="primary"
+                              VerticalAlignment="Center"
                               Content="Apply recommended exclusions"
                               Command="{Binding ApplyRecommendedFiltersCommand}"/>
-                      <TextBlock Classes="dim" FontSize="12"
+                      <TextBlock Grid.Column="2" Classes="dim" FontSize="12"
+                                 TextWrapping="Wrap"
                                  Foreground="{DynamicResource BS.Brush.Accent}"
                                  VerticalAlignment="Center"
                                  Text="{Binding RecEstimatedSavingsLabel}"
                                  IsVisible="{Binding RecEstimatedSavingsLabel, Converter={x:Static vm:NotEmpty.To}}"/>
-                    </StackPanel>
+                    </Grid>
                   </StackPanel>
                 </Border>
 
@@ -767,12 +775,16 @@
                          Foreground="{DynamicResource BS.Brush.FgSecondary}"
                          TextWrapping="Wrap"
                          Text="Free-form exclusion rules — one glob per line. Bare lines (e.g. `*.tmp`, `cache/`) are case-insensitive on Windows and case-sensitive on macOS/Linux — the platform default. `#` lines are comments. Leading `/` anchors a pattern to the source root; trailing `/` matches directories only; `*` matches one path segment, `**` matches across slashes. Restic backs up everything that no rule excludes."/>
-              <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10" Margin="0,0,0,12">
-                <Button Classes="ghost" Content="Simulate"
+              <!-- Grid so the hint wraps instead of clipping at narrow
+                   window widths (horizontal StackPanels defeat Wrap). -->
+              <Grid Grid.Row="1" ColumnDefinitions="Auto,10,*" Margin="0,0,0,12">
+                <Button Grid.Column="0" Classes="ghost" Content="Simulate"
+                        VerticalAlignment="Center"
                         Command="{Binding RunFilterSimulationCommand}"/>
-                <TextBlock Classes="dim" VerticalAlignment="Center"
-                           Text="Runs an enumerate-only pass — the right pane shows what would end up in the snapshot."/>
-              </StackPanel>
+                <TextBlock Grid.Column="2" Classes="dim" VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           Text="Checks your rules against the files on disk. The right pane shows what would end up in the snapshot."/>
+              </Grid>
               <Grid Grid.Row="2" ColumnDefinitions="*,16,*" RowDefinitions="Auto,*">
                 <!-- LEFT header. -->
                 <StackPanel Grid.Column="0" Grid.Row="0" Margin="0,0,0,6" Spacing="2">

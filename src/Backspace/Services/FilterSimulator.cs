@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,50 +13,160 @@ namespace Backspace.Services;
 /// Shows what restic's filter file would actually include / exclude.
 ///
 /// Two modes:
-///  • SimulateAsync — runs the engine's enum-only pass and returns the
-///    real tree. Authoritative but slower (walks the actual filesystem).
-///  • Preview       — runs our own mini glob matcher against a list of
-///    candidate paths without touching restic. Instant; useful while
-///    typing.
+///  • SimulateAsync — walks the backup's real source trees on disk and
+///    evaluates every path against the translated rules. No engine, no
+///    repo, no destination required: a filter preview must work before
+///    the first backup ever runs, and must not depend on the
+///    destination being reachable. (The previous implementation ran
+///    <c>restic backup --dry-run</c> through Backrest's RunCommand RPC;
+///    that broke on Windows because Backrest splits the command string
+///    with POSIX shlex rules — <c>C:\ntws</c> arrived as <c>C:ntws</c> —
+///    and restic's dry-run output doesn't name the matching rule
+///    anyway, which is the whole point of the pane.)
+///  • Preview       — runs the same matcher against a caller-supplied
+///    list of candidate paths without touching the disk. Instant;
+///    useful while typing.
 ///
-/// The preview routes the filter text through <see cref="FilterTranslator"/>
-/// first so what it shows matches what the engine actually sends to
+/// Both modes route the filter text through <see cref="FilterTranslator"/>
+/// first so what they show matches what the engine actually sends to
 /// restic. The "matching rule" string surfaced for each excluded path
 /// is the bare restic glob — the same string a user could copy into a
 /// vanilla restic <c>--exclude-file</c> and expect to behave the same.
+/// Paths are matched RELATIVE to their source root with forward-slash
+/// separators, mirroring <see cref="SavingsEstimator"/>.
 /// </summary>
 public sealed class FilterSimulator
 {
     private static ILogger _log => AppLogger.For<FilterSimulator>();
-    private readonly IBackupEngine _engine;
 
-    public FilterSimulator(IBackupEngine engine) => _engine = engine;
+    /// <summary>Per-source cap on how long the walk runs before giving
+    /// up with a partial listing. Mirrors <see cref="SavingsEstimator.MaxScanDuration"/>.</summary>
+    public TimeSpan MaxScanDuration { get; init; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>Hard cap on emitted entries across all sources so a huge
+    /// tree can't flood the results pane (and the UI string behind it).</summary>
+    public int MaxEntries { get; init; } = 5000;
 
     /// <summary>
-    /// Runs a real enum-only pass against every source path of the
-    /// backup and feeds results through the callback.
+    /// Walks every source path of the backup, evaluates each file and
+    /// directory against the backup's translated filter rules, and
+    /// feeds results through the callback. Files are emitted
+    /// individually; an excluded directory is emitted once (with a
+    /// trailing separator) and its subtree is not entered — matching
+    /// restic, which never descends into an excluded directory.
+    /// The callback runs on a worker thread.
     /// </summary>
-    public async Task SimulateAsync(Backup backup, Destination destination, string storageName,
-                                    Action<SimulatedEntry> onLine, CancellationToken ct)
+    public async Task<SimulateResult> SimulateAsync(Backup backup, Action<SimulatedEntry> onEntry, CancellationToken ct)
     {
-        void LineHandler(string raw)
-        {
-            var entry = ParseEnumLine(raw);
-            if (entry is not null) onLine(entry.Value);
-        }
+        var rules = CompileRules(backup.FiltersText);
 
-        _log.Information("Filter simulation start: backup={Backup} sources={Count} destination={Dest}",
-            backup.Name, backup.SourcePaths.Count, destination.Name);
+        _log.Information("Filter simulation start: backup={Backup} sources={Count} rules={Rules}",
+            backup.Name, backup.SourcePaths.Count, rules.Count);
 
-        // Per-call lineSink (not the engine's global LineWritten) so a
-        // concurrent backup running elsewhere doesn't bleed its stdout
-        // into this preview.
+        var emitted = 0;
+        var truncated = false;
+
         foreach (var sourcePath in backup.SourcePaths)
         {
-            if (ct.IsCancellationRequested) break;
-            await _engine.EnumOnlyAsync(backup, sourcePath, destination, storageName, ct, lineSink: LineHandler);
+            if (ct.IsCancellationRequested || emitted >= MaxEntries) break;
+            if (string.IsNullOrWhiteSpace(sourcePath) || !Directory.Exists(sourcePath)) continue;
+
+            var (count, hitCap) = await Task.Run(
+                () => WalkOne(sourcePath, rules, onEntry, MaxEntries - emitted, ct), ct);
+            emitted += count;
+            if (hitCap) truncated = true;
         }
-        _log.Information("Filter simulation finished for {Backup}", backup.Name);
+
+        _log.Information("Filter simulation finished for {Backup}: entries={Entries} truncated={Truncated}",
+            backup.Name, emitted, truncated);
+        return new SimulateResult(emitted, truncated);
+    }
+
+    private (int Emitted, bool Truncated) WalkOne(
+        string sourceRoot, IReadOnlyList<Rule> rules, Action<SimulatedEntry> onEntry,
+        int budget, CancellationToken ct)
+    {
+        var emitted = 0;
+        var truncated = false;
+        var deadline = DateTime.UtcNow + MaxScanDuration;
+
+        var rootFull = Path.GetFullPath(sourceRoot).TrimEnd('\\', '/');
+        var stack = new Stack<string>();
+        stack.Push(rootFull);
+
+        bool Emit(SimulatedEntry entry)
+        {
+            if (emitted >= budget) { truncated = true; return false; }
+            onEntry(entry);
+            emitted++;
+            return true;
+        }
+
+        while (stack.Count > 0 && !truncated)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (DateTime.UtcNow > deadline) { truncated = true; break; }
+
+            var dir = stack.Pop();
+            IEnumerable<string>? files = null;
+            IEnumerable<string>? subs  = null;
+            try
+            {
+                files = Directory.EnumerateFiles(dir);
+                subs  = Directory.EnumerateDirectories(dir);
+            }
+            catch (UnauthorizedAccessException) { continue; }
+            catch (DirectoryNotFoundException)  { continue; }
+            catch (PathTooLongException)        { continue; }
+            catch (IOException)                 { continue; }
+
+            foreach (var f in files)
+            {
+                if (truncated) break;
+                try
+                {
+                    var info = new FileInfo(f);
+                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+                }
+                catch { continue; }
+
+                var rel = MakeRelative(rootFull, f);
+                var (included, rule) = Evaluate(rules, rel);
+                Emit(new SimulatedEntry(f, included, rule));
+            }
+
+            foreach (var sub in subs)
+            {
+                if (truncated) break;
+                try
+                {
+                    var info = new DirectoryInfo(sub);
+                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+                }
+                catch { continue; }
+
+                var rel = MakeRelative(rootFull, sub) + "/";
+                var (included, rule) = Evaluate(rules, rel);
+                if (included)
+                {
+                    stack.Push(sub);            // descend silently — files report themselves
+                }
+                else
+                {
+                    // One line for the whole skipped subtree, like restic.
+                    Emit(new SimulatedEntry(sub + Path.DirectorySeparatorChar, included: false, rule));
+                }
+            }
+        }
+
+        return (emitted, truncated);
+    }
+
+    private static string MakeRelative(string root, string full)
+    {
+        if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            full = full.Substring(root.Length).TrimStart('\\', '/');
+        return full.Replace('\\', '/');
     }
 
     /// <summary>
@@ -66,13 +177,7 @@ public sealed class FilterSimulator
     /// </summary>
     public IReadOnlyList<SimulatedEntry> Preview(string filtersText, IEnumerable<string> candidatePaths)
     {
-        var translated = FilterTranslator.Translate(filtersText);
-        var rules = new List<Rule>(translated.Excludes.Count + translated.IExcludes.Count);
-        foreach (var g in translated.Excludes)
-            rules.Add(CompileGlob(g, caseInsensitive: false));
-        foreach (var g in translated.IExcludes)
-            rules.Add(CompileGlob(g, caseInsensitive: true));
-
+        var rules = CompileRules(filtersText);
         var results = new List<SimulatedEntry>();
         foreach (var p in candidatePaths)
         {
@@ -80,6 +185,17 @@ public sealed class FilterSimulator
             results.Add(new SimulatedEntry(p, kept, rule));
         }
         return results;
+    }
+
+    private static List<Rule> CompileRules(string filtersText)
+    {
+        var translated = FilterTranslator.Translate(filtersText);
+        var rules = new List<Rule>(translated.Excludes.Count + translated.IExcludes.Count);
+        foreach (var g in translated.Excludes)
+            rules.Add(CompileGlob(g, caseInsensitive: false));
+        foreach (var g in translated.IExcludes)
+            rules.Add(CompileGlob(g, caseInsensitive: true));
+        return rules;
     }
 
     private static Rule CompileGlob(string glob, bool caseInsensitive)
@@ -97,24 +213,7 @@ public sealed class FilterSimulator
         }
     }
 
-    // ---- engine stdout shape ----
-
-    private static SimulatedEntry? ParseEnumLine(string line)
-    {
-        var packM = PackRx.Match(line);
-        if (packM.Success) return new SimulatedEntry(packM.Groups[1].Value, true, null);
-
-        var skipM = SkipRx.Match(line);
-        if (skipM.Success) return new SimulatedEntry(skipM.Groups[1].Value, false, skipM.Groups[2].Value);
-
-        return null;
-    }
-
-    private static readonly Regex PackRx = new(@"Packing\s+(.+)$", RegexOptions.Compiled);
-    private static readonly Regex SkipRx = new(@"Skipped\s+(?:file|directory)\s+(.+?)(?:\s+\(filter rule:\s*(.+?)\))?$",
-        RegexOptions.Compiled);
-
-    // ---- preview engine ----
+    // ---- matcher ----
 
     /// <summary>Compiled exclude rule. <see cref="Glob"/> is the original
     /// restic pattern (what we surface to the user as "matched by");
@@ -141,3 +240,8 @@ public sealed class FilterSimulator
 }
 
 public readonly record struct SimulatedEntry(string Path, bool Included, string? MatchingRule);
+
+/// <param name="Entries">How many entries were fed to the callback.</param>
+/// <param name="Truncated">True if the walk hit <see cref="FilterSimulator.MaxEntries"/>
+/// or <see cref="FilterSimulator.MaxScanDuration"/> before finishing.</param>
+public readonly record struct SimulateResult(int Entries, bool Truncated);

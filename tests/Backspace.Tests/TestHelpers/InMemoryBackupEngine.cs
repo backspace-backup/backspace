@@ -389,18 +389,6 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
 
     // ---- engine plumbing the orchestrator/UI still touches ----
 
-    public Task<RunRecord> EnumOnlyAsync(Backup backup, string sourcePath, Destination destination, string storageName, CancellationToken ct, Action<string>? lineSink = null)
-    {
-        Calls.Enqueue($"EnumOnly({backup.Name},{sourcePath})");
-        // Walk the source filesystem so the recommended-filters UI can
-        // see a realistic count.
-        var count = Directory.Exists(sourcePath)
-            ? Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories).Count()
-            : 0;
-        lineSink?.Invoke($"[fake] enumeration complete ({count} files)");
-        return Task.FromResult(SimpleRecord(backup, $"enumeration: {count} file(s)"));
-    }
-
     public Task<RunRecord> ListRevisionsAsync(Backup backup, string sourcePath, Destination destination, string storageName, CancellationToken ct)
     {
         Calls.Enqueue($"ListRevisions({backup.Name},{sourcePath})");

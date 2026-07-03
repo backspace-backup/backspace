@@ -282,16 +282,18 @@
                     Background="{DynamicResource BS.Brush.AccentTint}"
                     BorderBrush="{DynamicResource BS.Brush.Accent}"
                     IsVisible="{Binding IsAuthSuccess}">
-              <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <TextBlock Text="✓" FontWeight="Bold" FontSize="16"
+              <!-- Grid so long provider messages wrap inside the callout
+                   (horizontal StackPanels defeat TextWrapping). -->
+              <Grid ColumnDefinitions="Auto,10,*">
+                <TextBlock Grid.Column="0" Text="✓" FontWeight="Bold" FontSize="16"
                            Foreground="{DynamicResource BS.Brush.AccentTintFg}"
                            VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding AuthStatus}"
+                <TextBlock Grid.Column="2" Text="{Binding AuthStatus}"
                            FontWeight="SemiBold" FontSize="13"
                            TextWrapping="Wrap"
                            Foreground="{DynamicResource BS.Brush.AccentTintFg}"
                            VerticalAlignment="Center"/>
-              </StackPanel>
+              </Grid>
             </Border>
 
             <Border Padding="14,10"
@@ -300,16 +302,18 @@
                     Background="{DynamicResource BS.Brush.DangerTint}"
                     BorderBrush="{DynamicResource BS.Brush.Danger}"
                     IsVisible="{Binding IsAuthError}">
-              <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Top">
-                <TextBlock Text="✕" FontWeight="Bold" FontSize="16"
+              <!-- Grid so OAuth/exception details wrap inside the callout
+                   instead of clipping at its right edge. -->
+              <Grid ColumnDefinitions="Auto,10,*">
+                <TextBlock Grid.Column="0" Text="✕" FontWeight="Bold" FontSize="16"
                            Foreground="{DynamicResource BS.Brush.DangerTintFg}"
                            VerticalAlignment="Top"/>
-                <TextBlock Text="{Binding AuthStatus}"
+                <TextBlock Grid.Column="2" Text="{Binding AuthStatus}"
                            FontWeight="SemiBold" FontSize="13"
                            TextWrapping="Wrap"
                            Foreground="{DynamicResource BS.Brush.DangerTintFg}"
                            VerticalAlignment="Top"/>
-              </StackPanel>
+              </Grid>
             </Border>
 
             <!-- Cloud subfolder — auto-fills from the destination name

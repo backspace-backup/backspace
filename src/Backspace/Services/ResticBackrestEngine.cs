@@ -1803,104 +1803,15 @@ public sealed class ResticBackrestEngine : IBackupEngine
         };
     }
 
-    /// <summary>
-    /// Dry-run backup that walks the source honoring the configured
-    /// filters and reports what <em>would</em> be backed up. Implemented
-    /// as <c>backup --dry-run &lt;path&gt;</c> via RunCommand. The
-    /// per-file output restic emits to stdout lands in Backrest's
-    /// captured-stdout store (keyed by <c>outputLogref</c> on the
-    /// operation); after the operation terminates we drain that store
-    /// via the <c>/v1.Backrest/GetLogs</c> server-streaming RPC and
-    /// forward each line to <paramref name="lineSink"/> AND the
-    /// engine's <see cref="LineWritten"/> event. Failure to drain is
-    /// best-effort — the dry-run already finished, so the summary
-    /// number on the returned RunRecord is still accurate.
-    /// </summary>
-    public async Task<RunRecord> EnumOnlyAsync(
-        Backup backup, string sourcePath, Destination destination, string storageName,
-        CancellationToken ct, Action<string>? lineSink = null)
-    {
-        var client = await EnsureClientAsync(ct).ConfigureAwait(false);
-        await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
-
-        // restic accepts a list of paths; we pass exactly one (the
-        // sourcePath) since the Plan we constructed has Paths = [sourcePath].
-        // Quote it to survive paths containing spaces.
-        var quoted = sourcePath.Contains(' ') ? "\"" + sourcePath + "\"" : sourcePath;
-        var started = DateTime.UtcNow;
-        var startedLine = $"[backspace] dry-run started for {sourcePath} → {destination.Name}/{storageName}";
-        RaiseLineWritten(startedLine);
-        lineSink?.Invoke(startedLine);
-
-        Int64Value op;
-        try
-        {
-            op = await client.CallAsync<RunCommandRequest, Int64Value>(
-                "/v1.Backrest/RunCommand",
-                new RunCommandRequest
-                {
-                    RepoId = MakeRepoId(destination, storageName),
-                    Command = "backup --dry-run " + quoted,
-                }, ct).ConfigureAwait(false);
-        }
-        catch (BackrestRpcException ex) { throw TranslateRpcError(ex, "Dry-run / Simulate"); }
-
-        // Stream status transitions to both the engine's LineWritten
-        // event (Logs view live-tail) and the per-call lineSink
-        // (FilterSimulator's "what would be included" pane). Without
-        // this the Simulate button kicked off the op and immediately
-        // returned, leaving the result pane empty until the user
-        // clicked Simulate a second time.
-        await WaitForOperationTerminalAsync(client, op.Value, ct, lineSink).ConfigureAwait(false);
-
-        // Drain restic's captured stdout (the actual "would-back-up"
-        // file list, not just status transitions) via GetLogs. The
-        // operation's outputLogref points at the captured stream;
-        // Backrest's streaming RPC returns it as one StringValue per
-        // chunk, each chunk being one or more newline-terminated
-        // lines. Best-effort: a drain failure doesn't invalidate the
-        // dry-run, the user just sees the summary without per-file
-        // detail.
-        try
-        {
-            var opResp = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
-                "/v1.Backrest/GetOperations",
-                new GetOperationsRequest { Selector = new OpSelector { Ids = new[] { op.Value.ToString() } } },
-                ct).ConfigureAwait(false);
-            var logRef = opResp.Operations?.FirstOrDefault()?.OperationRunCommand?.OutputLogref;
-            if (!string.IsNullOrEmpty(logRef))
-            {
-                await foreach (var chunk in client.StreamAsync<GetLogsRequest, StringValue>(
-                    "/v1.Backrest/GetLogs",
-                    new GetLogsRequest { Ref = logRef! }, ct).ConfigureAwait(false))
-                {
-                    if (string.IsNullOrEmpty(chunk.Value)) continue;
-                    foreach (var line in chunk.Value.Split('\n'))
-                    {
-                        var trimmed = line.TrimEnd('\r');
-                        if (trimmed.Length == 0) continue;
-                        RaiseLineWritten(trimmed);
-                        lineSink?.Invoke(trimmed);
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _log.Debug(ex, "Dry-run log drain via GetLogs failed; summary-only result returned");
-        }
-
-        return new RunRecord
-        {
-            BackupId = backup.Id,
-            BackupName = backup.Name,
-            Kind = RunKind.Backup,
-            StartedUtc = started,
-            EndedUtc = DateTime.UtcNow,
-            Status = BackupRunStatus.Success,
-            Summary = $"dry-run finished (op {op.Value})",
-        };
-    }
+    // EnumOnlyAsync (restic "backup --dry-run" via RunCommand) used to
+    // live here for the Filters > Advanced Simulate pane. It was
+    // removed once FilterSimulator switched to a local filesystem walk:
+    // the dry-run ran UNFILTERED (RunCommand bypasses the Backrest
+    // plan, so the plan's excludes never reached restic), required the
+    // repo to be reachable just to preview filters, and restic has no
+    // output mode that names the matching rule per excluded path. Any
+    // future RunCommand caller that embeds a path or glob MUST wrap it
+    // with QuoteArg — see that helper's doc for the shlex trap.
 
     /// <summary>
     /// Rotates the master-key encryption password on the repo by
