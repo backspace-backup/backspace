@@ -43,6 +43,10 @@ public sealed class WindowsTaskScheduler : IScheduler
     /// nuke unrelated user tasks.</summary>
     private static readonly string[] LegacyTaskPrefixes = { "EDB", "Duplimate" };
 
+    // Task NAMES keep the em dash on purpose: they are persisted
+    // identifiers in Windows Task Scheduler, and the legacy-cleanup
+    // sweep pattern-matches "<prefix> — *". Renaming the format would
+    // strand every existing user's registered tasks.
     public string TaskNameFor(Backup backup) => $"{TaskPrefix} — {backup.Name}";
 
     public string TaskNameFor(Backup backup, ScheduledTaskKind kind) => kind switch
@@ -105,7 +109,7 @@ public sealed class WindowsTaskScheduler : IScheduler
             schedule.SkipOnBattery, schedule.StopOnBattery, schedule.RequireNetwork, schedule.CatchUpMissedRuns);
 
         var td = ts.NewTask();
-        td.RegistrationInfo.Description = $"Backspace — {backup.Name}" +
+        td.RegistrationInfo.Description = $"Backspace - {backup.Name}" +
             (kind == ScheduledTaskKind.Backup ? "" : $" ({kind})");
         td.RegistrationInfo.Author = "Backspace";
 

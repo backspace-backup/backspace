@@ -293,8 +293,8 @@ public sealed partial class BackupOrchestrator
             // Slow path: someone else holds it — surface "queued"
             // and poll until it's free or the user cancels.
             var destName = ResolveDestinationDisplayName(destId);
-            var reason = $"waiting for «{destName}» — another backup is using it";
-            runRecord.Summary = $"Queued — {reason}";
+            var reason = $"waiting for «{destName}» (another backup is using it)";
+            runRecord.Summary = $"Queued: {reason}";
             _log.Information(
                 "Run {Name} queued on destination {Dest}/{Storage}", backup.Name, destId, storage);
             try { RunQueuedReasonChanged?.Invoke(backup.Id, reason); }
@@ -615,7 +615,7 @@ public sealed partial class BackupOrchestrator
             _log.Warning(
                 "Run for {Name} already in progress in another process — refusing duplicate request", backup.Name);
             return MakeSkippedRunRecord(backup,
-                "Skipped — another run for this backup is already in progress (scheduled task or another window).");
+                "Skipped: another run for this backup is already in progress (scheduled task or another window).");
         }
 
         // From here on, the semaphore IS held. Wrap everything in a single
@@ -669,7 +669,7 @@ public sealed partial class BackupOrchestrator
             {
                 _log.Warning("Run for {Name} already in progress — refusing duplicate request", backup.Name);
                 return MakeSkippedRunRecord(backup,
-                    "Skipped — another run for this backup is already in progress.");
+                    "Skipped: another run for this backup is already in progress.");
             }
 
             // Re-check the maintenance gate now that we're registered.
@@ -690,7 +690,7 @@ public sealed partial class BackupOrchestrator
                 _runningRuns.TryRemove(backup.Id, out _);
                 _log.Information(
                     "Run for {Name} aborting — a storage-maintenance task started during run startup", backup.Name);
-                return MakeSkippedRunRecord(backup, "Skipped — storage maintenance is in progress.");
+                return MakeSkippedRunRecord(backup, "Skipped: storage maintenance is in progress.");
             }
             using var _syncing = AppStatus.BeginSyncing();
             ct = localCts.Token;

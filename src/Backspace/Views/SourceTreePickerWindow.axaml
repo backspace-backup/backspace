@@ -3,7 +3,7 @@
         xmlns:vm="using:Backspace.ViewModels"
         x:Class="Backspace.Views.SourceTreePickerWindow"
         x:DataType="vm:SourceTreePickerViewModel"
-        Title="Pick folders to back up — Backspace"
+        Title="Pick folders to back up - Backspace"
         Width="640" Height="720"
         MinWidth="480" MinHeight="480"
         Background="{DynamicResource BS.Brush.BgBase}"

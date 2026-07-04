@@ -218,10 +218,10 @@
         <StackPanel Grid.Column="2" Spacing="16">
           <TextBlock Classes="card-title" Text="Let's set up your first backup"/>
           <TextBlock Classes="body" TextWrapping="Wrap"
-                     Text="Pick a folder that matters — your photos, documents, or anywhere important lives. We'll keep a safe copy somewhere you choose: an external drive, Dropbox, OneDrive, Google Drive, or Amazon S3."/>
+                     Text="Pick a folder that matters: your photos, documents, or anywhere important lives. We'll keep a safe copy somewhere you choose: an external drive, Dropbox, OneDrive, Google Drive, or Amazon S3."/>
           <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,6,0,0">
             <Button Classes="primary" Command="{Binding AddNewCommand}">
-              <TextBlock Text="Set up a backup — about 2 minutes"/>
+              <TextBlock Text="Set up a backup (about 2 minutes)"/>
             </Button>
           </StackPanel>
         </StackPanel>

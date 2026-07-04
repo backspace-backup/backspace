@@ -120,7 +120,7 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
             .ConfigureAwait(false);
         if (revisions.Count == 0)
             return MountResult.Failed(
-                "No snapshots yet — run a backup first, then come back to mount it.");
+                "No snapshots yet. Run a backup first, then come back to mount it.");
 
         // WinFSP runtime check + auto-install on first Mount click.
         // We do this BEFORE building the provider / coordinator so a

@@ -128,12 +128,12 @@ public sealed class BackrestSidecar : IAsyncDisposable
             throw new InvalidOperationException("BackrestSidecar is already running.");
         if (!File.Exists(BackrestBinaryPath))
             throw new EngineBinaryMissingException(
-                $"Backrest engine isn't installed alongside Backspace.exe — expected at {BackrestBinaryPath}. " +
+                $"Backrest engine isn't installed alongside Backspace.exe. Expected at {BackrestBinaryPath}. " +
                 "Re-run the installer or do a full build (without -p:SkipBackrestDownload). Retrying won't help.",
                 BackrestBinaryPath);
         if (!File.Exists(ResticBinaryPath))
             throw new EngineBinaryMissingException(
-                $"Restic engine isn't installed alongside Backspace.exe — expected at {ResticBinaryPath}. " +
+                $"Restic engine isn't installed alongside Backspace.exe. Expected at {ResticBinaryPath}. " +
                 "Re-run the installer or do a full build (without -p:SkipBackrestDownload). Retrying won't help.",
                 ResticBinaryPath);
 

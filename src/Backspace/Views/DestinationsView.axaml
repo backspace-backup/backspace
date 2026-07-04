@@ -11,7 +11,7 @@
       <!-- Page header: plain title + subtitle, flush left. -->
       <TextBlock Classes="page-title" Text="Where backups live"/>
       <TextBlock Classes="page-subtitle" MaxWidth="720"
-                 Text="A destination is a place your backups are stored — an external drive, a cloud account, or a network share. Add as many as you like; the same backup can go to several at once."/>
+                 Text="A destination is a place your backups are stored: an external drive, a cloud account, or a network share. Add as many as you like; the same backup can go to several at once."/>
 
       <!-- Toolbar + list: only when we have rows. Empty state below owns the
            primary CTA so there's exactly one obvious next step. -->

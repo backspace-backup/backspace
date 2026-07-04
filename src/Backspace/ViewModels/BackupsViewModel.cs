@@ -362,8 +362,8 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         {
             HealthClass = "fail";
             HealthHeadline = failed.Count == 1
-                ? "1 backup failed on its last run — needs attention."
-                : $"{failed.Count} backups failed on their last run — need attention.";
+                ? "1 backup failed on its last run and needs attention."
+                : $"{failed.Count} backups failed on their last run and need attention.";
             HealthDetail = $"Last activity: {ago}{okTail}";
             foreach (var b in failed)
                 AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "fail"));
@@ -520,8 +520,8 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             title: "Remove this backup?",
             subtitle:
                 $"«{b.Name}» will no longer run on schedule and will disappear from Backspace. " +
-                "The backup data already stored at your destinations stays where it is — " +
-                "you can delete it from there separately if you want.",
+                "The backup data already stored at your destinations stays where it is. " +
+                "You can delete it from there separately if you want.",
             confirmString: "OK",
             caseInsensitive: true);
         var ok = await dlg.ShowDialog<bool>(owner);
@@ -610,7 +610,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 {
                     ServiceLocator.Orchestrator.ForceFinaliseRun(
                         backupId,
-                        "Stopped by user — the run thread didn't release its registry entry within 8 seconds, so we force-finalised it. " +
+                        "Stopped by user. The run thread didn't release its registry entry within 8 seconds, so we force-finalised it. " +
                         "If a restic / backrest / rclone process is still running in Task Manager, it may need to be killed manually.");
                 }
             }

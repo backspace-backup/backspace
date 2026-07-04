@@ -88,5 +88,5 @@ public static class CloudFileBehavior
     /// flag so users see what they're signing up for.</summary>
     public static string ExplainBackupBehavior(bool excludeCloudFiles) => excludeCloudFiles
         ? "Cloud-only files (OneDrive / Dropbox / iCloud) are skipped. Restoring later won't re-create them, but your backups stay small and your local disk stays free."
-        : "Cloud-only files are downloaded on the fly during backup. The cloud provider keeps the local copy after the read, so your local disk fills up with whatever you backed up — you'll need to manually free space afterward.";
+        : "Cloud-only files are downloaded on the fly during backup. The cloud provider keeps the local copy after the read, so your local disk fills up with whatever you backed up. You'll need to manually free space afterward.";
 }

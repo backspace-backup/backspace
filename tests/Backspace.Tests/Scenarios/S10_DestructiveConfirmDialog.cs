@@ -30,8 +30,8 @@ public sealed class S10_DestructiveConfirmDialog : ScenarioBase
             title: "Delete backup «WorkingDocs»?",
             subtitle:
                 "«WorkingDocs» will no longer run on schedule and will disappear from Backspace. " +
-                "The backup data already stored at your destinations stays where it is — " +
-                "you can delete it from there separately if you want.",
+                "The backup data already stored at your destinations stays where it is. " +
+                "You can delete it from there separately if you want.",
             confirmString: "OK",
             caseInsensitive: true)
         { Width = 560, Height = 420 };

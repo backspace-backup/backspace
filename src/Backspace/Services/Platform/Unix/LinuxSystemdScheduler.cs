@@ -89,7 +89,7 @@ public sealed class LinuxSystemdScheduler : IScheduler
     {
         var sb = new StringBuilder();
         sb.AppendLine("[Unit]");
-        sb.AppendLine($"Description=Backspace — {backup.Name}");
+        sb.AppendLine($"Description=Backspace - {backup.Name}");
         sb.AppendLine();
         sb.AppendLine("[Service]");
         sb.AppendLine("Type=oneshot");

@@ -117,7 +117,7 @@ public sealed partial class BackupOrchestrator
             // reason wins (TrySetCancelReason no-ops here).
             if (_runningRuns.TryGetValue(backup.Id, out var info))
             {
-                info.TrySetCancelReason("Network became metered (mobile / tethered) — backup paused per backup setting.");
+                info.TrySetCancelReason("Network became metered (mobile / tethered); backup paused per backup setting.");
             }
         });
 
@@ -305,7 +305,7 @@ public sealed partial class BackupOrchestrator
                         // the per-run log surface what happened.
                         _log.Error(ex, "Cell {Src}→{Dest} threw an unexpected exception", sourcePath, dest.Name);
                         cellOutcome.LastError = ex.Message;
-                        cellOutcome.Summary = "Unexpected error — check Activity & logs for the full message.";
+                        cellOutcome.Summary = "Unexpected error. Check Activity & logs for the full message.";
                     }
                     finally
                     {
@@ -581,7 +581,7 @@ public sealed partial class BackupOrchestrator
                     _log.Information(ex,
                         "Cell {Src}→{Dest} transient retry — {Remaining:F0}s of budget left (cascade attempt {Attempt}/{Max})",
                         sourcePath, dest.Name, remaining, attempt + 1, CellRetryBackoffs.Length);
-                    lineSink?.Invoke($"[orchestrator] transient retry — {remaining:F0}s left of budget: {ex.Message}");
+                    lineSink?.Invoke($"[orchestrator] transient retry ({remaining:F0}s of budget left): {ex.Message}");
                     lastError = ex.Message;
                     // If the cascade is at its last iteration but the
                     // budget allows more time, decrement `attempt` so

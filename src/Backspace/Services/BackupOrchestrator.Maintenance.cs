@@ -104,7 +104,7 @@ public sealed partial class BackupOrchestrator
                         // cellsSkipped+ was masking the real problem
                         // by routing the aggregate to Skipped, so
                         // it's now cellsFailed+ instead.
-                        aggregate.Errors.Add($"Destination id={target.DestinationId} no longer exists for source '{src}' — Backup needs reconfiguration.");
+                        aggregate.Errors.Add($"Destination id={target.DestinationId} no longer exists for source '{src}'. Backup needs reconfiguration.");
                         cellsFailed++;
                         continue;
                     }
@@ -127,7 +127,7 @@ public sealed partial class BackupOrchestrator
                         {
                             aggregate.Errors.Add(
                                 $"{action} cancelled at source '{src}', dest '{dest.Name}': " +
-                                "network became metered (mobile / tethered) — per backup setting.");
+                                "network became metered (mobile / tethered), per backup setting.");
                         }
                         else
                         {
@@ -172,7 +172,7 @@ public sealed partial class BackupOrchestrator
                   : cellsSkipped > 0 ? BackupRunStatus.Skipped
                   : BackupRunStatus.Failed;
             var durationSec = ((aggregate.EndedUtc ?? DateTime.UtcNow) - started).TotalSeconds;
-            var meteredSuffix = meteredAborted ? " — aborted on metered network" : "";
+            var meteredSuffix = meteredAborted ? " (aborted on metered network)" : "";
             aggregate.Summary = $"{action}: {cellsOk} ok, {cellsFailed} failed, {cellsSkipped} skipped " +
                                 $"across {backup.SourcePaths.Count}×{backup.Targets.Count} cells " +
                                 $"in {durationSec:F1}s{meteredSuffix}.";

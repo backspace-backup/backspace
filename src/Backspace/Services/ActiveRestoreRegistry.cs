@@ -153,11 +153,11 @@ public sealed class ActiveRestoreSession
         : Math.Min(1.0, (double)RestoredCount / TotalFiles);
     public string ProgressLabel => $"{RestoredCount} of {TotalFiles} files";
     public string StatusLabel => IsRunning
-        ? $"Restoring — {(int)(PercentComplete * 100)}%"
+        ? $"Restoring {(int)(PercentComplete * 100)}%"
         : Status switch
           {
               RestoreTerminalStatus.Success   => "Done",
-              RestoreTerminalStatus.Warning   => "Done — with warnings",
+              RestoreTerminalStatus.Warning   => "Done (with warnings)",
               RestoreTerminalStatus.Error     => "Failed",
               RestoreTerminalStatus.Cancelled => "Cancelled",
               _ => Status.ToString(),

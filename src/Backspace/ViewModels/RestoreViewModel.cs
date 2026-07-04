@@ -84,9 +84,9 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             if (MultiSourceMode)
             {
                 var n = CheckedSourcePaths.Count;
-                return $"→ Each of the {n} ticked folders (existing files will be overwritten — you'll need to type OVERWRITE to confirm)";
+                return $"→ Each of the {n} ticked folders (existing files will be overwritten; you'll need to type OVERWRITE to confirm)";
             }
-            return $"→ {SelectedSourcePath} (existing files will be overwritten — you'll need to type OVERWRITE to confirm)";
+            return $"→ {SelectedSourcePath} (existing files will be overwritten; you'll need to type OVERWRITE to confirm)";
         }
     }
 
@@ -200,6 +200,20 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
 
     // Step 5
     [ObservableProperty] private bool _targetOriginalSource = true;
+
+    /// <summary>Positive-named mirror of <see cref="TargetOriginalSource"/>,
+    /// read One-Way by the second radio of the "target" group and by the
+    /// "different folder" field enables. Deliberately get-only: the
+    /// radios write to the VM through check-only handlers in
+    /// RestoreView.axaml.cs. Two-way radio bindings here ping-ponged
+    /// forever under RadioButtonGroupManager while templates applied
+    /// (every uncheck wrote back and flipped the source, which
+    /// re-flipped the sibling) and hung the visual suite at 100% CPU.</summary>
+    public bool TargetDifferentFolder => !TargetOriginalSource;
+
+    partial void OnTargetOriginalSourceChanged(bool value)
+        => OnPropertyChanged(nameof(TargetDifferentFolder));
+
     [ObservableProperty] private string _customTargetPath = "";
     [ObservableProperty] private bool _preserveStructure = true;
     [ObservableProperty] private bool _overwriteExisting = true;
@@ -606,7 +620,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         {
             PickBackupNoticeText =
                 $"«{SelectedBackup.Name}» is running a backup right now. Wait for it to finish " +
-                "(Activity & logs shows progress) and try again — restoring mid-run can read a " +
+                "(Activity & logs shows progress) and try again; restoring mid-run can read a " +
                 "half-finished snapshot.";
             return;
         }
@@ -1061,7 +1075,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             {
                 await ServiceLocator.Notifier.NotifyAsync(
                     title: "Restore failed",
-                    detail: ex.Message + " — see Activity & logs for details.",
+                    detail: ex.Message + " (see Activity & logs for details)",
                     severity: NotificationSeverity.Failure);
             }
             catch { /* notification failure shouldn't escape */ }
@@ -1206,7 +1220,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                 var latest = revs.FirstOrDefault(r => r.Number == pickedNumber);
                 if (latest.Number == 0 && pickedNumber != 0)
                 {
-                    AppendProgressLine($"[warn] picked revision #{pickedNumber} for {src} no longer in destination — falling back to latest");
+                    AppendProgressLine($"[warn] picked revision #{pickedNumber} for {src} no longer in destination; falling back to latest");
                     latest = revs.OrderByDescending(r => r.Number).First();
                 }
                 AppendProgressLine($"  using revision #{latest.Number} from {latest.CreatedUtc.ToLocalTime():yyyy-MM-dd HH:mm}");
@@ -1712,7 +1726,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
 
             if (list.Count > MaxFilesInRestoreList)
             {
-                LoadError = $"This revision has {list.Count:N0} files — showing the first " +
+                LoadError = $"This revision has {list.Count:N0} files; showing the first " +
                             $"{MaxFilesInRestoreList:N0}. Use the search box above to find specific files.";
                 foreach (var f in list.Take(MaxFilesInRestoreList))
                     AllFiles.Add(new RevisionFileRow(f, this));

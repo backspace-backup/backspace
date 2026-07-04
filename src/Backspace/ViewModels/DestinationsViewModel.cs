@@ -135,12 +135,12 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
             if (ownerForBlock is null) return;
             // Informational block — no typing gate; user just acknowledges.
             await DestructiveConfirmWindow.ShowInfoAsync(ownerForBlock,
-                title: "Can't edit — a backup is using it right now",
+                title: "Can't edit: a backup is using it right now",
                 subtitle:
                     $"«{dest.Name}» is currently in use by " +
                     $"{(runningUsers.Count == 1 ? "the running backup" : "running backups")}: " +
                     $"{string.Join(", ", runningUsers)}. " +
-                    "Stop the run from the Backups page first — changing credentials or paths " +
+                    "Stop the run from the Backups page first; changing credentials or paths " +
                     "while a backup is writing can break the snapshot chain.");
             return;
         }
@@ -216,13 +216,13 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
         {
             // Informational block — no typing gate.
             await DestructiveConfirmWindow.ShowInfoAsync(owner,
-                title: "Can't remove — a backup is using it right now",
+                title: "Can't remove: a backup is using it right now",
                 subtitle:
                     $"«{dest.Name}» is currently in use by " +
                     $"{(runningUsers.Count == 1 ? "the running backup" : "running backups")}: " +
                     $"{string.Join(", ", runningUsers)}. " +
-                    "Stop the run from the Backups page (Stop button on the card) and try again — " +
-                    "removing a destination mid-run can corrupt the snapshot chain or destroy data " +
+                    "Stop the run from the Backups page (Stop button on the card) and try again. " +
+                    "Removing a destination mid-run can corrupt the snapshot chain or destroy data " +
                     "the live backup is currently writing.");
             return;
         }
@@ -265,7 +265,7 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
             usedBySuffix =
                 $" «{dest.Name}» is currently used by: {string.Join(", ", orphaned)}. " +
                 $"Removing it will leave {(orphaned.Count == 1 ? "that backup" : "those backups")} " +
-                "with no destination at all — they won't run again until you add one back.";
+                "with no destination at all; they won't run again until you add one back.";
         }
         else if (diminished.Count > 0)
         {
@@ -289,7 +289,7 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
         {
             // Informational block — no typing gate.
             await DestructiveConfirmWindow.ShowInfoAsync(owner,
-                title: "Can't wipe — storage is shared",
+                title: "Can't wipe: storage is shared",
                 subtitle:
                     $"«{dest.Name}» writes to the same place as: {string.Join(", ", sharedWith)}. " +
                     "Wiping it would destroy data those destinations rely on. Remove the duplicate destinations first, " +
@@ -307,14 +307,14 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
         // snapshots are never touched). Match the dialog copy to that
         // contract so the user knows their other files are safe.
         var where = dest.IsLocalLike
-            ? $"the backup data inside «{dest.PathOrSubpath}» (data/, index/, keys/, snapshots/, config — any other files in that folder are left alone)"
+            ? $"the backup data inside «{dest.PathOrSubpath}» (data/, index/, keys/, snapshots/, config; any other files in that folder are left alone)"
             : $"the snapshot chains Backspace created at «{dest.Name}» (foreign snapshots from other tools or other machines stay untouched)";
 
         var dlg = new DestructiveConfirmWindow(
             title: "Remove this destination and its data?",
             subtitle:
                 $"The destination will disappear from Backspace AND {where} will be erased. " +
-                "There's no undo — type OK to confirm." + usedBySuffix,
+                "There's no undo. Type OK to confirm." + usedBySuffix,
             confirmString: "OK",
             caseInsensitive: true);
         var ok = await dlg.ShowDialog<bool>(owner);
@@ -466,7 +466,7 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
                 subtitle:
                     "Backup data has been removed from the destination. " +
                     "An empty restic repository skeleton (a ~1 KB `config` file and empty " +
-                    "`data/`/`index/`/`snapshots/` directory structure) stays behind — " +
+                    "`data/`/`index/`/`snapshots/` directory structure) stays behind, because " +
                     "restic's prune doesn't remove the repository's root folder. " +
                     "If you want a fully clean remote, delete the folder via the " +
                     "provider's web UI.");

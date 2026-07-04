@@ -321,7 +321,7 @@ public sealed class StorageCleaner
         PublishRunRecord(
             bucketName: backup.Name, bucketId: backup.Id,
             session, report,
-            summary: $"Erased «{backup.Name}» from «{destination.Name}» — "
+            summary: $"Erased «{backup.Name}» from «{destination.Name}»: "
                     + $"{report.DeletedSnapshotIds.Count} snapshot id(s) removed"
                     + (report.Errors.Count > 0 ? $", {report.Errors.Count} error(s)" : ""));
         return report;
@@ -380,7 +380,7 @@ public sealed class StorageCleaner
             PublishRunRecord(
                 bucketName: DestinationsBucketName, bucketId: "",
                 session, report,
-                summary: $"Deleted destination «{destination.Name}» — "
+                summary: $"Deleted destination «{destination.Name}»: "
                         + $"{report.DeletedSnapshotIds.Count} snapshot id(s) removed"
                         + (report.Errors.Count > 0 ? $", {report.Errors.Count} error(s)" : ""));
             return report;
@@ -443,7 +443,7 @@ public sealed class StorageCleaner
         var snapshotsRoot = Path.Combine(dest.PathOrSubpath, "snapshots");
         if (!Directory.Exists(snapshotsRoot))
         {
-            report.Notes.Add($"No snapshots folder at {snapshotsRoot} — nothing to clean up.");
+            report.Notes.Add($"No snapshots folder at {snapshotsRoot}; nothing to clean up.");
             return;
         }
         foreach (var id in snapshotIds)
@@ -518,7 +518,7 @@ public sealed class StorageCleaner
         var root = dest.PathOrSubpath;
         if (!Directory.Exists(root))
         {
-            report.Notes.Add($"Folder {root} doesn't exist — nothing to clean up.");
+            report.Notes.Add($"Folder {root} doesn't exist; nothing to clean up.");
             return;
         }
 
@@ -554,7 +554,7 @@ public sealed class StorageCleaner
 
         if (deletedNames.Count == 0)
         {
-            report.Notes.Add($"Folder {root} contained no backup data — nothing to remove.");
+            report.Notes.Add($"Folder {root} contained no backup data; nothing to remove.");
             return;
         }
 
@@ -574,7 +574,7 @@ public sealed class StorageCleaner
             else
             {
                 report.Notes.Add(
-                    $"Left {root} in place — it still contains files that Backspace didn't put there. " +
+                    $"Left {root} in place: it still contains files that Backspace didn't put there. " +
                     "Remove it by hand if you don't want it.");
             }
         }
@@ -627,8 +627,8 @@ public sealed class StorageCleaner
             // shared destination, etc.). Either way, there's
             // nothing for us to do — say so explicitly so the
             // progress dialog doesn't pretend we erased something.
-            progress?.Report("Nothing to remove — no snapshots for this backup at this destination.");
-            report.Notes.Add("No matching snapshots at destination — nothing to remove.");
+            progress?.Report("Nothing to remove: no snapshots for this backup at this destination.");
+            report.Notes.Add("No matching snapshots at destination; nothing to remove.");
             return;
         }
 
@@ -828,7 +828,7 @@ public sealed class StorageCleaner
             // Defensive: if the locator forgot to wire the probe, we
             // still want the rest of the call to succeed cleanly.
             _log.Warning("StorageCleaner.Probe is null — skipping remote enumeration");
-            report.Errors.Add("Couldn't enumerate remote contents — skipping cloud wipe.");
+            report.Errors.Add("Couldn't enumerate remote contents; skipping cloud wipe.");
             return;
         }
 
@@ -868,7 +868,7 @@ public sealed class StorageCleaner
                 "Skipping {Count} unknown snapshot id(s) at {Dest}: {Ids}",
                 foreignIds.Count, destination.Name, string.Join(", ", foreignIds));
             report.Notes.Add(
-                $"Skipped {foreignIds.Count} unknown snapshot id(s) — they don't belong to any backup Backspace knows about. " +
+                $"Skipped {foreignIds.Count} unknown snapshot id(s): they don't belong to any backup Backspace knows about. " +
                 $"Use the provider's web UI if you want to remove them: {string.Join(", ", foreignIds)}");
         }
 
@@ -878,8 +878,8 @@ public sealed class StorageCleaner
             // Nothing of ours to remove — bail out, but still mark the
             // wipe as successful so the caller knows we finished cleanly.
             report.Notes.Add(remoteIds.Count == 0
-                ? "Storage was already empty — nothing to remove."
-                : "Storage contains only foreign snapshots — nothing Backspace put there to remove.");
+                ? "Storage was already empty; nothing to remove."
+                : "Storage contains only foreign snapshots; nothing Backspace put there to remove.");
             report.WipedPath = string.IsNullOrWhiteSpace(destination.PathOrSubpath)
                 ? "(remote root)"
                 : destination.PathOrSubpath;

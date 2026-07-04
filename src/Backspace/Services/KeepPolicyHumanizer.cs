@@ -33,7 +33,7 @@ public static class KeepPolicyHumanizer
         {
             return new KeepPolicyDescription(
                 Valid: true,
-                Summary: "No policy set — every revision is kept forever.",
+                Summary: "No policy set: every revision is kept forever.",
                 Lines: Array.Empty<string>(),
                 Error: null);
         }

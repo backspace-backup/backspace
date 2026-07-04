@@ -761,7 +761,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         var path = picked[0].TryGetLocalPath();
         if (string.IsNullOrEmpty(path))
         {
-            MigrationStatus = "That folder isn't a local path — pick a folder on this PC.";
+            MigrationStatus = "That folder isn't a local path. Pick a folder on this PC.";
             return;
         }
 
@@ -790,7 +790,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
             foreach (var err in report.Errors.Take(3))
                 sb.Append($" • {err}");
             if (report.Errors.Count > 3)
-                sb.Append($" (and {report.Errors.Count - 3} more — see Activity & logs)");
+                sb.Append($" (and {report.Errors.Count - 3} more; see Activity & logs)");
         }
         MigrationStatus = sb.ToString();
     }

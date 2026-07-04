@@ -355,15 +355,15 @@ public sealed class ConfigMigrator
 
     private static string BuildDisplayName(DestinationKind kind, string url, string subpath) => kind switch
     {
-        DestinationKind.DropboxAppScoped  => $"Dropbox — {subpath}",
-        DestinationKind.DropboxFullAccess => $"Dropbox (full) — {subpath}",
-        DestinationKind.OneDrivePersonal  => $"OneDrive — {subpath}",
-        DestinationKind.OneDriveBusiness  => $"OneDrive Business — {subpath}",
-        DestinationKind.GoogleDrive       => $"Google Drive — {subpath}",
-        DestinationKind.S3Compatible      => $"S3 — {subpath}",
-        DestinationKind.NetworkShare      => $"Network — {url}",
-        DestinationKind.ExternalDrive     => $"External — {url}",
-        _                                 => $"Local — {url}",
+        DestinationKind.DropboxAppScoped  => $"Dropbox - {subpath}",
+        DestinationKind.DropboxFullAccess => $"Dropbox (full) - {subpath}",
+        DestinationKind.OneDrivePersonal  => $"OneDrive - {subpath}",
+        DestinationKind.OneDriveBusiness  => $"OneDrive Business - {subpath}",
+        DestinationKind.GoogleDrive       => $"Google Drive - {subpath}",
+        DestinationKind.S3Compatible      => $"S3 - {subpath}",
+        DestinationKind.NetworkShare      => $"Network - {url}",
+        DestinationKind.ExternalDrive     => $"External - {url}",
+        _                                 => $"Local - {url}",
     };
 
     private static SimpleYaml.Root ReadFirstExistingYaml(string yamlDir, params string[] candidateNames)

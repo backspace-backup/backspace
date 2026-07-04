@@ -106,6 +106,7 @@ column below is where the same class of false-green could still hide.
 | Edit filter text inline | `E30_CustomFilter` | ✅ |
 | Apply recommended exclusions (full effect on file count) | `E31_FilterExcludesEverything` | ✅ |
 | Estimated-savings indicator label states | `S34_SavingsLabelStates` | ✅ |
+| Savings message wraps beside Apply button (no crop) | `S50_RecommendedRowTextWraps` | ✅ |
 | Skipped-run alerts block visibility | `S28_GraceBlockVisibility` | ✅ |
 | Reset grace period (Easy + Advanced) | `S28_GraceBlockVisibility` (Half 4) | ✅ |
 | Delete backup | `S41_DestinationAndBackupCrud` | ✅ |
@@ -201,6 +202,7 @@ column below is where the same class of false-green could still hide.
 | Configure Resend / Mailgun email | — | ⛔ deferred: interactive SMTP, secret-gated |
 | Toggle notification gating per event | `S45_SettingsTogglePersistence` | ✅ |
 | Restore-retry cascade settings | `S45` | ✅ |
+| Section-header hover wash (no Fluent band leak) | `S49_SettingsExpanderHover` | ✅ |
 
 ### Monitoring & notifications
 

@@ -259,7 +259,7 @@ public sealed class BackupVerifier
 
         var reachableDests = ResolveReachableDestinations(backup);
         if (reachableDests.Count == 0)
-            return Failed(backup, started, "No reachable destination — drives unmounted, no destinations configured, or all targets unreachable.");
+            return Failed(backup, started, "No reachable destination: drives unmounted, no destinations configured, or all targets unreachable.");
 
         // Per-destination outcomes — collected as structured items so
         // the final Summary can group successes vs failures with bullet
@@ -296,7 +296,7 @@ public sealed class BackupVerifier
                 {
                     destinationsFailed++;
                     perDestErrors.Add($"«{dest.Name}»: {err}");
-                    failedItems.Add($"«{dest.Name}» — {err}");
+                    failedItems.Add($"«{dest.Name}»: {err}");
                     continue;
                 }
                 latestRevisionAcrossDests = Math.Max(latestRevisionAcrossDests, latest);
@@ -316,7 +316,7 @@ public sealed class BackupVerifier
                     destinationsOk++;
                     var ok = perDestResults.Count(r => r.Status == FileVerifyStatus.OK);
                     var okNoCompare = perDestResults.Count(r => r.Status == FileVerifyStatus.OkNoCompare);
-                    successItems.Add($"«{dest.Name}» — {revStamp}");
+                    successItems.Add($"«{dest.Name}»: {revStamp}");
                     successFilesPicked ??= perDestResults.Count;
                     successFilesByteIdentical ??= ok;
                     successFilesSizeOnly ??= okNoCompare;
@@ -325,7 +325,7 @@ public sealed class BackupVerifier
                 {
                     destinationsFailed++;
                     failedItems.Add(
-                        $"«{dest.Name}» — {revStamp} · {failedHere} of {perDestResults.Count} files FAILED verification");
+                        $"«{dest.Name}»: {revStamp} · {failedHere} of {perDestResults.Count} files FAILED verification");
                 }
             }
             catch (OperationCanceledException) { throw; }
@@ -341,7 +341,7 @@ public sealed class BackupVerifier
                 _log.Error(ex, "Verify of destination {Name} threw", dest.Name);
                 destinationsFailed++;
                 perDestErrors.Add($"«{dest.Name}»: {ex.Message}");
-                failedItems.Add($"«{dest.Name}» — error: {ex.Message}");
+                failedItems.Add($"«{dest.Name}»: {ex.Message}");
             }
         }
 
@@ -481,7 +481,7 @@ public sealed class BackupVerifier
 
         if (revs.Count == 0)
             return (Array.Empty<FileVerifyResult>(), 0, default,
-                "no snapshots found at this destination yet — run a backup first");
+                "no snapshots found at this destination yet; run a backup first");
 
         var latest = revs.OrderByDescending(r => r.Number).First();
 
@@ -550,7 +550,7 @@ public sealed class BackupVerifier
             pickerState, FilesToSample, sourcePath, ct), ct);
         if (picked.Count == 0)
             return (Array.Empty<FileVerifyResult>(), latest.Number, latest.CreatedUtc,
-                "every sampled file has been edited since the last backup — couldn't find any " +
+                "every sampled file has been edited since the last backup; couldn't find any " +
                 "byte-comparable file to verify within the retry cap. Try again after a fresh backup.");
 
         // Per-destination temp dir — including the destination id so
@@ -941,7 +941,7 @@ public sealed class BackupVerifier
             return new FileVerifyResult(
                 snapshot.Path, snapshot.SizeBytes, restoredFi.Length,
                 FileVerifyStatus.OkNoCompare,
-                "Source file no longer exists; size matches snapshot — byte comparison skipped.");
+                "Source file no longer exists; size matches snapshot. Byte comparison skipped.");
         }
 
         var srcFi = new FileInfo(sourcePath);
@@ -963,7 +963,7 @@ public sealed class BackupVerifier
             return new FileVerifyResult(
                 snapshot.Path, snapshot.SizeBytes, restoredFi.Length,
                 FileVerifyStatus.OkNoCompare,
-                "Source modified after snapshot; size matches — byte comparison skipped.")
+                "Source modified after snapshot; size matches. Byte comparison skipped.")
             { IsMidFlightDirty = true };
         }
 
@@ -972,7 +972,7 @@ public sealed class BackupVerifier
             return new FileVerifyResult(
                 snapshot.Path, snapshot.SizeBytes, restoredFi.Length,
                 FileVerifyStatus.OkNoCompare,
-                "Source size differs from snapshot — byte comparison skipped.");
+                "Source size differs from snapshot. Byte comparison skipped.");
         }
 
         return BytesEqual(sourcePath, restoredPath)
@@ -982,7 +982,7 @@ public sealed class BackupVerifier
             : new FileVerifyResult(
                 snapshot.Path, snapshot.SizeBytes, restoredFi.Length,
                 FileVerifyStatus.BytesMismatch,
-                "Restored bytes differ from source bytes — possible backup corruption.");
+                "Restored bytes differ from source bytes: possible backup corruption.");
     }
 
     private static bool BytesEqual(string p1, string p2)
@@ -1044,7 +1044,7 @@ public sealed class BackupVerifier
                     : "Verified.";
             return failedItems.Count > 0
                 ? failedItems[0]
-                : "Verify failed — open Activity & logs for details.";
+                : "Verify failed. Open Activity & logs for details.";
         }
 
         var sb = new System.Text.StringBuilder();

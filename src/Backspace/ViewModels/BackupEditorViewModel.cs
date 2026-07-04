@@ -119,7 +119,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private int _skipNotificationGraceDays = 7;
     [ObservableProperty] private DateTime? _skipNotificationGraceResetUtc;
     public string GraceReferenceLabel => SkipNotificationGraceResetUtc is { } r
-        ? $"Manual reset {HumanFormat.Ago(r)} — grace window starts from then"
+        ? $"Manual reset {HumanFormat.Ago(r)}; grace window starts from then"
         : "Grace clock counts from the last successful backup";
     partial void OnSkipNotificationGraceResetUtcChanged(DateTime? value)
         => OnPropertyChanged(nameof(GraceReferenceLabel));
@@ -297,18 +297,18 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         // case so the user knows the answer may grow on a longer
         // walk.
         0 when RecEstimatedTruncated && RecScannedBytes > 0 =>
-            "Walk hit the time cap before finding a match. Try again — " +
+            "Walk hit the time cap before finding a match. Try again; " +
             "your sources are large enough that a longer scan may find " +
             "files matching the recommended rules.",
         0 when RecScannedBytes > 0 =>
-            "Nothing in your sources matched the recommended rules — that's normal " +
-            "for narrow source folders. The rules still protect you if you later add " +
-            "a drive root or user profile.",
+            "Nothing in your sources matched the recommended rules. That's normal " +
+            "for narrow source folders, and the rules still protect you if you later " +
+            "add a drive root or user profile.",
         0 when RecScannedBytes == 0 =>
             "Couldn't read any files under your sources to estimate savings. " +
             "Check the source paths exist and have files.",
         _  => RecEstimatedTruncated
-              ? $"Estimated savings: at least {HumanBytes(RecEstimatedSavingsBytes)} (estimate truncated — sources too large to fully scan)."
+              ? $"Estimated savings: at least {HumanBytes(RecEstimatedSavingsBytes)} (estimate truncated; sources too large to fully scan)."
               : $"Estimated savings: {HumanBytes(RecEstimatedSavingsBytes)} on this PC.",
     };
     private CancellationTokenSource? _savingsCts;
@@ -875,7 +875,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         var rec = await ServiceLocator.Healthcheck.UpsertCheckAsync(saved, CancellationToken.None);
         if (rec is null)
         {
-            HealthcheckStatus = "Failed — set your Healthchecks.io API key in Settings first.";
+            HealthcheckStatus = "Failed: set your Healthchecks.io API key in Settings first.";
             return;
         }
         HealthcheckId = rec.ExtractPingUuid();
@@ -912,7 +912,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             title: "Erase this backup’s storage?",
             subtitle:
                 $"Every revision of «{Name}» stored at «{row.DestinationName}» will be removed. " +
-                "Copies at other destinations are untouched. There’s no undo — type OK to confirm.",
+                "Copies at other destinations are untouched. There’s no undo. Type OK to confirm.",
             confirmString: "OK",
             caseInsensitive: true);
         var ok = await dlg.ShowDialog<bool>(owner);
@@ -1448,8 +1448,8 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         if (probeFailures.Count > 0)
         {
             newWarning =
-                "Couldn't fully check the destination(s) for existing backups before saving — " +
-                "if a backup with the same name already exists there, the new chain may share " +
+                "Couldn't fully check the destination(s) for existing backups before saving. " +
+                "If a backup with the same name already exists there, the new chain may share " +
                 "snapshots with it. " + string.Join(" · ", probeFailures);
         }
 

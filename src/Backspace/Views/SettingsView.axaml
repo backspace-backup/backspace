@@ -76,7 +76,7 @@
           <CheckBox IsChecked="{Binding MinimizeToTrayOnClose}"
                     Content="When I close the window, keep Backspace in the tray for faster reopen"/>
           <TextBlock Classes="helper" TextWrapping="Wrap"
-                     Text="When parked in the tray Backspace uses essentially no CPU — it's just waiting for you to click. Right-click the tray icon to quit completely."/>
+                     Text="When parked in the tray Backspace uses essentially no CPU; it's just waiting for you to click. Right-click the tray icon to quit completely."/>
 
           <!-- Quit-vs-tray reassurance. Users asked: what happens to
                scheduled backups if I just quit? Answer: Windows Task
@@ -95,10 +95,10 @@
                          Text="Scheduled backups always run, even if Backspace isn't open."/>
               <TextBlock Classes="helper" TextWrapping="Wrap"
                          Foreground="{DynamicResource BS.Brush.FgSecondary}"
-                         Text="Each backup is registered with the operating system's scheduler (Task Scheduler on Windows, launchd on macOS, systemd on Linux). Closing Backspace — to the tray OR fully — never disables a schedule. Quit if you prefer a smaller surface; reopen any time."/>
+                         Text="Each backup is registered with the operating system's scheduler (Task Scheduler on Windows, launchd on macOS, systemd on Linux). Closing Backspace (to the tray OR fully) never disables a schedule. Quit if you prefer a smaller surface; reopen any time."/>
               <TextBlock Classes="helper" TextWrapping="Wrap"
                          Foreground="{DynamicResource BS.Brush.FgSecondary}"
-                         Text="One caveat: if a backup is actively running when you quit, that single run is cancelled — the next scheduled run still happens normally."/>
+                         Text="One caveat: if a backup is actively running when you quit, that single run is cancelled; the next scheduled run still happens normally."/>
             </StackPanel>
           </Border>
         </StackPanel>
@@ -136,7 +136,7 @@
               <CheckBox IsChecked="{Binding LogsVerbose}"
                         Content="Show verbose diagnostic logs"/>
               <TextBlock Classes="helper"
-                         Text="Off by default — only high-level events are logged. Turn on when debugging a specific problem."/>
+                         Text="Off by default: only high-level events are logged. Turn on when debugging a specific problem."/>
             </StackPanel>
           </Grid>
 
@@ -172,9 +172,9 @@
         </Expander.Header>
         <StackPanel Spacing="14" Margin="0,8,0,0">
           <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
-                     Text="Backspace ships its own OAuth apps for Dropbox / OneDrive / Google Drive — clicking Connect on a cloud destination uses those. If you'd rather route through your own registered OAuth app (e.g. for separate quota or auditing), paste its client_id + client_secret here. Leave blank to keep using Backspace's defaults."/>
+                     Text="Backspace ships its own OAuth apps for Dropbox / OneDrive / Google Drive; clicking Connect on a cloud destination uses those. If you'd rather route through your own registered OAuth app (e.g. for separate quota or auditing), paste its client_id + client_secret here. Leave blank to keep using Backspace's defaults."/>
           <TextBlock Classes="helper" TextWrapping="Wrap"
-                     Text="Leave any pair blank to keep using rclone's default. The client_secret is optional — installed-app OAuth registrations don't mint one."/>
+                     Text="Leave any pair blank to keep using rclone's default. The client_secret is optional (installed-app OAuth registrations don't mint one)."/>
 
           <StackPanel Spacing="8">
             <TextBlock Classes="label-caps" Text="DROPBOX"/>
@@ -232,7 +232,7 @@
         </Expander.Header>
         <StackPanel Spacing="14" Margin="0,8,0,0">
           <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
-                     Text="A scheduled backup ends in one of three ways — pick the channels you want Backspace to use for each. One-off actions you trigger yourself (Restore complete, Send test email, etc.) always show on screen regardless of these settings."/>
+                     Text="A scheduled backup ends in one of three ways. Pick the channels you want Backspace to use for each. One-off actions you trigger yourself (Restore complete, Send test email, etc.) always show on screen regardless of these settings."/>
 
           <!-- ─── SUCCESS row ─────────────────────────────────── -->
           <Border Classes="inset-card">
@@ -250,7 +250,7 @@
                 <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
                   <TextBlock Classes="event-title" Text="Successful backups"/>
                   <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
-                             Text="Everything went through — files uploaded, verified, done."/>
+                             Text="Everything went through: files uploaded, verified, done."/>
                 </StackPanel>
               </Grid>
               <StackPanel Orientation="Horizontal" Spacing="20" Margin="42,0,0,0">
@@ -272,7 +272,7 @@
                 <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
                   <TextBlock Classes="event-title" Text="Skipped runs"/>
                   <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
-                             Text="Backspace didn't run this time — drive wasn't connected, network was metered, or you stopped it manually."/>
+                             Text="Backspace didn't run this time: drive wasn't connected, network was metered, or you stopped it manually."/>
                 </StackPanel>
               </Grid>
               <StackPanel Orientation="Horizontal" Spacing="20" Margin="42,0,0,0">
@@ -294,7 +294,7 @@
                 <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
                   <TextBlock Classes="event-title" Text="Failures and warnings"/>
                   <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
-                             Text="Backspace tried but couldn't finish — or finished with errors. Windows notifications for failures pop in front of you (even with Focus Assist on) and stay until you dismiss them."/>
+                             Text="Backspace tried but couldn't finish, or finished with errors. Windows notifications for failures pop in front of you (even with Focus Assist on) and stay until you dismiss them."/>
                 </StackPanel>
               </Grid>
               <StackPanel Orientation="Horizontal" Spacing="20" Margin="42,0,0,0">
@@ -320,7 +320,7 @@
                 <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
                   <TextBlock Classes="event-title" Text="Email setup"/>
                   <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
-                             Text="Pick a provider, paste the API key, set FROM and TO. Resend is free for 3,000 emails a month — Mailgun is here too if you already use it."/>
+                             Text="Pick a provider, paste the API key, set FROM and TO. Resend is free for 3,000 emails a month. Mailgun is here too if you already use it."/>
                 </StackPanel>
               </Grid>
 
@@ -335,7 +335,7 @@
                 <StackPanel Spacing="4">
                   <TextBlock Classes="helper" FontWeight="SemiBold" TextWrapping="Wrap"
                              Foreground="{DynamicResource BS.Brush.DangerTintFg}"
-                             Text="Email is enabled — finish setting it up."/>
+                             Text="Email is enabled. Finish setting it up."/>
                   <TextBlock Classes="helper" TextWrapping="Wrap"
                              Foreground="{DynamicResource BS.Brush.DangerTintFg}"
                              Text="{Binding EmailConfigError}"/>
@@ -476,7 +476,7 @@
                   <TextBlock TextWrapping="Wrap"
                              Text="3.  Click &quot;Create API Key&quot;, name it (e.g. Backspace), and choose &quot;Sending access&quot;."/>
                   <TextBlock TextWrapping="Wrap"
-                             Text="4.  Copy the key (starts with re_) and paste it here. Resend shows it only once — save it elsewhere too if you might need it again."/>
+                             Text="4.  Copy the key (starts with re_) and paste it here. Resend shows it only once, so save it elsewhere too if you might need it again."/>
                 </StackPanel>
               </ToolTip.Tip>
             </TextBox>
@@ -508,7 +508,7 @@
               <StackPanel Grid.Column="0" Spacing="6">
                 <TextBlock Classes="label-caps" Text="SENDING DOMAIN"/>
                 <TextBox Text="{Binding MailgunDomain}" Watermark="mg.yourdomain.com"
-                         ToolTip.Tip="The verified domain on your Mailgun account (e.g. mg.example.com). Mailgun won't accept sends from an unverified domain — sandbox accounts only allow sending to addresses you've explicitly added as &quot;authorized recipients&quot;."/>
+                         ToolTip.Tip="The verified domain on your Mailgun account (e.g. mg.example.com). Mailgun won't accept sends from an unverified domain. Sandbox accounts only allow sending to addresses you've explicitly added as &quot;authorized recipients&quot;."/>
               </StackPanel>
               <StackPanel Grid.Column="2" Spacing="6">
                 <TextBlock Classes="label-caps" Text="REGION"/>
@@ -530,9 +530,9 @@
                     <TextBlock TextWrapping="Wrap"
                                Text="2.  In the dashboard, open the dropdown menu under your account name (top-right) and click &quot;API security&quot;."/>
                     <TextBlock TextWrapping="Wrap"
-                               Text="3.  Click &quot;Add new key&quot; (or copy an existing &quot;Mailgun API key&quot; — NOT the public validation key)."/>
+                               Text="3.  Click &quot;Add new key&quot; (or copy an existing &quot;Mailgun API key&quot;, NOT the public validation key)."/>
                     <TextBlock TextWrapping="Wrap"
-                               Text="4.  Paste the key here. Backspace uses it to POST to Mailgun's /messages API directly — no SMTP credentials needed."/>
+                               Text="4.  Paste the key here. Backspace uses it to POST to Mailgun's /messages API directly (no SMTP credentials needed)."/>
                     <TextBlock TextWrapping="Wrap"
                                Text="Note: Mailgun also requires a verified sending domain (above). For trial accounts, use the auto-created sandbox domain and add your inbox as an authorized recipient."/>
                   </StackPanel>
@@ -583,7 +583,7 @@
                            Text="{Binding TestEmailStatus}"/>
                 <TextBlock Classes="helper" TextWrapping="Wrap"
                            Foreground="{DynamicResource BS.Brush.DangerTintFg}"
-                           Text="The provider rejected the send — fix the error above and click again."/>
+                           Text="The provider rejected the send. Fix the error above and click again."/>
               </StackPanel>
             </Border>
           </StackPanel>
@@ -609,7 +609,7 @@
         </Expander.Header>
         <StackPanel Spacing="14" Margin="0,8,0,0">
           <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
-                     Text="If Backspace can’t reach you — say your PC is off for a week — Healthchecks.io will email you that your backup hasn’t run. Free for a handful of backups. Paste your API key and we’ll set up the rest automatically."/>
+                     Text="If Backspace can’t reach you (say your PC is off for a week), Healthchecks.io will email you that your backup hasn’t run. Free for a handful of backups. Paste your API key and we’ll set up the rest automatically."/>
           <CheckBox IsChecked="{Binding HealthchecksEnabled}" Content="Use Healthchecks.io"/>
           <Grid ColumnDefinitions="*,22,*">
             <StackPanel Grid.Column="0" Spacing="6">
@@ -621,13 +621,13 @@
                     <TextBlock TextWrapping="Wrap"
                                Text="1.  Click &quot;Create a free account&quot; below (or sign in at healthchecks.io)."/>
                     <TextBlock TextWrapping="Wrap"
-                               Text="2.  Open the project you want Backspace to use (or create a new one — the default project is fine)."/>
+                               Text="2.  Open the project you want Backspace to use (or create a new one; the default project is fine)."/>
                     <TextBlock TextWrapping="Wrap"
                                Text="3.  Click the project's &quot;Settings&quot; link (top of the page)."/>
                     <TextBlock TextWrapping="Wrap"
                                Text="4.  Find the &quot;API Access&quot; section and click &quot;Create&quot; next to API key."/>
                     <TextBlock TextWrapping="Wrap"
-                               Text="5.  Copy the regular &quot;API key&quot; (NOT the read-only one — we need write access to create checks for you) and paste it here."/>
+                               Text="5.  Copy the regular &quot;API key&quot; (NOT the read-only one; we need write access to create checks for you) and paste it here."/>
                   </StackPanel>
                 </ToolTip.Tip>
               </TextBox>
@@ -663,7 +663,7 @@
         </Expander.Header>
         <StackPanel Spacing="12" Margin="0,8,0,0">
           <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
-                     Text="Already using Duplicacy? Point at either (a) the folder that contains your .duplicacy directory, or (b) a parent folder containing several such repos (duplicacy-util layout). Backspace reads .duplicacy/preferences for storage + repository, any .duplicacy/filters file, and per-repo yaml settings if present. Your existing repository is left untouched — Backspace will start a fresh restic repo when you run the imported backup. Cloud tokens are not imported; you'll be prompted to re-authenticate the first time Backspace talks to each destination."/>
+                     Text="Already using Duplicacy? Point at either (a) the folder that contains your .duplicacy directory, or (b) a parent folder containing several such repos (duplicacy-util layout). Backspace reads .duplicacy/preferences for storage + repository, any .duplicacy/filters file, and per-repo yaml settings if present. Your existing repository is left untouched. Backspace will start a fresh restic repo when you run the imported backup. Cloud tokens are not imported; you'll be prompted to re-authenticate the first time Backspace talks to each destination."/>
           <StackPanel Orientation="Horizontal" Spacing="10">
             <Button Classes="ghost" Command="{Binding ImportLegacyCommand}">
               <StackPanel Orientation="Horizontal" Spacing="8">

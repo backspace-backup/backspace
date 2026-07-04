@@ -328,7 +328,7 @@ public sealed partial class OnboardingViewModel : ViewModelBase
         get
         {
             if (SkipNotificationGraceResetUtc is { } r)
-                return $"Manual reset {HumanFormat.Ago(r)} — grace window starts from then";
+                return $"Manual reset {HumanFormat.Ago(r)}; grace window starts from then";
             return "Grace clock counts from the last successful backup";
         }
     }
@@ -372,7 +372,7 @@ public sealed partial class OnboardingViewModel : ViewModelBase
             case 2:
                 if (SelectedDestinations.Count == 0)
                 {
-                    DestinationError = "Pick at least one destination — or set one up.";
+                    DestinationError = "Pick at least one destination, or set one up.";
                     return false;
                 }
                 DestinationError = null;
@@ -663,7 +663,7 @@ public sealed partial class OnboardingViewModel : ViewModelBase
                         await ServiceLocator.Notifier.NotifyAsync(
                             title: $"Couldn't schedule «{name}»",
                             detail:
-                                "Your backup is saved, but Windows Task Scheduler refused our request — " +
+                                "Your backup is saved, but Windows Task Scheduler refused our request; " +
                                 "auto-runs won't fire until this is fixed. Try re-saving the backup, " +
                                 "or check Task Scheduler permissions. Reason: " + reason,
                             severity: NotificationSeverity.Failure);

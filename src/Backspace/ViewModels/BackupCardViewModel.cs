@@ -385,7 +385,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             ? $"{NormaliseSuccessSummary(b.LastRunSummary, b.LastRunStatus)} · {HumanFormat.Ago(end)}"
             : "Never run";
         NextRunLabel = !b.Enabled
-            ? "Manual only — auto-run is off"
+            ? "Manual only (auto-run is off)"
             : b.Schedule.DescribeNextRun(DateTime.Now);
         NextRunClass = b.Enabled ? "scheduled" : "manual";
         ApplyVerifyState(b);
@@ -414,7 +414,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         }
         else if (age > BackupVerifier.VerifyStaleAfter)
         {
-            VerifyLabel = $"Succeeded · {ago} — overdue (>30 days)";
+            VerifyLabel = $"Succeeded · {ago} · overdue (>30 days)";
             VerifyClass = "stale";
         }
         else
@@ -433,7 +433,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         LastRunLabel = "Running…";
     }
 
-    /// <summary>Flip the inline label to a "Queued — {reason}" message
+    /// <summary>Flip the inline label to a "Queued: {reason}" message
     /// while the orchestrator waits for a shared destination to free
     /// up. Called from <see cref="BackupsViewModel"/>'s
     /// RunQueuedReasonChanged handler. Empty reason flips back to
@@ -448,7 +448,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if (!IsRunning) return; // shouldn't happen — orchestrator only fires after RunStarted
         var queued = !string.IsNullOrEmpty(reason);
         IsQueued = queued;
-        LastRunLabel = queued ? $"Queued — {reason}" : "Running…";
+        LastRunLabel = queued ? $"Queued: {reason}" : "Running…";
     }
 
     public void Apply(RunRecord r)
@@ -699,7 +699,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             _ = ServiceLocator.Notifier.NotifyAsync(
                 title: "Couldn't mount the snapshot",
                 detail: "Mount failed: " + ex.Message +
-                        " (run a backup first if this is a brand-new destination — there's nothing to mount until a snapshot exists)",
+                        " (run a backup first if this is a brand-new destination; there's nothing to mount until a snapshot exists)",
                 severity: NotificationSeverity.Failure);
         }
     }

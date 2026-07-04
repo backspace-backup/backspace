@@ -127,7 +127,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     /// they don't need to re-paste just to edit other fields.</summary>
     public string TokenInputWatermark =>
         Working.LastTokenValidatedUtc is not null
-            ? "Token on file — paste a new one only if you want to replace it"
+            ? "Token on file; paste a new one only if you want to replace it"
             : "Paste the token from the browser here";
 
     /// <summary>Watermark for the storage-password TextBox.
@@ -206,7 +206,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     public string OAuthScopeExplanation => Kind switch
     {
         DestinationKind.DropboxAppScoped =>
-            "Backspace will only see the Apps/Backspace folder in your Dropbox — not your personal files.",
+            "Backspace will only see the Apps/Backspace folder in your Dropbox, not your personal files.",
         DestinationKind.DropboxFullAccess =>
             "Backspace will have access to your entire Dropbox. Only use this if you're backing up Dropbox-wide paths.",
         DestinationKind.OneDrivePersonal =>
@@ -639,7 +639,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
             {
                 await Views.DestructiveConfirmWindow.ShowInfoAsync(
                     owner,
-                    title: "Different repository — can't use this folder",
+                    title: "Different repository: can't use this folder",
                     subtitle:
                         $"The folder at {newPath} looks like a restic repository, " +
                         "but Backspace couldn't open it with this destination's " +
@@ -661,7 +661,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                         "Backspace will initialise a new repository here on the next run. " +
                         "If your old backup is still sitting at " +
                         $"\"{PathOrSubpath}\" or somewhere else on disk, " +
-                        "delete it manually — Backspace won't touch the old location.",
+                        "delete it manually; Backspace won't touch the old location.",
                     confirmLabel: "Start fresh",
                     cancelLabel: "Cancel");
                 if (ok) PathOrSubpath = newPath;
@@ -689,7 +689,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                     title: "Folder not found",
                     subtitle:
                         $"Backspace couldn't open {newPath}. This shouldn't happen " +
-                        "via the folder picker — try again.");
+                        "via the folder picker. Try again.");
                 return;
             }
         }
@@ -736,7 +736,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         if (provider is null)
         {
             AuthStatus = Kind == DestinationKind.DropboxFullAccess
-                ? "Full-Dropbox access isn't wired yet — only the App-folder flow works today."
+                ? "Full-Dropbox access isn't wired yet; only the App-folder flow works today."
                 : "OAuth sign-in isn't wired for this destination kind yet.";
             AuthOk = false;
             return;
@@ -906,7 +906,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     public string? CheckCanChangeStoragePassword()
     {
         if (IsNew || !Encrypted || string.IsNullOrEmpty(Working.StoragePasswordRef))
-            return "There's no existing password on this destination to change yet — encryption needs to have been set up first.";
+            return "There's no existing password on this destination to change yet. Encryption needs to have been set up first.";
 
         var runningUsers = ServiceLocator.Config.Current.Backups
             .Where(b => b.Targets.Any(t => t.DestinationId == Working.Id))
@@ -1063,7 +1063,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         {
             errors.Add(
                 "Storage password must be at least 8 characters. " +
-                "Pick a longer one, or clear the field — we'll auto-generate a strong password for you.");
+                "Pick a longer one, or clear the field; we'll auto-generate a strong password for you.");
             SummaryError = errors[^1];
             OnPropertyChanged(nameof(HasAnyError));
             return false;
@@ -1093,7 +1093,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
             if (!string.Equals(current, StoragePasswordInput, StringComparison.Ordinal))
             {
                 errors.Add(
-                    "The storage password can't be changed in place — the encryption key is bound to the password the repository was first set up with. " +
+                    "The storage password can't be changed in place: the encryption key is bound to the password the repository was first set up with. " +
                     "Existing data would become unreadable. Either delete this destination and recreate it with a new password (you'll lose the historical revisions), " +
                     "or clear this field to keep using the saved password.");
                 SummaryError = errors[^1];
@@ -1179,8 +1179,8 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                             "This folder already contains an ENCRYPTED restic repository " +
                             "(we found a restic config / data / index / snapshots layout there).\n\n" +
                             "Two ways forward:\n" +
-                            "  • USE that repository — turn on Encryption above and paste the existing repository password; the next backup will read the existing data.\n" +
-                            "  • START FRESH — pick a different folder, or manually delete the existing 'config' file plus the 'data', 'index', 'keys', 'locks' and 'snapshots' folders inside this path (this destroys any backup history kept there).");
+                            "  • USE that repository: turn on Encryption above and paste the existing repository password; the next backup will read the existing data.\n" +
+                            "  • START FRESH: pick a different folder, or manually delete the existing 'config' file plus the 'data', 'index', 'keys', 'locks' and 'snapshots' folders inside this path (this destroys any backup history kept there).");
                     }
                     else
                     {
@@ -1194,8 +1194,8 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                             "This folder already contains an UNENCRYPTED restic repository " +
                             "(we found a restic config / data / index / snapshots layout there).\n\n" +
                             "Two ways forward:\n" +
-                            "  • USE that repository — turn Encryption OFF (the existing repository has no password); the next backup will read the existing data.\n" +
-                            "  • START FRESH — pick a different folder, or manually delete the existing 'config' file plus the 'data', 'index', 'keys', 'locks' and 'snapshots' folders inside this path (this destroys any backup history kept there).");
+                            "  • USE that repository: turn Encryption OFF (the existing repository has no password); the next backup will read the existing data.\n" +
+                            "  • START FRESH: pick a different folder, or manually delete the existing 'config' file plus the 'data', 'index', 'keys', 'locks' and 'snapshots' folders inside this path (this destroys any backup history kept there).");
                     }
                     SummaryError = errors[^1];
                     OnPropertyChanged(nameof(HasAnyError));
@@ -1226,8 +1226,8 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                     // wrong". The validation banner picks up this
                     // exact string, so it must clearly signal the
                     // transient nature of the state.
-                    AuthStatus = "Still checking your token with the provider — please wait a moment and click Save again.";
-                    errors.Add("Token check still in progress — wait a moment and try Save again. (This isn't a real error; the token verification just hasn't finished yet.)");
+                    AuthStatus = "Still checking your token with the provider. Please wait a moment and click Save again.";
+                    errors.Add("Token check still in progress. Wait a moment and try Save again. (This isn't a real error; the token verification just hasn't finished yet.)");
                 }
                 else
                 {

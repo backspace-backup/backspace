@@ -35,7 +35,7 @@ public class BackupVerifierMidFlightDirtyTests
             ExpectedBytes: 100,
             ActualBytes: 100,
             Status: FileVerifyStatus.OkNoCompare,
-            Detail: "Source modified after snapshot; size matches — byte comparison skipped.")
+            Detail: "Source modified after snapshot; size matches. Byte comparison skipped.")
         { IsMidFlightDirty = true };
         Assert.True(r.IsMidFlightDirty);
     }

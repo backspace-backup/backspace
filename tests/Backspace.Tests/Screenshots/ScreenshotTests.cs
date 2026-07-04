@@ -309,7 +309,7 @@ public class ScreenshotTests
         var dlg = new DestructiveConfirmWindow(
             title: "Remove this backup?",
             subtitle: "«local_c» will no longer run on schedule and will disappear from Backspace. " +
-                      "The backup data already stored at your destinations stays where it is — you " +
+                      "The backup data already stored at your destinations stays where it is. You " +
                       "can delete it from there separately if you want. Type the backup name to confirm.",
             confirmString: "local_c",
             caseInsensitive: true);

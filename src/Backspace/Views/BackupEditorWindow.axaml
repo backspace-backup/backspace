@@ -5,7 +5,7 @@
         xmlns:v="using:Backspace.Views"
         x:Class="Backspace.Views.BackupEditorWindow"
         x:DataType="vm:BackupEditorViewModel"
-        Title="Backup settings — Backspace"
+        Title="Backup settings - Backspace"
         Width="980" Height="840"
         MinWidth="820" MinHeight="640"
         Background="{DynamicResource BS.Brush.BgBase}"
@@ -74,7 +74,7 @@
                          Watermark="{Binding SuggestedName}"
                          Classes.error="{Binding NameError, Converter={x:Static vm:NotEmpty.To}}"/>
                 <TextBlock Classes="helper" Margin="0"
-                           Text="Display label only — renaming is safe and won't fork the snapshot chain on storage."/>
+                           Text="Display label only. Renaming is safe and won't fork the snapshot chain on storage."/>
                 <TextBlock Classes="field-error" Text="{Binding NameError}"
                            IsVisible="{Binding NameError, Converter={x:Static vm:NotEmpty.To}}"/>
               </StackPanel>
@@ -256,7 +256,7 @@
                                Text="No destinations set up yet"
                                Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
                     <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
-                               Text="Destinations are where your backups live — a drive, a cloud folder, or an S3 bucket. Add one now and it'll be available across all your backups."/>
+                               Text="Destinations are where your backups live: a drive, a cloud folder, or an S3 bucket. Add one now and it'll be available across all your backups."/>
                     <Button Classes="primary" HorizontalAlignment="Left" Margin="0,4,0,0"
                             Command="{Binding CreateDestinationInlineCommand}">
                       <StackPanel Orientation="Horizontal" Spacing="8">
@@ -368,7 +368,7 @@
                     <TextBlock Classes="label-caps" Text="THREADS"/>
                     <NumericUpDown Value="{Binding Threads}" Minimum="0" Maximum="32"/>
                     <TextBlock Classes="helper"
-                               Text="Leave at 0 for auto — we pick 1 for local / NAS destinations and 4 for cloud. Any positive value overrides the auto choice for every destination."/>
+                               Text="Leave at 0 for auto: we pick 1 for local / NAS destinations and 4 for cloud. Any positive value overrides the auto choice for every destination."/>
                   </StackPanel>
                   <StackPanel Grid.Column="2" Spacing="6">
                     <TextBlock Classes="label-caps" Text="BANDWIDTH LIMIT (KB/S)"/>
@@ -393,7 +393,7 @@
                           <TextBlock TextWrapping="Wrap" FontWeight="SemiBold"
                                      Text="Skip OneDrive / Dropbox / iCloud files that are online-only (not downloaded to this PC)."/>
                           <TextBlock TextWrapping="Wrap"
-                                     Text="Turning this OFF makes restic read each cloud-only file during backup. The cloud provider downloads the bytes on demand — AND keeps them on local disk afterwards. A backup that touches 200 GB of online-only files leaves you with 200 GB of newly-materialised local files until you free space manually."/>
+                                     Text="Turning this OFF makes restic read each cloud-only file during backup. The cloud provider downloads the bytes on demand, AND keeps them on local disk afterwards. A backup that touches 200 GB of online-only files leaves you with 200 GB of newly-materialised local files until you free space manually."/>
                           <TextBlock TextWrapping="Wrap" FontStyle="Italic"
                                      Text="To mirror a cloud account to another destination without cluttering local disk, use an rclone-backed source instead (coming in a later release)."/>
                         </StackPanel>
@@ -412,7 +412,7 @@
                        users without forcing them to bounce out. -->
                   <StackPanel Spacing="6" IsVisible="{Binding NeedsHealthcheckSetup}">
                     <TextBlock Classes="helper" Margin="0,0,0,2"
-                               Text="Heads up — you don't have a Healthchecks.io API key in Settings yet. Paste one here and we'll save it for you (or visit Settings to set it up first)."/>
+                               Text="Heads up: you don't have a Healthchecks.io API key in Settings yet. Paste one here and we'll save it for you (or visit Settings to set it up first)."/>
                     <Grid ColumnDefinitions="*,16,260">
                       <StackPanel Grid.Column="0" Spacing="4">
                         <TextBlock Classes="label-caps" Text="API KEY"/>
@@ -427,13 +427,13 @@
                               <TextBlock TextWrapping="Wrap"
                                          Text="1.  Sign in (or sign up) at healthchecks.io."/>
                               <TextBlock TextWrapping="Wrap"
-                                         Text="2.  Open your project — the default project that gets created on signup is fine."/>
+                                         Text="2.  Open your project (the default project that gets created on signup is fine)."/>
                               <TextBlock TextWrapping="Wrap"
                                          Text="3.  Click the project's &quot;Settings&quot; link at the top."/>
                               <TextBlock TextWrapping="Wrap"
                                          Text="4.  Find the &quot;API Access&quot; section and click &quot;Create&quot; next to API key."/>
                               <TextBlock TextWrapping="Wrap"
-                                         Text="5.  Copy the regular &quot;API key&quot; (NOT read-only — we need write access to create the check for this backup)."/>
+                                         Text="5.  Copy the regular &quot;API key&quot; (NOT read-only; we need write access to create the check for this backup)."/>
                             </StackPanel>
                           </ToolTip.Tip>
                         </TextBox>
@@ -699,7 +699,7 @@
                   <StackPanel Spacing="10">
                     <TextBlock Classes="section-title" Text="Recommended exclusions" Margin="0"/>
                     <TextBlock Classes="helper" Margin="0"
-                               Text="Tick what you'd like skipped, then click Apply. We'll insert a labelled block at the top of your filter rules — your own rules below stay untouched."/>
+                               Text="Tick what you'd like skipped, then click Apply. We'll insert a labelled block at the top of your filter rules; your own rules below stay untouched."/>
 
                     <CheckBox IsChecked="{Binding RecExcludeWindowsSystem}"
                               Content="Windows system files (pagefile, hiberfil, $Recycle.Bin, System Volume Information, Windows.old, ntuser.dat, etc.)"
@@ -774,7 +774,7 @@
                          Classes="body" Margin="0,0,0,10"
                          Foreground="{DynamicResource BS.Brush.FgSecondary}"
                          TextWrapping="Wrap"
-                         Text="Free-form exclusion rules — one glob per line. Bare lines (e.g. `*.tmp`, `cache/`) are case-insensitive on Windows and case-sensitive on macOS/Linux — the platform default. `#` lines are comments. Leading `/` anchors a pattern to the source root; trailing `/` matches directories only; `*` matches one path segment, `**` matches across slashes. Restic backs up everything that no rule excludes."/>
+                         Text="Free-form exclusion rules: one glob per line. Bare lines (e.g. `*.tmp`, `cache/`) are case-insensitive on Windows and case-sensitive on macOS/Linux (the platform default). `#` lines are comments. Leading `/` anchors a pattern to the source root; trailing `/` matches directories only; `*` matches one path segment, `**` matches across slashes. Restic backs up everything that no rule excludes."/>
               <!-- Grid so the hint wraps instead of clipping at narrow
                    window widths (horizontal StackPanels defeat Wrap). -->
               <Grid Grid.Row="1" ColumnDefinitions="Auto,10,*" Margin="0,0,0,12">

@@ -277,8 +277,8 @@ public sealed class HealthcheckService
         public static UuidVerificationResult Valid()        => new(UuidVerificationOutcome.Valid, "Verified with Healthchecks.io.");
         public static UuidVerificationResult MalformedShape()=> new(UuidVerificationOutcome.MalformedShape, "That doesn't look like a valid UUID.");
         public static UuidVerificationResult NotFound()     => new(UuidVerificationOutcome.NotFound, "Healthchecks.io says no check with this UUID exists in your project.");
-        public static UuidVerificationResult NotAuthorized()=> new(UuidVerificationOutcome.NotAuthorized, "Healthchecks.io rejected the API key — check it in Settings.");
-        public static UuidVerificationResult NoApiKey()     => new(UuidVerificationOutcome.NoApiKey, "No API key — set one in Settings (or fill it in below) so we can verify the UUID.");
+        public static UuidVerificationResult NotAuthorized()=> new(UuidVerificationOutcome.NotAuthorized, "Healthchecks.io rejected the API key. Check it in Settings.");
+        public static UuidVerificationResult NoApiKey()     => new(UuidVerificationOutcome.NoApiKey, "No API key. Set one in Settings (or fill it in below) so we can verify the UUID.");
         public static UuidVerificationResult NetworkError(string detail) => new(UuidVerificationOutcome.NetworkError, $"Couldn't reach Healthchecks.io: {detail}");
     }
 

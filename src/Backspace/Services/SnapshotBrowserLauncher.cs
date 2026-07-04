@@ -74,7 +74,7 @@ public sealed class SnapshotBrowserLauncher
             }
             if (!_sidecar.IsRunning || string.IsNullOrEmpty(_sidecar.WebUiUrl))
                 return LaunchResult.Failed(
-                    "The Backrest engine still isn't responding after 15 s — try restarting the app.");
+                    "The Backrest engine still isn't responding after 15 s. Try restarting the app.");
         }
 
         var url = BuildUrlFor(backup);

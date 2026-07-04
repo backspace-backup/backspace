@@ -189,7 +189,7 @@ public sealed class MailService
         if (recipients.Count == 0)
             return (false, "Add at least one TO address.");
 
-        var subject = "Backspace test — your alerts are wired up correctly";
+        var subject = "Backspace test: your alerts are wired up correctly";
         var body =
             "If you're reading this, your Backspace email notifications are configured correctly. " +
             $"\n\nProvider: {testSettings.Provider}\n" +

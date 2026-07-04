@@ -125,7 +125,7 @@ public partial class App : Application
                         desktop.MainWindow!,
                         title: "One-time install needed",
                         subtitle:
-                            "Mount needs Windows' WinFSP filesystem driver — a Microsoft-signed " +
+                            "Mount needs Windows' WinFSP filesystem driver, a Microsoft-signed " +
                             "user-mode driver that lets Backspace expose your snapshot as a " +
                             "regular drive letter. The installer ships with Backspace; Windows " +
                             "will prompt you to allow it. After this, Mount works instantly " +

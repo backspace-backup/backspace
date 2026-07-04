@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Backspace.Views.DestructiveConfirmWindow"
-        Title="Confirm — Backspace"
+        Title="Confirm - Backspace"
         Width="540" SizeToContent="Height"
         CanResize="False"
         Background="{DynamicResource BS.Brush.BgBase}"

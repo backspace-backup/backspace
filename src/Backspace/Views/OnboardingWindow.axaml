@@ -5,7 +5,7 @@
         xmlns:v="using:Backspace.Views"
         x:Class="Backspace.Views.OnboardingWindow"
         x:DataType="vm:OnboardingViewModel"
-        Title="Set up your first backup — Backspace"
+        Title="Set up your first backup - Backspace"
         Width="820" Height="700"
         MinWidth="720" MinHeight="600"
         Background="{DynamicResource BS.Brush.BgBase}"

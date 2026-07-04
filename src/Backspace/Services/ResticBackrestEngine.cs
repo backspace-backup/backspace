@@ -369,7 +369,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             EndedUtc = DateTime.UtcNow,
             Status = StatusFromBackrestTerminal(lastStatus),
             Summary = string.IsNullOrEmpty(lastStatus)
-                ? $"{kind} via Backrest (no terminal event observed — marked failed to avoid silent success)"
+                ? $"{kind} via Backrest (no terminal event observed; marked failed to avoid silent success)"
                 : $"Backrest {kind.ToString().ToLowerInvariant()} reported {lastStatus}",
         };
     }
@@ -1444,8 +1444,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
         if (repo is null || string.IsNullOrEmpty(repo.Guid))
             throw new EngineConfigOutOfSyncException(
                 $"Backrest's stored config doesn't have a registered guid for repo {repoId}. " +
-                "Most often this means the backup was never run against this destination — " +
-                "run the backup first, then restore.");
+                "Most often this means the backup was never run against this destination. " +
+                "Run the backup first, then restore.");
         _log.Debug("[resolve] returning snapshot={SnapshotId} guid={Guid}", pickedId, repo.Guid);
         return (pickedId, repo.Guid);
     }
@@ -2124,7 +2124,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 // EnsurePlanAndRepoAsync serialises us, so the next
                 // cell will hit our just-added repo cleanly.
                 throw new EngineConfigOutOfSyncException(
-                    $"Repo {repoId} disappeared between AddRepo and SetConfig — config raced or daemon restarted. Retry the run.");
+                    $"Repo {repoId} disappeared between AddRepo and SetConfig: config raced or daemon restarted. Retry the run.");
             }
 
             var wantedRepoFlags = BuildRepoFlagsForBackup(backup, destination);
@@ -2215,8 +2215,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
                         $"Backrest accepted SetConfig (modno {cfg.Modno} → {written.Modno}) but the response doesn't contain " +
                         $"the {(persistedRepo is null ? "repo" : "plan")} we just sent " +
                         $"(repo={repoId}, plan={planId}). " +
-                        "This usually means the daemon's config schema differs from what Backspace expects — " +
-                        "wipe Backspace.config\\backrest and let the daemon rebuild from scratch.");
+                        "This usually means the daemon's config schema differs from what Backspace expects. " +
+                        "Wipe Backspace.config\\backrest and let the daemon rebuild from scratch.");
                 }
                 _log.Debug(
                     "EnsurePlanAndRepo: SetConfig succeeded, modno={Modno}, persisted repo={RepoOk} plan={PlanOk}",
@@ -2230,7 +2230,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             }
         }
         throw new InvalidOperationException(
-            "Backrest config write kept hitting a modno mismatch after 5 retries — another process is mutating config concurrently.");
+            "Backrest config write kept hitting a modno mismatch after 5 retries; another process is mutating config concurrently.");
     }
 
     /// <summary>Look up the live config and return the entry for
@@ -2291,7 +2291,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             return new EngineConfigOutOfSyncException(
                 $"{context}: Backrest's stored config doesn't have the plan / repo Backspace just registered. " +
                 "Most often this means the Backspace.config\\backrest data dir is from a previous install whose " +
-                "ids don't line up — stop Backspace, delete Backspace.config\\backrest, restart, and try again. " +
+                "ids don't line up. Stop Backspace, delete Backspace.config\\backrest, restart, and try again. " +
                 "(Underlying error: " + ex.Message + ")", ex);
         }
         // Connect-Go canonical codes:

@@ -161,7 +161,7 @@ public sealed class OAuthFlowCoordinator
                 ? OAuthFlowResult.Failed("OAuth flow cancelled.")
                 : OAuthFlowResult.Failed(
                     $"Sign-in didn't complete within {TimeoutSeconds}s. " +
-                    $"Try again — Backspace will reopen the browser.");
+                    $"Try again; Backspace will reopen the browser.");
         }
 
         if (!string.IsNullOrEmpty(callback.Error))
@@ -175,7 +175,7 @@ public sealed class OAuthFlowCoordinator
 
         if (string.IsNullOrEmpty(callback.Code))
         {
-            return OAuthFlowResult.Failed("Provider redirected without a code or error — unusual; try again.");
+            return OAuthFlowResult.Failed("Provider redirected without a code or error (unusual); try again.");
         }
 
         // Exchange the code for a token. PKCE replaces the
@@ -253,7 +253,7 @@ public sealed class OAuthFlowCoordinator
             // real callback.
             if (!ctx.Request.Url!.AbsolutePath.Equals("/callback", StringComparison.OrdinalIgnoreCase))
             {
-                await Respond(ctx, 404, "Not Found", "Backspace OAuth flow — wrong path.").ConfigureAwait(false);
+                await Respond(ctx, 404, "Not Found", "Backspace OAuth flow: wrong path.").ConfigureAwait(false);
                 continue;
             }
 
@@ -387,13 +387,13 @@ public sealed class OAuthFlowCoordinator
         if (!string.IsNullOrEmpty(error))
         {
             return "<!doctype html><meta charset=utf-8>" +
-                   "<title>Backspace — sign-in cancelled</title>" +
+                   "<title>Backspace - sign-in cancelled</title>" +
                    "<style>body{font-family:system-ui;margin:4rem auto;max-width:30rem;color:#333}</style>" +
                    "<h2>Sign-in cancelled</h2>" +
                    "<p>You can close this tab and try again from Backspace.</p>";
         }
         return "<!doctype html><meta charset=utf-8>" +
-               "<title>Backspace — connected</title>" +
+               "<title>Backspace - connected</title>" +
                "<style>body{font-family:system-ui;margin:4rem auto;max-width:30rem;color:#333}</style>" +
                "<h2>You're connected.</h2>" +
                "<p>You can close this tab. Backspace has the token it needs.</p>";

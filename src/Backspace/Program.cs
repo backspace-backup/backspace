@@ -208,7 +208,7 @@ internal static class Program
                 _ = ServiceLocator.Notifier.NotifyAsync(
                     title: "Scheduled backups are back online",
                     detail: "A scheduled backup couldn't run while Backspace was moved. " +
-                            "Tasks have been refreshed — the next scheduled run will work normally.",
+                            "Tasks have been refreshed; the next scheduled run will work normally.",
                     severity: NotificationSeverity.Info);
             }
 
@@ -299,14 +299,14 @@ internal static class Program
             // Respect schedule's PausedUntilUtc when called headlessly.
             if (b.Schedule.PausedUntilUtc is DateTime until && DateTime.UtcNow < until)
             {
-                Console.WriteLine($"Paused until {until:o} — skipping.");
+                Console.WriteLine($"Paused until {until:o}, skipping.");
                 continue;
             }
 
             try
             {
                 var r = await ServiceLocator.Orchestrator.RunBackupAsync(b, cts.Token);
-                Console.WriteLine($"{b.Name}: {r.Status} — {r.Summary}");
+                Console.WriteLine($"{b.Name}: {r.Status} - {r.Summary}");
                 if (r.Status == Models.BackupRunStatus.Failed) exit = 1;
             }
             catch (OperationCanceledException)
@@ -367,7 +367,7 @@ internal static class Program
                 Models.RunKind.Check => await ServiceLocator.Orchestrator.RunCheckAsync(backup, cts.Token),
                 _ => throw new ArgumentOutOfRangeException(nameof(kind)),
             };
-            Console.WriteLine($"{backup.Name}: {record.Status} — {record.Summary}");
+            Console.WriteLine($"{backup.Name}: {record.Status} - {record.Summary}");
             return record.Status == Models.BackupRunStatus.Failed ? 1 : 0;
         }
         catch (OperationCanceledException)
@@ -431,8 +431,8 @@ internal static class Program
         Console.WriteLine($"  {bin}                    Launch the GUI (default).");
         Console.WriteLine($"  {bin} --run <name>       Run one backup unattended ({schedTag} entry point).");
         Console.WriteLine($"  {bin} --run-all          Run every backup unattended.");
-        Console.WriteLine($"  {bin} --prune <name>     Run prune (forget + repack) standalone — driven by Backup.PruneSchedule.");
-        Console.WriteLine($"  {bin} --check <name>     Run integrity check standalone — driven by Backup.CheckSchedule.");
+        Console.WriteLine($"  {bin} --prune <name>     Run prune (forget + repack) standalone (driven by Backup.PruneSchedule).");
+        Console.WriteLine($"  {bin} --check <name>     Run integrity check standalone (driven by Backup.CheckSchedule).");
         Console.WriteLine($"  {bin} --migrate <path>   Import an existing Duplicacy setup (a repo folder or a parent of many).");
         Console.WriteLine($"  {bin} --version          Print version and exit.");
         Console.WriteLine($"  {bin} --help | -h | /?   Show this help.");

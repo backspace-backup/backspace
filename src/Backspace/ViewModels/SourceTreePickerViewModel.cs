@@ -140,7 +140,7 @@ public sealed partial class SourceTreePickerViewModel : ViewModelBase
             var volLabel = string.IsNullOrWhiteSpace(d.VolumeLabel)
                 ? DescribeDriveType(d.DriveType)
                 : d.VolumeLabel;
-            return $"{d.Name.TrimEnd('\\', '/')} — {volLabel}";
+            return $"{d.Name.TrimEnd('\\', '/')} ({volLabel})";
         }
         catch { return d.Name; }
     }

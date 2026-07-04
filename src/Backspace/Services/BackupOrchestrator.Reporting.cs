@@ -55,7 +55,7 @@ public sealed partial class BackupOrchestrator
             BackupRunStatus.Skipped => "skipped",
             _                       => record.Status.ToString().ToLowerInvariant(),
         };
-        var title = $"Backspace — «{backup.Name}» {verdict}";
+        var title = $"Backspace: «{backup.Name}» {verdict}";
 
         // Toast body: useful one-liner. For failures, surface the most
         // common reason instead of the generic summary, plus a hint
@@ -301,7 +301,7 @@ public sealed partial class BackupOrchestrator
             // shouldn't be told to look for a button that isn't there
             // for them.
             var hint = LocateMovedHintIfApplicable(r, backup, config);
-            return hint is null ? baseSummary : $"{baseSummary} — {hint}";
+            return hint is null ? baseSummary : $"{baseSummary}. {hint}";
         }
         var parts = new List<string>();
         if (r.BytesUploaded > 0) parts.Add($"{HumanFormat.Size(r.BytesUploaded)} uploaded");
@@ -462,7 +462,7 @@ public sealed partial class BackupOrchestrator
                 if (string.IsNullOrEmpty(srcLabel)) srcLabel = c.SourcePath;
                 var line = $"  [{c.Status,-8}] {srcLabel} → {c.DestinationName}";
                 if (c.AttemptsMade > 1) line += $" (after {c.AttemptsMade} attempts)";
-                if (!string.IsNullOrWhiteSpace(c.Summary)) line += $" — {c.Summary}";
+                if (!string.IsNullOrWhiteSpace(c.Summary)) line += $": {c.Summary}";
                 sb.AppendLine(line);
                 if (!string.IsNullOrWhiteSpace(c.LastError))
                     sb.AppendLine($"             error: {c.LastError}");

@@ -151,7 +151,7 @@ public class BackupCardViewLogsTests
         Assert.True(card.IsRunning);
         Assert.True(card.IsQueued);
         Assert.False(card.IsActuallyRunning);
-        Assert.StartsWith("Queued — ", card.LastRunLabel);
+        Assert.StartsWith("Queued: ", card.LastRunLabel);
 
         // Gate acquired → flip back to actually-running.
         card.SetQueuedReason("");

@@ -69,7 +69,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         {
             var r = SelectedRun;
             if (r is null) return "Live";
-            if (IsShowingLive) return $"Live — {r.BackupName}";
+            if (IsShowingLive) return $"Live · {r.BackupName}";
             var stamp = r.StartedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
             var status = r.Status switch
             {
@@ -89,7 +89,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
                 RunKind.TestRestore => "Test restore",
                 _                   => "Run",
             };
-            return $"{kindLabel} from {stamp} — {status}";
+            return $"{kindLabel} from {stamp} · {status}";
         }
     }
 
@@ -608,7 +608,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
                     {
                         _liveBufferTruncated = true;
                         _liveBuffer.Insert(0,
-                            $"[live-tail truncated to last ~{LiveTailKeepAfterTrim / 1024} KB — the per-run log file on disk has the full history]\n\n");
+                            $"[live-tail truncated to last ~{LiveTailKeepAfterTrim / 1024} KB; the per-run log file on disk has the full history]\n\n");
                     }
                 }
                 // The buffer holds the RAW restic stream — verbose
@@ -786,7 +786,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
                         using var sr = new System.IO.StreamReader(fs, System.Text.Encoding.UTF8);
                         var tail = sr.ReadToEnd();
                         var truncated = info.Length - LogTailBytes;
-                        text = $"[log truncated — showing last {LogTailBytes / (1024 * 1024)} MB of ~{info.Length / (1024 * 1024)} MB; {truncated:N0} bytes hidden at the top]\n…\n" + tail;
+                        text = $"[log truncated: showing last {LogTailBytes / (1024 * 1024)} MB of ~{info.Length / (1024 * 1024)} MB; {truncated:N0} bytes hidden at the top]\n…\n" + tail;
                     }
                     else
                     {

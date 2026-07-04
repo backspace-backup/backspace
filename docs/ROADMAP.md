@@ -46,51 +46,156 @@ Read the `**Proof:**` block on each, then say "validated" or redirect.
 
 ## 🚧 Open — in progress / queued
 
-- P1: Filters > Advanced > Simulate fails (RunCommand exit status 1) — raised 2026-07-03.
-- P1: Status text next to "Apply recommended exclusions" is cropped — raised 2026-07-03.
-- P1: Collapsible-section hover styling — re-opened 2026-07-03 (Settings still weird).
-- P2: UI copy overuses em dashes — raised 2026-07-03.
 - P0: Backrest restore-RPC deviation review — refactor done; `--json` summary parsing queued as a follow-up.
 - P3: OneDrive + Google Drive OAuth client_ids — awaiting maintainer registration.
 
+Shipped 2026-07-04, now awaiting your validation (see full entries below):
+- P1: Restore target radios ping-pong forever (test-suite hang; found while investigating the stuck suite).
+- P1: Filters > Advanced > Simulate fails (RunCommand exit status 1).
+- P1: Status text next to "Apply recommended exclusions" is cropped (plus 10 more crop-prone spots).
+- P1: Collapsible-section hover styling (re-opened for Settings; properly fixed at the template-part level).
+- P2: UI copy overuses em dashes (~174 user-facing rewrites).
+
 ---
+
+### P1: Restore target radios ping-pong forever (test-suite hang)
+
+- **Raised:** 2026-07-04 (found by us: the visual suite sat 40+ minutes
+  with one core saturated; the user asked to investigate what was
+  abnormally slow)
+- **Type:** bug (latent UI infinite loop)
+- **Status:** Awaiting validation
+- **Context:** Managed stack dumps of the hung testhost showed
+  `WebsiteScreenshotTests.Shot_04_Restore_Pick` spinning inside
+  Avalonia layout, endlessly re-entering
+  `RestoreViewModel.set_TargetOriginalSource` via
+  `RadioButtonGroupManager.OnCheckedChanged`.
+- **Root cause + fix (short):** In the restore wizard's "Where to?"
+  step, BOTH radios of the `target` group were two-way bound to the
+  SAME property, the second through a negating converter. The group
+  manager's uncheck wrote back through the binding, flipping the
+  source, which re-flipped the sibling, forever. A settable mirror
+  property still looped, so the wiring is now structurally loop-proof:
+  both radios bind One-Way (never write the source) and user clicks
+  reach the VM through check-only `IsCheckedChanged` handlers that
+  ignore unchecks; the VM setter no-ops on equal values. That graph
+  cannot cycle.
+- **Proof — open and look:**
+  - The full visual suite now completes: **812/812 passed in 1m33s**
+    (it previously never finished; the hung screenshot test alone ate
+    40+ minutes of CPU before being killed). The once-hanging class
+    (`WebsiteScreenshotTests`, 13 shots including `Shot_04_Restore_Pick`)
+    passes in 2 s.
+  - 🖼️ [restore wizard target step renders normally](../tests/Backspace.Tests/artifacts/scenarios/S04-restore-wizard-shots/screenshots/) — the
+    step's radios behave as before for users; only the wiring changed.
+- **Known flake (flagged, not hidden):**
+  `InteractionDestinationClickTests.ClickingARestoreDestinationRow_SetsSelectedDestination`
+  failed once at suite level right after this change (SelectedDestination
+  stayed null after a synthetic pointer click), then passed on the very
+  next full-suite run and passes in isolation. Real-pointer-click tests
+  are timing-sensitive in the shared headless session; watch it on the
+  next few runs.
+- **I need from you:** run a restore and flip between "original source"
+  and "different folder" a few times; confirm the radios select
+  normally and the folder field enables/disables correctly.
 
 ### P1: Filters > Advanced > Simulate fails with exit status 1
 
 - **Raised:** 2026-07-03
 - **Type:** bug
-- **Status:** In progress
+- **Status:** Awaiting validation
 - **Context:** User clicked Filters > Advanced > Simulate and got:
   `[error] /v1.Backrest/RunCommand failed: unknown: failed to run
   command: command "backup --dry-run C:\\ntws": exit status 1`.
   The simulation pane never produces results.
-- **Root cause + fix (short):** TBD — investigating how the dry-run
-  command is built and why restic exits 1.
+- **Root cause + fix (short):** Three stacked defects. (1) Backrest
+  splits RunCommand strings with POSIX shlex, which eats unquoted
+  Windows backslashes: `C:\ntws` reached restic as `C:ntws`, a
+  nonexistent path, hence exit 1. (2) Even quoted, the dry-run ran
+  UNFILTERED (RunCommand bypasses the Backrest plan, so the rules
+  being simulated were never applied). (3) The output parser expected
+  Duplicacy-era lines restic never prints, so a "successful" run would
+  still have shown an empty pane. Fix: Simulate no longer touches
+  restic or the repo at all — it walks the sources locally with the
+  exact same translated rules the engine sends restic (same
+  FilterTranslator), works before any destination exists, and names
+  the matching rule per exclusion. The dead engine dry-run
+  (`EnumOnlyAsync`) was removed.
+- **Proof — open and look:**
+  - 🖼️ **[simulate pane populated](../tests/Backspace.Tests/artifacts/scenarios/S40-filter-simulation-pane/screenshots/01-simulate-pane-populated.png)** —
+    Filters > Advanced after clicking Simulate: ✓ line for the kept
+    file, ✗ lines with the matching rule for `*.tmp` and `cache/`
+    exclusions. Before the fix this pane showed only the exit-status-1
+    error.
+  - Tests: `S40_FilterSimulationPane` now drives the real Simulate
+    button end-to-end (plus a no-source case asserting the friendly
+    "No files found" message), and `FilterSimulatorWalkTests` (4 tests)
+    pin the walk: rule attribution, excluded dirs not descended,
+    MaxEntries cap, missing source. All pass.
+- **I need from you:** open your backup > Filters > Advanced and click
+  Simulate on the real `C:\ntws` source; the right pane should list
+  files with ✓/✗ instead of erroring.
 
 ### P1: Status text next to "Apply recommended exclusions" is cropped
 
 - **Raised:** 2026-07-03
 - **Type:** bug (visual)
-- **Status:** In progress
+- **Status:** Awaiting validation
 - **Context:** The message "Nothing in your sources matched the
-  recommended rules — that's normal for narrow source folders. The
-  rule…" is cut off at the right edge instead of wrapping. User asked
-  for a thorough pass: find and fix ALL text that can crop this way,
-  not just this instance.
-- **Root cause + fix (short):** TBD — likely a non-wrapping TextBlock
-  in a width-unconstrained horizontal layout; sweeping every view for
-  the same pattern.
+  recommended rules…" was cut off at the right edge instead of
+  wrapping. User asked for a thorough pass: find and fix ALL text that
+  can crop this way, not just this instance.
+- **Root cause + fix (short):** Horizontal StackPanels measure children
+  at infinite width, so TextWrapping/TextTrimming silently never
+  engage and the overflow is clipped by the card or window edge. A
+  sweep of all 17 views found the same defeated-wrap pattern in
+  11 places, all fixed (star-column Grid, or MaxWidth + ellipsis +
+  tooltip where a one-liner is wanted): the reported savings-status
+  row, the Simulate hint row, Settings save-status and test-email
+  rows, both destination auth callouts, backup-card last-run summary
+  and verify lane, the change-password dialog status, destination-row
+  URLs, and the Logs title bar.
+- **Proof — open and look:**
+  - 🖼️ **[savings message wraps beside the button](../tests/Backspace.Tests/artifacts/scenarios/S50-recommended-row-text-wraps/screenshots/01-savings-message-wraps-beside-button.png)** —
+    the exact reported message now wraps onto two lines next to
+    "Apply recommended exclusions", fully inside the card. Before the
+    fix it ran off the right edge as one clipped line.
+  - Test: `S50_RecommendedRowTextWraps` asserts the label wraps
+    (height ≥ 2 lines) AND measures narrower than the window; it fails
+    if the horizontal-StackPanel pattern regresses.
+- **I need from you:** open the same editor as before (Filters >
+  Recommended on a narrow source) and confirm the message reads fully.
 
 ### P2: UI copy overuses em dashes
 
 - **Raised:** 2026-07-03
 - **Type:** polish (copy)
-- **Status:** In progress
+- **Status:** Awaiting validation
 - **Context:** User: the app contains many em dashes, which look weird
   in UI copy (and read as AI-written). Replace with natural punctuation
   (comma, period, colon, parentheses) in all user-facing strings unless
   an em dash is strictly the right choice. Code comments are out of
   scope.
+- **Root cause + fix (short):** An audit classified ~1,900 em dashes
+  across the source; ~174 were user-facing and were all rewritten
+  (period/colon/semicolon/comma/parentheses; plain hyphen for window
+  titles and name separators; middle dot inside status lines). Coupled
+  test assertions were updated in the same pass. **Deliberately kept**
+  (each is machine-matched or non-UI): the recommended-filter block
+  marker lines (matched byte-for-byte in existing user configs), the
+  Windows scheduled-task NAMES (persisted in Task Scheduler; the
+  legacy-cleanup sweep pattern-matches them), log-file-only strings,
+  the standalone "—" empty-value placeholder, and code comments. A
+  final scan confirms zero remaining em dashes in strings the UI
+  renders.
+- **Proof — open and look:**
+  - 🖼️ The S40 and S50 screenshots above show the rewritten copy in
+    place (filter help text, savings message, Simulate hint, dialog
+    subtitles).
+  - Suite green after the copy sync: 812/812.
+- **I need from you:** skim any screen you use often (Settings,
+  editor, restore wizard); if a remaining em dash bothers you
+  anywhere, point at it.
 
 ### P0: Restore wizard doesn't offer a revision picker (regression vs Duplimate) — Awaiting validation
 
@@ -438,12 +543,22 @@ Read the `**Proof:**` block on each, then say "validated" or redirect.
   `GraceReferenceLabel`, `ResetGracePeriodCommand` mirror their Easy
   twins on `BackupEditorViewModel` and the values persist via
   `CommitToWorking`.
-- **Proof:**
+- **Confirmation (2026-07-04), re-verified end-to-end:** the behavior
+  matches the requested rule exactly. Easy mode (Onboarding wizard)
+  gates the block on `ShowGraceBlock` = last run was Skipped AND still
+  inside the grace window (reference = max of created / last success /
+  manual reset; 0 days disables). Advanced mode hosts the controls
+  unconditionally so Reset stays reachable. 6 covering tests pass
+  (5 model-level + the S28 scenario driving both modes).
+- **Proof — open and look:**
+  - 🖼️ **[Advanced grace block always visible](../tests/Backspace.Tests/artifacts/scenarios/S28-grace-block-visibility/screenshots/01-advanced-grace-block-always-visible.png)** —
+    Reset grace period reachable on a healthy backup in Advanced mode;
+    the S28 run also asserts Easy mode hides the block for healthy /
+    never-run / grace-expired backups and shows it only while a
+    Skipped run is inside the grace window.
   - [tests/Backspace.Tests/Models/BackupShouldShowGraceBlockTests.cs](../tests/Backspace.Tests/Models/BackupShouldShowGraceBlockTests.cs)
     — 5/5 pass; covers NeverRun, Success, Skipped-within-grace,
     Skipped-past-grace, and Grace=0 cases.
-  - Advanced block markup added at
-    [src/Backspace/Views/BackupEditorWindow.axaml](../src/Backspace/Views/BackupEditorWindow.axaml) (between Stop-conditions and the Maintenance section).
 
 ### P1: Collapsible-section hover styling has weird stripe
 
@@ -454,26 +569,36 @@ Read the `**Proof:**` block on each, then say "validated" or redirect.
   treatment (subtle full-header overlay, matching corner radius,
   smooth transition).
 - **Type:** bug (visual regression)
-- **Status:** In progress (re-opened)
-- **Context:** User screenshot of the restore wizard's "Advanced"
-  collapsible header showed a dark rectangular band across part of the
-  header on hover — Fluent theme leaking the default ToggleButton
-  border on `:pointerover` even though the existing `Expander.advanced`
-  style had zero'd the Background. The hover ToggleButton template
-  also drives a nested ContentPresenter that takes its own Background
-  brush.
-- **Plan:** Extended `Expander.advanced` selectors in
-  `src/Backspace/Themes/Controls.axaml` to zero `BorderBrush` on
-  `:pointerover`, `:pressed`, `:checked`, and `:checked:pointerover`,
-  plus a nested ContentPresenter override so the inner box doesn't
-  paint either. Per DESIGN.md hover semantics: ~150ms ease-out, color
+- **Status:** Awaiting validation (re-fixed 2026-07-04)
+- **Context:** User screenshot showed a dark band across collapsible
+  headers on hover; after a first fix the Settings sections still
+  misbehaved.
+- **Root cause + fix (short):** The earlier "transparent on hover"
+  overrides were silent no-ops: FluentTheme's Expander ControlTheme
+  paints its hover brushes DIRECTLY onto the template parts
+  (`Border#ToggleButtonBackground` gets an 80%-alpha white/black band
+  with ~3px corners, plus a 10%-alpha square behind the chevron), and
+  a StyleTrigger on the part outranks the TemplateBinding that
+  element-level overrides feed. The fix pierces to those same parts
+  with app-frame styles: Settings headers get the app's quiet
+  NeutralHover wash (8px corners matching the card, ~180ms ease-out,
+  chevron pill removed, one tick darker when pressed); the restore
+  wizard's "Advanced" text toggle is now genuinely flat and gets the
+  hand cursor.
+- **Proof — open and look:**
+  - 🖼️ **[hover wash on a Settings header](../tests/Backspace.Tests/artifacts/scenarios/S49-settings-expander-hover/screenshots/01-hover-wash-on-section-header.png)**
+    vs 🖼️ **[same header at rest](../tests/Backspace.Tests/artifacts/scenarios/S49-settings-expander-hover/screenshots/02-header-at-rest.png)** —
+    hover shows a soft rounded neutral wash (deliberately quiet, same
+    family as nav-row hover); no hard-edged band, no square corners,
+    no chevron mini-square.
+  - Test: `S49_SettingsExpanderHover` forces `:pointerover` and
+    asserts the pierced style's 8px corner radius applied and the
+    chevron pill is transparent — both fail if the Fluent leak
+    returns.
+- **I need from you:** open Settings and hover the section headers;
+  confirm the hover now feels right (soft wash, no stripe). Also hover
+  the "Advanced" toggle in the restore wizard: flat, cursor change
   only.
-- **Proof:**
-  - Style change visible at
-    [src/Backspace/Themes/Controls.axaml:1467-1495](../src/Backspace/Themes/Controls.axaml).
-  - Visual confirmation: re-running the visual scenario suite will
-    re-shoot the affected hover states; the auditor's contrast +
-    band-detection passes will surface any remaining stripe.
 
 ### P2: Folder-picker rows should toggle expand on click anywhere left of the checkbox
 

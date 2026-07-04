@@ -238,7 +238,7 @@ public sealed class BackupProgressService
             {
                 cp.IsRunning = false;
                 if (success) cp.PercentComplete = 100;
-                cp.Detail = success ? "Done." : "Failed — see log.";
+                cp.Detail = success ? "Done." : "Failed (see log).";
             }
             p.RecomputeOverall();
         }

@@ -52,11 +52,11 @@ public sealed class S11_LogsViewPopulated : ScenarioBase
         // this off disk via the LogPath.
         var logPath = Path.Combine(ctx.RootDir, "fake-run.log");
         File.WriteAllText(logPath,
-            "2026-04-30 14:00:00 INFO RUN_START Documents → Local — backup-dir\n" +
+            "2026-04-30 14:00:00 INFO RUN_START Documents → Local - backup-dir\n" +
             "2026-04-30 14:00:01 INFO INDEX_FILES Walking 1,234 files\n" +
             "2026-04-30 14:00:03 INFO UPLOAD_CHUNK 512 KiB → chunk a1b2c3\n" +
             "2026-04-30 14:00:04 INFO SNAPSHOT_INFO revision 12 created\n" +
-            "2026-04-30 14:00:04 INFO RUN_END Success — in 4s\n");
+            "2026-04-30 14:00:04 INFO RUN_END Success · in 4s\n");
         var record = new RunRecord
         {
             BackupId = backup.Id,

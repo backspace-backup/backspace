@@ -154,7 +154,7 @@ public sealed class FilterSimulator
                 else
                 {
                     // One line for the whole skipped subtree, like restic.
-                    Emit(new SimulatedEntry(sub + Path.DirectorySeparatorChar, included: false, rule));
+                    Emit(new SimulatedEntry(sub + Path.DirectorySeparatorChar, Included: false, rule));
                 }
             }
         }

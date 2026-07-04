@@ -85,7 +85,7 @@
     <StackPanel DockPanel.Dock="Top" Margin="48,40,48,20">
       <TextBlock Classes="page-title" Text="Bring files back"/>
       <TextBlock Classes="page-subtitle" MaxWidth="720"
-                 Text="Pick a backup, choose a moment in time, and restore whichever files you need. Default is back to where they came from — you can pick a different folder if you’d rather not overwrite anything."/>
+                 Text="Pick a backup, choose a moment in time, and restore whichever files you need. Default is back to where they came from. You can pick a different folder if you’d rather not overwrite anything."/>
     </StackPanel>
 
     <Border DockPanel.Dock="Top" Classes="rule" Margin="48,0,48,0"/>
@@ -326,7 +326,7 @@
           <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}"
                      TextWrapping="Wrap"
                      IsVisible="{Binding MultiSourceMode}"
-                     Text="You picked more than one source folder. Each source has its own revision timeline — choose which revision to restore for each. Latest is selected by default. Then click Next to choose where they go."/>
+                     Text="You picked more than one source folder. Each source has its own revision timeline. Choose which revision to restore for each. Latest is selected by default. Then click Next to choose where they go."/>
 
           <!-- Single-source picker. Hidden in multi-source mode. -->
           <Border Classes="surface" MinHeight="240" Padding="0"
@@ -457,21 +457,31 @@
 
           <Border Classes="section">
             <StackPanel Spacing="14">
-              <RadioButton GroupName="target" IsChecked="{Binding TargetOriginalSource}"
+              <!-- Both radios bind One-WAY and never write back; user
+                   clicks reach the VM through check-only handlers in
+                   RestoreView.axaml.cs. Two-way radio bindings in one
+                   group ping-ponged forever under RadioButtonGroupManager
+                   during template application (every uncheck wrote back
+                   and flipped the source, which re-flipped the sibling) —
+                   it hung a screenshot test at 100% CPU. One-way-in plus
+                   idempotent-out cannot cycle. -->
+              <RadioButton x:Name="TargetOriginalRadio" GroupName="target"
+                           IsChecked="{Binding TargetOriginalSource, Mode=OneWay}"
                            Content="Restore to the original source"
                            Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
               <TextBlock Classes="dim" Margin="26,0,0,0" TextWrapping="Wrap"
                          Text="{Binding OriginalSourceTargetLabel}"/>
               <Border Classes="rule"/>
-              <RadioButton GroupName="target" IsChecked="{Binding TargetOriginalSource, Converter={x:Static vm:Neg.To}}"
+              <RadioButton x:Name="TargetDifferentRadio" GroupName="target"
+                           IsChecked="{Binding TargetDifferentFolder, Mode=OneWay}"
                            Content="Restore to a different folder"
                            Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
               <Grid ColumnDefinitions="*,Auto" Margin="26,0,0,0">
                 <TextBox Grid.Column="0" Text="{Binding CustomTargetPath}"
                          Watermark="Pick a folder"
-                         IsEnabled="{Binding TargetOriginalSource, Converter={x:Static vm:Neg.To}}"/>
+                         IsEnabled="{Binding TargetDifferentFolder}"/>
                 <Button Grid.Column="1" Classes="ghost" Content="Browse" Margin="10,0,0,0"
-                        IsEnabled="{Binding TargetOriginalSource, Converter={x:Static vm:Neg.To}}"
+                        IsEnabled="{Binding TargetDifferentFolder}"
                         Command="{Binding BrowseCustomTargetCommand}"/>
               </Grid>
             </StackPanel>

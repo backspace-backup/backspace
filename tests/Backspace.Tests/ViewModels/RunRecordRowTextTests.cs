@@ -34,9 +34,9 @@ public class RunRecordRowTextTests
     [Fact]
     public void Skipped_WithDriveUnpluggedSummary_DropsRedundantStatusCell()
     {
-        // Cell-level reasons can be more elaborate ("Skipped — drive
+        // Cell-level reasons can be more elaborate ("Skipped: drive
         // unplugged"). Same fold rule: don't double up the word.
-        var rec = MakeRecord(BackupRunStatus.Skipped, "Skipped — drive unplugged after 2s");
+        var rec = MakeRecord(BackupRunStatus.Skipped, "Skipped: drive unplugged after 2s");
         var rendered = Render(rec);
 
         Assert.Contains("drive unplugged", rendered);

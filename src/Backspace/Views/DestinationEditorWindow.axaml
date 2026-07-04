@@ -4,7 +4,7 @@
         xmlns:m="using:Backspace.Models"
         x:Class="Backspace.Views.DestinationEditorWindow"
         x:DataType="vm:DestinationEditorViewModel"
-        Title="Destination — Backspace"
+        Title="Destination - Backspace"
         Width="820" Height="780"
         MinWidth="720" MinHeight="560"
         Background="{DynamicResource BS.Brush.BgBase}"
@@ -119,7 +119,7 @@
                  skip after a USB-port change). -->
             <StackPanel Spacing="10" IsVisible="{Binding ShowVolumeMatch}">
               <TextBlock Classes="helper" TextWrapping="Wrap"
-                         Text="Removable drives can land on a different letter between sessions, so Backspace matches by volume label instead. We pre-filled the label from the folder you picked — review and edit if needed."/>
+                         Text="Removable drives can land on a different letter between sessions, so Backspace matches by volume label instead. We pre-filled the label from the folder you picked; review and edit if needed."/>
               <StackPanel Spacing="6">
                 <TextBlock Classes="label-caps" Text="EXPECTED VOLUME LABEL"/>
                 <TextBox Text="{Binding ExpectedVolumeLabel}" Watermark="e.g. My Passport"/>
@@ -272,7 +272,7 @@
                 <TextBlock Classes="body" TextWrapping="Wrap"
                            FontSize="12"
                            Foreground="{DynamicResource BS.Brush.FgPrimary}"
-                           Text="This usually takes a couple of seconds. If you click Save before it finishes, you'll see a 'token check still in progress' message — that's not a real error, just wait a moment and try again."/>
+                           Text="This usually takes a couple of seconds. If you click Save before it finishes, you'll see a 'token check still in progress' message. That's not a real error; just wait a moment and try again."/>
               </StackPanel>
             </Border>
 
@@ -330,7 +330,7 @@
             <StackPanel Spacing="6" IsVisible="{Binding ShowCloudSubfolderField}">
               <TextBlock Classes="label-caps" Text="CLOUD SUBFOLDER"/>
               <TextBox Text="{Binding PathOrSubpath}"
-                       Watermark="e.g. backspace-photos — leave blank and we'll auto-name from this destination"/>
+                       Watermark="e.g. backspace-photos (leave blank and we'll auto-name from this destination)"/>
               <TextBlock Classes="helper"
                          Text="A folder under your cloud account where this backup's data lives. Backspace creates it on first run. Leave blank to auto-name from the destination name on save."/>
             </StackPanel>
@@ -401,7 +401,7 @@
                  toggle row. Tells the user what the toggle does and
                  — importantly — what OFF means. -->
             <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
-                       Text="The backup engine encrypts everything regardless. The password is what gates access to it. ON: anyone copying the storage files needs the password to read your data — the password lives only on this PC. OFF: anyone who can read the storage files can read your data. Recommended ON for cloud destinations; up to you for local drives you physically control."/>
+                       Text="The backup engine encrypts everything regardless. The password is what gates access to it. ON: anyone copying the storage files needs the password to read your data. The password lives only on this PC. OFF: anyone who can read the storage files can read your data. Recommended ON for cloud destinations; up to you for local drives you physically control."/>
             <StackPanel Spacing="6" IsVisible="{Binding Encrypted}" Margin="0,4,0,0">
               <TextBlock Classes="label-caps" Text="STORAGE PASSWORD"/>
               <!-- IsEnabled gates editing: for an already-encrypted
@@ -427,7 +427,7 @@
                 <Button Grid.Column="2" Classes="ghost" Content="Change password…"
                         Click="OnChangeStoragePassword"
                         IsVisible="{Binding StoragePasswordIsLocked}"
-                        ToolTip.Tip="Re-encrypt the storage's master key with a new password (instant — only touches the small config file at the storage root)"/>
+                        ToolTip.Tip="Re-encrypt the storage's master key with a new password (instant; only touches the small config file at the storage root)"/>
               </Grid>
               <!-- Helper text changes based on whether the field is
                    locked: locked → explain how to rotate via Change
@@ -435,10 +435,10 @@
                    safely" reminder. -->
               <TextBlock Classes="helper"
                          IsVisible="{Binding StoragePasswordIsLocked}"
-                         Text="A password is already set. Use the Change password… button to rotate it — restic re-encrypts the small config file at the repository root with the new password (the chunks themselves stay encrypted with the same master key, so the operation is instant regardless of how much data is in the repository)."/>
+                         Text="A password is already set. Use the Change password… button to rotate it; restic re-encrypts the small config file at the repository root with the new password (the chunks themselves stay encrypted with the same master key, so the operation is instant regardless of how much data is in the repository)."/>
               <TextBlock Classes="helper"
                          IsVisible="{Binding !StoragePasswordIsLocked}"
-                         Text="Must be at least 8 characters. Losing this password means losing access to this backup — store it safely (e.g. your password manager). Leave blank to let Backspace generate a strong one and show it to you once."/>
+                         Text="Must be at least 8 characters. Losing this password means losing access to this backup, so store it safely (e.g. your password manager). Leave blank to let Backspace generate a strong one and show it to you once."/>
             </StackPanel>
           </StackPanel>
         </Border>

@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Backspace.Views.ErasingProgressWindow"
-        Title="Erasing — Backspace"
+        Title="Erasing - Backspace"
         Width="520" SizeToContent="Height"
         CanResize="False"
         Background="{DynamicResource BS.Brush.BgBase}"
