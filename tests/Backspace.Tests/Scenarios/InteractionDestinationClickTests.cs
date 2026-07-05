@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -106,15 +107,36 @@ public class InteractionDestinationClickTests
         // Real pointer click via Avalonia's headless helper. The
         // earlier scenario suite skipped this — it just rendered
         // PNGs — so a broken click target slipped through.
-        var bounds = targetButton.Bounds;
-        var pos = targetButton.TranslatePoint(
-            new Point(bounds.Width / 2, bounds.Height / 2), window) ?? default;
-        window.MouseDown(pos, MouseButton.Left);
-        window.MouseUp(pos, MouseButton.Left);
+        // Wait for a real arranged position: TranslatePoint is null
+        // until layout settles, and the old `?? default` clicked the
+        // window origin — the source of this test's rare flake.
+        Point? pos = null;
+        var clickDeadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < clickDeadline)
+        {
+            var bounds = targetButton.Bounds;
+            if (bounds.Width > 0 && bounds.Height > 0)
+                pos = targetButton.TranslatePoint(
+                    new Point(bounds.Width / 2, bounds.Height / 2), window);
+            if (pos is not null) break;
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(15);
+        }
+        Assert.NotNull(pos);
+        window.MouseDown(pos!.Value, MouseButton.Left);
+        window.MouseUp(pos.Value, MouseButton.Left);
         for (int i = 0; i < 4; i++) Dispatcher.UIThread.RunJobs();
         await Task.Delay(50);
         Dispatcher.UIThread.RunJobs();
 
+        // Post-click state can settle a beat later under session load.
+        var assertDeadline = DateTime.UtcNow.AddSeconds(5);
+        while (vm.SelectedDestination is null && DateTime.UtcNow < assertDeadline)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(15);
+        }
         Assert.Same(d2, vm.SelectedDestination);
 
         // The radio dot is a visual confirmation — without

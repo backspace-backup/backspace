@@ -81,10 +81,19 @@ public sealed class S28_GraceBlockVisibility : ScenarioBase
         ctx.Driver.Show(advancedWin);
 
         // Schedule tab is index 1 (Overview=0, Schedule=1, Filters=2…).
+        // Wait for the TabControl to materialize — template application
+        // can lag Show() when the shared headless session is busy.
+        Assert.True(ctx.Driver.WaitFor(() =>
+                advancedWin.GetVisualDescendants().OfType<TabControl>().Any()),
+            "BackupEditorWindow never populated its TabControl.");
         var tabs = advancedWin.GetVisualDescendants().OfType<TabControl>().FirstOrDefault();
         if (tabs is not null && tabs.Items.Count > 1) tabs.SelectedIndex = 1;
         ctx.Driver.Pump();
 
+        Assert.True(ctx.Driver.WaitFor(() =>
+                advancedWin.GetVisualDescendants().OfType<Button>()
+                    .Any(b => b.Content as string == "Reset grace period")),
+            "Reset grace period button never appeared on the Schedule tab.");
         var resetButton = advancedWin.GetVisualDescendants()
             .OfType<Button>()
             .FirstOrDefault(b => b.Content as string == "Reset grace period");

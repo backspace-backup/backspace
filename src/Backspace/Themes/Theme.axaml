@@ -102,6 +102,13 @@
            surface; visible but doesn't compete with the accent. -->
       <SolidColorBrush x:Key="BS.Brush.NeutralHover"     Color="#FFF1ECE0"/>
       <SolidColorBrush x:Key="BS.Brush.NeutralPressed"   Color="#FFE6E0D2"/>
+      <!-- Alpha-zero twin of NeutralHover, used as the REST value of
+           surfaces whose hover wash fades in via BrushTransition.
+           Fading from plain `Transparent` flashes white on dark
+           surfaces: Transparent is #00FFFFFF, so the interpolation
+           passes through visible whitish tones. Resting on the hover
+           hue at alpha 0 makes the fade pure alpha. -->
+      <SolidColorBrush x:Key="BS.Brush.NeutralHoverRest" Color="#00F1ECE0"/>
       <!-- Card band tint — used by the BackupCard's tinted header /
            footer bands. ~2.5% darker than BgSurface (#FBF8F2). The
            prior #F1ECE0 was too yellow ("brownish") and #F7F4ED was
@@ -190,6 +197,10 @@
            coming forward, mirroring the light-theme darken pattern. -->
       <SolidColorBrush x:Key="BS.Brush.NeutralHover"     Color="#FF2A2A2A"/>
       <SolidColorBrush x:Key="BS.Brush.NeutralPressed"   Color="#FF353535"/>
+      <!-- Alpha-zero twin of NeutralHover — see the light-theme note:
+           resting hover-fade surfaces here instead of on Transparent
+           kills the white flash at hover start in dark mode. -->
+      <SolidColorBrush x:Key="BS.Brush.NeutralHoverRest" Color="#002A2A2A"/>
       <!-- Dark-mode card-band tint — slightly elevated above BgSurface
            so the header / footer bands feel like a distinct layer. -->
       <SolidColorBrush x:Key="BS.Brush.CardBandTint"     Color="#FF232323"/>

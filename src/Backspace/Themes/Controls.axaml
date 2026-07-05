@@ -1562,7 +1562,15 @@
     <Setter Property="BorderBrush" Value="{DynamicResource BS.Brush.BorderSubtle}"/>
     <Setter Property="BorderThickness" Value="1"/>
     <Setter Property="CornerRadius" Value="{DynamicResource BS.CornerRadiusSurface}"/>
-    <Setter Property="Padding" Value="20,14"/>
+    <!-- Horizontal padding is split with the Expander inside: the card
+         keeps 10px and the header/content carry the other 10px, so the
+         header's hover wash extends 10px past the icon and chevron
+         (user feedback 2026-07-05) while icon, title, chevron, and
+         section bodies sit exactly where a 20px card padding put them.
+         Positive paddings only: a negative Margin on the header
+         template part caused layout churn that destabilized the whole
+         headless test session. -->
+    <Setter Property="Padding" Value="10,14"/>
     <!-- Match the elevation rhythm used by Border.surface so the
          Settings page reads consistent with the rest of the app. -->
     <Setter Property="BoxShadow" Value="0 1 2 0 #14000000, 0 2 6 0 #0A000000"/>
@@ -1664,7 +1672,10 @@
     <Setter Property="Background" Value="Transparent"/>
     <Setter Property="BorderBrush" Value="Transparent"/>
     <Setter Property="BorderThickness" Value="0"/>
-    <Setter Property="Padding" Value="0"/>
+    <!-- The 10px the settings-card padding gave up (see that style):
+         content lands at the original 20px inset while the header box,
+         i.e. the hover wash, reaches 10px past icon and chevron. -->
+    <Setter Property="Padding" Value="10,0"/>
     <!-- 44 px = Apple's HIG recommended minimum touch target.
          Gives the click hitbox real weight without making the
          page feel airy. -->
@@ -1726,6 +1737,12 @@
   </Style>
   <!-- Layer 2: the pierced styles that actually control what paints. -->
   <Style Selector="Expander.settings /template/ ToggleButton#ExpanderHeader /template/ Border#ToggleButtonBackground">
+    <!-- Rest on the ALPHA-ZERO twin of the hover hue, not Transparent:
+         Avalonia's Transparent is #00FFFFFF, so a BrushTransition from
+         it passes through visible whitish tones — a white flash at
+         hover start on dark surfaces. Resting on the same hue at
+         alpha 0 makes the fade pure alpha in both themes. -->
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.NeutralHoverRest}"/>
     <Setter Property="Transitions">
       <Transitions>
         <BrushTransition Property="Background" Duration="0:0:0.18" Easing="QuadraticEaseOut"/>
@@ -1758,7 +1775,9 @@
     <Setter Property="Background" Value="Transparent"/>
     <Setter Property="BorderBrush" Value="Transparent"/>
     <Setter Property="BorderThickness" Value="0"/>
-    <Setter Property="Padding" Value="0"/>
+    <!-- Companion to the card/header 10px padding split: section
+         bodies keep their original 20px inset from the card edge. -->
+    <Setter Property="Padding" Value="10,0"/>
   </Style>
   <!-- Avalonia 11.2's Fluent Expander template renders the chevron
        as a raw `Path` named `ExpandCollapseChevron` inside the

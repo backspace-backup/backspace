@@ -68,6 +68,11 @@ public sealed class S31_RestoresNavItem : ScenarioBase
         Pump(8);
         Assert.True(mainVm.HasActiveRestores,
             "Registry has a session — HasActiveRestores must flip on.");
+        // The RadioButton subtree is re-created when IsVisible flips
+        // true; under session load that materialization can lag the
+        // VM flag, so wait-for it rather than asserting the first look.
+        Assert.True(ctx.Driver.WaitFor(() => FindRestoresRadio(win) is not null),
+            "Sidebar 'Restores' RadioButton never materialized after the session landed.");
         var restoresRadio = FindRestoresRadio(win);
         Assert.NotNull(restoresRadio);
         Assert.True(restoresRadio!.IsVisible,

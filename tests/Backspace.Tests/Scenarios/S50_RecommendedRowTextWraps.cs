@@ -51,12 +51,20 @@ public sealed class S50_RecommendedRowTextWraps : ScenarioBase
         ctx.Driver.Show(win);
 
         // Overview=0, Schedule=1, Filters=2. Recommended sub-tab is
-        // selected by default inside Filters.
-        var tabs = win.GetVisualDescendants().OfType<TabControl>().FirstOrDefault();
-        Assert.NotNull(tabs);
-        tabs!.SelectedIndex = 2;
+        // selected by default inside Filters. Template application can
+        // lag Show() when the session is busy, so wait-for rather than
+        // asserting on the first lookup.
+        Assert.True(ctx.Driver.WaitFor(() =>
+                win.GetVisualDescendants().OfType<TabControl>().Any()),
+            "BackupEditorWindow never populated its TabControl.");
+        var tabs = win.GetVisualDescendants().OfType<TabControl>().First();
+        tabs.SelectedIndex = 2;
         ctx.Driver.Pump();
 
+        Assert.True(ctx.Driver.WaitFor(() =>
+                win.GetVisualDescendants().OfType<TextBlock>().Any(
+                    t => t.Text?.StartsWith("Nothing in your sources matched") == true)),
+            "Savings status label never appeared on the Filters tab.");
         var label = win.GetVisualDescendants().OfType<TextBlock>()
             .FirstOrDefault(t => t.Text?.StartsWith("Nothing in your sources matched") == true);
         Assert.NotNull(label);

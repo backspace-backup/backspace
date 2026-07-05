@@ -53,17 +53,32 @@ public sealed class S49_SettingsExpanderHover : ScenarioBase
             .FirstOrDefault(t => t.Name == "ExpanderHeader");
         Assert.NotNull(header);
 
-        ((IPseudoClasses)header!.Classes).Add(":pointerover");
-        ctx.Driver.Pump();
-
-        var bg = header.GetVisualDescendants().OfType<Border>()
+        var bg = header!.GetVisualDescendants().OfType<Border>()
             .FirstOrDefault(b => b.Name == "ToggleButtonBackground");
         Assert.NotNull(bg);
+
+        // Disable the 180ms fade on THIS border instance only, so state
+        // changes snap and the snapshot shows the settled wash. (Never
+        // advance the global headless render clock for this — the shared
+        // session's other tests are timing-sensitive and start failing
+        // randomly when a test pumps frames globally.)
+        bg!.Transitions = null;
+
+        ((IPseudoClasses)header.Classes).Add(":pointerover");
+        ctx.Driver.Pump();
 
         // Corner radius is set by the pierced :pointerover style with
         // no transition, so it's deterministic: 8px (BS.CornerRadiusSmall)
         // instead of Fluent's default ~3px band corners.
-        Assert.Equal(8, bg!.CornerRadius.TopLeft);
+        Assert.Equal(8, bg.CornerRadius.TopLeft);
+
+        // With the fade disabled the wash is settled: fully opaque and
+        // the NeutralHover hue, NOT Fluent's 80%-alpha white/black band.
+        var hoverBrush = Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(bg.Background);
+        Assert.Equal(255, hoverBrush.Color.A);
+        Assert.False(
+            hoverBrush.Color.R == 255 && hoverBrush.Color.G == 255 && hoverBrush.Color.B == 255,
+            "Hover wash paints white: the Fluent band leak is back.");
 
         // The separate chevron pill (Fluent's 10%-alpha square) must be
         // gone — the header reads as ONE hover surface.
@@ -81,6 +96,20 @@ public sealed class S49_SettingsExpanderHover : ScenarioBase
 
         ((IPseudoClasses)header.Classes).Remove(":pointerover");
         ctx.Driver.Pump();
+
+        // Regression pin for the dark-theme white flash (user report
+        // 2026-07-05): the wash must REST on the alpha-zero twin of the
+        // hover hue, not on Avalonia's Transparent (#00FFFFFF) — a
+        // BrushTransition from white-at-zero-alpha passes through
+        // visible whitish tones over dark surfaces. Invisible either
+        // way at rest (alpha 0), but the hue is what the fade blends
+        // through.
+        var restBrush = Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(bg.Background);
+        Assert.Equal(0, restBrush.Color.A);
+        Assert.False(
+            restBrush.Color.R == 255 && restBrush.Color.G == 255 && restBrush.Color.B == 255,
+            "Hover wash rests on #00FFFFFF (Transparent): the fade-in will flash white on dark surfaces.");
+
         ctx.Snapshot(host, "header at rest",
             "Same header after the pointer leaves: flat card again, no residue.");
 

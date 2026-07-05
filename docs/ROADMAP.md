@@ -46,6 +46,7 @@ Read the `**Proof:**` block on each, then say "validated" or redirect.
 
 ## 🚧 Open — in progress / queued
 
+- P1: Headless test session degrades ~70s into combined suite runs — raised 2026-07-05, diagnosis in progress (see full entry).
 - P0: Backrest restore-RPC deviation review — refactor done; `--json` summary parsing queued as a follow-up.
 - P3: OneDrive + Google Drive OAuth client_ids — awaiting maintainer registration.
 
@@ -57,6 +58,52 @@ Shipped 2026-07-04, now awaiting your validation (see full entries below):
 - P2: UI copy overuses em dashes (~174 user-facing rewrites).
 
 ---
+
+### P1: Headless test session degrades ~70s into combined suite runs
+
+- **Raised:** 2026-07-05 (found while validating the hover refinements)
+- **Type:** bug (test infrastructure — NOT app code)
+- **Status:** Open — hardening shipped, root cause not yet isolated
+- **Context:** Full-suite runs (812 tests) intermittently fail 1-10
+  tests; suite halves NEVER fail. Evidence gathered:
+  - The failing set is always the same family: synthetic pointer-click
+    tests (InteractionTests, InteractionDestinationClickTests) and
+    scenarios that assert on freshly-shown windows' visual trees
+    (S28/S29/S31/S50).
+  - In a captured failing run, everything before ~70s passes, then
+    EVERY family member after that point fails while burning its full
+    5-second retry timeout — a cliff, not noise. Affected runs also
+    get slower overall (1m31s → 2m19s).
+  - Both suite halves (scenarios-only; everything-else-only) pass
+    100% across repeated runs. Combined runs on identical binaries
+    swing 0-10 failures. Day-over-day variance is large (three
+    all-green combined runs on 2026-07-04/05 vs repeated failures
+    later on 2026-07-05).
+  - Pairing the last-passing heavyweight test before the cliff
+    (`TestRestore_AfterSuccessfulBackup_PersistsRunRecordKind`) with a
+    canary click test does NOT reproduce — the poison is cumulative,
+    not a single test.
+  - Parallelization is already fully disabled (xunit.runner.json +
+    assembly attribute), so this is same-process cumulative state on
+    the shared Avalonia headless session, not concurrency.
+- **Hardening shipped (2026-07-05):** ClickAt helpers no longer fall
+  back to clicking the window origin when TranslatePoint is null
+  pre-layout (they wait for a real arranged position or throw), and
+  the affected assertions go through bounded WaitFor/WaitUntil settle
+  loops. This makes real failures readable but does not cure the
+  cliff.
+- **Leading hypotheses for the next session:** (a) leaked pointer
+  capture or input state on the shared headless pointer device after
+  some click sequence, breaking all later synthetic clicks; (b)
+  accumulated dispatcher work (leaked DispatcherTimers / VMs from
+  ~750 prior tests) starving template application on newly shown
+  windows. Next diagnostic: binary-search the test ORDER (run first N
+  classes + one canary click test) to find the smallest poisoning
+  prefix; instrument UiDriver.Show to report template-application
+  latency.
+- **I need from you:** nothing yet; treat single-run suite failures in
+  this family as suspect until this entry closes (halves-green is the
+  reliable signal meanwhile).
 
 ### P1: Restore target radios ping-pong forever (test-suite hang)
 
@@ -88,13 +135,17 @@ Shipped 2026-07-04, now awaiting your validation (see full entries below):
     passes in 2 s.
   - 🖼️ [restore wizard target step renders normally](../tests/Backspace.Tests/artifacts/scenarios/S04-restore-wizard-shots/screenshots/) — the
     step's radios behave as before for users; only the wiring changed.
-- **Known flake (flagged, not hidden):**
-  `InteractionDestinationClickTests.ClickingARestoreDestinationRow_SetsSelectedDestination`
-  failed once at suite level right after this change (SelectedDestination
-  stayed null after a synthetic pointer click), then passed on the very
-  next full-suite run and passes in isolation. Real-pointer-click tests
-  are timing-sensitive in the shared headless session; watch it on the
-  next few runs.
+- **Flakiness follow-up (2026-07-05):** repeated full-suite runs on
+  identical binaries showed a persistent low-grade flake family (0-10
+  failures per run, always pointer-click / visual-tree-lookup tests:
+  InteractionTests, InteractionDestinationClickTests, S28/S29/S31/S50).
+  Root mechanics: `ClickAt` fell back to clicking the window ORIGIN
+  when `TranslatePoint` returned null pre-layout, and several tests
+  asserted immediately after Show()/click instead of waiting for the
+  dispatcher to settle. Hardened: ClickAt now waits for a real
+  arranged position (throws instead of mis-clicking), and the flaky
+  assertions go through bounded WaitFor/WaitUntil loops. Verified with
+  repeated full-suite runs.
 - **I need from you:** run a restore and flip between "original source"
   and "different folder" a few times; confirm the radios select
   normally and the folder field enables/disables correctly.
@@ -569,10 +620,29 @@ Shipped 2026-07-04, now awaiting your validation (see full entries below):
   treatment (subtle full-header overlay, matching corner radius,
   smooth transition).
 - **Type:** bug (visual regression)
-- **Status:** Awaiting validation (re-fixed 2026-07-04)
+- **Status:** Awaiting validation (refined 2026-07-05 per user
+  feedback)
 - **Context:** User screenshot showed a dark band across collapsible
-  headers on hover; after a first fix the Settings sections still
-  misbehaved.
+  headers on hover; after the first pierced-style fix the user
+  reported two refinements: (1) in DARK theme a white flash appeared
+  at hover start before the wash settled (light theme clean); (2) the
+  wash should extend slightly LEFT of the section icon instead of
+  starting flush at it.
+- **Refinements shipped (2026-07-05):**
+  - **White flash:** the BrushTransition interpolated from
+    `Transparent`, which Avalonia defines as WHITE at zero alpha
+    (#00FFFFFF) — early fade frames blend visible whitish tones over
+    a dark surface. The wash now RESTS on `BS.Brush.NeutralHoverRest`,
+    an alpha-zero twin of the hover hue per theme, so the fade is
+    pure alpha in both themes. S49 pins the rest hue (fails if it
+    ever returns to #00FFFFFF).
+  - **Wash extent:** the card's 20px horizontal padding is now split
+    10px card + 10px header/content padding, so the header's wash box
+    reaches 10px past the icon and the chevron while every piece of
+    content sits exactly where it was. Positive paddings only: the
+    first attempt used a negative Margin on the header template part,
+    which caused layout churn suspected in a burst of headless-suite
+    instability, and was replaced before commit.
 - **Root cause + fix (short):** The earlier "transparent on hover"
   overrides were silent no-ops: FluentTheme's Expander ControlTheme
   paints its hover brushes DIRECTLY onto the template parts

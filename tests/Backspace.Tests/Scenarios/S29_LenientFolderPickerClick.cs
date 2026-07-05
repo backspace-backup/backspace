@@ -67,7 +67,10 @@ public sealed class S29_LenientFolderPickerClick : ScenarioBase
 
         ClickAt(win, rowText!);
 
-        Assert.True(root.IsExpanded,
+        // Wait-for instead of asserting immediately: the pointer event
+        // and the bound IsExpanded flip settle a beat later when the
+        // shared headless session is busy.
+        Assert.True(ctx.Driver.WaitFor(() => root.IsExpanded),
             "Clicking the row text should toggle expand. If this fails the lenient " +
             "click handler regressed.");
 

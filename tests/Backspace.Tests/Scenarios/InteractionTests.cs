@@ -52,11 +52,45 @@ public class InteractionTests
 
     private static void ClickAt(Window window, Visual element)
     {
-        var b = element.Bounds;
-        var pt = element.TranslatePoint(new Point(b.Width / 2, b.Height / 2), window) ?? default;
-        window.MouseDown(pt, MouseButton.Left);
-        window.MouseUp(pt, MouseButton.Left);
+        // TranslatePoint returns null (and Bounds is empty) until the
+        // element is arranged. The old `?? default` silently clicked at
+        // the window origin when layout hadn't settled yet — the source
+        // of rare "click didn't register" flakes under session load.
+        // Wait for a real position instead of guessing.
+        Point? pt = null;
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            var b = element.Bounds;
+            if (b.Width > 0 && b.Height > 0)
+                pt = element.TranslatePoint(new Point(b.Width / 2, b.Height / 2), window);
+            if (pt is not null) break;
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            System.Threading.Thread.Sleep(15);
+        }
+        if (pt is null)
+            throw new InvalidOperationException(
+                $"Element {element.GetType().Name} never got a valid window position to click.");
+        window.MouseDown(pt.Value, MouseButton.Left);
+        window.MouseUp(pt.Value, MouseButton.Left);
         for (int i = 0; i < 4; i++) Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>Pump the dispatcher until <paramref name="condition"/>
+    /// holds or the timeout lapses. Post-click state can settle a beat
+    /// after the event under session load; asserting through this keeps
+    /// the tests honest without being timing-brittle.</summary>
+    private static bool WaitUntil(Func<bool> condition, int timeoutMs = 5000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition()) return true;
+            Dispatcher.UIThread.RunJobs();
+            System.Threading.Thread.Sleep(15);
+        }
+        return condition();
     }
 
     // ---- 1: Banner attention-pill click jumps to the backup ----
@@ -96,7 +130,8 @@ public class InteractionTests
             .First(b => b.Classes.Contains("attention-pill"));
         ClickAt(window, pill);
 
-        Assert.Equal(failed.Id, jumpedTo);
+        Assert.True(WaitUntil(() => jumpedTo == failed.Id),
+            $"JumpToBackupRequested never fired with '{failed.Id}' (got '{jumpedTo}').");
         window.Close();
     }
 
@@ -185,13 +220,15 @@ public class InteractionTests
             .ToList();
         Assert.Equal(3, checkboxes.Count);
         ClickAt(window, checkboxes[0]);
-        Assert.False(((SourcePickRow)checkboxes[0].DataContext!).IsSelected);
+        Assert.True(WaitUntil(() => !((SourcePickRow)checkboxes[0].DataContext!).IsSelected),
+            "First row stayed selected after its checkbox was clicked.");
 
         // Uncheck the rest. After all are unchecked, HasAnyCheckedSource
         // should flip false (the Next-button enable gate).
         ClickAt(window, checkboxes[1]);
         ClickAt(window, checkboxes[2]);
-        Assert.False(vm.HasAnyCheckedSource);
+        Assert.True(WaitUntil(() => !vm.HasAnyCheckedSource),
+            "HasAnyCheckedSource stayed true after all rows were unchecked.");
         window.Close();
     }
 
@@ -233,7 +270,8 @@ public class InteractionTests
         var rowItems = listbox.GetVisualDescendants().OfType<ListBoxItem>().ToList();
         Assert.Equal(3, rowItems.Count);
         ClickAt(window, rowItems[1]);
-        Assert.NotNull(vm.SelectedRevision);
+        Assert.True(WaitUntil(() => vm.SelectedRevision is not null),
+            "SelectedRevision never updated after the row click.");
         Assert.Equal(2, vm.SelectedRevision!.Value.Number);
         window.Close();
     }
@@ -300,11 +338,13 @@ public class InteractionTests
         // Currently TargetOriginalSource=true, so radios[0] is checked.
         // Click the second radio (different folder).
         ClickAt(window, radios[1]);
-        Assert.False(vm.TargetOriginalSource);
+        Assert.True(WaitUntil(() => !vm.TargetOriginalSource),
+            "TargetOriginalSource stayed true after clicking 'different folder'.");
 
         // Toggle back.
         ClickAt(window, radios[0]);
-        Assert.True(vm.TargetOriginalSource);
+        Assert.True(WaitUntil(() => vm.TargetOriginalSource),
+            "TargetOriginalSource stayed false after clicking 'original source'.");
         window.Close();
     }
 
