@@ -78,6 +78,8 @@ public class InteractionDestinationClickTests
 
         var view = new RestoreView { DataContext = vm };
         var window = new Window { Width = 1100, Height = 760, Content = view };
+        try
+        {
         window.Show();
         // Multiple layout passes — Avalonia's measure/arrange settles
         // on the second pass once styled-property defaults populate.
@@ -155,8 +157,15 @@ public class InteractionDestinationClickTests
             "Clicked row's RadioButton.IsChecked did not update — RefEq binding regressed.");
         Assert.True(unclicked.IsChecked != true,
             "Unclicked row's RadioButton.IsChecked stayed true — group exclusivity broken.");
-
-        window.Close();
+        }
+        finally
+        {
+            // Failure-safe: never leak the window or its VM (which
+            // stays subscribed to singleton events until disposed)
+            // into the shared headless session.
+            window.Close();
+            vm.Dispose();
+        }
     }
 
     private static void ResetConfig() =>

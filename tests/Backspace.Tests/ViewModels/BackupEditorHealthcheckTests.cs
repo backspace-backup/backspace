@@ -17,7 +17,7 @@ public class BackupEditorHealthcheckTests
     public void ValidateForm_acceptsBlankUuid()
     {
         ResetConfig();
-        var vm = NewVmWithRequiredsFilled();
+        using var vm = NewVmWithRequiredsFilled();
         vm.HealthcheckId = "";
         Assert.True(vm.ValidateForm());
         Assert.Null(vm.HealthcheckIdError);
@@ -27,7 +27,7 @@ public class BackupEditorHealthcheckTests
     public void ValidateForm_acceptsValidUuid()
     {
         ResetConfig();
-        var vm = NewVmWithRequiredsFilled();
+        using var vm = NewVmWithRequiredsFilled();
         vm.HealthcheckId = "11111111-2222-3333-4444-555555555555";
         Assert.True(vm.ValidateForm());
         Assert.Null(vm.HealthcheckIdError);
@@ -37,7 +37,7 @@ public class BackupEditorHealthcheckTests
     public void ValidateForm_rejectsMalformedUuid_andSurfacesPerFieldError()
     {
         ResetConfig();
-        var vm = NewVmWithRequiredsFilled();
+        using var vm = NewVmWithRequiredsFilled();
         vm.HealthcheckId = "not-a-uuid";
 
         Assert.False(vm.ValidateForm());

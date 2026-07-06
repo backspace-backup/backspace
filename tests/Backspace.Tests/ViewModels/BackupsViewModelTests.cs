@@ -14,7 +14,7 @@ public class BackupsViewModelTests
     {
         ResetConfig();
 
-        var vm = new BackupsViewModel();
+        using var vm = new BackupsViewModel();
 
         Assert.True(vm.IsEmpty);
         Assert.Empty(vm.Cards);
@@ -25,7 +25,7 @@ public class BackupsViewModelTests
     {
         ResetConfig();
 
-        var vm = new BackupsViewModel();
+        using var vm = new BackupsViewModel();
         Assert.True(vm.IsEmpty);
 
         ServiceLocator.Config.Update(cfg => cfg.Backups.Add(new Backup
@@ -50,7 +50,7 @@ public class BackupsViewModelTests
             SourcePaths = { @"C:\" },
         }));
 
-        var vm = new BackupsViewModel();
+        using var vm = new BackupsViewModel();
         Assert.False(vm.IsEmpty);
 
         ServiceLocator.Config.Update(cfg => cfg.Backups.Clear());
@@ -76,7 +76,7 @@ public class BackupsViewModelTests
             SourcePaths = { @"C:\" },
         }));
 
-        var vm = new BackupsViewModel();
+        using var vm = new BackupsViewModel();
         var stableCard = vm.Cards.Single(c => c.Id == "stable-id");
 
         ServiceLocator.Config.Update(cfg => cfg.Backups.Add(new Backup
@@ -126,7 +126,7 @@ public class BackupsViewModelTests
             SourcePaths = { @"C:\" },
         }));
 
-        var vm = new BackupsViewModel();
+        using var vm = new BackupsViewModel();
         Assert.Equal("charlie", vm.Cards[0].Name);
 
         ServiceLocator.Config.Update(cfg => cfg.Backups.Add(new Backup
@@ -157,7 +157,7 @@ public class BackupsViewModelTests
             cfg.Backups.Add(new Backup { Id = "id-b", Name = "bravo", SourcePaths = { @"C:\" } });
         });
 
-        var vm = new BackupsViewModel();
+        using var vm = new BackupsViewModel();
         var cardA = vm.Cards.Single(c => c.Id == "id-a");
         var cardB = vm.Cards.Single(c => c.Id == "id-b");
         cardA.SetRunning();
@@ -210,7 +210,7 @@ public class BackupsViewModelTests
             cfg.Backups.Add(new Backup { Id = "id-keep", Name = "keep", SourcePaths = { @"C:\" } });
             cfg.Backups.Add(new Backup { Id = "id-drop", Name = "drop", SourcePaths = { @"C:\" } });
         });
-        var vm = new BackupsViewModel();
+        using var vm = new BackupsViewModel();
         var keepCard = vm.Cards.Single(c => c.Id == "id-keep");
         var dropCard = vm.Cards.Single(c => c.Id == "id-drop");
 
@@ -254,7 +254,7 @@ public class BackupsViewModelTests
             });
         });
 
-        var vm = new BackupsViewModel();
+        using var vm = new BackupsViewModel();
 
         Assert.True(vm.HasHealthBanner);
         Assert.Equal("warn", vm.HealthClass);
@@ -294,7 +294,7 @@ public class BackupsViewModelTests
             });
         });
 
-        var vm = new BackupsViewModel();
+        using var vm = new BackupsViewModel();
 
         Assert.True(vm.HasHealthBanner);
         Assert.Equal("ok", vm.HealthClass);
@@ -319,7 +319,7 @@ public class BackupsViewModelTests
         //       reason → CanRunNow=false and the reason becomes the
         //       tooltip (so ToolTip.ShowOnDisabled actually has
         //       something to render).
-        var card = new BackupCardViewModel(
+        using var card = new BackupCardViewModel(
             new Backup { Id = "x", Name = "x", SourcePaths = { @"C:\" } },
             showActions: true, showProgress: false);
 

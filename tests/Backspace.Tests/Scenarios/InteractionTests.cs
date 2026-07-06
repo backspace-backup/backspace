@@ -118,21 +118,28 @@ public class InteractionTests
 
         var view = new BackupsView { DataContext = listVm };
         var window = new Window { Width = 1100, Height = 760, Content = view };
-        window.Show();
-        Settle(window);
+        try
+        {
+            window.Show();
+            Settle(window);
 
-        // The attention-pill renders inside the banner — find the
-        // Button with class "attention-pill". We don't simulate the
-        // click via the visual tree because the pill itself can be
-        // routed through the pointer pipeline cleanly.
-        var pill = view.GetVisualDescendants()
-            .OfType<Button>()
-            .First(b => b.Classes.Contains("attention-pill"));
-        ClickAt(window, pill);
+            // The attention-pill renders inside the banner — find the
+            // Button with class "attention-pill". We don't simulate the
+            // click via the visual tree because the pill itself can be
+            // routed through the pointer pipeline cleanly.
+            var pill = view.GetVisualDescendants()
+                .OfType<Button>()
+                .First(b => b.Classes.Contains("attention-pill"));
+            ClickAt(window, pill);
 
-        Assert.True(WaitUntil(() => jumpedTo == failed.Id),
-            $"JumpToBackupRequested never fired with '{failed.Id}' (got '{jumpedTo}').");
-        window.Close();
+            Assert.True(WaitUntil(() => jumpedTo == failed.Id),
+                $"JumpToBackupRequested never fired with '{failed.Id}' (got '{jumpedTo}').");
+        }
+        finally
+        {
+            window.Close();
+            listVm.Dispose();
+        }
     }
 
     // ---- 1b: PickDestination Next button enables after selection ----
@@ -164,29 +171,35 @@ public class InteractionTests
 
         var view = new RestoreView { DataContext = vm };
         var window = new Window { Width = 1100, Height = 760, Content = view };
-        window.Show();
-        Settle(window, passes: 6);
+        try
+        {
+            window.Show();
+            Settle(window, passes: 6);
 
-        Button FindNext() => view.GetVisualDescendants()
-            .OfType<Button>()
-            .Where(btn => btn.IsVisible && btn.Classes.Contains("primary"))
-            .FirstOrDefault(btn =>
-            {
-                var t = btn.GetVisualDescendants().OfType<TextBlock>().Select(x => x.Text).FirstOrDefault()
-                      ?? (btn.Content as string ?? "");
-                return t.Contains("revision", StringComparison.OrdinalIgnoreCase);
-            }) ?? throw new InvalidOperationException("No Next button found.");
+            Button FindNext() => view.GetVisualDescendants()
+                .OfType<Button>()
+                .Where(btn => btn.IsVisible && btn.Classes.Contains("primary"))
+                .FirstOrDefault(btn =>
+                {
+                    var t = btn.GetVisualDescendants().OfType<TextBlock>().Select(x => x.Text).FirstOrDefault()
+                          ?? (btn.Content as string ?? "");
+                    return t.Contains("revision", StringComparison.OrdinalIgnoreCase);
+                }) ?? throw new InvalidOperationException("No Next button found.");
 
-        var next = FindNext();
-        Assert.False(next.IsEffectivelyEnabled,
-            "Next should start disabled when no destination is picked.");
+            var next = FindNext();
+            Assert.False(next.IsEffectivelyEnabled,
+                "Next should start disabled when no destination is picked.");
 
-        vm.SelectedDestination = d1;
-        Settle(window, passes: 6);
-        Assert.True(next.IsEffectivelyEnabled,
-            "Next stayed disabled after SelectedDestination was set — IsNotNull binding regressed.");
-
-        window.Close();
+            vm.SelectedDestination = d1;
+            Settle(window, passes: 6);
+            Assert.True(next.IsEffectivelyEnabled,
+                "Next stayed disabled after SelectedDestination was set — IsNotNull binding regressed.");
+        }
+        finally
+        {
+            window.Close();
+            vm.Dispose();
+        }
     }
 
     // ---- 2: Restore PickSource checkbox toggling drives HasAnyCheckedSource ----
@@ -207,29 +220,36 @@ public class InteractionTests
 
         var view = new RestoreView { DataContext = vm };
         var window = new Window { Width = 1100, Height = 760, Content = view };
-        window.Show();
-        Settle(window);
+        try
+        {
+            window.Show();
+            Settle(window);
 
-        // All three start checked → HasAnyCheckedSource true.
-        Assert.True(vm.HasAnyCheckedSource);
+            // All three start checked → HasAnyCheckedSource true.
+            Assert.True(vm.HasAnyCheckedSource);
 
-        // Find the first row's CheckBox and click it to UNCHECK.
-        var checkboxes = view.GetVisualDescendants()
-            .OfType<CheckBox>()
-            .Where(c => c.DataContext is SourcePickRow)
-            .ToList();
-        Assert.Equal(3, checkboxes.Count);
-        ClickAt(window, checkboxes[0]);
-        Assert.True(WaitUntil(() => !((SourcePickRow)checkboxes[0].DataContext!).IsSelected),
-            "First row stayed selected after its checkbox was clicked.");
+            // Find the first row's CheckBox and click it to UNCHECK.
+            var checkboxes = view.GetVisualDescendants()
+                .OfType<CheckBox>()
+                .Where(c => c.DataContext is SourcePickRow)
+                .ToList();
+            Assert.Equal(3, checkboxes.Count);
+            ClickAt(window, checkboxes[0]);
+            Assert.True(WaitUntil(() => !((SourcePickRow)checkboxes[0].DataContext!).IsSelected),
+                "First row stayed selected after its checkbox was clicked.");
 
-        // Uncheck the rest. After all are unchecked, HasAnyCheckedSource
-        // should flip false (the Next-button enable gate).
-        ClickAt(window, checkboxes[1]);
-        ClickAt(window, checkboxes[2]);
-        Assert.True(WaitUntil(() => !vm.HasAnyCheckedSource),
-            "HasAnyCheckedSource stayed true after all rows were unchecked.");
-        window.Close();
+            // Uncheck the rest. After all are unchecked, HasAnyCheckedSource
+            // should flip false (the Next-button enable gate).
+            ClickAt(window, checkboxes[1]);
+            ClickAt(window, checkboxes[2]);
+            Assert.True(WaitUntil(() => !vm.HasAnyCheckedSource),
+                "HasAnyCheckedSource stayed true after all rows were unchecked.");
+        }
+        finally
+        {
+            window.Close();
+            vm.Dispose();
+        }
     }
 
     // ---- 3: Restore PickRevision row selection updates SelectedRevision ----

@@ -23,7 +23,7 @@ public class RestoreViewModelShellLaunchFilterTests
     public void ShellLaunchFilter_isSticky_FileFilterEdit_doesNotClearIt()
     {
         ResetConfig();
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
 
         SeedFiles(vm,
             "Documents/letter.docx",
@@ -56,7 +56,7 @@ public class RestoreViewModelShellLaunchFilterTests
     public void ClearShellLaunchFilterCommand_clearsStickyOnly_leavesFileFilterAlone()
     {
         ResetConfig();
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
         SeedFiles(vm,
             "Documents/letter.docx",
             "Documents/notes.txt",
@@ -79,7 +79,7 @@ public class RestoreViewModelShellLaunchFilterTests
     public void StartOver_dropsBothFilters_soNextRunStartsClean()
     {
         ResetConfig();
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
         SeedFiles(vm, "a", "b");
 
         vm.ShellLaunchFilterPath = "a";

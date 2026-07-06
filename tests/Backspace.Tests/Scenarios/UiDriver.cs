@@ -156,8 +156,14 @@ public sealed class UiDriver : IDisposable
         foreach (var w in _ownedWindows)
         {
             try { w.Close(); } catch { /* best-effort */ }
+            // Closing a plain host Window does not dispose its
+            // DataContext; leaked VMs stay subscribed to singleton
+            // events (Config.Changed, Engine.LineWritten, ...) and
+            // slow every later test in the shared session.
+            try { (w.DataContext as IDisposable)?.Dispose(); } catch { /* best-effort */ }
         }
         _ownedWindows.Clear();
+        Dispatcher.UIThread.RunJobs();
     }
 
     // ---- internals ----

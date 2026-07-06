@@ -30,7 +30,7 @@ public class EditorInteractionTests
         ResetConfig();
 
         var working = new Destination();
-        var vm = new DestinationEditorViewModel(working, isNew: true)
+        using var vm = new DestinationEditorViewModel(working, isNew: true)
         {
             Name = "Backup drive",
             Kind = DestinationKind.ExternalDrive,
@@ -62,7 +62,7 @@ public class EditorInteractionTests
         // New destination, no Kind picked — the form is supposed to stop
         // the user (and write a status line) rather than silently saving
         // a LocalFolder destination.
-        var vm = new DestinationEditorViewModel(new Destination(), isNew: true)
+        using var vm = new DestinationEditorViewModel(new Destination(), isNew: true)
         {
             Name = "untyped",
         };
@@ -82,7 +82,7 @@ public class EditorInteractionTests
     public void DestinationEditor_NameDefaultsToPlaceholder_WhenLeftBlank()
     {
         ResetConfig();
-        var vm = new DestinationEditorViewModel(new Destination(), isNew: true)
+        using var vm = new DestinationEditorViewModel(new Destination(), isNew: true)
         {
             Name = "   ",
             Kind = DestinationKind.LocalFolder,
@@ -100,7 +100,7 @@ public class EditorInteractionTests
     public void DestinationEditor_NewLocalDest_AutoGeneratesStoragePassword()
     {
         ResetConfig();
-        var vm = new DestinationEditorViewModel(new Destination(), isNew: true)
+        using var vm = new DestinationEditorViewModel(new Destination(), isNew: true)
         {
             Name = "auto-gen",
             Kind = DestinationKind.LocalFolder,
@@ -134,7 +134,7 @@ public class EditorInteractionTests
         ServiceLocator.Config.Update(cfg => cfg.Destinations.Add(dest));
 
         var working = new Backup();
-        var vm = new BackupEditorViewModel(working, isNew: true)
+        using var vm = new BackupEditorViewModel(working, isNew: true)
         {
             Name = "documents",
             Threads = 4,
@@ -200,7 +200,7 @@ public class EditorInteractionTests
         ResetConfig();
         var model = new Destination();
 
-        var vm1 = new DestinationEditorViewModel(model, isNew: true)
+        using var vm1 = new DestinationEditorViewModel(model, isNew: true)
         {
             Name = "round-trip",
             Kind = DestinationKind.NetworkShare,
@@ -213,7 +213,7 @@ public class EditorInteractionTests
 
         // Fresh VM over the same working model — simulates reopening the
         // dialog later.
-        var vm2 = new DestinationEditorViewModel(model, isNew: false);
+        using var vm2 = new DestinationEditorViewModel(model, isNew: false);
         Assert.Equal("round-trip", vm2.Name);
         Assert.Equal(DestinationKind.NetworkShare, vm2.Kind);
         Assert.Equal(@"\\nas\backup", vm2.PathOrSubpath);
@@ -240,7 +240,7 @@ public class EditorInteractionTests
             // doesn't refuse the save (this test is about naming, not auth).
             LastTokenValidatedUtc = System.DateTime.UtcNow,
         };
-        var vm = new DestinationEditorViewModel(working, isNew: true)
+        using var vm = new DestinationEditorViewModel(working, isNew: true)
         {
             Name = "",
             Kind = DestinationKind.DropboxAppScoped,

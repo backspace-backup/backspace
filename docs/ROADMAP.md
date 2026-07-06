@@ -46,9 +46,11 @@ Read the `**Proof:**` block on each, then say "validated" or redirect.
 
 ## 🚧 Open — in progress / queued
 
-- P1: Headless test session degrades ~70s into combined suite runs — raised 2026-07-05, diagnosis in progress (see full entry).
 - P0: Backrest restore-RPC deviation review — refactor done; `--json` summary parsing queued as a follow-up.
 - P3: OneDrive + Google Drive OAuth client_ids — awaiting maintainer registration.
+
+Also shipped and awaiting validation:
+- P1: Headless test session degradation — root-caused and fixed 2026-07-06 (see full entry; 4 consecutive all-green combined runs).
 
 Shipped 2026-07-04, now awaiting your validation (see full entries below):
 - P1: Restore target radios ping-pong forever (test-suite hang; found while investigating the stuck suite).
@@ -62,8 +64,50 @@ Shipped 2026-07-04, now awaiting your validation (see full entries below):
 ### P1: Headless test session degrades ~70s into combined suite runs
 
 - **Raised:** 2026-07-05 (found while validating the hover refinements)
-- **Type:** bug (test infrastructure — NOT app code)
-- **Status:** Open — hardening shipped, root cause not yet isolated
+- **Type:** bug (test infrastructure + two real product leaks)
+- **Status:** Awaiting validation — root-caused and fixed 2026-07-06
+- **Root cause (the chain):**
+  1. **`MainWindow.Close()` never actually closed in tests.** The
+     hide-to-tray branch (ShowTrayIcon + MinimizeToTrayOnClose both
+     default true, `App.QuitRequested` never set by tests) CANCELS the
+     close and hides the window instead. OnClosed never ran, the
+     DataContext VM never disposed — every "closed" shell (9+ per run)
+     kept its Config.Changed / AppStatus.Changed / Engine.LineWritten
+     subscriptions, ran a 160ms icon-animation timer during every
+     backup/restore/verify, and fired a live GitHub update check (and
+     potentially a toast window) per construction.
+  2. **Test-created VMs were almost never disposed** while their
+     constructors subscribe to process-lifetime singletons — and
+     UiThreadDebouncer's UI-thread fast path runs Config.Changed
+     handlers SYNCHRONOUSLY, so each of the ~165 `Config.Update` calls
+     in tests ran a full Refresh in every leaked VM accumulated so
+     far. Cost grew linearly through the run: the ~70s cliff.
+  3. **Theme/accent leaks amplified it:** S05 restored Light only on
+     the happy path, S12 left the last cycled accent applied
+     process-wide, AttentionPillScreenshotTests never restored the
+     variant — every app-wide swap re-evaluated DynamicResources
+     across all leaked windows.
+- **Fixes shipped:** `App.QuitRequested = true` +
+  `BACKSPACE_NO_UPDATE_CHECK=1` in TestSetup (closes become real,
+  no live HTTP mid-suite); UpdateChecker gate; VM disposal everywhere
+  tests construct them (using-wrap / try-finally, ~60 sites) and
+  UiDriver.Dispose now disposes window DataContexts; failure-safe
+  window closes in both screenshot CaptureWindow helpers and the
+  AttentionPill helpers; theme/accent finally-restores in S05, S12,
+  and AttentionPillScreenshotTests. Two REAL product fixes that fell
+  out: `ActiveRestoresViewModel` had no unsubscribe path (leaked a
+  registry handler for every visit to the Restores page, also in
+  production) and tray-hidden MainWindows animated a title-bar icon
+  nobody can see (160ms timer for the whole run duration).
+- **Proof — the numbers:**
+  - Before: combined runs failed 1-10 tests in most attempts, with
+    run duration drifting 1m31s → 2m33s. After: **4 consecutive
+    combined runs all green (812/812)** with durations in a tight
+    1m45-1m51s band. Suite halves remain green as always.
+- **I need from you:** treat this as validated if the suite stays
+  green over your next few runs; the two product-side fixes (Restores
+  page handler leak, tray-hidden icon animation) ride along in the
+  same commit.
 - **Context:** Full-suite runs (812 tests) intermittently fail 1-10
   tests; suite halves NEVER fail. Evidence gathered:
   - The failing set is always the same family: synthetic pointer-click

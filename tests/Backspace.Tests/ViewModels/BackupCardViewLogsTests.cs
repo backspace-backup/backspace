@@ -26,7 +26,7 @@ public class BackupCardViewLogsTests
     {
         ResetConfig();
         var b = new Backup { Name = "view-logs-test", LastRunStatus = status };
-        var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
+        using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
         Assert.Equal(expected, card.HasAttentionStatus);
     }
 
@@ -40,7 +40,7 @@ public class BackupCardViewLogsTests
         // when a fresh RunRecord lands). Pin the notification.
         ResetConfig();
         var b = new Backup { Name = "fire-pc", LastRunStatus = BackupRunStatus.Success };
-        var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
+        using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
 
         var fired = false;
         card.PropertyChanged += (_, e) =>
@@ -81,7 +81,7 @@ public class BackupCardViewLogsTests
             LastRunSummary = "in 4s",
             LastRunEndUtc = DateTime.UtcNow.AddDays(-7),
         };
-        var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
+        using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
         // LastRunLabel is "{summary} · {ago}" — assert the prefix
         // got rewritten regardless of the ago text format.
         Assert.StartsWith("Completed in 4s · ", card.LastRunLabel);
@@ -100,7 +100,7 @@ public class BackupCardViewLogsTests
             LastRunSummary = "Completed in 3s",
             LastRunEndUtc = DateTime.UtcNow.AddMinutes(-5),
         };
-        var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
+        using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
         Assert.StartsWith("Completed in 3s · ", card.LastRunLabel);
         Assert.DoesNotContain("Completed Completed", card.LastRunLabel);
     }
@@ -119,7 +119,7 @@ public class BackupCardViewLogsTests
             LastRunSummary = "in case of fire please ignore",
             LastRunEndUtc = DateTime.UtcNow.AddMinutes(-1),
         };
-        var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
+        using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
         Assert.DoesNotContain("Completed", card.LastRunLabel);
         Assert.StartsWith("in case of fire", card.LastRunLabel);
     }
@@ -133,7 +133,7 @@ public class BackupCardViewLogsTests
         // user never sees BOTH "Running…" and "Queued…" at once.
         ResetConfig();
         var b = new Backup { Name = "queue-flip" };
-        var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
+        using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
 
         // Idle → both off.
         Assert.False(card.IsRunning);
@@ -175,7 +175,7 @@ public class BackupCardViewLogsTests
             LastRunSummary = "1.2 GB uploaded · in 5s",
             LastRunEndUtc = DateTime.UtcNow.AddMinutes(-1),
         };
-        var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
+        using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
         Assert.StartsWith("1.2 GB uploaded · in 5s · ", card.LastRunLabel);
         Assert.DoesNotContain("Completed", card.LastRunLabel);
     }

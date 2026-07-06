@@ -34,13 +34,25 @@ public sealed class S12_SettingsAndAccents : ScenarioBase
         // Cycle every accent variant — Settings.Accent flips the
         // app-wide resource dictionary at runtime, so the snapshot
         // captures whether the new accent's tint/hover derivatives
-        // actually reach the bound controls.
-        foreach (var accent in vm.AvailableAccents)
+        // actually reach the bound controls. finally-restore the
+        // original: the accent is process-global and used to leak the
+        // LAST cycled accent into every subsequent test in the run
+        // (S49's screenshots came out Terracotta/Ocean tinted).
+        var originalAccent = vm.Accent;
+        try
         {
-            vm.Accent = accent;
+            foreach (var accent in vm.AvailableAccents)
+            {
+                vm.Accent = accent;
+                ctx.Driver.Pump();
+                ctx.Snapshot(host, $"settings accent {accent}",
+                    $"Accent={accent} — primary buttons + active nav + status highlights tinted.");
+            }
+        }
+        finally
+        {
+            vm.Accent = originalAccent;
             ctx.Driver.Pump();
-            ctx.Snapshot(host, $"settings accent {accent}",
-                $"Accent={accent} — primary buttons + active nav + status highlights tinted.");
         }
 
         host.Close();

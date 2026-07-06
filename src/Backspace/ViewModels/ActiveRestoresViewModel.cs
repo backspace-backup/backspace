@@ -16,7 +16,7 @@ namespace Backspace.ViewModels;
 /// per-session VM state is a follow-up ROADMAP item once a real
 /// parallel-restore case justifies the bookkeeping).
 /// </summary>
-public sealed partial class ActiveRestoresViewModel : ViewModelBase
+public sealed partial class ActiveRestoresViewModel : ViewModelBase, IDisposable
 {
     public ObservableCollection<ActiveRestoreSession> Sessions =>
         ServiceLocator.ActiveRestores.Sessions;
@@ -26,6 +26,11 @@ public sealed partial class ActiveRestoresViewModel : ViewModelBase
         ServiceLocator.ActiveRestores.Changed += OnRegistryChanged;
         OnRegistryChanged();
     }
+
+    /// <summary>Unhook from the process-lifetime registry. Without
+    /// this every instance ever navigated to stayed subscribed (and
+    /// rooted) forever; MainWindowViewModel.Dispose calls it.</summary>
+    public void Dispose() => ServiceLocator.ActiveRestores.Changed -= OnRegistryChanged;
 
     [ObservableProperty] private bool _hasNone;
 

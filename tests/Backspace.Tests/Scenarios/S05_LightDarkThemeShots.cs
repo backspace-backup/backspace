@@ -64,18 +64,23 @@ public sealed class S05_LightDarkThemeShots : ScenarioBase
             cfg.Backups.Add(fail);
         });
 
-        // Light theme snapshots.
-        SetTheme(ThemeVariant.Light);
-        SnapshotEachView(ctx, "light");
+        // finally-restore: the suite shares one process-wide
+        // Application, so a failure between the Dark flip and the
+        // restore used to leak the dark theme into every later test.
+        try
+        {
+            // Light theme snapshots.
+            SetTheme(ThemeVariant.Light);
+            SnapshotEachView(ctx, "light");
 
-        // Dark theme snapshots.
-        SetTheme(ThemeVariant.Dark);
-        SnapshotEachView(ctx, "dark");
-
-        // Restore default to avoid leaking the dark theme to
-        // subsequent scenarios — the suite shares a process-wide
-        // Application instance.
-        SetTheme(ThemeVariant.Light);
+            // Dark theme snapshots.
+            SetTheme(ThemeVariant.Dark);
+            SnapshotEachView(ctx, "dark");
+        }
+        finally
+        {
+            SetTheme(ThemeVariant.Light);
+        }
         return Task.CompletedTask;
     }
 

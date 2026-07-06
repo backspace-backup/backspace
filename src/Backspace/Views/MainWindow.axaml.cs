@@ -188,6 +188,15 @@ public partial class MainWindow : Window
     {
         Dispatcher.UIThread.Post(() =>
         {
+            // A window hidden to the tray has no visible title-bar icon
+            // to animate — don't burn a 160ms timer per hidden window
+            // for the whole duration of every backup/restore/verify.
+            // (The tray icon's own state is handled by App, not here.)
+            if (!IsVisible)
+            {
+                StopSyncingIconAnimation();
+                return;
+            }
             if (activity == AppActivity.Syncing)
                 StartSyncingIconAnimation();
             else

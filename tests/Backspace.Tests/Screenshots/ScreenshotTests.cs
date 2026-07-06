@@ -381,23 +381,31 @@ public class ScreenshotTests
     private static void CaptureWindow(Window window, string name)
     {
         window.Show();
-        window.UpdateLayout();
-        window.UpdateLayout();
+        try
+        {
+            window.UpdateLayout();
+            window.UpdateLayout();
 
-        Directory.CreateDirectory(OutputDir);
-        var path = Path.Combine(OutputDir, $"{name}.png");
+            Directory.CreateDirectory(OutputDir);
+            var path = Path.Combine(OutputDir, $"{name}.png");
 
-        // RenderTargetBitmap needs a PixelSize + DPI. 96 is the Avalonia
-        // logical-px baseline (1:1 device px to DIP), matching what the
-        // layout engine computed during UpdateLayout.
-        var size = new PixelSize(
-            Math.Max(1, (int)Math.Ceiling(window.Bounds.Width)),
-            Math.Max(1, (int)Math.Ceiling(window.Bounds.Height)));
-        using var bitmap = new RenderTargetBitmap(size, new Vector(96, 96));
-        bitmap.Render(window);
-        bitmap.Save(path);
-
-        window.Close();
+            // RenderTargetBitmap needs a PixelSize + DPI. 96 is the Avalonia
+            // logical-px baseline (1:1 device px to DIP), matching what the
+            // layout engine computed during UpdateLayout.
+            var size = new PixelSize(
+                Math.Max(1, (int)Math.Ceiling(window.Bounds.Width)),
+                Math.Max(1, (int)Math.Ceiling(window.Bounds.Height)));
+            using var bitmap = new RenderTargetBitmap(size, new Vector(96, 96));
+            bitmap.Render(window);
+            bitmap.Save(path);
+        }
+        finally
+        {
+            // Failure-safe: never leak the window (or its VM) into the
+            // shared headless session on a render/save throw.
+            window.Close();
+            (window.DataContext as IDisposable)?.Dispose();
+        }
     }
 
     /// <summary>

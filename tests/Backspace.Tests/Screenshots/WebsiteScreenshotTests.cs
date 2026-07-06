@@ -516,25 +516,35 @@ public class WebsiteScreenshotTests
     private static void CaptureWindow(Window window, string name)
     {
         window.Show();
-        // Two layout passes — Avalonia's headless host occasionally
-        // settles a binding only on the second pass when a property
-        // changes during the first pass (running-state Override).
-        window.UpdateLayout();
-        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-        window.UpdateLayout();
-        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        try
+        {
+            // Two layout passes — Avalonia's headless host occasionally
+            // settles a binding only on the second pass when a property
+            // changes during the first pass (running-state Override).
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
-        Directory.CreateDirectory(OutputDir);
-        var path = Path.Combine(OutputDir, $"{name}.png");
+            Directory.CreateDirectory(OutputDir);
+            var path = Path.Combine(OutputDir, $"{name}.png");
 
-        var size = new PixelSize(
-            Math.Max(1, (int)Math.Ceiling(window.Bounds.Width)),
-            Math.Max(1, (int)Math.Ceiling(window.Bounds.Height)));
-        using var bitmap = new RenderTargetBitmap(size, new Vector(96, 96));
-        bitmap.Render(window);
-        bitmap.Save(path);
-
-        window.Close();
+            var size = new PixelSize(
+                Math.Max(1, (int)Math.Ceiling(window.Bounds.Width)),
+                Math.Max(1, (int)Math.Ceiling(window.Bounds.Height)));
+            using var bitmap = new RenderTargetBitmap(size, new Vector(96, 96));
+            bitmap.Render(window);
+            bitmap.Save(path);
+        }
+        finally
+        {
+            // Failure-safe: a render/save throw must not leak the window
+            // into the shared session. Closing also disposes the shell's
+            // VM via MainWindow.OnClosed (tests set App.QuitRequested so
+            // the hide-to-tray branch can't cancel the close).
+            window.Close();
+            (window.DataContext as IDisposable)?.Dispose();
+        }
     }
 
     private static string ResolveOutputDir()

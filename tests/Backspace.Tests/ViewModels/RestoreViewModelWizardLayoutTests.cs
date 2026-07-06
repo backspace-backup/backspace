@@ -31,7 +31,7 @@ public class RestoreViewModelWizardLayoutTests
         // "STEP 2 OF 4" before the fix because PickBackup was counted as
         // a real step despite being just an empty-state placeholder.
         ResetConfig();
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
         SeedSourcesAndDests(vm, sourceCount: 1, destCount: 1);
         vm.MultiSourceMode = false;
         vm.CurrentStep = RestoreViewModel.Step.PickRevision;
@@ -48,7 +48,7 @@ public class RestoreViewModelWizardLayoutTests
         // multi-source mode). Before the fix this was 4 of 6 because
         // PickBackup was counted and PickFiles wasn't elided.
         ResetConfig();
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
         SeedSourcesAndDests(vm, sourceCount: 2, destCount: 2);
         vm.MultiSourceMode = true;
         vm.CurrentStep = RestoreViewModel.Step.PickRevision;
@@ -66,7 +66,7 @@ public class RestoreViewModelWizardLayoutTests
         // landing on PickRevision, there's no earlier USER-VISIBLE
         // step — Back must hide.
         ResetConfig();
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
         SeedSourcesAndDests(vm, sourceCount: 1, destCount: 1);
         vm.MultiSourceMode = false;
         vm.CurrentStep = RestoreViewModel.Step.PickRevision;
@@ -81,7 +81,7 @@ public class RestoreViewModelWizardLayoutTests
         // PickRevision should rewind to it. Pin the contract so a
         // future tweak can't accidentally hide Back here too.
         ResetConfig();
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
         SeedSourcesAndDests(vm, sourceCount: 2, destCount: 1);
         vm.MultiSourceMode = true;
         vm.CurrentStep = RestoreViewModel.Step.PickRevision;
@@ -97,7 +97,7 @@ public class RestoreViewModelWizardLayoutTests
         // is a visible summary step in multi-source mode, so Back from
         // PickTarget must rewind to PickRevision.
         ResetConfig();
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
         SeedSourcesAndDests(vm, sourceCount: 2, destCount: 1);
         vm.MultiSourceMode = true;
         vm.CurrentStep = RestoreViewModel.Step.PickTarget;
@@ -119,7 +119,7 @@ public class RestoreViewModelWizardLayoutTests
         // of that contract: revision step is reachable, and Next
         // advances forward by exactly one visible step.
         ResetConfig();
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
         SeedSourcesAndDests(vm, sourceCount: 2, destCount: 1);
         vm.MultiSourceMode = true;
         vm.CurrentStep = RestoreViewModel.Step.PickRevision;
@@ -212,7 +212,7 @@ public class RestoreViewModelWizardLayoutTests
         // a complete line. Pin both that invariant AND the hard cap so
         // a long restore can't blow up unbounded.
         ResetConfig();
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
 
         // Append enough lines to overflow the 400 KB hard cap. Each
         // line is ~40 chars including newline, so 12k lines = ~480 KB.
@@ -242,7 +242,7 @@ public class RestoreViewModelWizardLayoutTests
         ResetConfig();
         ServiceLocator.Config.Update(cfg => cfg.Logging.MinimumLevel = "Information");
 
-        var vm = new RestoreViewModel();
+        using var vm = new RestoreViewModel();
         vm.AppendProgressLineForTesting("2026-04-22 15:56:29.939 INFO RUN_BACKUP started");
         vm.AppendProgressLineForTesting("2026-04-22 15:56:29.940 DEBUG NOISE keep this in storage");
         vm.AppendProgressLineForTesting("2026-04-22 15:56:29.941 TRACE PATTERN keep this too");

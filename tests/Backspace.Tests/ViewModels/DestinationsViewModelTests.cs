@@ -13,7 +13,7 @@ public class DestinationsViewModelTests
     {
         ResetConfig();
 
-        var vm = new DestinationsViewModel();
+        using var vm = new DestinationsViewModel();
 
         Assert.True(vm.IsEmpty);
         Assert.Empty(vm.Rows);
@@ -24,7 +24,7 @@ public class DestinationsViewModelTests
     {
         ResetConfig();
 
-        var vm = new DestinationsViewModel();
+        using var vm = new DestinationsViewModel();
 
         ServiceLocator.Config.Update(cfg => cfg.Destinations.Add(new Destination
         {

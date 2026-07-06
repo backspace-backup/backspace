@@ -37,32 +37,40 @@ public class AttentionPillScreenshotTests
     private readonly ITestOutputHelper _out;
     public AttentionPillScreenshotTests(ITestOutputHelper output) => _out = output;
 
+    // Every test finally-restores the app-wide theme: the suite shares
+    // one process-wide Application, and the Dark variant used to stay
+    // applied for every test that ran after Shot_*_DarkMode.
+
     [AvaloniaFact]
     public void Shot_AttentionPill_LightMode_AllTones()
     {
         Application.Current!.RequestedThemeVariant = ThemeVariant.Light;
-        RenderAndAssert("attention-pill-light.png", lightMode: true);
+        try { RenderAndAssert("attention-pill-light.png", lightMode: true); }
+        finally { Application.Current!.RequestedThemeVariant = ThemeVariant.Light; }
     }
 
     [AvaloniaFact]
     public void Shot_AttentionPill_DarkMode_AllTones()
     {
         Application.Current!.RequestedThemeVariant = ThemeVariant.Dark;
-        RenderAndAssert("attention-pill-dark.png", lightMode: false);
+        try { RenderAndAssert("attention-pill-dark.png", lightMode: false); }
+        finally { Application.Current!.RequestedThemeVariant = ThemeVariant.Light; }
     }
 
     [AvaloniaFact]
     public void Shot_ActionButtons_LightMode()
     {
         Application.Current!.RequestedThemeVariant = ThemeVariant.Light;
-        RenderActionButtonsAndAssert("action-buttons-light.png", lightMode: true);
+        try { RenderActionButtonsAndAssert("action-buttons-light.png", lightMode: true); }
+        finally { Application.Current!.RequestedThemeVariant = ThemeVariant.Light; }
     }
 
     [AvaloniaFact]
     public void Shot_ActionButtons_DarkMode()
     {
         Application.Current!.RequestedThemeVariant = ThemeVariant.Dark;
-        RenderActionButtonsAndAssert("action-buttons-dark.png", lightMode: false);
+        try { RenderActionButtonsAndAssert("action-buttons-dark.png", lightMode: false); }
+        finally { Application.Current!.RequestedThemeVariant = ThemeVariant.Light; }
     }
 
     /// <summary>
@@ -117,37 +125,45 @@ public class AttentionPillScreenshotTests
 
         window.Content = grid;
         window.Show();
-        window.UpdateLayout();
-        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-        window.UpdateLayout();
-        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-
-        _out.WriteLine($"=== {fileName} ({(lightMode ? "Light" : "Dark")} theme) ===");
-        foreach (var btn in window.GetVisualDescendants().OfType<Button>())
+        try
         {
-            var cls = btn.Classes.FirstOrDefault(c =>
-                c is "restore-action" or "row-action-danger" or "row-action-warn"
-                  or "row-action-critical" or "danger");
-            if (cls is null) continue;
-            var hover = btn.Classes.Contains(":pointerover");
-            _out.WriteLine($"  [{cls,-18} hover={hover}]");
-            _out.WriteLine($"    Button.Foreground   = {Describe(btn.Foreground)}");
-            foreach (var pi in btn.GetVisualDescendants().OfType<PathIcon>())
-                _out.WriteLine($"    PathIcon.Foreground = {Describe(pi.Foreground)}");
-            foreach (var tb in btn.GetVisualDescendants().OfType<TextBlock>())
-                _out.WriteLine($"    TextBlock '{tb.Text}'.Foreground = {Describe(tb.Foreground)}");
-        }
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
-        Directory.CreateDirectory(OutputDir);
-        var path = Path.Combine(OutputDir, fileName);
-        var size = new PixelSize(
-            Math.Max(1, (int)Math.Ceiling(window.Bounds.Width)),
-            Math.Max(1, (int)Math.Ceiling(window.Bounds.Height)));
-        using var bitmap = new RenderTargetBitmap(size, new Vector(96, 96));
-        bitmap.Render(window);
-        bitmap.Save(path);
-        _out.WriteLine($"saved: {path}");
-        window.Close();
+            _out.WriteLine($"=== {fileName} ({(lightMode ? "Light" : "Dark")} theme) ===");
+            foreach (var btn in window.GetVisualDescendants().OfType<Button>())
+            {
+                var cls = btn.Classes.FirstOrDefault(c =>
+                    c is "restore-action" or "row-action-danger" or "row-action-warn"
+                      or "row-action-critical" or "danger");
+                if (cls is null) continue;
+                var hover = btn.Classes.Contains(":pointerover");
+                _out.WriteLine($"  [{cls,-18} hover={hover}]");
+                _out.WriteLine($"    Button.Foreground   = {Describe(btn.Foreground)}");
+                foreach (var pi in btn.GetVisualDescendants().OfType<PathIcon>())
+                    _out.WriteLine($"    PathIcon.Foreground = {Describe(pi.Foreground)}");
+                foreach (var tb in btn.GetVisualDescendants().OfType<TextBlock>())
+                    _out.WriteLine($"    TextBlock '{tb.Text}'.Foreground = {Describe(tb.Foreground)}");
+            }
+
+            Directory.CreateDirectory(OutputDir);
+            var path = Path.Combine(OutputDir, fileName);
+            var size = new PixelSize(
+                Math.Max(1, (int)Math.Ceiling(window.Bounds.Width)),
+                Math.Max(1, (int)Math.Ceiling(window.Bounds.Height)));
+            using var bitmap = new RenderTargetBitmap(size, new Vector(96, 96));
+            bitmap.Render(window);
+            bitmap.Save(path);
+            _out.WriteLine($"saved: {path}");
+        }
+        finally
+        {
+            // Failure-safe: an assert/render throw must not leak the
+            // window into the shared headless session.
+            window.Close();
+        }
     }
 
     private static Button BuildActionButton(string cls, string label, bool hover)
@@ -248,48 +264,56 @@ public class AttentionPillScreenshotTests
 
         window.Content = grid;
         window.Show();
-        window.UpdateLayout();
-        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-        window.UpdateLayout();
-        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-
-        // Introspect: walk every Button.attention-pill and print the
-        // effective Foreground of every PathIcon + TextBlock descendant.
-        // This is the smoking gun for "glyph wrong colour" — if the
-        // resolved brush isn't *LightFg the selector lost.
-        _out.WriteLine($"=== {fileName} ({(lightMode ? "Light" : "Dark")} theme) ===");
-        foreach (var btn in window.GetVisualDescendants().OfType<Button>()
-                     .Where(b => b.Classes.Contains("attention-pill")))
+        try
         {
-            var toneClass = btn.Classes.FirstOrDefault(c =>
-                c is "warn" or "skipped" or "fail" or "idle") ?? "(?)";
-            var hover = btn.Classes.Contains(":pointerover");
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
-            _out.WriteLine($"  pill[{toneClass,-8} hover={hover}]");
-            _out.WriteLine($"    Button.Foreground   = {Describe(btn.Foreground)}");
+            // Introspect: walk every Button.attention-pill and print the
+            // effective Foreground of every PathIcon + TextBlock descendant.
+            // This is the smoking gun for "glyph wrong colour" — if the
+            // resolved brush isn't *LightFg the selector lost.
+            _out.WriteLine($"=== {fileName} ({(lightMode ? "Light" : "Dark")} theme) ===");
+            foreach (var btn in window.GetVisualDescendants().OfType<Button>()
+                         .Where(b => b.Classes.Contains("attention-pill")))
+            {
+                var toneClass = btn.Classes.FirstOrDefault(c =>
+                    c is "warn" or "skipped" or "fail" or "idle") ?? "(?)";
+                var hover = btn.Classes.Contains(":pointerover");
 
-            foreach (var pi in btn.GetVisualDescendants().OfType<PathIcon>())
-            {
-                var piClass = pi.Classes.FirstOrDefault(c =>
-                    c is "status-icon" or "attention-pill-chevron") ?? "(?)";
-                _out.WriteLine($"    PathIcon[{piClass,-22}].Foreground = {Describe(pi.Foreground)}");
+                _out.WriteLine($"  pill[{toneClass,-8} hover={hover}]");
+                _out.WriteLine($"    Button.Foreground   = {Describe(btn.Foreground)}");
+
+                foreach (var pi in btn.GetVisualDescendants().OfType<PathIcon>())
+                {
+                    var piClass = pi.Classes.FirstOrDefault(c =>
+                        c is "status-icon" or "attention-pill-chevron") ?? "(?)";
+                    _out.WriteLine($"    PathIcon[{piClass,-22}].Foreground = {Describe(pi.Foreground)}");
+                }
+                foreach (var tb in btn.GetVisualDescendants().OfType<TextBlock>())
+                {
+                    _out.WriteLine($"    TextBlock '{tb.Text}'.Foreground   = {Describe(tb.Foreground)}");
+                }
             }
-            foreach (var tb in btn.GetVisualDescendants().OfType<TextBlock>())
-            {
-                _out.WriteLine($"    TextBlock '{tb.Text}'.Foreground   = {Describe(tb.Foreground)}");
-            }
+
+            Directory.CreateDirectory(OutputDir);
+            var path = Path.Combine(OutputDir, fileName);
+            var size = new PixelSize(
+                Math.Max(1, (int)Math.Ceiling(window.Bounds.Width)),
+                Math.Max(1, (int)Math.Ceiling(window.Bounds.Height)));
+            using var bitmap = new RenderTargetBitmap(size, new Vector(96, 96));
+            bitmap.Render(window);
+            bitmap.Save(path);
+            _out.WriteLine($"saved: {path}");
         }
-
-        Directory.CreateDirectory(OutputDir);
-        var path = Path.Combine(OutputDir, fileName);
-        var size = new PixelSize(
-            Math.Max(1, (int)Math.Ceiling(window.Bounds.Width)),
-            Math.Max(1, (int)Math.Ceiling(window.Bounds.Height)));
-        using var bitmap = new RenderTargetBitmap(size, new Vector(96, 96));
-        bitmap.Render(window);
-        bitmap.Save(path);
-        _out.WriteLine($"saved: {path}");
-        window.Close();
+        finally
+        {
+            // Failure-safe: an assert/render throw must not leak the
+            // window into the shared headless session.
+            window.Close();
+        }
     }
 
     private static string Describe(IBrush? brush) => brush switch

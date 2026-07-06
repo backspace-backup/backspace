@@ -38,6 +38,11 @@ public sealed class UpdateChecker
     /// </summary>
     public void Begin()
     {
+        // Test escape hatch: the suite builds many MainWindows, and a
+        // live GitHub GET (plus a possible update toast) per window
+        // injects network-timed work at unpredictable points mid-run.
+        if (Environment.GetEnvironmentVariable("BACKSPACE_NO_UPDATE_CHECK") == "1") return;
+
         _ = Task.Run(async () =>
         {
             try { await CheckOnceAsync(CancellationToken.None); }

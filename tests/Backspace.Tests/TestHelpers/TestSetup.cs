@@ -39,6 +39,23 @@ internal static class TestSetup
         // otherwise burn ~85s per cell × N cells before surfacing.
         Environment.SetEnvironmentVariable("BACKSPACE_FAST_RETRIES", "1");
 
+        // Make window.Close() actually CLOSE in tests. The defaults
+        // (ShowTrayIcon + MinimizeToTrayOnClose both true) route
+        // MainWindow.Close() into the hide-to-tray branch, which
+        // CANCELS the close: OnClosed never runs, the DataContext VM
+        // never disposes, and every "closed" shell keeps its
+        // Config.Changed / AppStatus.Changed / Engine.LineWritten
+        // subscriptions plus a per-window icon-animation timer. Over
+        // a full 812-test run those leaked shells made every config
+        // mutation and engine line slower until click/lookup tests
+        // started blowing their timeouts (the "~70s cliff").
+        Backspace.App.QuitRequested = true;
+
+        // No live GitHub release checks mid-suite: every MainWindow
+        // construction otherwise fires a real HTTPS GET (and possibly
+        // a toast window) at unpredictable points in the run.
+        Environment.SetEnvironmentVariable("BACKSPACE_NO_UPDATE_CHECK", "1");
+
         var existing = Environment.GetEnvironmentVariable("BACKSPACE_CONFIG_ROOT");
         if (string.IsNullOrWhiteSpace(existing))
         {

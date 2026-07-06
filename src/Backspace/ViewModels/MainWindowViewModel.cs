@@ -145,8 +145,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         _logs?.Dispose();
         _restore?.Dispose();
         _settings?.Dispose();
-        // _activeRestores has no IDisposable surface — its only state
-        // is event subscriptions to the registry which it manages itself.
+        _activeRestores?.Dispose();
     }
 }
 

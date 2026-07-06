@@ -14,8 +14,10 @@ namespace Backspace.Tests.TestHelpers;
 /// subclassing — that keeps App.axaml's resources loaded and skips the
 /// MainWindow creation automatically. Why no MainWindow? Because the real
 /// App only creates one under an <see cref="Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime"/>,
-/// and Avalonia.Headless installs a <c>HeadlessApplicationLifetime</c>
-/// instead — the conditional inside App.OnFrameworkInitializationCompleted
+/// and Avalonia.Headless installs NO application lifetime at all
+/// (verified against Avalonia.Headless 11.2.3; there is consequently
+/// also no desktop.Windows list to enumerate for cleanup) — the
+/// conditional inside App.OnFrameworkInitializationCompleted
 /// short-circuits, so only <see cref="Backspace.Services.ServiceLocator.InitializeCore"/>
 /// and resource setup run.
 /// </summary>
