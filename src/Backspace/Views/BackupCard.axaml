@@ -427,16 +427,16 @@
            that Delete is categorically different from the trio on the
            left. The danger-tinted Delete button now sits alone in its
            lane, no longer adjacent to the verify-fail red text. -->
-      <Border Grid.Row="3"
+      <Border Grid.Row="3" x:Name="ActionShelf" Classes="backup-card-actions"
               IsVisible="{Binding ShowActions}"
               Background="Transparent"
               BorderBrush="{DynamicResource BS.Brush.BorderSubtle}"
               BorderThickness="0,1,0,0"
-              Padding="24,14,24,14">
+              Padding="24,14,24,8">
         <Grid VerticalAlignment="Center">
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="16"/>
             <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
 
@@ -450,18 +450,18 @@
                Delete on the right — the previous StackPanel layout
                broke the moment Browse + Mount joined the row. -->
           <!-- No ItemHeight on the WrapPanel — buttons' natural
-               height comes from their Padding (22,12) + content
+               height comes from compact scoped Padding (14,9) + content
                (~14px text). Setting ItemHeight=32 clipped the
                text vertically. Each row is sized by its tallest
                child, which is what we want here. -->
-          <WrapPanel Grid.Column="0" Orientation="Horizontal"
+          <WrapPanel Grid.Column="0" x:Name="ActionCluster" Orientation="Horizontal"
                      VerticalAlignment="Center">
             <Button Classes="primary"
                     IsVisible="{Binding !IsRunning}"
                     IsEnabled="{Binding CanRunNow}"
                     ToolTip.Tip="{Binding RunNowTooltip}"
                     ToolTip.ShowOnDisabled="True"
-                    Margin="0,0,10,0"
+                    Margin="0,0,8,6"
                     Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).RunNowCommand}"
                     CommandParameter="{Binding}">
               <StackPanel Orientation="Horizontal" Spacing="8">
@@ -471,7 +471,7 @@
             </Button>
             <Button Classes="danger"
                     IsVisible="{Binding IsRunning}"
-                    Margin="0,0,10,0"
+                    Margin="0,0,8,6"
                     Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).CancelRunCommand}"
                     CommandParameter="{Binding}">
               <TextBlock Text="Stop" VerticalAlignment="Center"/>
@@ -480,7 +480,7 @@
                     IsEnabled="{Binding !IsRunning}"
                     ToolTip.Tip="{Binding EditTooltip}"
                     ToolTip.ShowOnDisabled="True"
-                    Margin="0,0,10,0"
+                    Margin="0,0,8,6"
                     Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).EditCommand}"
                     CommandParameter="{Binding}">
               <StackPanel Orientation="Horizontal" Spacing="8">
@@ -492,7 +492,7 @@
                     IsEnabled="{Binding !IsRunning}"
                     ToolTip.Tip="Open the snapshot browser in your default web browser, scoped to this backup."
                     ToolTip.ShowOnDisabled="True"
-                    Margin="0,0,10,0"
+                    Margin="0,0,8,6"
                     Command="{Binding BrowseSnapshotsCommand}">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <PathIcon Data="{StaticResource Icon.FolderOpen}" Width="13" Height="13"/>
@@ -504,14 +504,14 @@
                     IsVisible="{Binding CanMountSnapshot}"
                     ToolTip.Tip="{Binding MountTooltip}"
                     ToolTip.ShowOnDisabled="True"
-                    Margin="0,0,10,0"
+                    Margin="0,0,8,6"
                     Command="{Binding MountInExplorerCommand}">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <PathIcon Data="{StaticResource Icon.Destinations}" Width="13" Height="13"/>
                 <TextBlock Text="{Binding MountActionLabel}" VerticalAlignment="Center"/>
               </StackPanel>
             </Button>
-            <Button Classes="restore-action"
+            <Button Classes="restore-action" Margin="0,0,0,6"
                     IsEnabled="{Binding !IsRunning}"
                     ToolTip.Tip="{Binding RestoreFilesTooltip}"
                     ToolTip.ShowOnDisabled="True"
@@ -525,7 +525,7 @@
           </WrapPanel>
 
           <!-- RIGHT: destructive, alone. -->
-          <Button Grid.Column="2"
+          <Button Grid.Column="2" x:Name="DeleteBackupButton" VerticalAlignment="Top" Margin="0,0,0,6"
                   Classes="row-action-danger"
                   IsEnabled="{Binding !IsRunning}"
                   ToolTip.Tip="{Binding DeleteTooltip}"

@@ -58,10 +58,14 @@ public sealed class S49_ReviewUiRepairs : ScenarioBase
         window.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 2; ctx.Driver.Pump();
         window.GetVisualDescendants().OfType<TabControl>().First(t => t.Items.OfType<TabItem>().Any(x => x.Header?.ToString() == "Advanced")).SelectedIndex = 1;
         ctx.Driver.Pump(); window.UpdateLayout();
+        // The pointer hit-test scene is updated on a render tick, not by
+        // layout alone. Let the newly selected tab actually render before
+        // clicking it; do not bypass the click by calling Focus().
+        Screenshots.ScreenshotDiffTests.SettleInitialTransitions(window);
         var text = window.GetVisualDescendants().OfType<TextBox>().Single(t => t.IsEffectivelyVisible && t.AcceptsReturn && !t.IsReadOnly);
         var point = text.TranslatePoint(new Point(16, 16), window)!.Value;
         window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left); ctx.Driver.Pump();
-        Assert.True(text.IsFocused); Assert.NotNull(text.Cursor);
+        Assert.True(text.IsFocused, $"Filter editor pointer {point}, text bounds {text.Bounds}, window {window.Bounds}; hit {window.InputHitTest(point)?.GetType().Name} did not focus the text box."); Assert.NotNull(text.Cursor);
         ctx.Snapshot(window, "editing-cursor-after-pointer-click", "A real pointer click focuses the filter editor; its text-editing cursor and accent caret are enabled.");
         window.Close();
 

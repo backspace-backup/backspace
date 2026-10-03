@@ -17,7 +17,7 @@
 
     <!-- ========================================================= -->
     <!-- Custom title bar.                                           -->
-    <!-- Left 248px matches the sidebar colour (BgSurface) with its  -->
+    <!-- Left 248px matches the sidebar colour (Sidebar) with its    -->
     <!-- 1px right separator carried all the way to the top, so the  -->
     <!-- sidebar reads as one continuous panel. Middle strip uses    -->
     <!-- BgBase (same as the content area), the whole row is drag-   -->
@@ -28,7 +28,7 @@
 
       <!-- Sidebar cap: same fill + border as the sidebar below. -->
       <Border Grid.Column="0"
-              Background="{DynamicResource BS.Brush.BgSurface}"
+              Background="{DynamicResource BS.Brush.Sidebar}"
               BorderBrush="{DynamicResource BS.Brush.BorderSubtle}"
               BorderThickness="0,0,1,0"/>
 
@@ -70,7 +70,7 @@
 
       <!-- ========== Sidebar ========== -->
       <Border Grid.Column="0"
-              Background="{DynamicResource BS.Brush.BgSurface}"
+              Background="{DynamicResource BS.Brush.Sidebar}"
               BorderBrush="{DynamicResource BS.Brush.BorderSubtle}"
               BorderThickness="0,0,1,0">
         <DockPanel LastChildFill="True">
@@ -78,11 +78,9 @@
           <!--
             Masthead. Logo (per-accent ICO swapped by code-behind on a
             160 ms timer for the syncing animation) + wordmark. The
-            wordmark is tracked +0.5px for a slightly more deliberate
-            typographic feel at the small display size; below it sits
-            a thin rule that mirrors the one above the footer section
-            so the sidebar reads as three balanced bands (masthead /
-            primary nav / footer) rather than four uneven ones.
+            Georgia wordmark matches the large page headings; native
+            text remains on every navigation label. A thin rule below
+            separates the identity from the compact navigation group.
             User feedback: "YOUR BACKUPS" caps label between the
             masthead and the nav was redundant — the two items
             underneath ARE the primary nav, no group label needed.
@@ -93,24 +91,22 @@
                    Source="avares://Backspace/Assets/Backspace.ico"/>
             <TextBlock Grid.Column="1" Text="Backspace"
                        VerticalAlignment="Center" Margin="12,0,0,0"
-                       FontFamily="{DynamicResource BS.Font.Display}"
-                       FontSize="17" FontWeight="SemiBold"
-                       LetterSpacing="0.3"
+                       FontFamily="{DynamicResource BS.Font.Editorial}"
+                       FontSize="22" FontWeight="Normal"
+                       LineHeight="30"
                        Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
           </Grid>
 
-          <!-- Hairline rule under the masthead — symmetric with the
-               rule above the Settings nav at the bottom so the
-               sidebar reads as three balanced bands. -->
+          <!-- Hairline rule separates the masthead from navigation. -->
           <Border DockPanel.Dock="Top" Classes="rule" Margin="24,0,24,12"/>
 
           <!-- Primary nav. "Restore files" was removed from here — the
                per-backup BackupCard now hosts a "Restore files" button
                that takes the user to the same wizard, scoped to that
                backup. The "WHEN SOMETHING HAPPENS" group label was also
-               dropped — Activity & logs is a diagnostics/footer-tier
+               dropped — Activity & logs is a supporting diagnostics
                feature and now sits below Settings. -->
-          <StackPanel DockPanel.Dock="Top" Spacing="2" Margin="0,0,0,16">
+          <StackPanel DockPanel.Dock="Top" Spacing="2" Margin="0,0,0,8">
             <RadioButton Classes="nav" GroupName="nav"
                          IsChecked="{Binding SelectedNav, Converter={x:Static v:NavConverters.IsSelected}, ConverterParameter={x:Static vm:NavItem.Backups}, Mode=TwoWay}">
               <StackPanel Orientation="Horizontal" Spacing="12">
@@ -147,11 +143,10 @@
             </RadioButton>
           </StackPanel>
 
-          <!-- Footer: Settings → Activity & logs → version + GitHub.
-               Restore is no longer here (per-backup button replaces).
-               Activity & logs is below Settings since it's a
-               diagnostics/troubleshooting view, not a primary nav. -->
-          <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,18" Spacing="2">
+          <!-- Supporting navigation stays near the primary routes; the
+               small rule separates roles without stranding two links at
+               the bottom of a tall, otherwise empty sidebar. -->
+          <StackPanel DockPanel.Dock="Top" Margin="0,4,0,0" Spacing="2">
             <Border Classes="rule" Margin="24,0,24,10"/>
             <RadioButton Classes="nav" GroupName="nav"
                          IsChecked="{Binding SelectedNav, Converter={x:Static v:NavConverters.IsSelected}, ConverterParameter={x:Static vm:NavItem.Settings}, Mode=TwoWay}">
@@ -168,6 +163,10 @@
               </StackPanel>
             </RadioButton>
 
+          </StackPanel>
+
+          <!-- Provenance remains anchored to the bottom. -->
+          <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,18" Spacing="2">
             <!-- Footer: dropped the redundant app-name line — the
                  sidebar masthead already says "Backspace". What's
                  actually useful here:

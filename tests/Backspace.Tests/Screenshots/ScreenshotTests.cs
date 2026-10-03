@@ -15,9 +15,9 @@ namespace Backspace.Tests.Screenshots;
 
 /// <summary>
 /// Renders each view and dialog to an actual PNG under
-/// tests/Backspace.Tests/artifacts/screenshots/. These aren't pass/fail
-/// tests against golden images — they're artifacts a human (or Claude)
-/// reads back to confirm the UX looks intended.
+/// tests/Backspace.Tests/artifacts/screenshots/. Each fresh capture is
+/// compared with its baseline; a human also opens intentional changes
+/// to confirm the UX looks intended before updating that baseline.
 ///
 /// Running `dotnet test --filter "FullyQualifiedName~ScreenshotTests"`
 /// regenerates every PNG; a reviewer then opens them and checks for
@@ -385,6 +385,7 @@ public class ScreenshotTests
         {
             window.UpdateLayout();
             window.UpdateLayout();
+            ScreenshotDiffTests.SettleInitialTransitions(window);
 
             Directory.CreateDirectory(OutputDir);
             var path = Path.Combine(OutputDir, $"{name}.png");

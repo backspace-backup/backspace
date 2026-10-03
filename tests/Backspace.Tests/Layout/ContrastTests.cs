@@ -37,6 +37,9 @@ public class ContrastTests
     [InlineData("Dark",  "BS.Brush.FgPrimary",   "BS.Brush.BgBase",    4.5, "Primary text on dark base")]
     [InlineData("Dark",  "BS.Brush.FgSecondary", "BS.Brush.BgSurface", 4.5, "Secondary text on dark surface")]
     [InlineData("Dark",  "BS.Brush.FgDim",       "BS.Brush.BgSurface", 4.5, "Dim text on dark surface")]
+    [InlineData("Light", "BS.Brush.FgDim", "BS.Brush.Sidebar", 4.5, "Caption text on the warm sidebar")]
+    [InlineData("Dark", "BS.Brush.FgDim", "BS.Brush.Sidebar", 4.5, "Caption text on the dark sidebar")]
+    [InlineData("Light", "BS.Brush.BorderEmphasized", "BS.Brush.BgSurface", 3.0, "Input boundary against a white surface")]
     public void Palette_PassesWcagAa(string theme, string fgKey, string bgKey, double minRatio, string note)
     {
         var fg = ParseColor(theme, fgKey);

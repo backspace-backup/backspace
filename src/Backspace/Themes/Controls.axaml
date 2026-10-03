@@ -2,8 +2,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
   <!-- =================================================================== -->
-  <!-- Shared type scale for all three concepts. See CONCEPT.md anchors.    -->
-  <!-- Body: 14/22/400, title: 28/34/600, emphasis: SemiBold. Tabular nums. -->
+  <!-- Shared type scale. See DESIGN.md for the native and editorial roles. -->
+  <!-- Body: 14/22/400, page title: Georgia 32/44/400. Tabular numbers.      -->
   <!-- =================================================================== -->
 
   <!--
@@ -15,7 +15,7 @@
     constrains the wrap width, without silently indenting the block.
   -->
   <!-- LineHeight values are sized so the line box always contains the
-       full descender + ascender of Segoe UI Variable Display. The
+       full descender + ascender of Georgia and native display fonts. The
        earlier pass sized them at ~1.21× the FontSize (e.g. 28/34),
        which is fine for Latin without descenders but visibly clips
        the "g" / "p" / "y" tails in titles like "Logs & runs". The
@@ -23,20 +23,20 @@
        absorb full descenders + a small breathing margin so multi-line
        titles don't feel cramped. -->
   <Style Selector="TextBlock.hero-status">
-    <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Display}"/>
+    <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Editorial}"/>
     <Setter Property="FontSize" Value="40"/>
     <Setter Property="LineHeight" Value="56"/>
-    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="FontWeight" Value="Normal"/>
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
     <Setter Property="TextWrapping" Value="Wrap"/>
     <Setter Property="HorizontalAlignment" Value="Left"/>
   </Style>
 
   <Style Selector="TextBlock.page-title">
-    <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Display}"/>
-    <Setter Property="FontSize" Value="28"/>
-    <Setter Property="LineHeight" Value="40"/>
-    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Editorial}"/>
+    <Setter Property="FontSize" Value="32"/>
+    <Setter Property="LineHeight" Value="44"/>
+    <Setter Property="FontWeight" Value="Normal"/>
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
     <Setter Property="TextWrapping" Value="Wrap"/>
     <Setter Property="HorizontalAlignment" Value="Left"/>
@@ -159,7 +159,7 @@
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
     <Setter Property="Background" Value="Transparent"/>
     <Setter Property="BorderThickness" Value="0"/>
-    <Setter Property="Padding" Value="14,9"/>
+    <Setter Property="Padding" Value="14,11"/>
     <Setter Property="HorizontalContentAlignment" Value="Left"/>
     <Setter Property="Cursor" Value="Hand"/>
     <Setter Property="Template">
@@ -200,7 +200,7 @@
   </Style>
 
   <Style Selector="RadioButton.nav:checked">
-    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.Accent}"/>
+    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.AccentTintFg}"/>
     <Setter Property="Background" Value="{DynamicResource BS.Brush.AccentTint}"/>
     <Setter Property="FontWeight" Value="SemiBold"/>
   </Style>
@@ -2316,4 +2316,12 @@
     <Setter Property="TextDecorations" Value="Underline"/>
   </Style>
 
+
+  <!-- Card actions keep their established semantic colours. A finite grid
+       column and compact padding allow every action to wrap without clipping. -->
+  <Style Selector="Border.backup-card-actions Button">
+    <Setter Property="Padding" Value="14,9"/>
+    <Setter Property="MinHeight" Value="40"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+  </Style>
 </Styles>

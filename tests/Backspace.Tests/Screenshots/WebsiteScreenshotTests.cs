@@ -525,6 +525,7 @@ public class WebsiteScreenshotTests
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            ScreenshotDiffTests.SettleInitialTransitions(window);
 
             Directory.CreateDirectory(OutputDir);
             var path = Path.Combine(OutputDir, $"{name}.png");

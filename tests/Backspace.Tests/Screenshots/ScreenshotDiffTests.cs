@@ -30,6 +30,20 @@ namespace Backspace.Tests.Screenshots;
 /// </summary>
 public class ScreenshotDiffTests
 {
+    /// <summary>Allow real initial transitions to finish before capturing a
+    /// resting screenshot. Layout pumping alone does not advance animation
+    /// time and can record a half-rotated caret or light-to-dark brush.</summary>
+    internal static void SettleInitialTransitions(Avalonia.Controls.Window window)
+    {
+        for (var frame = 0; frame < 24; frame++)
+        {
+            System.Threading.Thread.Sleep(16);
+            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+        }
+    }
+
     // Publish a finished PNG by rename. A sync client or image preview can
     // memory-map the previous file; truncating that mapped file fails on Windows.
     internal static void SaveAndVerify(Avalonia.Media.Imaging.Bitmap bitmap, string currentPath)

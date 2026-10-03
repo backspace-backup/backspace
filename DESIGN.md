@@ -13,7 +13,7 @@ like. When the code and this file disagree, the code wins.
 
 ## Aesthetic
 
-**Calm editorial.** Warm cream surfaces, a confident deep-blue accent,
+**Calm editorial.** Warm paper behind white cards, a confident deep-blue accent,
 generous whitespace, serif headings. Think "well-designed journal app"
 rather than "system utility". Restrained, not flashy.
 
@@ -44,12 +44,13 @@ both this doc and the `.axaml` together.
 
 | Token | Hex | Use |
 |---|---|---|
-| `BS.Brush.BgBase` | `#FFFFFF` | Window background, content panes |
-| `BS.Brush.BgSurface` | `#FBF8F2` | Cards, sidebar, banners (warm cream) |
+| `BS.Brush.BgBase` | `#F6F5F1` | Warm window canvas and content panes |
+| `BS.Brush.BgSurface` | `#FFFFFF` | White cards and banners |
+| `BS.Brush.Sidebar` | `#EEECE5` | Warm navigation panel |
 | `BS.Brush.BgElevated` | `#FFFFFF` | Dialogs, popovers |
 | `BS.Brush.FgPrimary` | `#1A1915` | Body text (inky warm black, never pure black) |
-| `BS.Brush.FgSecondary` | `#4A4740` | Labels, metadata (AA 8.9:1 on cream) |
-| `BS.Brush.FgDim` | `#6A665C` | Captions, timestamps (AA 4.67:1 on cream) |
+| `BS.Brush.FgSecondary` | `#4A4740` | Labels, metadata (8.49:1 on the canvas) |
+| `BS.Brush.FgDim` | `#6A665C` | Captions, timestamps (5.25:1 on the canvas; 4.84:1 on the sidebar) |
 | `BS.Brush.Success` | `#15803D` | Healthy run status, encouragement |
 | `BS.Brush.Warn` | `#B45309` | Skipped / attention-needed (amber-700) |
 | `BS.Brush.Danger` | `#B91C1C` | Failed run, destructive actions (red-700) |
@@ -60,6 +61,7 @@ both this doc and the `.axaml` together.
 |---|---|
 | `BS.Brush.BgBase` | `#141414` |
 | `BS.Brush.BgSurface` | `#1C1C1C` |
+| `BS.Brush.Sidebar` | `#181818` |
 | `BS.Brush.FgPrimary` | `#F2F1EE` |
 | `BS.Brush.FgSecondary` | `#BFBBB2` |
 
@@ -86,29 +88,33 @@ palette, that test will tell you immediately if a pair drops below 4.5:1.
 
 ## Typography
 
-Three families, each doing one job. All bundled under `Assets/Fonts/`
-and registered in `App.axaml`.
+Four font tokens have distinct roles. Native installed fonts are used;
+the bundled Fraunces variable asset is not selected by this proposal.
 
-| Role | Family | License | Notes |
-|---|---|---|---|
-| Display / headings | **Fraunces** | OFL | Variable serif with an *opsz* axis. Friendly, slightly old-timey, never aggressive. |
-| Body / UI | **Inter** (Inter Tight) | OFL | Clean, neutral, gets out of the way. The text the user actually reads. |
-| Monospace | **JetBrains Mono** | OFL | Paths, log lines, revision IDs. |
+| Role | Family | Notes |
+|---|---|---|
+| Large page headings and wordmark | **Georgia** | Editorial serif; generic serif fallback outside Windows. Normal weight keeps the forms open. |
+| Card and section headings | **Segoe UI Variable Display** | Native sans serif; retains the familiar hierarchy inside working surfaces. |
+| Body and controls | **Segoe UI Variable Text** | Segoe UI fallback; unchanged native text rendering for labels, paths and inputs. |
+| Monospace | **Cascadia Mono** | Consolas / monospace fallback for log lines and identifiers. |
 
-Rough scale (light theme, 14px base):
+Scale (14px body):
 
-- Hero / page title — Fraunces, 32-64px, weight 600
-- Section title — Fraunces, 24-26px, weight 600
-- Body — Inter, 14-15px, line-height 1.55
-- Label (chip / form) — Inter, 11-12px, weight 600, UPPERCASE, light tracking
-- Mono — JetBrains Mono, 13px, line-height 1.45
+- Hero — Georgia, 40px / 56px line height, normal weight
+- Page title — Georgia, 32px / 44px line height, normal weight
+- Wordmark — Georgia, 22px / 30px line height
+- Card name — native display sans, 22px / 28px, semibold
+- Section title — native display sans, 16px / 24px, semibold
+- Body — native text sans, 14px / 22px
+- Label — native text sans, 11–12px, semibold, with light tracking
+- Mono — Cascadia Mono, 13px / 20px
 
 ## Shape language
 
 - **Corners**: 10-12px on panels and primary buttons, 6-8px on inputs and small chips. Never sharp 0; never overly round.
-- **Borders**: single hairline (`BS.Brush.BorderSubtle`). Shadows used sparingly — only on floating dialogs (soft, ~16px blur, ~10% opacity).
+- **Borders**: single hairline (`BS.Brush.BorderSubtle`). Shadows stay shallow and faint on cards; floating dialogs can use a softer, larger shadow.
 - **Space**: generous. Prefer wider margins to tighter rows. The app is single-user, single-screen — we have the room.
-- **Custom title bar** on Windows: 32px high, accent-tinted, matches the sidebar palette. The app owns the chrome.
+- **Custom title bar** on Windows: 32px high; its left segment matches the sidebar and its right segment matches the canvas. The app owns the chrome.
 
 ## Iconography
 
@@ -167,6 +173,9 @@ Calm and purposeful. No bounce, no spring, no scale-on-hover.
 A soft rounded-pill highlight on the active item — a gentle accent tint
 filling the whole row, not a hard vertical bar. Unselected items use
 secondary text color; on hover they pick up a 6% accent tint background.
+
+Settings and Activity & logs sit just below the primary routes with a
+small dividing gap. Version and provenance remain at the bottom.
 
 Custom title bar on Windows (height matches the sidebar's top section)
 so the app feels like one continuous surface.

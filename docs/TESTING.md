@@ -313,3 +313,11 @@ the same test call. The directory-wide diff test is only an additional check;
 its execution order can no longer silently substitute previous-run images for
 fresh render verification. Inspect an intentional visual change before updating
 its baseline. The local audit dashboard retains before/after images separately.
+
+The general window screenshot generators advance real render frames for a short
+settling interval before capture, so initial caret rotations and theme brushes
+have finished. Transitions stay enabled. `S55_SettingsHoverAnimation` separately
+captures and checks intermediate hover frames rather than using this settling
+step. `S54_EditorialMinimumWidth` checks both themes at 1180 × 720, including the
+retained Restores navigation row, all action-label bounds and viewport edges,
+and a deliberately narrow card that must wrap its actions onto multiple rows.

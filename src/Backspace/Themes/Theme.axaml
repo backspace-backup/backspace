@@ -3,8 +3,8 @@
 
   <!--
     Backspace — default theme.
-    Calm-editorial structure: clean white canvas, sidebar on a subtle
-    warm tint, hairline borders, no drop shadows. Distinctive accents
+    Calm-editorial structure: warm neutral canvas, white cards, sidebar on a subtle
+    warm tint, hairline borders and shallow card shadows. Distinctive accents
     (not generic SaaS blue) and deliberate typography.
   -->
 
@@ -15,15 +15,16 @@
       Warm-paper palette tuned for WCAG AA on the cream surface. Previous
       values (#5F5F5F / #989898) were cool-toned and FgDim failed AA at
       2.83:1. New values are warm grays that pass AA against both #FFFFFF
-      and #F9F7F3 surfaces and read calm at arm's length on a 27" display.
+      and warm canvas surfaces and read calmly at normal viewing distance.
     -->
     <ResourceDictionary x:Key="Light">
-      <SolidColorBrush x:Key="BS.Brush.BgBase"           Color="#FFFFFFFF"/>
-      <SolidColorBrush x:Key="BS.Brush.BgSurface"        Color="#FFFBF8F2"/>
+      <SolidColorBrush x:Key="BS.Brush.BgBase"           Color="#FFF6F5F1"/>
+      <SolidColorBrush x:Key="BS.Brush.BgSurface"        Color="#FFFFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.Sidebar"          Color="#FFEEECE5"/>
       <SolidColorBrush x:Key="BS.Brush.BgElevated"       Color="#FFFFFFFF"/>
       <SolidColorBrush x:Key="BS.Brush.FgPrimary"        Color="#FF1A1915"/> <!-- inky warm black -->
-      <SolidColorBrush x:Key="BS.Brush.FgSecondary"      Color="#FF4A4740"/> <!-- AA 8.9:1 on cream -->
-      <SolidColorBrush x:Key="BS.Brush.FgDim"            Color="#FF6A665C"/> <!-- AA 4.67:1 on cream -->
+      <SolidColorBrush x:Key="BS.Brush.FgSecondary"      Color="#FF4A4740"/> <!-- 8.49:1 on the canvas -->
+      <SolidColorBrush x:Key="BS.Brush.FgDim"            Color="#FF6A665C"/> <!-- 5.25:1 on the canvas; 4.84:1 on the sidebar -->
       <!-- Tonal palette anchored to Tailwind scale values, which is a
            well-tested neutral standard for tonal buttons / callouts in
            both light and dark themes:
@@ -95,7 +96,7 @@
       <SolidColorBrush x:Key="BS.Brush.SuccessLightBorder" Color="#402B8A3E"/> <!-- green.9 @ ~25% -->
       <SolidColorBrush x:Key="BS.Brush.WarnLightBorder"    Color="#40D9480F"/> <!-- orange.9 @ ~25% -->
       <SolidColorBrush x:Key="BS.Brush.BorderSubtle"     Color="#FFE0DCD2"/> <!-- hairline, just visible -->
-      <SolidColorBrush x:Key="BS.Brush.BorderEmphasized" Color="#FFB9B4A7"/> <!-- input border, 1.85:1 on white -->
+      <SolidColorBrush x:Key="BS.Brush.BorderEmphasized" Color="#FF868C82"/> <!-- input border, 3.45:1 on white -->
       <!-- Neutral hover background — used by ghost / outlined buttons
            and any control that wants a calm "cursor is over me" cue
            without invoking the accent colour. ~3% black over the cream
@@ -124,6 +125,7 @@
     <ResourceDictionary x:Key="Dark">
       <SolidColorBrush x:Key="BS.Brush.BgBase"           Color="#FF141414"/>
       <SolidColorBrush x:Key="BS.Brush.BgSurface"        Color="#FF1C1C1C"/>
+      <SolidColorBrush x:Key="BS.Brush.Sidebar"          Color="#FF181818"/>
       <SolidColorBrush x:Key="BS.Brush.BgElevated"       Color="#FF242424"/>
       <SolidColorBrush x:Key="BS.Brush.FgPrimary"        Color="#FFF2F1EE"/>
       <SolidColorBrush x:Key="BS.Brush.FgSecondary"      Color="#FFBFBBB2"/> <!-- lifted for warmth -->
@@ -208,6 +210,9 @@
 
   </ResourceDictionary.ThemeDictionaries>
 
+  <!-- Georgia is reserved for large page headings and the wordmark. Native
+       Segoe remains the body, card-title, label and control family. -->
+  <FontFamily x:Key="BS.Font.Editorial">Georgia, serif</FontFamily>
   <FontFamily x:Key="BS.Font.Display">Segoe UI Variable Display, Segoe UI Variable, Segoe UI, system-ui, sans-serif</FontFamily>
   <FontFamily x:Key="BS.Font.Body">Segoe UI Variable Text, Segoe UI Variable, Segoe UI, system-ui, sans-serif</FontFamily>
   <FontFamily x:Key="BS.Font.Mono">Cascadia Mono, Consolas, monospace</FontFamily>
