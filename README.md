@@ -229,6 +229,14 @@ dotnet publish src/Backspace -c Release -r linux-x64 --self-contained \
 
 Convenience scripts: `launch-debug.bat` / `launch-release.bat` on Windows;
 `launch-debug.sh` / `launch-release.sh` on macOS / Linux.
+Add `--build-only` to build or publish without opening the app. The release
+script publishes into `dist` while preserving its existing portable
+configuration and other files. These scripts do not stop running apps or
+seed test configuration. If a build reports files in use, choose **Quit**
+in the app using that output, let its operations finish, and retry.
+The debug launcher enables verbose logs under its `Backspace.config/logs/app`
+folder. The shell release script also accepts an explicit runtime such as
+`./launch-release.sh --build-only linux-x64` for cross-publishing.
 
 The build **auto-downloads** the host-platform restic, Backrest, and
 rclone binaries from their official GitHub releases the first time it

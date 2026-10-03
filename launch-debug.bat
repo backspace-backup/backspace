@@ -1,68 +1,37 @@
 @echo off
-REM Backspace - Debug launcher
-REM
-REM Builds the Debug configuration, sets BACKSPACE_DEBUG=1 so the app boots
-REM with verbose Serilog logging, launches the app, and opens a separate
-REM PowerShell window that tails the live app log.
-REM
-REM Use this while developing or when reproducing an issue to report.
-
-setlocal
-cd /d "%~dp0"
+setlocal DisableDelayedExpansion
+REM Build without stopping other instances or replacing portable configuration.
+REM Use --build-only to build without starting the app.
+set "BUILD_ONLY=0"
+if "%~1"=="--build-only" set "BUILD_ONLY=1"
+if not "%~1"=="" if not "%~1"=="--build-only" goto USAGE
+if not "%~2"=="" goto USAGE
+cd /d "%~dp0" || exit /b 1
 
 set "PROJ=src\Backspace\Backspace.csproj"
 set "EXE=src\Backspace\bin\Debug\net10.0-windows10.0.19041.0\Backspace.exe"
-set "LOGDIR=src\Backspace\bin\Debug\net10.0-windows10.0.19041.0\Backspace.config\logs\app"
 
-REM Kill any stale instance before rebuilding. An older Backspace.exe
-REM holds file locks on the DLL — the build would fail silently (or the new
-REM code would sit in the bin folder while the old window stays on screen),
-REM so always terminate first.
-tasklist /FI "IMAGENAME eq Backspace.exe" 2>nul | find /I "Backspace.exe" >nul
-if not errorlevel 1 (
-    echo [launch-debug] Stopping existing Backspace.exe ...
-    taskkill /F /IM Backspace.exe >nul 2>&1
-    REM Give the OS a moment to release file locks before we rebuild.
-    timeout /t 1 /nobreak >nul
-)
-
-echo [launch-debug] Building (Debug)...
-REM Explicit -f so we don't pay to also build the cross-platform net10.0
-REM TFM on every dev rebuild — that TFM only matters when publishing for
-REM macOS / Linux. Drop -f if you want to build both.
+echo [launch-debug] Building Debug...
 dotnet build "%PROJ%" -c Debug -f net10.0-windows10.0.19041.0
 if errorlevel 1 goto FAIL
-
 if not exist "%EXE%" (
-    echo [launch-debug] Expected exe at "%EXE%" but it's missing.
-    goto FAIL
+    echo [launch-debug] Build completed but "%EXE%" is missing.
+    exit /b 1
 )
 
-echo [launch-debug] Launching with verbose logging (BACKSPACE_DEBUG=1)...
+echo [launch-debug] Built: "%CD%\%EXE%"
+if "%BUILD_ONLY%"=="1" exit /b 0
+echo [launch-debug] Launching with verbose logging...
 set "BACKSPACE_DEBUG=1"
 start "" "%EXE%"
-
-REM Wait briefly for the app to create today's log file, then tail it
-REM in a separate window so you can watch activity live.
-timeout /t 3 /nobreak > nul
-if not exist "%LOGDIR%" mkdir "%LOGDIR%" > nul 2>&1
-
-echo [launch-debug] Opening log tail window...
-REM Force the tail console to UTF-8. Without setting both the console
-REM codepage AND -Encoding UTF8 on Get-Content, PowerShell 5.1 on
-REM Windows decodes the log as the system ANSI codepage and renders
-REM em-dashes etc. as garbled "â€"" sequences.
-start "Backspace - live log" powershell -NoExit -NoProfile -Command ^
-    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; $d='%CD%\%LOGDIR%'; while ($true) { $f = Get-ChildItem -Path $d -Filter 'app-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) { Get-Content -Path $f.FullName -Wait -Tail 50 -Encoding UTF8; break } else { Start-Sleep -Milliseconds 400 } }"
-
-echo.
-echo [launch-debug] App running. Close the app to stop. The tail window can be closed any time.
-endlocal
-exit /b 0
+exit /b %errorlevel%
 
 :FAIL
-echo.
-echo [launch-debug] FAILED. See output above.
-pause
-endlocal
+echo [launch-debug] Build failed. No app was launched.
+echo If files are in use, choose Quit in the app using this output, let its
+echo current operations finish, and retry. See the build error above for details.
 exit /b 1
+
+:USAGE
+echo Usage: %~nx0 [--build-only]
+exit /b 2

@@ -7,6 +7,17 @@ for the workflow rules an agent must follow before touching this file.
 
 ## Actively working
 
+### P0: Development launchers terminate unrelated processes and replace configuration
+
+- **Raised:** 2026-10-03
+- **Type:** bug
+- **Status:** Awaiting validation
+- **Context:** A024: The root release launcher still kills processes by executable name and clears the output directory, including its portable configuration, before publishing. The debug launcher also force-kills every Backspace process. These paths bypass the application's operation-aware shutdown and process-ownership safeguards.
+- **Current result:** All four launchers preserve existing portable configuration and unrelated output files, remove process-name termination and automatic fixture seeding, and support `--build-only`. A failed build or missing executable returns failure without starting an old app. File-lock failures direct the user to choose Quit normally, finish current operations, and retry.
+- **Proof — open and look:** [24 launcher safety checks](../audit-dashboard/evidence/launcher-safety.html) — expand each result to inspect actual command output. Configuration JSON, binary secret sentinels and unrelated files remain byte-for-byte unchanged; all four disposable same-name app/engine processes remain alive; failed or missing output never launches.
+- **Limitations / adversarial review:** Actual Windows command and Git Bash interpreters exercised copied scripts with fake build/app tools in isolated temporary directories, including spaces, ampersands and exclamation marks and inherited delayed expansion. The failure case includes a stale executable to catch accidental launches. No repository output or personal configuration was touched. Native macOS/Linux app behavior and a real compiler/publish are outside this fixture's scope.
+- **I need from you:** Review the linked report and confirm the launcher behavior, or describe what still needs adjustment.
+
 **2026-10-03 review queue:** Open [the local review desk](http://127.0.0.1:4317/) using the root BAT launcher. Every original note is preserved on [the linked notes page](http://127.0.0.1:4317/notes). Review evidence-ready repairs and the separately reversible design. Remaining input: cloud app registrations/accounts, optional real email delivery, real UAC/VSS acceptance, a reboot window, physical-drive/cloud-placeholder fixtures, the missing Word document, and whether to retain the historical port plan. Older June/July validation requests remain open until explicitly accepted; no entries have been removed. Local dashboard decisions are reconciled when requested.
 
 ### P0: rclone orphan-safe kill
