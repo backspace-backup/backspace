@@ -194,7 +194,8 @@ Type-to-confirm. Always.
 - Title: "About to erase this backup's storage" (not "DANGER")
 - Subtitle: "This removes every revision stored at this destination.
   Storage elsewhere is untouched. There's no undo."
-- Confirm string: `OVERWRITE` or the backup name (case-insensitive).
+- Confirm string: `OK` (case-insensitive), with the specific consequence
+  explained in the dialog subtitle.
 - Surrounding callout border: `Danger` outline, not a fire-red flash.
 
 ## What this isn't

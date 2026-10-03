@@ -7,7 +7,7 @@ _Generated from the Agent-Manager task board (source of truth: the brain DB). Do
 - **E2E revamp pass — click X, see Y across all 13 areas** — _P0, human, test coverage, process_
   - User confirmed: the "unit tests prove the algorithm, no
 - **Investigate "why do we deviate from Backrest's native restore RPC?"** — _P0, human, architecture review_
-  - Backspace's "thin wrapper" promise (see AGENT.md design
+  - Backspace's "thin wrapper" promise (see AGENTS.md design
   - **Proof (note):** Per-file Files dict / RestoredFile / RestoreFileStatus / retry
   - **Proof (note):** E01 matrix (Smoke 31s, Many 1m4s, Large 1m5s) + E34 (1m3s)
 - **Folder-picker rows should toggle expand on click anywhere left of the checkbox** — _P2, human, bug (ux)_

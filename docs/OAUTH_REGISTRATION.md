@@ -75,10 +75,13 @@ public const string OneDriveClientId    = "<paste the GUID from Entra here>";
 public const string GoogleDriveClientId = "<paste the Client ID from Google here>";
 ```
 
-Then implement `OneDriveOAuthProvider` + `GoogleDriveOAuthProvider`
-(mirror `DropboxOAuthProvider`'s shape — see ROADMAP entry "OneDrive
-+ Google Drive OAuth providers") and wire them into
-`OAuthProviderFactory.For`.
+`OneDriveOAuthProvider` and `GoogleDriveOAuthProvider` already exist and
+are wired into `OAuthProviderFactory.For`. Registration alone does not
+complete validation: OneDrive still needs drive discovery and the
+required drive ID/type in its generated rclone remote; Google OAuth and
+rclone scope settings need to be aligned. The shared rclone configuration
+must also preserve every configured cloud destination. See the active
+audit findings in ROADMAP before treating either provider as ready.
 
 ## BYO via Settings
 
@@ -91,6 +94,6 @@ For users who want their own client_id, the path is already there:
   passes it through `OAuthProviderFactory.For` next time they
   connect.
 
-The BYO infrastructure is wired today; it just has no providers to
-flow into for OneDrive + Google Drive. Once those providers ship,
-BYO works for them too with no additional code.
+The BYO infrastructure and provider classes are wired today. A client ID
+override allows the provider to be constructed, but does not resolve the
+configuration and end-to-end validation gaps described above.

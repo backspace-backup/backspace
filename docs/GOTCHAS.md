@@ -32,11 +32,13 @@ Subsequent `SetConfig` passes leave the existing repo stanza alone.
 Never round-trip our own deterministic guid through `SetConfig` —
 restic's actual config-id is the source of truth.
 
-## WebDAV-mounted snapshot browsing is Windows-only today
+## Mounted snapshot browsing is Windows-only today
 
-The service compiles on Unix but `SnapshotMountCoordinator.MountAsync`
-is gated on `OperatingSystem.IsWindows`. On macOS / Linux the matching
-path will need a FUSE-backed implementation.
+The production mount path uses `WinFspMountCoordinator` and a custom
+read-only filesystem, not the former WebDAV mount implementation.
+It requires the WinFSP runtime on Windows. On macOS / Linux the matching
+path will need a FUSE-backed implementation. In-app snapshot browsing is
+a separate feature and does not require a mounted drive.
 
 ## Healthchecks.io management API rate limits
 

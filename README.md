@@ -72,7 +72,8 @@ launch a full restore wizard just to peek at "what was in last Tuesday's
 backup". Tap **Browse snapshot** to walk the tree inline.
 
 For deeper inspection, the **Mount** button exposes the snapshot as a
-read-only volume in Windows Explorer (via the bundled `restic mount`).
+read-only volume in Windows Explorer through Backspace's WinFSP filesystem.
+Windows mounting requires the WinFSP runtime; the app checks for it before mounting.
 Open files with your usual apps, diff against your current working
 copy, copy out individual files by drag-and-drop — Explorer treats the
 snapshot like any other folder. Backspace cleans up the mount when you

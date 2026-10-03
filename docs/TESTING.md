@@ -3,6 +3,30 @@
 How to run the tests, what each tier covers, and the standing
 instructions for any agent driving the visual scenario suite.
 
+## Audit qualification (2026-10-02)
+
+The coverage matrix below describes existing tests, not a guarantee that
+the complete user flow has been proved. The current audit found green
+scenario bodies behind broken production paths, and one scenario summary
+reported PASS although its enclosing xUnit test failed after the body.
+Check both the test-run result and the scenario report. The `AssertBytesEqual`
+scenario helper samples bytes; complete file hashing requires an additional
+check. The global huge-fixture resolver currently has no scenario callers.
+
+The local audit retained 808/809 passing unit/visual tests (the one failure
+passed alone), and 37/39 passing local E2E tests. The two E2E failures concern
+attribute validation in a synced fixture and incorrect edge-case restore
+counts. Additional full-file SHA-256 checks matched 53/53 regular files.
+Details and limitations are in the active ROADMAP and the locally generated
+audit report; these results do not validate cloud accounts, VSS or reboot
+scheduling.
+
+Do not run `S33_RcloneOrphanReaper` against a machine with valuable active
+rclone work: its real sweep lacks owner isolation. The audit excluded it,
+cloud flows and browser-launching OAuth tests. Use isolated disposable data
+for real-engine work; the bracket-restore cleanup can remove pre-existing
+target files. Both defects are tracked in ROADMAP.
+
 ## Commands
 
 ```bash

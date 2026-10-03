@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — code map for contributors
 
 How Backspace is wired, where state lives, and the invariants a refactor
-must preserve. Pair with [AGENT.md](../AGENT.md) for working conventions
+must preserve. Pair with [AGENTS.md](../AGENTS.md) for working conventions
 and [GOTCHAS.md](GOTCHAS.md) for upstream-specific traps.
 
 ## High-level shape
@@ -38,7 +38,7 @@ a backup needs.
 
 ```
 Backspace/                          ← repo root (folder name may vary locally)
-├── README.md, AGENT.md, DESIGN.md, LICENSE, CONTRIBUTING.md, .gitignore
+├── README.md, AGENTS.md, DESIGN.md, LICENSE, CONTRIBUTING.md, .gitignore
 ├── Backspace.sln                    — Visual Studio solution
 ├── docs/                            — markdown library (this file + siblings)
 ├── assets/brand/                    — master SVG + PNGs of the brand icon
