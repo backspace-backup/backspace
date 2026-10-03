@@ -37,6 +37,9 @@ public abstract class ScenarioBase
         try
         {
             await RunAsync(ctx);
+            // Include our own cleanup in the recorded outcome. Avalonia's
+            // outer test-runner teardown remains outside this report's scope.
+            ctx.Dispose();
             if (ctx.Report.Status == ScenarioStatus.Pending)
                 ctx.Report.MarkPassed();
         }

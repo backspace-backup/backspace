@@ -5,13 +5,26 @@
              x:Class="Backspace.Views.ActiveRestoresView"
              x:DataType="vm:ActiveRestoresViewModel">
   <Border Padding="36,28">
-    <Grid RowDefinitions="Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
       <TextBlock Grid.Row="0" Classes="page-title" Text="Restores"/>
       <TextBlock Grid.Row="1" Classes="dim" Margin="0,4,0,18"
-                 Text="Live restore operations. Each card shows progress; click a card to return to the restore screen for that operation."/>
+                 Text="Your restore progress and results. Open a card to return to that restore; completed results stay until you dismiss them."/>
 
       <!-- Empty state -->
-      <Border Grid.Row="2"
+      <Border Grid.Row="2" IsVisible="{Binding HasSelectedSession}"
+              Background="{DynamicResource BS.Brush.BgSurface}" CornerRadius="12" Padding="18" Margin="0,0,0,18">
+        <StackPanel DataContext="{Binding SelectedSession}" x:DataType="svc:ActiveRestoreSession" Spacing="8">
+          <TextBlock Text="{Binding BackupName}" Classes="section-title"/>
+          <TextBlock Text="{Binding SourcePath}" TextWrapping="Wrap" Classes="body"/>
+          <TextBlock Text="{Binding Revision, StringFormat='Snapshot revision {0}'}" Classes="dim"/>
+          <TextBlock Text="{Binding TargetPath, StringFormat='Restoring into {0}'}" TextWrapping="Wrap" Classes="dim"/>
+          <ProgressBar Minimum="0" Maximum="1" Value="{Binding PercentComplete}" IsIndeterminate="{Binding IsProgressIndeterminate}"/>
+          <TextBlock Text="{Binding StatusLabel}" Classes="body"/>
+          <TextBlock Text="{Binding ProgressLabel}" Classes="dim"/>
+          <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Classes="dim"/>
+        </StackPanel>
+      </Border>
+      <Border Grid.Row="3"
               IsVisible="{Binding HasNone}"
               Background="{DynamicResource BS.Brush.BgSurface}"
               CornerRadius="12" Padding="32" HorizontalAlignment="Stretch">
@@ -24,13 +37,16 @@
       </Border>
 
       <!-- Cards list -->
-      <ScrollViewer Grid.Row="2"
+      <ScrollViewer Grid.Row="3"
                     IsVisible="{Binding !HasNone}"
                     HorizontalScrollBarVisibility="Disabled">
         <ItemsControl ItemsSource="{Binding Sessions}">
           <ItemsControl.ItemTemplate>
             <DataTemplate DataType="svc:ActiveRestoreSession">
-              <Button Classes="card"
+              <StackPanel>
+              <Button Classes="card ghost" CornerRadius="12" Padding="18,14"
+                      Background="{DynamicResource BS.Brush.BgElevated}"
+                      BorderBrush="{DynamicResource BS.Brush.BorderEmphasized}"
                       HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                       Margin="0,0,0,12"
                       Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).OpenSessionCommand}"
@@ -40,15 +56,18 @@
                     <TextBlock Classes="body" FontWeight="SemiBold"
                                Text="{Binding BackupName}"/>
                     <TextBlock Classes="dim" FontSize="12"
+                               TextTrimming="CharacterEllipsis"
                                Text="{Binding TargetPath}"/>
                   </StackPanel>
                   <TextBlock Grid.Row="0" Grid.Column="1"
                              Classes="dim" FontSize="12"
+                             MaxWidth="220" TextTrimming="CharacterEllipsis"
                              VerticalAlignment="Top"
                              Text="{Binding DestinationName}"/>
                   <ProgressBar Grid.Row="1" Grid.ColumnSpan="2"
                                Margin="0,12,0,6"
                                Minimum="0" Maximum="1"
+                               IsIndeterminate="{Binding IsProgressIndeterminate}"
                                Value="{Binding PercentComplete, Mode=OneWay}"/>
                   <Grid Grid.Row="2" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto">
                     <TextBlock Grid.Column="0" Classes="dim" FontSize="12"
@@ -58,6 +77,16 @@
                   </Grid>
                 </Grid>
               </Button>
+              <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,-8,0,16">
+                <Button Classes="danger" Padding="12,6" Content="Stop restore" IsVisible="{Binding IsRunning}"
+                        Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).CancelSessionCommand}"
+                        CommandParameter="{Binding}"/>
+                <Button Classes="ghost" Padding="12,6" Content="Dismiss result" IsVisible="{Binding IsComplete}"
+                        Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).DismissSessionCommand}"
+                        CommandParameter="{Binding}"/>
+                <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Classes="dim" VerticalAlignment="Center"/>
+              </StackPanel>
+              </StackPanel>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>

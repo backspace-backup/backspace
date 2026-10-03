@@ -24,6 +24,27 @@ namespace Backspace.Services;
 /// </summary>
 public sealed class UpdateChecker
 {
+    private readonly HttpClient? _client;
+    private readonly Action<string> _openRelease;
+    private readonly Func<Version?> _currentVersion;
+
+    public UpdateChecker() : this(null, OpenRelease, CurrentVersion) { }
+    internal UpdateChecker(HttpClient? client, Action<string> openRelease, Func<Version?> currentVersion)
+    {
+        _client = client;
+        _openRelease = openRelease;
+        _currentVersion = currentVersion;
+    }
+
+    private static void OpenRelease(string url)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
+                { UseShellExecute = true });
+        }
+        catch (Exception ex) { _log.Warning(ex, "Could not open the release page"); }
+    }
     private const string ReleasesApi = "https://api.github.com/repos/backspace-backup/backspace/releases/latest";
     private const string UserAgent = "Backspace-UpdateCheck";
     private static readonly TimeSpan _httpTimeout = TimeSpan.FromSeconds(8);
@@ -55,7 +76,7 @@ public sealed class UpdateChecker
 
     internal async Task CheckOnceAsync(CancellationToken ct)
     {
-        var current = CurrentVersion();
+        var current = _currentVersion();
         if (current is null)
         {
             _log.Debug("Skipping update check: couldn't read current assembly version");
@@ -85,7 +106,8 @@ public sealed class UpdateChecker
                 title: $"Backspace {latest.Tag} is out",
                 detail: $"You're on {current}. Open the release notes to see what changed " +
                         $"and grab the new zip.\n{latest.HtmlUrl}",
-                severity: NotificationSeverity.Success);
+                severity: NotificationSeverity.Success,
+                onClick: () => _openRelease(latest.HtmlUrl));
         }
         catch (Exception ex)
         {
@@ -111,15 +133,16 @@ public sealed class UpdateChecker
         return asm.GetName().Version;
     }
 
-    private static async Task<ReleaseInfo?> FetchLatestAsync(CancellationToken ct)
+    private async Task<ReleaseInfo?> FetchLatestAsync(CancellationToken ct)
     {
         try
         {
-            using var http = new HttpClient { Timeout = _httpTimeout };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
-            http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
-
-            using var resp = await http.GetAsync(ReleasesApi, ct).ConfigureAwait(false);
+            using var ownedClient = _client is null ? new HttpClient { Timeout = _httpTimeout } : null;
+            var http = _client ?? ownedClient!;
+            using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesApi);
+            request.Headers.UserAgent.ParseAdd(UserAgent);
+            request.Headers.Accept.ParseAdd("application/vnd.github+json");
+            using var resp = await http.SendAsync(request, ct).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) return null;
 
             var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -131,7 +154,12 @@ public sealed class UpdateChecker
             if (tag.StartsWith("v", StringComparison.OrdinalIgnoreCase)) tag = tag[1..];
             if (!Version.TryParse(tag, out var parsed)) return null;
 
-            return new ReleaseInfo(parsed, release.TagName ?? tag, release.HtmlUrl ?? "https://github.com/backspace-backup/backspace/releases/latest");
+            var releaseUrl = release.HtmlUrl ?? "https://github.com/backspace-backup/backspace/releases/latest";
+            if (!Uri.TryCreate(releaseUrl, UriKind.Absolute, out var uri)
+                || uri.Scheme != "https" || uri.Host != "github.com"
+                || !uri.AbsolutePath.StartsWith("/backspace-backup/backspace/releases/", StringComparison.Ordinal))
+                return null;
+            return new ReleaseInfo(parsed, release.TagName ?? tag, releaseUrl);
         }
         catch
         {

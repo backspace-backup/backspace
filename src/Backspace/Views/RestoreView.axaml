@@ -681,11 +681,13 @@
            visible on Summary so the user can keep reading the log
            after the run finishes — they reported "when the restore
            completes, don't hide the console". -->
+      <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="14" IsVisible="{Binding IsStepProgress}">
+        <TextBlock Classes="section-title" Text="Restoring…"/>
+        <ProgressBar IsIndeterminate="True" Width="96" Height="4" VerticalAlignment="Center"/>
+        <TextBlock Classes="dim" Text="Final counts appear when the restore finishes." VerticalAlignment="Center"/>
+      </StackPanel>
       <TextBlock Grid.Row="0" Classes="section-title"
-                 Text="Restoring…"
-                 IsVisible="{Binding IsStepProgress}"/>
-      <TextBlock Grid.Row="0" Classes="section-title"
-                 Text="Restore complete"
+                 Text="{Binding SummaryHeading}"
                  IsVisible="{Binding IsStepSummary}"/>
 
       <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*" Margin="0,6,0,14">
@@ -724,7 +726,7 @@
                    VerticalAlignment="Center"
                    IsVisible="{Binding IsStepSummary}"
                    Foreground="{DynamicResource BS.Brush.FgPrimary}"
-                   Text="{Binding SummaryLine}"/>
+                   Text="{Binding SummaryLine}" TextWrapping="Wrap" Margin="0,0,16,0"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10"
                     IsVisible="{Binding IsStepSummary}">
           <Button Classes="primary" Content="Open target folder"

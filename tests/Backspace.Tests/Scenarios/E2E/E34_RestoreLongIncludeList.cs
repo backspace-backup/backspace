@@ -69,6 +69,13 @@ public sealed class E34_RestoreLongIncludeList : BackupE2EBase
         const int dirCount = 50;
         const int filesPerDir = 30;
         int emitted = 0;
+        if (FixtureSizeResolver.ResolveSize(FixtureSize.Smoke) == FixtureSize.Huge)
+        {
+            FixtureFactory.GenerateScaleSource(src, 34_1500);
+            emitted = Directory.GetFiles(src, "*", SearchOption.AllDirectories).Length;
+        }
+        else
+        {
         var rng = new Random(34_1500);
         var buf = new byte[1024];
         for (int d = 0; d < dirCount; d++)
@@ -81,6 +88,7 @@ public sealed class E34_RestoreLongIncludeList : BackupE2EBase
                 File.WriteAllBytes(Path.Combine(dir, $"file-{f:D3}.bin"), buf);
                 emitted++;
             }
+        }
         }
 
         Assert.True(emitted >= TargetFileCount,

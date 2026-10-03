@@ -53,12 +53,17 @@ public sealed class E35_FolderCollapseEndToEnd : BackupE2EBase
         Directory.CreateDirectory(pickedFolder);
 
         const int filesInFolder = 150;
+        if (FixtureSizeResolver.ResolveSize(FixtureSize.Smoke) == FixtureSize.Huge)
+            FixtureFactory.GenerateScaleSource(pickedFolder, 35_150);
+        else
+        {
         var rng = new Random(35_150);
         var buf = new byte[2048];
         for (int i = 0; i < filesInFolder; i++)
         {
             rng.NextBytes(buf);
             File.WriteAllBytes(Path.Combine(pickedFolder, $"doc-{i:D4}.bin"), buf);
+        }
         }
 
         var destPath = ctx.MakeLocalDestination("collapse-local");

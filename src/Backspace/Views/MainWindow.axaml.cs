@@ -60,6 +60,7 @@ public partial class MainWindow : Window
         // window is alive but a leak hazard if MainWindow is ever
         // re-created (e.g. settings reset, theme change with reload).
         Closed += OnClosed;
+        Activated += OnActivated;
         // Intercept the X-button close: depending on user prefs +
         // running-op state we either hide-to-tray, ask the user to
         // confirm (cancels the in-flight ops), or proceed straight
@@ -130,6 +131,11 @@ public partial class MainWindow : Window
                 Dispatcher.UIThread.Post(() => HandleForwardedArgs(args));
             coord.SecondInstanceForwarded += _onSecondInstanceForwarded;
         }
+    }
+
+    private void OnActivated(object? sender, EventArgs e)
+    {
+        if (DataContext is MainWindowViewModel vm) _ = vm.RefreshExternalStateAsync();
     }
 
     private void HandleForwardedArgs(string[] args)
@@ -299,99 +305,97 @@ public partial class MainWindow : Window
 
     private void OnClose(object? sender, RoutedEventArgs e) => Close();
 
-    /// <summary>
-    /// Closing-event interceptor. Three branches:
-    ///   1. The user explicitly chose "Quit" (tray menu, etc.) →
-    ///      <see cref="App.QuitRequested"/> is true → fall through
-    ///      to normal shutdown.
-    ///   2. There's a long-running operation in flight (backup,
-    ///      prune, check, restore, erase) → ask the user to confirm.
-    ///      Cancel keeps the window open; Confirm cancels the ops
-    ///      and proceeds.
-    ///   3. Otherwise honour MinimizeToTrayOnClose: hide the window
-    ///      instead of shutting down, leaving the tray icon as the
-    ///      way back in. Matches what Slack / Discord / Signal /
-    ///      Steam do — close-X means "out of sight", not "quit".
-    /// </summary>
-    private async void OnClosingAsync(object? sender, Avalonia.Controls.WindowClosingEventArgs e)
+    private bool _explicitQuit;
+    private bool _quitInProgress;
+
+    /// <summary>Tray Quit and window close share the same operation checks.</summary>
+    public void RequestQuit()
+    {
+        _explicitQuit = true;
+        Show();
+        Activate();
+        Close();
+    }
+
+    private IDisposable? _shutdownAdmission;
+
+    private async void OnClosingAsync(object? sender, WindowClosingEventArgs e)
     {
         if (App.QuitRequested) return;
-
-        var hasRunning = HasAnyRunningOperation();
-        if (hasRunning)
-        {
-            // Cancel the close so the dialog can run; if the user
-            // confirms we re-issue the close manually after the
-            // cancellation propagates. The two cases match what the
-            // user asked for: confirm BEFORE losing work.
-            e.Cancel = true;
-            try
-            {
-                var ok = await DestructiveConfirmWindow.ShowConfirmAsync(
-                    this,
-                    title: "Backups are running.",
-                    subtitle: "Closing Backspace will cancel everything in flight (backup / prune / check / restore). " +
-                              "Click Quit to stop them and exit, or Cancel to keep them running.",
-                    confirmLabel: "Quit anyway",
-                    cancelLabel: "Keep running");
-                if (!ok) return;
-                CancelEverything();
-                App.QuitRequested = true;
-                // Re-issue close after the dialog returns; the
-                // re-entry will hit the QuitRequested short-circuit.
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => Close());
-            }
-            catch (Exception ex)
-            {
-                AppLogger.For<MainWindow>().Warning(ex, "Exit-with-running-ops confirm dialog threw");
-            }
-            return;
-        }
-
-        // No running ops. Hide-to-tray if the user has the
-        // preference on (default) and a tray icon is available.
+        if (_quitInProgress) { e.Cancel = true; return; }
+        var hadWork = HasAnyRunningOperation();
         var prefs = ServiceLocator.Config.Current.Preferences;
-        if (prefs.MinimizeToTrayOnClose && prefs.ShowTrayIcon)
+        if (!hadWork && !_explicitQuit && prefs.MinimizeToTrayOnClose && prefs.ShowTrayIcon)
         {
             e.Cancel = true;
             Hide();
+            return;
         }
-    }
 
-    private static bool HasAnyRunningOperation()
-    {
+        e.Cancel = true;
+        _quitInProgress = true;
+        var committed = false;
         try
         {
-            var orch = ServiceLocator.Orchestrator;
-            if (orch is null) return false;
-            // Orchestrator tracks running backup ids; any non-empty
-            // entry counts. Maintenance / erase / prune-to-latest
-            // acquire the maintenance lock; we approximate "in
-            // flight" by checking if the lock isn't currently
-            // available. Both signals are conservative — false
-            // positives at most prompt an extra confirm.
-            foreach (var b in ServiceLocator.Config.Current.Backups)
-                if (orch.IsRunning(b.Id)) return true;
-            if (ServiceLocator.Maintenance?.IsActive == true) return true;
-        }
-        catch { /* defensive — if ServiceLocator wasn't initialised, assume nothing running */ }
-        return false;
-    }
-
-    private static void CancelEverything()
-    {
-        try
-        {
-            var orch = ServiceLocator.Orchestrator;
-            if (orch is null) return;
-            foreach (var b in ServiceLocator.Config.Current.Backups)
-                if (orch.IsRunning(b.Id))
-                    try { orch.CancelRun(b.Id, "User quit Backspace"); } catch { }
+            if (hadWork && !await ConfirmStopAsync()) return;
+            if (!ServiceLocator.Maintenance.TryBeginShutdown(out _shutdownAdmission)) return;
+            // A reader can enter between the first idle check and closing
+            // admission. Recheck after the gate before committing the exit.
+            if (!hadWork && HasAnyRunningOperation() && !await ConfirmStopAsync()) return;
+            CancelEverything();
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (HasAnyRunningOperation() && DateTime.UtcNow < deadline)
+                await System.Threading.Tasks.Task.Delay(100);
+            if (HasAnyRunningOperation())
+            {
+                await DestructiveConfirmWindow.ShowInfoAsync(this,
+                    "Still stopping safely",
+                    "An operation has not finished stopping, or storage maintenance is still running. " +
+                    "Backspace will stay open to protect your files. Try Quit again after it finishes.");
+                return;
+            }
+            // Keep admission closed through desktop.Exit and daemon cleanup.
+            committed = true;
+            App.QuitRequested = true;
+            Dispatcher.UIThread.Post(Close);
         }
         catch (Exception ex)
         {
-            AppLogger.For<MainWindow>().Warning(ex, "CancelEverything threw");
+            AppLogger.For<MainWindow>().Warning(ex, "Could not finish safe shutdown");
         }
+        finally
+        {
+            if (!committed)
+            {
+                _shutdownAdmission?.Dispose();
+                _shutdownAdmission = null;
+                _explicitQuit = false;
+            }
+            _quitInProgress = false;
+        }
+    }
+
+    private System.Threading.Tasks.Task<bool> ConfirmStopAsync() =>
+        DestructiveConfirmWindow.ShowConfirmAsync(this,
+            title: "Work is still running.",
+            subtitle: "Quitting stops active backups, restores and test restores. " +
+                "Backspace will wait for them to stop safely. Storage maintenance must finish first. " +
+                "Your scheduled backups will still run after you quit.",
+            confirmLabel: "Stop work and quit", cancelLabel: "Keep running");
+    internal static bool HasAnyRunningOperation() =>
+        ServiceLocator.Orchestrator.SnapshotRunningBackupIds().Count > 0
+        || ServiceLocator.ActiveRestores.HasRunning
+        || ServiceLocator.SnapshotMounts?.HasPendingOperations == true
+        || ServiceLocator.Maintenance.HasReaders
+        || ServiceLocator.Maintenance.IsActive;
+
+    internal static void CancelEverything()
+    {
+        foreach (var id in ServiceLocator.Orchestrator.SnapshotRunningBackupIds())
+            ServiceLocator.Orchestrator.CancelRun(id, "User quit Backspace");
+        ServiceLocator.ActiveRestores.CancelAll();
+        ServiceLocator.SnapshotMounts?.CancelPending();
+        ServiceLocator.Maintenance.CancelReaders();
     }
 
     /// <summary>
@@ -448,6 +452,7 @@ public partial class MainWindow : Window
         _bitmapCache.Clear();
         _iconCache.Clear();
         Closed -= OnClosed;
+        Activated -= OnActivated;
     }
 
     private static void OpenExternal(string url, string label)

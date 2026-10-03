@@ -32,7 +32,7 @@ public class CanonicalInstallerTests : IDisposable
     {
         // Pin the stub's location so a future refactor doesn't silently
         // change where we deploy — that would orphan every user's
-        // existing scheduled tasks (the cmd.exe wrapper bakes the path
+        // existing scheduled tasks (the task action bakes the path
         // into the task command line at upsert time).
         var p = CanonicalInstaller.StubExePath;
         Assert.EndsWith(Path.Combine("Programs", "Backspace", "Backspace-stub.exe"), p);

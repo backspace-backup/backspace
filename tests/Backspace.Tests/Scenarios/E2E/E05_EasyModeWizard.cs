@@ -73,6 +73,12 @@ public sealed class E05_EasyModeWizard : BackupE2EBase
         ctx.Driver.Show(onboarding);
         var vm = onboarding.DataContext as OnboardingViewModel
                  ?? throw new InvalidOperationException("Onboarding has no view model.");
+        Assert.True(vm.Working.UseVss); // the user-facing safe default remains enabled
+        // This headless flow validates wizard persistence and the real restic
+        // round trip. It cannot approve a native UAC dialog or launch a helper
+        // through testhost. Elevated VSS has a separate interactive probe.
+        vm.Working.UseVss = false;
+        ctx.Report.RecordNote("Test privilege scope", "The wizard defaults VSS on (asserted). This headless fixture disables it only for its own backup; the interactive VSS probe validates elevation separately.");
 
         // Step 1: source chip.
         vm.SourceChips.Add(new SourceChipVm(sourcePath));

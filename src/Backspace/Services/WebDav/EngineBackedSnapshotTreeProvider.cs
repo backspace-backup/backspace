@@ -38,13 +38,16 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
     private readonly string _storageName;
     private readonly int _revision;
     private readonly string _cacheDir;
+    private readonly CancellationTokenSource _lifetime = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _perFileGates = new();
     // Per-directory listing cache. Key = source-relative dir path
     // (forward slashes, no leading slash; "" = root). Value = the
     // children of that dir, or null if the engine confirmed the dir
     // doesn't exist in this snapshot. Populated lazily — one RPC per
     // directory Explorer actually opens, not the whole tree upfront.
-    private readonly ConcurrentDictionary<string, Task<IReadOnlyList<WebDavEntry>?>> _dirCache = new();
+    private sealed record DirectoryFetch(Task<IReadOnlyList<WebDavEntry>?> Task, CancellationToken OwnerToken);
+    private readonly ConcurrentDictionary<string, DirectoryFetch> _dirCache = new();
+    private readonly object _dirCacheGate = new();
 
     public EngineBackedSnapshotTreeProvider(
         IBackupEngine engine, Backup backup, string sourcePath, Destination destination,
@@ -144,14 +147,14 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         {
             if (!File.Exists(cachedPath))
             {
-                var result = await _engine.RestoreFilesAsync(
+                var result = await WithReadLeaseAsync(token => _engine.RestoreFilesAsync(
                     _backup, _sourcePath, _destination, _storageName,
                     _revision, new[] { "/" + key.TrimStart('/') }, _cacheDir,
                     onProgress: null,
-                    ct,
-                    expectedLeaves: new[] { key }).ConfigureAwait(false);
+                    token,
+                    expectedLeaves: new[] { key }), ct).ConfigureAwait(false);
 
-                if (result.Status == RestoreTerminalStatus.Error)
+                if (result.Status is RestoreTerminalStatus.Error or RestoreTerminalStatus.Cancelled)
                     throw new IOException(result.ErrorMessage ?? "Engine reported restore failure.");
 
                 if (!File.Exists(cachedPath))
@@ -195,8 +198,8 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         IReadOnlyList<RevisionTreeNode>? bulk;
         try
         {
-            bulk = await _engine.ListSnapshotTreeAsync(
-                _backup, _sourcePath, _destination, _storageName, _revision, ct)
+            bulk = await WithReadLeaseAsync(token => _engine.ListSnapshotTreeAsync(
+                _backup, _sourcePath, _destination, _storageName, _revision, token), ct)
                 .ConfigureAwait(false);
         }
         catch
@@ -259,7 +262,7 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         foreach (var (dir, children) in grouped)
         {
             var completed = Task.FromResult<IReadOnlyList<WebDavEntry>?>(children);
-            _dirCache.TryAdd(dir, completed);
+            _dirCache.TryAdd(dir, new DirectoryFetch(completed, CancellationToken.None));
         }
     }
 
@@ -303,16 +306,18 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
             // open-cancel doesn't kill the bulk restore everyone else
             // is now sharing. The restore costs nothing once the
             // files are on disk; the next opener gets them for free.
-            _bulkRestoreTask = Task.Run(() => _engine.RestoreSnapshotSubtreeAsync(
+            _bulkRestoreTask = Task.Run(() => WithReadLeaseAsync(token => _engine.RestoreSnapshotSubtreeAsync(
                 _backup, _sourcePath, _destination, _storageName, _revision, _cacheDir,
-                CancellationToken.None));
+                token), _lifetime.Token));
             return _bulkRestoreTask;
         }
     }
 
     public void Dispose()
     {
-        foreach (var g in _perFileGates.Values) g.Dispose();
+        // In-flight RPCs must acknowledge cancellation before their read
+        // lease ends. Do not dispose a semaphore another opener will release.
+        _lifetime.Cancel();
     }
 
     // ---- internals ----
@@ -322,15 +327,31 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
     /// — the FIRST caller for a given key starts the engine RPC; later
     /// callers await the same Task. Subsequent calls hit the in-memory
     /// cache.</summary>
-    private Task<IReadOnlyList<WebDavEntry>?> ListDirAsync(string normalizedKey, CancellationToken ct)
+    private async Task<IReadOnlyList<WebDavEntry>?> ListDirAsync(string normalizedKey, CancellationToken ct)
     {
-        return _dirCache.GetOrAdd(normalizedKey, k => FetchDirAsync(k, ct));
+        DirectoryFetch fetch;
+        lock (_dirCacheGate)
+        {
+            if (_dirCache.TryGetValue(normalizedKey, out var existing)
+                && (existing.OwnerToken.IsCancellationRequested || existing.Task.IsCanceled || existing.Task.IsFaulted))
+                _dirCache.TryRemove(normalizedKey, out _);
+            fetch = _dirCache.GetOrAdd(normalizedKey, k => new DirectoryFetch(FetchDirAsync(k, ct), ct));
+        }
+        try { return await fetch.Task.WaitAsync(ct).ConfigureAwait(false); }
+        catch
+        {
+            lock (_dirCacheGate)
+                if ((fetch.OwnerToken.IsCancellationRequested || fetch.Task.IsCanceled || fetch.Task.IsFaulted)
+                    && _dirCache.TryGetValue(normalizedKey, out var current) && ReferenceEquals(current, fetch))
+                    _dirCache.TryRemove(normalizedKey, out _);
+            throw;
+        }
     }
 
     private async Task<IReadOnlyList<WebDavEntry>?> FetchDirAsync(string normalizedKey, CancellationToken ct)
     {
-        var children = await _engine.ListSnapshotDirectoryAsync(
-            _backup, _sourcePath, _destination, _storageName, _revision, normalizedKey, ct)
+        var children = await WithReadLeaseAsync(token => _engine.ListSnapshotDirectoryAsync(
+            _backup, _sourcePath, _destination, _storageName, _revision, normalizedKey, token), ct)
             .ConfigureAwait(false);
         if (children is null) return null;
 
@@ -345,6 +366,13 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
                 LastWriteUtc: c.ModifiedUtc));
         }
         return result;
+    }
+
+    private async Task<T> WithReadLeaseAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
+        using var lease = await ServiceLocator.Maintenance.AcquireReadAsync(linked.Token, linked.Cancel).ConfigureAwait(false);
+        return await operation(linked.Token).ConfigureAwait(false);
     }
 
     private static string Normalize(string path)

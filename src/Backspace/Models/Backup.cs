@@ -225,6 +225,8 @@ public sealed class Backup
 
     /// <summary>Healthchecks.io check slug/UUID assigned to this backup. Null if none.</summary>
     public string? HealthcheckId { get; set; }
+    /// <summary>Exact ping URL returned by the management API, including self-hosted endpoints.</summary>
+    public string? HealthcheckPingUrl { get; set; }
 
     public bool Enabled { get; set; } = true;
 
@@ -240,7 +242,7 @@ public sealed class Backup
     /// clock: a run that ends Skipped (drive offline, NAS unreachable)
     /// stays orange until <see cref="SkipNotificationGraceDays"/> have
     /// elapsed since this timestamp — at which point the run is
-    /// escalated to Failed so the user notices something's actually
+    /// followed by a warning notification so the user notices something's
     /// wrong rather than tuning out the orange.
     ///
     /// Null = never succeeded. New backups start with this as null;
@@ -257,14 +259,14 @@ public sealed class Backup
 
     /// <summary>
     /// How many days of consecutive Skipped runs the orchestrator
-    /// tolerates before promoting the next Skipped to Failed (red
-    /// status, notifications fire). Per-backup because backups have
+    /// tolerates before warning about the next Skipped run. The stored
+    /// status remains Skipped. Per-backup because backups have
     /// different urgency: a daily photo-backup probably wants a tight
     /// 1-2 day window, a weekly cold-storage probably wants a month.
     /// Default 7 covers the common case of "user travels for the
     /// weekend"; users can dial up or down per backup in Easy Mode.
     ///
-    /// 0 = no grace (every Skipped immediately escalates to Failed).
+    /// 0 = no grace (Skipped notifications are immediately eligible).
     /// </summary>
     public int SkipNotificationGraceDays { get; set; } = 7;
 
@@ -364,10 +366,10 @@ public sealed class Backup
 
     /// <summary>
     /// True iff a Skipped run AT <paramref name="nowUtc"/> should stay
-    /// orange (grace active) instead of escalating to Failed. Pure
+    /// quiet (grace active) before warning notifications become eligible. Pure
     /// function of model state; tested independently of the
     /// orchestrator. <see cref="SkipNotificationGraceDays"/> of 0
-    /// disables grace entirely (every Skipped escalates immediately).
+    /// disables grace entirely (every Skipped is eligible for notification).
     /// </summary>
     public bool IsWithinSkipGrace(DateTime nowUtc)
     {
@@ -377,20 +379,12 @@ public sealed class Backup
     }
 
     /// <summary>
-    /// True iff the editor UI should surface the "skipped-run alerts"
-    /// block as actionable RIGHT NOW. Distinct from
-    /// <see cref="IsWithinSkipGrace"/>: a brand-new backup is
-    /// technically within grace (the clock starts at CreatedUtc) but
-    /// nothing has been skipped, so showing the reset-grace control
-    /// would be noise. The block is interesting precisely when:
-    ///   (a) the most recent run was Skipped (grace is the reason
-    ///       the user isn't getting paged), AND
-    ///   (b) we're still inside the grace window (Reset is meaningful).
-    /// Otherwise the block is informational clutter — moved to
-    /// Advanced mode for the curious.
+    /// Both editors always offer grace configuration, including before
+    /// the first skipped run and after a window expires. The timestamp
+    /// is retained for callers of the original visibility predicate;
+    /// only notification suppression uses <see cref="IsWithinSkipGrace"/>.
     /// </summary>
-    public bool ShouldShowGraceBlock(DateTime nowUtc) =>
-        LastRunStatus == BackupRunStatus.Skipped && IsWithinSkipGrace(nowUtc);
+    public bool ShouldShowGraceBlock(DateTime nowUtc) => true;
 
     /// <summary>
     /// True iff the orchestrator must suppress a notification for

@@ -81,7 +81,7 @@ public class RcloneConfigBuilderTests
         var conf = RcloneConfigBuilder.Render(new[] { d }, NoCustomApps, _ => "{}");
 
         Assert.Contains("type = drive", conf);
-        Assert.Contains("scope = drive", conf);
+        Assert.Contains("scope = drive.file", conf);
     }
 
     [Fact]

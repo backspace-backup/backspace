@@ -231,6 +231,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     // Step 7 (summary)
     [ObservableProperty] private bool _anyFailures;
     [ObservableProperty] private string _summaryLine = "";
+    [ObservableProperty] private string _summaryHeading = "Restore complete";
 
     // Internal
     private CancellationTokenSource? _cts;
@@ -317,6 +318,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
 
     private void OnPreselectRequested(Backup b)
     {
+        if (IsStepProgressOrSummary) return;
         // Run the whole sequence on the UI thread. The await chain
         // inside NextFromBackupAsync touches ObservableProperty setters
         // and Avalonia visual state — must not run on a thread-pool
@@ -999,6 +1001,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
 
         _currentRequest = new RestoreRequest
         {
+            SessionOwner = this,
             Backup = capturedBackup,
             SourcePath = capturedSourcePath,
             Destination = capturedDestination,
@@ -1029,7 +1032,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         _restoreRunStartedUtc = DateTime.UtcNow;
         BeginInFlightRestoreRun();
         IsRunning = true;
-        var engine = ServiceLocator.Restore;
+        var engine = new RestoreEngine(ServiceLocator.Config, ServiceLocator.Engine, ServiceLocator.Secrets);
         engine.Log += OnEngineLog;
         engine.Progress += OnEngineProgress;
         // FileFailed / FileRestored engine events removed in 2026-06-12
@@ -1171,13 +1174,15 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         _restoreRunStartedUtc = DateTime.UtcNow;
         BeginInFlightRestoreRun();
         IsRunning = true;
-        var engine = ServiceLocator.Restore;
+        var engine = new RestoreEngine(ServiceLocator.Config, ServiceLocator.Engine, ServiceLocator.Secrets);
         engine.Log += OnEngineLog;
         engine.Progress += OnEngineProgress;
         // FileFailed / FileRestored engine events removed in 2026-06-12
         // restore-stack refactor.
 
         RestoreOutcome? lastOutcome = null;
+        var sourceOutcomes = new List<RestoreOutcome>();
+        var sourceErrors = new List<string>();
         try
         {
             // Snapshot the per-source revision picks the user made in
@@ -1209,19 +1214,21 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                 catch (Exception ex)
                 {
                     AppendProgressLine($"[error] couldn't list revisions for {src}: {ex.Message}");
+                    sourceErrors.Add($"{src}: {ex.Message}");
                     continue;
                 }
                 if (revs.Count == 0)
                 {
                     AppendProgressLine($"[skip] no snapshots at this destination for {src}");
+                    sourceErrors.Add($"{src}: no snapshots found");
                     continue;
                 }
                 var pickedNumber = perSourcePick.TryGetValue(src, out var n) ? n : revs[0].Number;
                 var latest = revs.FirstOrDefault(r => r.Number == pickedNumber);
                 if (latest.Number == 0 && pickedNumber != 0)
                 {
-                    AppendProgressLine($"[warn] picked revision #{pickedNumber} for {src} no longer in destination; falling back to latest");
-                    latest = revs.OrderByDescending(r => r.Number).First();
+                    sourceErrors.Add($"{src}: selected revision #{pickedNumber} no longer exists; no other revision was substituted.");
+                    continue;
                 }
                 AppendProgressLine($"  using revision #{latest.Number} from {latest.CreatedUtc.ToLocalTime():yyyy-MM-dd HH:mm}");
 
@@ -1239,6 +1246,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                 catch (Exception ex)
                 {
                     AppendProgressLine($"[error] couldn't list files in revision {latest.Number} for {src}: {ex.Message}");
+                    sourceErrors.Add($"{src}: {ex.Message}");
                     continue;
                 }
                 if (files.Count == 0)
@@ -1258,6 +1266,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
 
                 _currentRequest = new RestoreRequest
                 {
+                    SessionOwner = this,
                     Backup = capturedBackup,
                     SourcePath = src,
                     Destination = capturedDestination,
@@ -1284,11 +1293,14 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                 try
                 {
                     lastOutcome = await engine.RunAsync(_currentRequest, _cts.Token);
+                    sourceOutcomes.Add(lastOutcome);
                 }
                 catch (OperationCanceledException) { break; }
                 catch (Exception ex)
                 {
                     AppendProgressLine($"[error] restore for {src} threw: {ex.Message}");
+                    lastOutcome = null;
+                    sourceErrors.Add($"{src}: {ex.Message}");
                 }
 
                 // Roll the per-iteration outcome into the multi-source
@@ -1312,10 +1324,22 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                     _msBaselineFailed += lastOutcome.FailedCount;
                 }
             }
-            // The Summary screen reads _currentOutcome — for multi-
-            // source we surface the LAST source's outcome, with the
-            // overall ProgressLog telling the bigger story.
-            _currentOutcome = lastOutcome;
+            var restored = sourceOutcomes.Sum(o => o.RestoredCount);
+            var problem = sourceErrors.Count > 0 || sourceOutcomes.Any(o => o.TerminalStatus != RestoreTerminalStatus.Success);
+            _currentOutcome = new RestoreOutcome
+            {
+                TargetPath = targetRoot ?? string.Join("; ", pickedSources),
+                TotalFiles = sourceOutcomes.Sum(o => o.TotalFiles),
+                RestoredCount = restored,
+                FailedCount = sourceOutcomes.Sum(o => o.FailedCount),
+                TotalBytes = sourceOutcomes.Sum(o => o.TotalBytes),
+                BytesRestored = sourceOutcomes.Sum(o => o.BytesRestored),
+                TerminalStatus = _cts.IsCancellationRequested ? RestoreTerminalStatus.Cancelled :
+                    problem ? (restored > 0 ? RestoreTerminalStatus.Warning : RestoreTerminalStatus.Error) :
+                    sourceOutcomes.Count == 0 ? RestoreTerminalStatus.Error : RestoreTerminalStatus.Success,
+                ErrorMessage = string.Join("; ", sourceErrors.Concat(sourceOutcomes
+                    .Where(o => !string.IsNullOrWhiteSpace(o.ErrorMessage)).Select(o => o.ErrorMessage!))),
+            };
         }
         finally
         {
@@ -1400,7 +1424,15 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     }
 
     [RelayCommand]
-    private void StartOver() => RestartWizard();
+    private void StartOver()
+    {
+        var backup = SelectedBackup;
+        ShellLaunchFilterPath = null;
+        FileFilter = "";
+        if (!IsStepProgressOrSummary) RestartWizard();
+        AppNavigator.Go(NavItem.Restore);
+        if (backup is not null) AppNavigator.PreselectRestoreBackup(backup);
+    }
 
     /// <summary>
     /// Public restart used by the nav layer: clicking "Restore files"
@@ -1450,7 +1482,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         _restoreRunStartedUtc = DateTime.UtcNow;
         BeginInFlightRestoreRun();
         AppNavigator.SignalLiveActivity(SelectedBackup?.Name);
-        var engine = ServiceLocator.Restore;
+        var engine = new RestoreEngine(ServiceLocator.Config, ServiceLocator.Engine, ServiceLocator.Secrets);
         engine.Log += OnEngineLog;
         engine.Progress += OnEngineProgress;
         try
@@ -1925,9 +1957,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             {
                 var dir = AppPaths.LogDirForBackup(SelectedBackup.Name);
                 System.IO.Directory.CreateDirectory(dir);
-                var stamp = _restoreRunStartedUtc.ToLocalTime().ToString("yyyyMMdd-HHmmss");
                 var kindTag = kind == RunKind.TestRestore ? "test-restore" : "restore";
-                logPath = System.IO.Path.Combine(dir, $"{stamp}-{kindTag}.log");
+                logPath = LogStore.NewTranscriptPath(SelectedBackup.Name, kindTag, _restoreRunStartedUtc);
                 // Write from the live StringBuilder, not the bound
                 // ProgressLog property — the latter is updated via a
                 // 150 ms debounced flush, so a fast restore could
@@ -2026,7 +2057,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
 
     private BackupRunStatus ClassifyRestoreStatus()
     {
-        if (_currentOutcome is null) return BackupRunStatus.Skipped;
+        if (_currentOutcome is null) return _cts?.IsCancellationRequested == true ? BackupRunStatus.Skipped : BackupRunStatus.Failed;
         if (_cts is { IsCancellationRequested: true }) return BackupRunStatus.Skipped;
         // Map RestoreTerminalStatus → BackupRunStatus. Same semantics
         // restic itself reports — Success = clean exit, Warning =
@@ -2055,9 +2086,27 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
 
     private void BuildSummary()
     {
-        if (_currentOutcome is null) return;
-        AnyFailures = _currentOutcome.FailedCount > 0;
-        SummaryLine = $"{_currentOutcome.RestoredCount} restored · {_currentOutcome.FailedCount} failed · into {_currentOutcome.TargetPath}";
+        var status = _currentOutcome?.TerminalStatus ??
+            (_cts?.IsCancellationRequested == true ? RestoreTerminalStatus.Cancelled : RestoreTerminalStatus.Error);
+        SummaryHeading = status switch
+        {
+            RestoreTerminalStatus.Success => "Restore complete",
+            RestoreTerminalStatus.Warning => "Restore needs attention",
+            RestoreTerminalStatus.Cancelled => "Restore cancelled",
+            _ => "Restore failed",
+        };
+        AnyFailures = status != RestoreTerminalStatus.Success;
+        if (_currentOutcome is null)
+        {
+            SummaryLine = "No completed restore result. See the log below for details.";
+            return;
+        }
+        TotalFiles = _currentOutcome.TotalFiles;
+        RestoredCount = _currentOutcome.RestoredCount;
+        FailedCount = _currentOutcome.FailedCount;
+        SummaryLine = $"{RestoredCount} restored · {FailedCount} not restored · into {_currentOutcome.TargetPath}";
+        if (!string.IsNullOrWhiteSpace(_currentOutcome.ErrorMessage))
+            AppendProgressLine($"[restore] {_currentOutcome.ErrorMessage}");
     }
 
     private static Avalonia.Controls.Window? OwnerWindow()

@@ -7,8 +7,8 @@ do **not** today — the slots in
 [`OAuthAppRegistry.cs`](../src/Backspace/Services/OAuth/OAuthAppRegistry.cs)
 are empty strings, the factory in
 [`OAuthProviderFactory.cs`](../src/Backspace/Services/OAuth/OAuthProviderFactory.cs)
-returns `null` for those kinds, and the UI surfaces "OAuth not yet
-wired" when the user tries to connect.
+returns `null` for those kinds unless the user supplied their own
+registration in Settings. The editor explains when a registration is missing.
 
 This file is the registration guide. It exists for two audiences:
 
@@ -32,8 +32,11 @@ This file is the registration guide. It exists for two audiences:
 3. Supported account types: **Accounts in any organizational
    directory and personal Microsoft accounts**.
 4. Redirect URI: type **Public client / native (mobile & desktop)**,
-   URI **`http://localhost`** (the actual port is picked at runtime
-   by `OAuthFlowCoordinator`).
+   URI **`http://localhost/callback`**. The host and path match the
+   OneDrive flow; its port is picked at runtime. Microsoft's native
+   localhost matching ignores that port. A bare `http://localhost`
+   registration does not match the `/callback` path. See
+   [Microsoft's redirect URI rules](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url#localhost-exceptions).
 5. After registration, **Authentication** tab → **Allow public client
    flows = Yes** (PKCE without client secret).
 6. **API permissions** → Add: `Files.ReadWrite.All` (delegated).
@@ -54,17 +57,18 @@ No client secret — PKCE flow uses code+verifier only.
 3. **OAuth consent screen** → **External**. Add a brand contact, fill
    the app name `Backspace`. For the official registration, request
    the **`https://www.googleapis.com/auth/drive.file`** scope (NOT
-   the full `drive` scope — the latter triggers Google's CASA
-   Tier-2 security audit). `drive.file` covers files the app created
-   or the user explicitly opened with our app, which fits the
-   restic-restore model.
+   the full `drive` scope). `drive.file` covers files the app created
+   or the user explicitly authorized for it. Existing repositories
+   created by another OAuth client may be inaccessible; do not
+   promise arbitrary full-Drive repository browsing.
 4. **Credentials** → **Create credentials** → **OAuth client ID** →
    Application type: **Desktop app**. Name: `Backspace`.
 5. Note the **Client ID**. That's the value for `GoogleDriveClientId`.
 
-No client secret needed — the Desktop app flow is PKCE-only and the
-secret embedded in the JSON download is non-confidential (Google
-documents this; the OAuth spec treats native app secrets as public).
+The code uses Desktop-app PKCE without a client secret at code exchange.
+Google currently documents that parameter as optional for installed
+applications; validate the issued registration with a live account.
+See [Google's installed-app flow](https://developers.google.com/identity/protocols/oauth2/native-app#exchange-authorization-code).
 
 ## Wiring shipped client_ids
 
@@ -76,12 +80,28 @@ public const string GoogleDriveClientId = "<paste the Client ID from Google here
 ```
 
 `OneDriveOAuthProvider` and `GoogleDriveOAuthProvider` already exist and
-are wired into `OAuthProviderFactory.For`. Registration alone does not
-complete validation: OneDrive still needs drive discovery and the
-required drive ID/type in its generated rclone remote; Google OAuth and
-rclone scope settings need to be aligned. The shared rclone configuration
-must also preserve every configured cloud destination. See the active
-audit findings in ROADMAP before treating either provider as ready.
+are wired into `OAuthProviderFactory.For`. OneDrive now discovers the
+signed-in user's default drive through Graph and stores its `drive_id`
+and actual `drive_type`. It does not offer a SharePoint-site or multiple-drive
+picker. Existing OneDrive destinations missing that identity discover it
+on first use; an expired access token may require signing in again.
+
+Google's OAuth request and rclone remote both use `drive.file`.
+Production engine calls materialize an isolated config file per destination
+under the `rclone-remotes` directory. This prevents one destination's rclone
+writer from replacing another's configuration. Newer refreshed tokens are
+imported into the encrypted vault before rendering; a later user sign-in
+takes precedence over an older file. Legacy shared-config callers merge
+remote sections rather than dropping unrelated destinations.
+
+Deterministic tests exercise the editor's Connect command, local callback,
+PKCE exchange, OneDrive discovery and rejected consent with simulated
+provider responses. They also cover concurrent configuration writes and
+token-refresh persistence. These do **not** validate real cloud accounts.
+Before shipping official registrations, perform live sign-in, refresh across
+an app restart, backup, listing and byte-verified restore with each provider.
+Retain separate proof for Personal and Business OneDrive accounts and a
+Google repository created under the intended application registration.
 
 ## BYO via Settings
 
@@ -94,6 +114,5 @@ For users who want their own client_id, the path is already there:
   passes it through `OAuthProviderFactory.For` next time they
   connect.
 
-The BYO infrastructure and provider classes are wired today. A client ID
-override allows the provider to be constructed, but does not resolve the
-configuration and end-to-end validation gaps described above.
+The BYO infrastructure and provider classes are wired today. An override
+provides the registration identity; the live-account checks above still apply.

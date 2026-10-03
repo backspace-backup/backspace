@@ -20,8 +20,8 @@ namespace Backspace.Services;
 ///   * <em>One UAC prompt per cell.</em> UAC's consent persistence is
 ///     per-process, so batching cells would couple the helper's
 ///     lifetime to the orchestrator's retry cascade. A fresh helper
-///     per cell is simpler and only marginally slower (UAC consent
-///     is sub-second after the first prompt in a session).
+///     per cell makes consent and cancellation explicit. Scheduled
+///     runs already use an elevated task and do not prompt.
 ///   * <em>Argv + temp-file IPC.</em> The helper takes its
 ///     instructions on argv (small, well-known fields: backup id,
 ///     source path, destination id, storage name) and writes its
@@ -49,6 +49,7 @@ public sealed class VssElevationCoordinator
     /// <summary>Argv flag holding the path to the result file the
     /// helper writes a JSON RunRecord to on exit.</summary>
     public const string ResultFileArgument = "--result-file";
+    public const string ConfigRootArgument = "--config-root";
 
     /// <summary>Argv flag carrying the parent process id. The helper
     /// uses this to watchdog the parent: if Backspace.exe dies (for
@@ -98,9 +99,10 @@ public sealed class VssElevationCoordinator
             "Launching VSS helper for backup={Backup} source={Source} destination={Dest}",
             request.Backup.Name, request.SourcePath, request.Destination.Name);
 
+        Process? proc = null;
         try
         {
-            using var proc = Process.Start(psi)
+            proc = Process.Start(psi)
                 ?? throw new InvalidOperationException("Process.Start returned null for the VSS helper.");
             return await WaitForHelperResultAsync(proc, resultPath, request, ct).ConfigureAwait(false);
         }
@@ -114,7 +116,14 @@ public sealed class VssElevationCoordinator
         }
         finally
         {
-            try { if (File.Exists(resultPath)) File.Delete(resultPath); } catch { /* best-effort */ }
+            // Leave a cancellation marker for a helper which has not yet
+            // acknowledged Stop. It may still be waiting for startup IO.
+            if (proc is null || proc.HasExited)
+            {
+                try { File.Delete(resultPath); } catch { }
+                try { File.Delete(resultPath + ".cancel"); } catch { }
+            }
+            proc?.Dispose();
         }
     }
 
@@ -124,7 +133,7 @@ public sealed class VssElevationCoordinator
     /// error and exits with code 2.</summary>
     public static VssHelperArgs? ParseHelperArgs(string[] args)
     {
-        string? backupId = null, sourcePath = null, destId = null, storageName = null, resultFile = null;
+        string? backupId = null, sourcePath = null, destId = null, storageName = null, resultFile = null, configRoot = null;
         int? parentPid = null;
         long? parentStartTimeTicks = null;
         for (int i = 0; i < args.Length - 1; i++)
@@ -136,6 +145,7 @@ public sealed class VssElevationCoordinator
                 case "--destination-id": destId      = args[++i]; break;
                 case "--storage-name":   storageName = args[++i]; break;
                 case ResultFileArgument: resultFile  = args[++i]; break;
+                case ConfigRootArgument: configRoot = args[++i]; break;
                 case ParentPidArgument:
                     if (int.TryParse(args[++i], out var pid)) parentPid = pid;
                     break;
@@ -146,7 +156,7 @@ public sealed class VssElevationCoordinator
         }
         if (backupId is null || sourcePath is null || destId is null || storageName is null || resultFile is null)
             return null;
-        return new VssHelperArgs(backupId, sourcePath, destId, storageName, resultFile, parentPid, parentStartTimeTicks);
+        return new VssHelperArgs(backupId, sourcePath, destId, storageName, resultFile, parentPid, parentStartTimeTicks, configRoot);
     }
 
     /// <summary>Helper-mode body: resolves the request against
@@ -159,7 +169,17 @@ public sealed class VssElevationCoordinator
     /// successful invocation.</summary>
     public static async Task<int> RunHelperAsync(VssHelperArgs args, CancellationToken ct)
     {
-        ServiceLocator.InitializeCore();
+        if (!Services.Platform.PlatformInfo.IsWindows || !Services.Platform.PlatformInfo.IsProcessElevated)
+        {
+            await WriteResultAsync(args.ResultFile, MakeStub(args, BackupRunStatus.Failed,
+                "Windows administrator permission is required for a snapshot backup.")).ConfigureAwait(false);
+            return 2;
+        }
+        if (args.ConfigRoot is not null)
+            Environment.SetEnvironmentVariable("BACKSPACE_CONFIG_ROOT", Path.GetFullPath(args.ConfigRoot));
+        // Elevating the RPC client does not elevate a daemon it connects to.
+        // This helper must launch and own its own elevated daemon/restic tree.
+        ServiceLocator.InitializeCore(BackrestSidecar.CreateIsolatedDataDirectory("vss"));
 
         var cfg = ServiceLocator.Config.Current;
         var backup = cfg.Backups.FirstOrDefault(b => b.Id == args.BackupId);
@@ -206,6 +226,11 @@ public sealed class VssElevationCoordinator
                 {
                     while (!watchdogCts.IsCancellationRequested)
                     {
+                        if (File.Exists(args.ResultFile + ".cancel"))
+                        {
+                            watchdogCts.Cancel();
+                            return;
+                        }
                         try
                         {
                             using var parent = Process.GetProcessById(parentPid);
@@ -216,16 +241,11 @@ public sealed class VssElevationCoordinator
                             }
                             if (expectedStartTimeUtc is DateTime expected)
                             {
-                                // Tolerance: Process.StartTime is
-                                // surfaced from the kernel at second
-                                // granularity on Windows; small
-                                // skew across the IPC boundary is
-                                // benign. >2s difference is a
-                                // different process.
+                                // Exact kernel creation time distinguishes PID reuse.
                                 try
                                 {
                                     var liveStart = parent.StartTime.ToUniversalTime();
-                                    if (Math.Abs((liveStart - expected).TotalSeconds) > 2)
+                                    if (liveStart.Ticks != expected.Ticks)
                                     {
                                         watchdogCts.Cancel();
                                         return;
@@ -256,8 +276,14 @@ public sealed class VssElevationCoordinator
             }, watchdogCts.Token);
         }
 
+        IDisposable? operationLease = null;
         try
         {
+            // The parent may exit or finish its cancellation wait before this
+            // elevated process acknowledges Stop. Keep our own repository lease
+            // until the dedicated daemon is actually gone.
+            operationLease = await ServiceLocator.Maintenance.AcquireReadAsync(
+                watchdogCts.Token, watchdogCts.Cancel).ConfigureAwait(false);
             var record = await ServiceLocator.Engine.BackupPruneCheckAsync(
                 backup, args.SourcePath, destination, args.StorageName, watchdogCts.Token).ConfigureAwait(false);
             await WriteResultAsync(args.ResultFile, record).ConfigureAwait(false);
@@ -272,7 +298,8 @@ public sealed class VssElevationCoordinator
         {
             // Distinguish "parent died" from "caller cancelled" so the
             // result file's Summary is useful for diagnosing the case.
-            var parentGone = args.ParentPid is int p && p > 0 && watchdogCts.IsCancellationRequested && !ct.IsCancellationRequested;
+            var parentGone = args.ParentPid is int p && p > 0 && watchdogCts.IsCancellationRequested
+                && !ct.IsCancellationRequested && !File.Exists(args.ResultFile + ".cancel");
             var summary = parentGone
                 ? "Parent Backspace process exited; VSS helper terminated to avoid running as an orphan."
                 : "Helper cancelled.";
@@ -291,6 +318,8 @@ public sealed class VssElevationCoordinator
             {
                 try { await watchdogTask.ConfigureAwait(false); } catch { /* expected on cancel */ }
             }
+            await ServiceLocator.BackrestSidecar.DisposeAsync().ConfigureAwait(false);
+            operationLease?.Dispose();
         }
     }
 
@@ -311,6 +340,8 @@ public sealed class VssElevationCoordinator
             CreateNoWindow = true,
         };
         psi.ArgumentList.Add(HelperCliArgument);
+        psi.ArgumentList.Add(ConfigRootArgument);
+        psi.ArgumentList.Add(Path.GetFullPath(AppPaths.ConfigRoot));
         psi.ArgumentList.Add("--backup-id");
         psi.ArgumentList.Add(request.Backup.Id);
         psi.ArgumentList.Add("--source-path");
@@ -333,7 +364,7 @@ public sealed class VssElevationCoordinator
         // dies, Windows may recycle its PID to an unrelated process,
         // and we don't want the helper to think the reused PID's
         // owner is its parent.
-        var self = Process.GetCurrentProcess();
+        using var self = Process.GetCurrentProcess();
         psi.ArgumentList.Add(ParentPidArgument);
         psi.ArgumentList.Add(self.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
         try
@@ -348,36 +379,30 @@ public sealed class VssElevationCoordinator
     private async Task<RunRecord> WaitForHelperResultAsync(
         Process proc, string resultPath, VssElevationRequest request, CancellationToken ct)
     {
-        // Kill the helper if the caller cancels (Stop button, app
-        // shutdown). The kernel won't reliably send the elevated
-        // process a friendly stop signal, so we use entireProcessTree:
-        // true to walk any restic/rclone children the helper spawned.
-        //
-        // Known limitation: an in-flight Backrest op the helper had
-        // already enqueued via the shared daemon keeps running after
-        // we kill the helper — the daemon doesn't get a Cancel RPC
-        // because the helper that owned the op id is dead before it
-        // can send one. The parent process can't trivially target
-        // that op id either (it lives inside the helper's address
-        // space). In practice the daemon's own watchdog reaps idle
-        // ops, and VSS-mode backups are short-lived enough that the
-        // user-cancel → kill → idle-reap window is rarely visible.
-        // A cleaner fix would have the helper write its op id to the
-        // result dir as soon as the pump observes it; the parent
-        // could then send /v1.Backrest/Cancel itself on cancel.
-        using var killOnCancel = ct.Register(() =>
+        // The unelevated parent cannot reliably terminate an elevated process.
+        // Signal cancellation over the same private per-run IPC directory; the
+        // helper cancels the engine and disposes its own elevated daemon tree.
+        void RequestStop()
         {
-            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
-        });
-
+            try { File.WriteAllText(resultPath + ".cancel", "stop"); }
+            catch (Exception ex) { _log.Warning(ex, "Could not signal the VSS helper to stop"); }
+        }
+        using var stopOnCancel = ct.Register(RequestStop);
         using var timeout = new CancellationTokenSource(DefaultHelperTimeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
         try { await proc.WaitForExitAsync(linked.Token).ConfigureAwait(false); }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
-            return MakeSkipped(request,
-                $"VSS helper exceeded the {DefaultHelperTimeout.TotalHours:F1}h timeout and was killed.");
+            RequestStop();
+            using var acknowledgement = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            try { await proc.WaitForExitAsync(acknowledgement.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException)
+            {
+                _log.Warning("VSS helper has not yet acknowledged cancellation; its watchdog will keep observing the stop marker");
+            }
+            ct.ThrowIfCancellationRequested();
+            return MakeFailed(request,
+                $"Snapshot backup exceeded the {DefaultHelperTimeout.TotalHours:F1}h limit. A stop was requested.");
         }
 
         if (!File.Exists(resultPath))
@@ -503,4 +528,5 @@ public sealed record VssHelperArgs(
     string StorageName,
     string ResultFile,
     int? ParentPid = null,
-    long? ParentStartTimeTicks = null);
+    long? ParentStartTimeTicks = null,
+    string? ConfigRoot = null);

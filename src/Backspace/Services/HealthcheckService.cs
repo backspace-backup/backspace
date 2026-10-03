@@ -33,12 +33,13 @@ public sealed class HealthcheckService
     private static ILogger _log => AppLogger.For<HealthcheckService>();
     private readonly ConfigStore _config;
     private readonly SecretsStore _secrets;
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private readonly HttpClient _http;
 
-    public HealthcheckService(ConfigStore config, SecretsStore secrets)
+    public HealthcheckService(ConfigStore config, SecretsStore secrets, HttpClient? http = null)
     {
         _config = config;
         _secrets = secrets;
+        _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
     }
 
     private string BaseUrl => _config.Current.Monitoring.HealthchecksBaseUrl.TrimEnd('/');
@@ -132,6 +133,7 @@ public sealed class HealthcheckService
                 return null;
             }
             var parsed = await resp.Content.ReadFromJsonAsync<HealthcheckRecord>(Json, ct);
+            if (parsed is not null) backup.HealthcheckPingUrl = parsed.PingUrl;
             // The ping_url is effectively a write-capability bearer
             // token — anyone with the URL can ping success/failure for
             // that check. Log only the trailing 4 chars of the UUID so
@@ -202,7 +204,8 @@ public sealed class HealthcheckService
             if (resp.IsSuccessStatusCode)
             {
                 _log.Information("Verified Healthchecks.io check (uuid …{UuidTail})", TailOfId(parsed));
-                return UuidVerificationResult.Valid();
+                var check = await resp.Content.ReadFromJsonAsync<HealthcheckRecord>(Json, ct);
+                return UuidVerificationResult.Valid() with { PingUrl = check?.PingUrl };
             }
             if ((int)resp.StatusCode == 401 || (int)resp.StatusCode == 403)
             {
@@ -267,6 +270,7 @@ public sealed class HealthcheckService
         UuidVerificationOutcome Outcome,
         string Message)
     {
+        public string? PingUrl { get; init; }
         public bool IsValid => Outcome == UuidVerificationOutcome.Valid;
         public bool IsBlockingError =>
             Outcome is UuidVerificationOutcome.MalformedShape
@@ -287,20 +291,20 @@ public sealed class HealthcheckService
     // ---- pings ----
 
     /// <summary>Send a "started" ping. Optional — some users prefer final-ping-only.</summary>
-    public Task PingStartAsync(string pingUuid, CancellationToken ct) =>
+    public Task<bool> PingStartAsync(string pingUuid, CancellationToken ct) =>
         PingAsync(pingUuid, "/start", null, ct);
 
-    public Task PingSuccessAsync(string pingUuid, string body, CancellationToken ct) =>
+    public Task<bool> PingSuccessAsync(string pingUuid, string body, CancellationToken ct) =>
         PingAsync(pingUuid, "", body, ct);
 
-    public Task PingFailureAsync(string pingUuid, string body, CancellationToken ct) =>
+    public Task<bool> PingFailureAsync(string pingUuid, string body, CancellationToken ct) =>
         PingAsync(pingUuid, "/fail", body, ct);
 
-    private async Task PingAsync(string pingUuid, string suffix, string? body, CancellationToken ct)
+    private async Task<bool> PingAsync(string pingUuid, string suffix, string? body, CancellationToken ct)
     {
-        var url = $"https://hc-ping.com/{pingUuid}{suffix}";
         try
         {
+            var url = BuildPingUrl(pingUuid, suffix);
             using var req = new HttpRequestMessage(HttpMethod.Post, url);
             if (!string.IsNullOrEmpty(body))
                 req.Content = new StringContent(body, System.Text.Encoding.UTF8, "text/plain");
@@ -314,8 +318,14 @@ public sealed class HealthcheckService
             var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
             req.Headers.UserAgent.ParseAdd($"Backspace/{ver}");
             using var resp = await _http.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.Warning("Healthchecks ping {Suffix} rejected for check …{UuidTail}: HTTP {Status}", suffix, TailOfUuid(url), (int)resp.StatusCode);
+                return false;
+            }
             _log.Debug("Healthchecks.io ping {Suffix} for check (uuid …{UuidTail}): HTTP {Status}",
                 string.IsNullOrEmpty(suffix) ? "/success" : suffix, TailOfId(pingUuid), (int)resp.StatusCode);
+            return true;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -329,7 +339,18 @@ public sealed class HealthcheckService
             // log so the user can see why their watchdog stayed silent.
             _log.Warning(ex, "Healthchecks.io ping {Suffix} for check (uuid …{UuidTail}) failed",
                 string.IsNullOrEmpty(suffix) ? "/success" : suffix, TailOfId(pingUuid));
+            return false;
         }
+    }
+
+    internal string BuildPingUrl(string pingUuidOrUrl, string suffix)
+    {
+        if (Uri.TryCreate(pingUuidOrUrl, UriKind.Absolute, out var explicitUrl)
+            && explicitUrl.Scheme is "https" or "http")
+            return explicitUrl.AbsoluteUri.TrimEnd('/') + suffix;
+        if (!Guid.TryParse(pingUuidOrUrl, out var uuid))
+            throw new ArgumentException("Healthcheck needs a UUID or a valid ping URL.", nameof(pingUuidOrUrl));
+        return $"https://hc-ping.com/{uuid:D}{suffix}";
     }
 
     // ---- schedule translation ----

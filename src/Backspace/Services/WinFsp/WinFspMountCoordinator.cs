@@ -39,16 +39,21 @@ namespace Backspace.Services.WinFsp;
 public sealed class WinFspMountCoordinator : IAsyncDisposable
 {
     private static ILogger _log => AppLogger.For<WinFspMountCoordinator>();
+    // Hold allocation through OS registration; a second mount cannot choose
+    // the same letter while the first is still warming its snapshot tree.
+    private static readonly object MountGate = new();
 
     private readonly ISnapshotTreeProvider _provider;
+    private readonly bool _openExplorer;
     private WinFspSnapshotFs? _fs;
     private FileSystemHost? _host;
     private string? _mountedDriveLetter;
     private bool _disposed;
 
-    public WinFspMountCoordinator(ISnapshotTreeProvider provider)
+    public WinFspMountCoordinator(ISnapshotTreeProvider provider, bool openExplorer = true)
     {
         _provider = provider;
+        _openExplorer = openExplorer;
     }
 
     /// <summary>The drive letter the snapshot is mounted at, e.g.
@@ -85,10 +90,18 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
         // WinFSP's Mount() call is synchronous and lightweight (it
         // hands off to a kernel worker thread) — keep this method async
         // for caller symmetry, but the work itself is sync.
-        return await Task.Run(() => MountCore(), ct).ConfigureAwait(false);
+        return await Task.Run(() =>
+        {
+            lock (MountGate)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (_disposed) return MountResult.Failed("This mount has already been closed.");
+                return MountCore(ct);
+            }
+        }, ct).ConfigureAwait(false);
     }
 
-    private MountResult MountCore()
+    private MountResult MountCore(CancellationToken ct)
     {
         try
         {
@@ -116,7 +129,7 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
             // is ONE RPC.
             try
             {
-                _provider.ListAsync("", CancellationToken.None).GetAwaiter().GetResult();
+                _provider.ListAsync("", ct).GetAwaiter().GetResult();
                 _log.Information("Snapshot root prefetched — repo index warmed");
             }
             catch (Exception prefetchEx)
@@ -181,6 +194,7 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
             bool driveVisible = false;
             while (DateTime.UtcNow < deadline)
             {
+                ct.ThrowIfCancellationRequested();
                 if (LogicalDriveLetterExists(driveLetter))
                 {
                     driveVisible = true;
@@ -229,6 +243,8 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
             // the title bar) browsing Z:\.
             try
             {
+                if (_openExplorer)
+                {
                 var system32Explorer = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.Windows),
                     "explorer.exe");
@@ -239,6 +255,7 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
                     UseShellExecute = false,
                     CreateNoWindow = true,
                 });
+                }
             }
             catch (Exception ex)
             {
@@ -257,6 +274,9 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            try { _host?.Unmount(); _host?.Dispose(); } catch { }
+            _host = null;
+            _mountedDriveLetter = null;
             _log.Error(ex, "WinFSP mount failed");
             return MountResult.Failed("Mount failed: " + ex.Message);
         }
@@ -281,6 +301,7 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
             catch (Exception ex) { _log.Warning(ex, "WinFSP host dispose threw"); }
             _host = null;
         }
+        _mountedDriveLetter = null;
 
         // Dispose the tree provider — EngineBackedSnapshotTreeProvider
         // holds SemaphoreSlims that the GC won't reclaim cleanly on

@@ -71,8 +71,8 @@ the executable. There is **no** install footprint under `%APPDATA%` or
 
 - `<exe-dir>/Backspace.config/config.json` — app settings, backups, destinations
 - `<exe-dir>/Backspace.config/secrets.bin` — encrypted secrets (API keys, OAuth tokens, storage passwords)
-- `<exe-dir>/Backspace.config/backrest/` — Backrest's own data dir (config DB, operation history, restic logs)
-- `<exe-dir>/Backspace.config/rclone.conf` — generated rclone remote config (cloud OAuth tokens land here)
+- `<exe-dir>/Backspace.config/backrest/` — the GUI-owned Backrest data directory. Scheduled runs and elevated VSS helpers use isolated directories under `engine-runs/` so one process cannot shut down another process's daemon.
+- `<exe-dir>/Backspace.config/rclone-remotes/` — one generated remote configuration per cloud destination; refreshing one account cannot erase another.
 - `<exe-dir>/Backspace.config/logs/app/` — Serilog daily-rolling Backspace logs
 - `<exe-dir>/Backspace.config/logs/engine/<backup-name>/` — per-run engine transcripts (restic stdout via Backrest)
 - The actual restic repositories live wherever the user pointed each
@@ -104,6 +104,12 @@ test harness to give each test its own isolated config dir.
    invoked us with `--run`. (The Backrest sidecar is started by
    Backspace and dies when we do — `WindowsKillOnExitJobObject` enforces
    it on Windows so the sidecar can't outlive a Backspace crash.)
+   Windows task actions use stock Windows PowerShell with an encoded script
+   containing literal paths and arguments. This adds a short shell startup
+   cost per scheduled run and requires Windows PowerShell to remain available.
+   The wrapper waits for the app, reports its exit code, and launches the
+   fallback stub if the app was moved; no profile or execution-policy override
+   is used. Free-form backup names are passed as native argument data.
 4. **Single executable.** `backrest`, `restic`, and `rclone` are bundled
    in `Assets/` at build time and extracted to the portable config dir
    on first run. No separate install step.
@@ -159,3 +165,24 @@ On Windows the binary is `Backspace.exe`; on Unix it's `Backspace`.
 
 Build and test commands live in [README.md § Building from source](../README.md#building-from-source) and
 [TESTING.md](TESTING.md). They are not duplicated here.
+
+## Repository operation and persistence coordination
+
+`ConfigStore` and `SecretsStore` lock their state file across the complete read-modify-write transaction. A writer reloads the latest disk state inside that lock, applies its mutation and atomically replaces the file. Unread or locked secrets are never treated as an empty vault. Editors preserve newer run/verification metadata when saving a draft opened before a scheduled completion.
+
+`MaintenanceCoordinator` keeps a read lease for the lifetime of backups, restores, verification and mounted-file engine reads. Destructive maintenance and password changes require exclusive access, including a portable-config file handle that coordinates separate Backspace processes. Cancelling an operation is not proof it stopped: restore cancellation sends the daemon Cancel request and waits for a terminal acknowledgement. An unacknowledged daemon operation blocks further repository work until restart. Repository locks are never force-removed for password rotation.
+
+Restores write into their own empty staging directory and promote only the exact selected output after a successful or warning terminal result. Bracket-pattern cleanup never sweeps the user's target folder. Error and cancellation cannot publish partial staged content over existing files. Restore sessions retain their own wizard state, progress and result until the user dismisses them.
+
+Startup cleanup trusts persisted process identity records (owner PID plus start time; child PID plus start time and executable) and leaves unknown/live owners alone. Windows job ownership covers the daemon and inherited child processes. There is no process-name or bundled-path sweep.
+
+On Windows, the platform builder uses Avalonia's RedirectionSurface composition
+path while retaining its hardware-rendering fallback order. Controlled native
+window-host measurements on the audit machine isolated sustained idle CPU to
+the default compositor, including with an empty Window. This choice substantially
+reduced measured idle work; it is not a claim of zero CPU on every system.
+
+The main window refreshes external configuration and run history on activation
+and when entering Backups or Activity. A fingerprint check and transaction run
+off the UI thread; no idle polling or watcher loop is introduced. Unsaved editor
+drafts remain separate, and saving them preserves newer runtime results.

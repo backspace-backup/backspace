@@ -86,7 +86,7 @@ public static class ScenarioRunSummary
         sb.AppendLine("# E2E scenario run summary");
         sb.AppendLine();
         sb.AppendLine($"_Generated {DateTime.Now:yyyy-MM-dd HH:mm}_  ");
-        sb.AppendLine($"**{passed} passed · {skipped} skipped · {failed} failed** out of {snapshot.Count} scenarios.");
+        sb.AppendLine($"**{passed} step sequences completed · {skipped} skipped · {failed} failed** out of {snapshot.Count} scenarios.");
         sb.AppendLine();
 
         // Missing secrets table — first thing the user should see if they
@@ -106,13 +106,15 @@ public static class ScenarioRunSummary
         }
 
         // Per-scenario breakdown.
+        sb.AppendLine("> Scope: scenario steps and their cleanup only. This report cannot observe the test runner’s later teardown. A completed sequence is not a passing test result. Use the test runner result/TRX for the final verdict.");
+        sb.AppendLine();
         sb.AppendLine("## Scenarios");
         sb.AppendLine();
         foreach (var r in snapshot)
         {
             var statusBadge = r.Status switch
             {
-                ScenarioStatus.Passed  => "✅ PASS",
+                ScenarioStatus.Passed  => "✓ STEPS COMPLETED",
                 ScenarioStatus.Skipped => "⊘ SKIP",
                 ScenarioStatus.Failed  => "❌ FAIL",
                 _                      => "… running",
@@ -227,10 +229,11 @@ h1 { margin: 0 0 4px; }
 
         html.AppendLine($"<h1>Backspace E2E scenario report</h1>");
         html.AppendLine($"<p class=\"summary\">Generated {DateTime.Now:yyyy-MM-dd HH:mm} · ");
-        html.AppendLine($"<span class=\"pass\">{passed} passed</span> · ");
+        html.AppendLine($"<span class=\"pass\">{passed} step sequences completed</span> · ");
         html.AppendLine($"<span class=\"skip\">{skipped} skipped</span> · ");
         html.AppendLine($"<span class=\"fail\">{failed} failed</span> ");
         html.AppendLine($"out of {snapshot.Count} scenarios.</p>");
+        html.AppendLine("<p class=\"anomalies\"><strong>Evidence scope:</strong> scenario steps and their cleanup only. Later test-runner teardown can still fail. STEPS COMPLETED is not a passing test verdict; use the test runner result/TRX for that.</p>");
 
         if (_secrets is not null && _secrets.MissingSecretsByName.Count > 0)
         {
@@ -251,7 +254,7 @@ h1 { margin: 0 0 4px; }
             };
             var statusLabel = r.Status switch
             {
-                ScenarioStatus.Passed  => "PASS",
+                ScenarioStatus.Passed  => "STEPS COMPLETED",
                 ScenarioStatus.Skipped => "SKIP",
                 ScenarioStatus.Failed  => "FAIL",
                 _ => "—",

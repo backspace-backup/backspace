@@ -60,8 +60,27 @@ public static class ResticUriResolver
         // trailing slash so we don't accidentally produce double-slash
         // paths when callers concat further; restic tolerates the
         // double but tools that scan log output don't.
-        var path = (d.PathOrSubpath ?? "").TrimEnd('/', '\\');
+        var path = d.PathOrSubpath ?? "";
+        if (d.Kind == DestinationKind.ExternalDrive && OperatingSystem.IsWindows()
+            && string.IsNullOrWhiteSpace(d.ExpectedDriveLetter) && !string.IsNullOrWhiteSpace(d.ExpectedVolumeLabel))
+        {
+            var mounted = VolumeDetector.Check(null, d.ExpectedVolumeLabel);
+            if (mounted.Verdict != VolumeDetector.Verdict.Mounted || mounted.MountedRoot is null)
+                throw new System.IO.IOException("Expected external drive is not mounted: " + d.ExpectedVolumeLabel);
+            path = RebaseDrivePath(path, mounted.MountedRoot);
+        }
+        // Preserve a drive root: C:\ is absolute, whereas C: is relative
+        // to the process's current directory on that drive.
+        if (!(path.Length == 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && path[2] is ('\\' or '/')))
+            path = path.TrimEnd('/', '\\');
         return new ResticEnvironment(Uri: path, Env: Array.Empty<string>());
+    }
+
+    internal static string RebaseDrivePath(string original, string mountedRoot)
+    {
+        if (original.Length < 3 || !char.IsAsciiLetter(original[0]) || original[1] != ':' || original[2] is not ('\\' or '/'))
+            throw new InvalidOperationException("A label-matched external destination needs an absolute drive path.");
+        return mountedRoot.TrimEnd('\\', '/') + "\\" + original[3..].TrimStart('\\', '/');
     }
 
     private static ResticEnvironment ResolveS3(Destination d, SecretsStore secrets)

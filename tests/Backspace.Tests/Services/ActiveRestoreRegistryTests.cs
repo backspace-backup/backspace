@@ -10,7 +10,7 @@ namespace Backspace.Tests.Services;
 /// <summary>
 /// Unit-test the registry's session lifecycle. Each test exercises a
 /// single concern: Begin adds, UpdateProgress mutates, End marks
-/// terminal then removes after the fade. Uses AvaloniaFact because
+/// terminal and keeps it until dismissal. Uses AvaloniaFact because
 /// the registry marshals to the UI dispatcher.
 /// </summary>
 public class ActiveRestoreRegistryTests
@@ -49,6 +49,9 @@ public class ActiveRestoreRegistryTests
         Assert.Equal("/restore/target", session.TargetPath);
         Assert.Equal(100, session.TotalFiles);
         Assert.True(session.IsRunning);
+        Assert.True(session.IsProgressIndeterminate);
+        Assert.Equal("Restoring…", session.StatusLabel);
+        Assert.DoesNotContain("0%", session.StatusLabel);
     }
 
     [AvaloniaFact]
@@ -64,8 +67,9 @@ public class ActiveRestoreRegistryTests
         Assert.Equal(12, session.RestoredCount);
         Assert.Equal(4_000_000, session.TotalBytes);
         Assert.Equal(1_200_000, session.BytesRestored);
-        Assert.InRange(session.PercentComplete, 0.23, 0.25);
+        Assert.Equal(0.30, session.PercentComplete, precision: 2);
         Assert.Equal("12 of 50 files", session.ProgressLabel);
+        Assert.False(session.IsProgressIndeterminate);
     }
 
     [AvaloniaFact]
@@ -79,10 +83,11 @@ public class ActiveRestoreRegistryTests
         Assert.False(session.IsRunning);
         Assert.Equal(RestoreTerminalStatus.Success, session.Status);
         Assert.Contains("Done", session.StatusLabel);
-        // Card stays visible until the 4 s fade fires; this test
-        // doesn't wait for that — the timer logic is integration-
-        // tested separately via End_session_fades_from_collection.
+        // Completion does not dismiss a result before the user reads it.
         Assert.Single(registry.Sessions);
+        Assert.False(registry.HasRunning);
+        registry.Dismiss(session);
+        Assert.Empty(registry.Sessions);
     }
 
     [AvaloniaFact]
@@ -100,6 +105,7 @@ public class ActiveRestoreRegistryTests
         // assert the session is now terminal.
         Assert.Equal(RestoreTerminalStatus.Error, session.Status);
         Assert.Equal("engine threw", session.ErrorMessage);
+        Assert.Equal(1, changedCount);
     }
 
     [AvaloniaFact]

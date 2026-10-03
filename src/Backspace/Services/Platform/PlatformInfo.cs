@@ -33,6 +33,8 @@ public static class PlatformInfo
         IsLinux   ? "Linux"   :
                     "Unknown";
 
+    public static string NotificationLabel => $"Show a {DisplayPlatform} notification";
+
     /// <summary>
     /// Whether the current process is running with administrator /
     /// root privileges. VSS backups on Windows need this; restic's

@@ -189,7 +189,7 @@
                 <TextBlock Classes="body" TextWrapping="Wrap"
                            Text="{Binding OAuthScopeExplanation}"/>
                 <TextBlock Classes="body" TextWrapping="Wrap"
-                           Text="Click Connect. In the browser, sign in and copy the token the helper shows. Paste it below and it'll verify automatically."/>
+                           Text="Click Connect and sign in through your browser. Backspace receives the result automatically and checks the connected account."/>
               </StackPanel>
             </Border>
 

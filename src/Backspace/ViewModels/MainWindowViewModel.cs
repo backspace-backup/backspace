@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Backspace.Services;
@@ -28,6 +30,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     /// restore evolution (parallel restores, per-card view) is
     /// ROADMAP item 8's follow-up.</summary>
     [ObservableProperty] private bool _hasActiveRestores;
+    [ObservableProperty] private bool _hasRunningRestores;
 
     public BackupsViewModel Backups { get; }
 
@@ -44,6 +47,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     private RestoreViewModel? _restore;
     private SettingsViewModel? _settings;
     private ActiveRestoresViewModel? _activeRestores;
+    private readonly System.Collections.Generic.HashSet<RestoreViewModel> _sessionPages = new();
+    private readonly CancellationTokenSource _refreshLifetime = new();
+    private Task? _externalRefreshTask;
+    private bool _disposed;
 
     public DestinationsViewModel Destinations =>
         System.Threading.LazyInitializer.EnsureInitialized(ref _destinations, () => new DestinationsViewModel());
@@ -84,7 +91,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         // and (b) the user-facing "Restores" cards view reads from
         // the same collection.
         ServiceLocator.ActiveRestores.Changed += OnActiveRestoresChanged;
+        ServiceLocator.ActiveRestores.SessionOpened += OnRestoreSessionOpened;
         HasActiveRestores = ServiceLocator.ActiveRestores.HasAny;
+        HasRunningRestores = ServiceLocator.ActiveRestores.HasRunning;
     }
 
     private void OnActiveRestoresChanged()
@@ -92,10 +101,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             HasActiveRestores = ServiceLocator.ActiveRestores.HasAny;
+            HasRunningRestores = ServiceLocator.ActiveRestores.HasRunning;
         });
     }
 
-    private void OnNavRequested(NavItem target) => SelectedNav = target;
+    private void OnNavRequested(NavItem target)
+    {
+        if (target == NavItem.Restore && _restore?.IsStepProgressOrSummary == true)
+        {
+            _sessionPages.Add(_restore);
+            _restore = new RestoreViewModel();
+        }
+        var alreadySelected = SelectedNav == target;
+        SelectedNav = target;
+        if (target == NavItem.Restore) CurrentPage = Restore;
+        if (alreadySelected && target is NavItem.Backups or NavItem.Logs)
+            _ = RefreshExternalStateAsync();
+    }
+
+    private void OnRestoreSessionOpened(ActiveRestoreSession session)
+    {
+        SelectedNav = NavItem.ActiveRestores;
+        if (session.Owner is RestoreViewModel page && !page.MultiSourceMode)
+        {
+            _sessionPages.Add(page);
+            CurrentPage = page;
+        }
+        else
+        {
+            ActiveRestores.SelectedSession = session;
+            CurrentPage = ActiveRestores;
+        }
+    }
 
     partial void OnSelectedNavChanged(NavItem value)
     {
@@ -109,6 +146,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
             NavItem.ActiveRestores => ActiveRestores,
             _ => Backups,
         };
+        if (value is NavItem.Backups or NavItem.Logs)
+            _ = RefreshExternalStateAsync();
 
         // Restore is a step-by-step wizard, not a stateful workspace.
         // A fresh nav back to it should restart from step 1 — otherwise
@@ -136,14 +175,54 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// Read externally scheduled results when the user returns to the app or
+    /// visits Backups/Logs. The disk fingerprint runs off the UI thread; there
+    /// is no watcher or idle polling, and overlapping requests share one read.
+    /// Editors keep their own drafts; only the persisted snapshot is replaced.
+    /// </summary>
+    public Task RefreshExternalStateAsync()
+    {
+        if (_disposed) return Task.CompletedTask;
+        if (_externalRefreshTask is { IsCompleted: false }) return _externalRefreshTask;
+        return _externalRefreshTask = RefreshExternalStateCoreAsync();
+    }
+
+    private async Task RefreshExternalStateCoreAsync()
+    {
+        try
+        {
+            await ServiceLocator.Config.ReloadIfChangedAsync(_refreshLifetime.Token).ConfigureAwait(false);
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_disposed) return;
+                if (SelectedNav == NavItem.Backups) Backups.Refresh();
+                // History may change without config changing, and the Logs VM
+                // survives navigation. Always reload its selected timeline.
+                if (SelectedNav == NavItem.Logs) Logs.Refresh();
+            });
+        }
+        catch (OperationCanceledException) when (_disposed || _refreshLifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            AppLogger.For<MainWindowViewModel>().Warning(ex, "Could not refresh externally updated backup state");
+        }
+    }
+
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+        _refreshLifetime.Cancel();
+        _refreshLifetime.Dispose();
         AppNavigator.Requested -= OnNavRequested;
         ServiceLocator.ActiveRestores.Changed -= OnActiveRestoresChanged;
+        ServiceLocator.ActiveRestores.SessionOpened -= OnRestoreSessionOpened;
         Backups.Dispose();
         _destinations?.Dispose();
         _logs?.Dispose();
         _restore?.Dispose();
+        foreach (var page in _sessionPages) if (!ReferenceEquals(page, _restore)) page.Dispose();
         _settings?.Dispose();
         _activeRestores?.Dispose();
     }

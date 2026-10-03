@@ -28,6 +28,7 @@ public enum NotificationSeverity { Info, Success, Warning, Failure }
 /// </summary>
 public sealed class NotificationService
 {
+    internal Action<string, string, NotificationSeverity, Action?, NotificationChannels>? NotificationObserved { get; set; }
     private static ILogger _log => AppLogger.For<NotificationService>();
     private readonly ConfigStore _config;
     public NotificationService(ConfigStore config) => _config = config;
@@ -93,6 +94,7 @@ public sealed class NotificationService
         // but emailing themselves for a manual 'Restore complete' would
         // be noise.
         var effective = channelsOverride ?? new NotificationChannels { Toast = true, Sound = true, Email = false };
+        NotificationObserved?.Invoke(title, detail, severity, onClick, effective);
 
         if (effective.Sound)
             PlaySoundFor(severity);

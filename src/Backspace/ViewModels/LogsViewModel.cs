@@ -117,8 +117,17 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         SelectedRun = History.FirstOrDefault();
     }
 
+    /// <summary>A notification refers to its own run even if a newer run has finished.</summary>
+    public void SelectRunById(string backupId, string runId)
+    {
+        SelectBackupById(backupId);
+        ReloadHistoryForSelected();
+        SelectedRun = History.FirstOrDefault(r => r.Id == runId);
+    }
+
     public LogsViewModel()
     {
+        AppNavigator.RunDetailsRequested += SelectRunById;
         _refreshDebouncer = new UiThreadDebouncer(Refresh);
         Refresh();
         ServiceLocator.Config.Changed += OnConfigChanged;
@@ -293,6 +302,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        AppNavigator.RunDetailsRequested -= SelectRunById;
         ServiceLocator.Config.Changed -= OnConfigChanged;
         ServiceLocator.Engine.LineWritten -= OnLineWritten;
         ServiceLocator.Orchestrator.RunStarted -= OnOrchestratorRunStarted;
@@ -429,7 +439,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     private void ReloadHistoryForSelected()
     {
         if (string.IsNullOrEmpty(SelectedBackup)) return;
-        var previouslySelectedRunStarted = SelectedRun?.StartedUtc;
+        var previouslySelectedRunId = SelectedRun?.Id;
         History.Clear();
         // Look up by Backup.Id (not Name) so a renamed backup still
         // shows its complete run timeline. Per-name history files are
@@ -442,8 +452,8 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         // Preserve the user's selection if it still exists; otherwise
         // jump to the freshest entry (typical "I just ran a backup,
         // show me what just happened").
-        SelectedRun = previouslySelectedRunStarted is DateTime t
-            ? History.FirstOrDefault(r => r.StartedUtc == t) ?? History.FirstOrDefault()
+        SelectedRun = previouslySelectedRunId is { } id
+            ? History.FirstOrDefault(r => r.Id == id) ?? History.FirstOrDefault()
             : History.FirstOrDefault();
     }
 
@@ -631,6 +641,9 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
 
     public void Refresh()
     {
+        var previousBackup = SelectedBackup;
+        var previousRunId = SelectedRun?.Id;
+        var previousBackupId = SelectedRun?.BackupId;
         BackupNames.Clear();
         foreach (var b in ServiceLocator.Config.Current.Backups.OrderBy(b => b.Name))
             BackupNames.Add(b.Name);
@@ -647,8 +660,18 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         {
             BackupNames.Insert(0, StorageCleaner.DestinationsBucketName);
         }
-        if (SelectedBackup is null && BackupNames.Count > 0)
-            SelectedBackup = BackupNames[0];
+        var selection = previousBackup is not null && BackupNames.Contains(previousBackup)
+            ? previousBackup
+            : ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == previousBackupId)?.Name
+                ?? BackupNames.FirstOrDefault();
+        SelectedBackup = selection;
+        ReloadHistoryForSelected();
+        // A background refresh must not change the run opened by a failure
+        // notification, or replace the explicit no-record selection with an
+        // unrelated successful run. Initial navigation still picks the newest.
+        if (previousBackup is not null && (selection == previousBackup
+            || ServiceLocator.Config.Current.Backups.Any(b => b.Id == previousBackupId && b.Name == selection)))
+            SelectedRun = previousRunId is null ? null : History.FirstOrDefault(r => r.Id == previousRunId);
         OnPropertyChanged(nameof(HasNoBackups));
         OnPropertyChanged(nameof(HasNoHistoryForSelected));
     }

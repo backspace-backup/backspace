@@ -36,6 +36,10 @@ internal static class WindowsKillOnExitJobObject
     {
         try
         {
+            if (process.HasExited) return false;
+            // Persist provenance even when assignment fails: that is precisely
+            // when a later crash could leave a child outside the Windows job.
+            OwnedProcessRegistry.Register(process);
             var job = _job.Value;
             if (job == IntPtr.Zero)
             {
@@ -44,7 +48,6 @@ internal static class WindowsKillOnExitJobObject
                     SafePid(process), SafeName(process));
                 return false;
             }
-            if (process.HasExited) return false;
             // Process.Handle requires the caller to have already called
             // process.Start() — guaranteed by every site that calls us.
             if (!AssignProcessToJobObject(job, process.Handle))
@@ -89,17 +92,13 @@ internal static class WindowsKillOnExitJobObject
 
             // Configure the job so closing the LAST handle (i.e. when
             // Backspace process dies) terminates every member.
-            // KILL_ON_JOB_CLOSE is the headline behaviour. SILENT_BREAKAWAY_OK
-            // is a defensive flag: when Backspace.exe is itself launched
-            // inside another job (VSCode debugger, ConHost on some Windows
-            // builds, a build farm wrapper), nested job assignment can be
-            // refused without it. Silent breakaway lets our child cleanly
-            // detach from any enclosing job AND join ours, instead of
-            // failing both directions and running un-supervised.
+            // Do not enable SILENT_BREAKAWAY_OK: that flag lets Backrest's
+            // restic/rclone children escape THIS job and survive Backspace.
+            // Modern Windows supports nested jobs; assignment failures are
+            // reported to callers instead of weakening descendant ownership.
             var info = new JOBOBJECT_BASIC_LIMIT_INFORMATION
             {
-                LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-                           | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+                LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
             };
             var ext = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
             {
@@ -140,7 +139,6 @@ internal static class WindowsKillOnExitJobObject
     // ---- Win32 P/Invoke ------------------------------------------------
 
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE  = 0x2000;
-    private const uint JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK = 0x1000;
 
     private enum JobObjectInfoType
     {

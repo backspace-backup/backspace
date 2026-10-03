@@ -113,7 +113,7 @@ public class PoweredByLinkTests
             Math.Max(1, (int)Math.Ceiling(window.Bounds.Height)));
         using var bitmap = new RenderTargetBitmap(size, new Vector(96, 96));
         bitmap.Render(window);
-        bitmap.Save(path);
+        ScreenshotDiffTests.SaveAndVerify(bitmap, path);
         _out.WriteLine($"saved: {path}");
         window.Close();
     }

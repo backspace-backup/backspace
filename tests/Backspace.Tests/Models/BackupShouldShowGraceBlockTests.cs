@@ -5,18 +5,15 @@ using Xunit;
 namespace Backspace.Tests.Models;
 
 /// <summary>
-/// Easy mode hides the "skipped-run alerts" block by default; it
-/// surfaces only when both halves of the condition hold — most recent
-/// run was Skipped AND we're still inside the grace window. Advanced
-/// mode shows it unconditionally so power users can configure / reset
-/// regardless of run state.
+/// Configuration must remain accessible before an absence and after
+/// expiry. S28 also exercises the real Easy controls, Save and reopen.
 /// </summary>
 public class BackupShouldShowGraceBlockTests
 {
     private static readonly DateTime _t0 = new DateTime(2026, 6, 12, 12, 0, 0, DateTimeKind.Utc);
 
     [Fact]
-    public void NeverRun_backup_does_not_show_block()
+    public void NeverRun_backup_shows_block_for_proactive_configuration()
     {
         var b = new Backup
         {
@@ -24,11 +21,11 @@ public class BackupShouldShowGraceBlockTests
             SkipNotificationGraceDays = 7,
             CreatedUtc = _t0.AddDays(-1),
         };
-        Assert.False(b.ShouldShowGraceBlock(_t0));
+        Assert.True(b.ShouldShowGraceBlock(_t0));
     }
 
     [Fact]
-    public void Successful_recent_run_does_not_show_block()
+    public void Successful_recent_run_shows_block_before_an_absence()
     {
         var b = new Backup
         {
@@ -36,7 +33,7 @@ public class BackupShouldShowGraceBlockTests
             LastSuccessUtc = _t0.AddHours(-1),
             SkipNotificationGraceDays = 7,
         };
-        Assert.False(b.ShouldShowGraceBlock(_t0));
+        Assert.True(b.ShouldShowGraceBlock(_t0));
     }
 
     [Fact]
@@ -52,11 +49,10 @@ public class BackupShouldShowGraceBlockTests
     }
 
     [Fact]
-    public void Skipped_past_grace_does_not_show_block()
+    public void Skipped_past_grace_shows_block_to_allow_reset()
     {
-        // Grace 7d, last success 8d ago → grace expired; the block
-        // would suggest "reset" but resetting is meaningless when the
-        // window has already escalated to Failed. Hide.
+        // Expired grace still permits an intentional reset. A skipped
+        // run remains Skipped; the warning never promotes it to Failed.
         // SkipGraceReferenceUtc = max(LastSuccessUtc, ResetUtc,
         // CreatedUtc); set CreatedUtc too so the constructor's
         // default-of-now doesn't push the reference forward.
@@ -67,11 +63,11 @@ public class BackupShouldShowGraceBlockTests
             CreatedUtc = _t0.AddDays(-10),
             SkipNotificationGraceDays = 7,
         };
-        Assert.False(b.ShouldShowGraceBlock(_t0));
+        Assert.True(b.ShouldShowGraceBlock(_t0));
     }
 
     [Fact]
-    public void GraceDays_zero_disables_block_regardless()
+    public void GraceDays_zero_keeps_block_available_to_enable_grace()
     {
         var b = new Backup
         {
@@ -79,6 +75,6 @@ public class BackupShouldShowGraceBlockTests
             LastSuccessUtc = _t0.AddHours(-1),
             SkipNotificationGraceDays = 0,
         };
-        Assert.False(b.ShouldShowGraceBlock(_t0));
+        Assert.True(b.ShouldShowGraceBlock(_t0));
     }
 }

@@ -16,9 +16,9 @@ namespace Backspace.Services;
 ///
 /// One <c>[section]</c> per cloud destination, keyed by the same
 /// remote name <see cref="ResticUriResolver.RcloneRemoteNameFor"/>
-/// returns. Existing files at the target path are overwritten —
-/// this builder owns the file, treat the OAuth tokens stored in
-/// <see cref="SecretsStore"/> as the source of truth.
+/// returns. Independent destinations use isolated files; shared-file
+/// callers retain unrelated sections. Newer rclone-refreshed tokens
+/// are imported into <see cref="SecretsStore"/> before rendering.
 ///
 /// The output is plain INI with one key=value per line, which is the
 /// canonical rclone.conf format. We don't use rclone's
@@ -37,6 +37,25 @@ public sealed class RcloneConfigBuilder
     /// <summary>Default location for the materialised config.</summary>
     public static string DefaultPath => Path.Combine(AppPaths.ConfigRoot, "rclone.conf");
 
+    public async System.Threading.Tasks.Task EnsureDriveIdentityAsync(Destination destination,
+        System.Threading.CancellationToken ct, ConfigStore? config = null)
+    {
+        if (destination.Kind is not (DestinationKind.OneDrivePersonal or DestinationKind.OneDriveBusiness)
+            || (!string.IsNullOrWhiteSpace(destination.OneDriveDriveId) && !string.IsNullOrWhiteSpace(destination.OneDriveDriveType))) return;
+        if (string.IsNullOrWhiteSpace(destination.OAuthTokenRef))
+            throw new InvalidOperationException("OneDrive needs sign-in before its drive can be selected.");
+        var drive = await new OAuth.OneDriveDiscovery().DiscoverAsync(_secrets.Get(destination.OAuthTokenRef), ct).ConfigureAwait(false);
+        config?.UpdateQuiet(c =>
+        {
+            var saved = c.Destinations.FirstOrDefault(d => d.Id == destination.Id);
+            if (saved is null) return;
+            saved.OneDriveDriveId = drive.Id;
+            saved.OneDriveDriveType = drive.DriveType;
+        });
+        destination.OneDriveDriveId = drive.Id;
+        destination.OneDriveDriveType = drive.DriveType;
+    }
+
     /// <summary>Build the canonical rclone.conf content for the given
     /// destinations and write it to <paramref name="path"/>. Returns
     /// the path for convenience so callers can chain through to
@@ -46,68 +65,105 @@ public sealed class RcloneConfigBuilder
         IReadOnlyList<RcloneOAuthApp>? oauthApps = null,
         string? path = null)
     {
-        var target = path ?? DefaultPath;
-        // Path.GetDirectoryName returns null for a bare filename
-        // ("rclone.conf") or for path-roots ("C:\\"). Both are weird
-        // inputs for this method but a null-forgive-and-pass to
-        // CreateDirectory would NRE on input we could just sanely
-        // ignore (the file lives in the current working directory).
-        var targetDir = Path.GetDirectoryName(target);
-        if (!string.IsNullOrEmpty(targetDir))
-            Directory.CreateDirectory(targetDir);
-
-        var content = Render(destinations, oauthApps ?? Array.Empty<RcloneOAuthApp>());
-        // Atomic write (tmp + Replace/Move) so a crash mid-write or
-        // a concurrent backup run never leaves rclone.conf truncated
-        // mid-INI-section — restic would shell out to rclone next
-        // and fail with a cryptic "unexpected EOF" the user can't
-        // act on.
-        //
-        // On Unix the file holds OAuth refresh tokens + optional
-        // client_secret values; create it with 0600 atomically (via
-        // UnixCreateMode) so the bits are owner-only from the moment
-        // they hit disk. Without this, the default umask (typically
-        // 022 → 0644) leaves the secrets briefly world-readable.
-        var tmp = target + ".tmp";
-        // Pre-delete any stale .tmp from a previous crashed write.
-        // FileMode.CreateNew (vs Create) requires the file NOT exist,
-        // which is what guarantees UnixCreateMode actually applies —
-        // FileMode.Create on an existing file truncates but PRESERVES
-        // the prior mode bits, so an inherited 0644 from a previous
-        // build (or any external dropped file at that path) would
-        // leak OAuth refresh tokens at world-readable perms for the
-        // brief window before File.Replace renames over the target.
-        try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort; CreateNew will throw below if it survives */ }
-        var fileOpts = new FileStreamOptions
-        {
-            Mode = FileMode.CreateNew,
-            Access = FileAccess.Write,
-            Share = FileShare.None,
-        };
-        if (!OperatingSystem.IsWindows())
-            fileOpts.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        using (var fs = new FileStream(tmp, fileOpts))
-        using (var sw = new StreamWriter(fs, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
-            sw.Write(content);
-        // File.Replace preserves the DESTINATION's mode bits, not the
-        // source's, so on Unix the rename can re-introduce a 0644
-        // mode inherited from a prior pre-fix build. Force the target
-        // mode after the rename lands.
+        var target = Path.GetFullPath(path ?? DefaultPath);
+        var selected = destinations.Where(NeedsRcloneRemote).ToArray();
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            Encoding.UTF8.GetBytes(target.ToUpperInvariant())));
+        using var gate = new System.Threading.Mutex(false, "Backspace.RcloneConfig." + key);
+        try { gate.WaitOne(); } catch (System.Threading.AbandonedMutexException) { }
         try
         {
-            if (File.Exists(target)) File.Replace(tmp, target, destinationBackupFileName: null);
-            else File.Move(tmp, target);
-            if (!OperatingSystem.IsWindows())
-                File.SetUnixFileMode(target, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            var existing = File.Exists(target) ? File.ReadAllText(target, Encoding.UTF8) : "";
+            var sections = ParseSections(existing);
+            foreach (var destination in selected)
+            {
+                var remote = ResticUriResolver.RcloneRemoteNameFor(destination);
+                if (sections.TryGetValue(remote, out var previous))
+                    ImportRefreshedToken(destination, previous, File.GetLastWriteTimeUtc(target));
+            }
+            var rendered = ParseSections(Render(selected, oauthApps ?? Array.Empty<RcloneOAuthApp>()));
+            foreach (var (name, section) in rendered) sections[name] = section;
+            var content = "# Managed by Backspace; rclone may update refreshed tokens.\n\n" +
+                string.Join("\n", sections.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => kv.Value.TrimEnd() + "\n"));
+            // Do not rewrite an unchanged remote while its rclone process may
+            // be refreshing credentials. Separate remote files isolate A/B.
+            if (content == existing) return target;
+            var temporary = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+                if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                using (var stream = new FileStream(temporary, options))
+                using (var writer = new StreamWriter(stream, new UTF8Encoding(false))) writer.Write(content);
+                File.Move(temporary, target, overwrite: true);
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(target, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            return target;
         }
-        catch
-        {
-            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
-            throw;
-        }
-        return target;
+        finally { gate.ReleaseMutex(); }
     }
 
+    /// <summary>One file per destination prevents independent rclone writers
+    /// from replacing another destination's refreshed token or remote section.</summary>
+    public string MaterialiseDestination(Destination destination, IReadOnlyList<RcloneOAuthApp>? oauthApps = null)
+    {
+        var target = Path.Combine(AppPaths.ConfigRoot, "rclone-remotes", ResticUriResolver.RcloneRemoteNameFor(destination) + ".conf");
+        // Import a refreshed token from the old shared file when upgrading.
+        if (!File.Exists(target) && File.Exists(DefaultPath))
+        {
+            var legacy = ParseSections(File.ReadAllText(DefaultPath, Encoding.UTF8));
+            if (legacy.TryGetValue(ResticUriResolver.RcloneRemoteNameFor(destination), out var section))
+                ImportRefreshedToken(destination, section, File.GetLastWriteTimeUtc(DefaultPath));
+        }
+        return Materialise(new[] { destination }, oauthApps, target);
+    }
+
+    private void ImportRefreshedToken(Destination destination, string section, DateTime writtenUtc)
+    {
+        if (string.IsNullOrEmpty(destination.OAuthTokenRef)) return;
+        // A newly completed sign-in always wins over an older materialized file.
+        if (destination.LastTokenValidatedUtc is DateTime validated && validated > writtenUtc) return;
+        var tokenLine = section.Split('\n').Select(l => l.Trim()).FirstOrDefault(l =>
+            l.IndexOf('=') is var equals && equals > 0 && l[..equals].Trim() == "token");
+        if (tokenLine is null) return;
+        var token = tokenLine[(tokenLine.IndexOf('=') + 1)..].Trim();
+        if (IsNewerToken(token, _secrets.Get(destination.OAuthTokenRef))) _secrets.Set(destination.OAuthTokenRef, token);
+    }
+
+    internal static bool IsNewerToken(string candidate, string current)
+    {
+        try
+        {
+            using var next = System.Text.Json.JsonDocument.Parse(candidate);
+            using var old = System.Text.Json.JsonDocument.Parse(current);
+            return next.RootElement.TryGetProperty("access_token", out var access) && !string.IsNullOrWhiteSpace(access.GetString())
+                && next.RootElement.TryGetProperty("expiry", out var expires) && DateTimeOffset.TryParse(expires.GetString(), out var newer)
+                && (!old.RootElement.TryGetProperty("expiry", out var prior) || !DateTimeOffset.TryParse(prior.GetString(), out var older) || newer > older);
+        }
+        catch (System.Text.Json.JsonException) { return false; }
+        catch (InvalidOperationException) { return false; }
+    }
+
+    internal static Dictionary<string, string> ParseSections(string content)
+    {
+        var sections = new Dictionary<string, string>(StringComparer.Ordinal);
+        string? name = null;
+        var text = new StringBuilder();
+        foreach (var line in content.Replace("\r\n", "\n").Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
+            {
+                if (name is not null) sections[name] = text.ToString();
+                name = trimmed[1..^1]; text.Clear();
+            }
+            if (name is not null) text.AppendLine(line);
+        }
+        if (name is not null) sections[name] = text.ToString();
+        return sections;
+    }
     /// <summary>Pure rendering — accepts destinations + the per-provider
     /// OAuth-app overrides + a token-lookup callback, returns the file
     /// content. Split out so unit tests can verify the exact INI shape
@@ -237,21 +293,17 @@ public sealed class RcloneConfigBuilder
         // OneDrive Business needs a `drive_type` discriminator; without
         // it rclone defaults to personal and the user sees a
         // /personal/Documents URL where /sites/... was expected.
-        if (d.Kind == DestinationKind.OneDriveBusiness)
+        if (d.Kind is DestinationKind.OneDrivePersonal or DestinationKind.OneDriveBusiness)
         {
-            yield return ("drive_type", "business");
+            yield return ("drive_type", d.OneDriveDriveType ?? (d.Kind == DestinationKind.OneDriveBusiness ? "business" : "personal"));
+            if (!string.IsNullOrWhiteSpace(d.OneDriveDriveId)) yield return ("drive_id", d.OneDriveDriveId);
         }
 
-        // Google Drive's `drive` provider accepts a scope hint; the
-        // user's app-folder vs full-drive choice doesn't have a
-        // representation in our schema yet — default to the broader
-        // `drive` scope which matches what the OAuth flow grants
-        // (drive.file scope would only see files the app itself
-        // created, which is wrong for restoring a user's snapshots
-        // back to their existing folders).
+        // Match the OAuth grant: only files created by or explicitly
+        // authorized for this application are visible to this client.
         if (d.Kind == DestinationKind.GoogleDrive)
         {
-            yield return ("scope", "drive");
+            yield return ("scope", "drive.file");
         }
 
         // Custom OAuth app credentials win over rclone's built-in

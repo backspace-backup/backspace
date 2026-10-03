@@ -27,6 +27,11 @@ namespace Backspace.Services;
 public sealed class MeteredNetworkWatchdog
 {
     private static ILogger _log => AppLogger.For<MeteredNetworkWatchdog>();
+    private readonly Func<MeteredNetworkWatchdog, CancellationToken, Task>? _probe;
+
+    public MeteredNetworkWatchdog() { }
+    // Isolated platform signal injection; production keeps the actual OS probe.
+    internal MeteredNetworkWatchdog(Func<MeteredNetworkWatchdog, CancellationToken, Task> probe) => _probe = probe;
 
     public int PollWhenMeteredSeconds { get; init; } = 2;
     public int PollWhenUnmeteredSeconds { get; init; } = 60;
@@ -59,6 +64,7 @@ public sealed class MeteredNetworkWatchdog
     /// </summary>
     public Task RunAsync(CancellationToken ct)
     {
+        if (_probe is not null) return _probe(this, ct);
 #if WINDOWS
         if (PlatformInfo.IsWindows) return Platform.Windows.WindowsMeteredNetworkProbe.RunAsync(this, ct);
 #endif

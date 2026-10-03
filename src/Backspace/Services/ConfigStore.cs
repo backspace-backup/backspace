@@ -1,17 +1,22 @@
 using System;
 using System.IO;
+using System.Linq;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
+using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text;
 using Backspace.Models;
 using Serilog;
 
 namespace Backspace.Services;
 
 /// <summary>
-/// Loads, saves, and watches config.json. Writes are atomic (write tmp, replace).
-/// A single instance is shared app-wide; readers get a stable snapshot, writers
-/// hold a mutex across load-modify-save.
+/// Loads and saves config.json. Every writer holds a shared file lock across
+/// reading the latest state, applying a mutation and atomically replacing it.
+/// Independent GUI, scheduler and elevated-helper instances preserve edits.
 /// </summary>
 public sealed class ConfigStore
 {
@@ -25,20 +30,11 @@ public sealed class ConfigStore
 
     private static ILogger _log => AppLogger.For<ConfigStore>();
     private readonly object _gate = new();
+    private readonly string _path = AppPaths.ConfigFile;
     private AppConfig _current = new();
-    /// <summary>
-    /// Per-thread depth counter for re-entrant <see cref="Update"/>
-    /// calls. A handler subscribed to <see cref="Changed"/> that calls
-    /// <see cref="Update"/> again would otherwise fire two Save_NoLock
-    /// rounds and two RaiseChanged events for one logical mutation —
-    /// subscribers see the same state twice in close succession, and
-    /// any in-between observer can read a still-saving file. We
-    /// suppress the OUTER RaiseChanged when an inner Update has
-    /// already raised one for the latest state; the inner save+raise
-    /// is sufficient because it ran AFTER all the outer mutator's
-    /// changes (the outer was already past its mutate(_current)
-    /// statement when the handler-triggered inner Update started).
-    /// </summary>
+    private byte[]? _lastKnownFileHash;
+    /// <summary>Prevents recursive Changed broadcasts when a subscriber saves
+    /// another change. The outer save is already committed before notification.</summary>
     [ThreadStatic] private static int _updateDepth;
 
     /// <summary>True once <see cref="Load"/> has either deserialised
@@ -80,9 +76,11 @@ public sealed class ConfigStore
         bool changed = false;
         lock (_gate)
         {
-            if (!File.Exists(AppPaths.ConfigFile))
+            using var transaction = StateFileLock.Acquire(_path);
+            _loaded = false;
+            if (!File.Exists(_path))
             {
-                _log.Information("No config file at {Path} — initializing defaults", AppPaths.ConfigFile);
+                _log.Information("No config file at {Path} — initializing defaults", _path);
                 _current = new AppConfig();
                 // Set _loaded BEFORE Save_NoLock so the guard inside
                 // doesn't refuse the legitimate first-run write.
@@ -100,10 +98,12 @@ public sealed class ConfigStore
                     // violation that the catch below would misreport as
                     // "Corrupt config file" — and then overwrite it.
                     string text;
-                    using (var fs = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                     using (var sr = new StreamReader(fs))
                         text = sr.ReadToEnd();
-                    _current = JsonSerializer.Deserialize<AppConfig>(text, Json) ?? new AppConfig();
+                    _current = JsonSerializer.Deserialize<AppConfig>(text, Json)
+                        ?? throw new JsonException("Settings file contains no configuration.");
+                    _lastKnownFileHash = SHA256.HashData(Encoding.UTF8.GetBytes(text));
                     _log.Information(
                         "Loaded config: {BackupCount} backup(s), {DestCount} destination(s)",
                         _current.Backups.Count, _current.Destinations.Count);
@@ -124,9 +124,11 @@ public sealed class ConfigStore
                 catch (JsonException ex)
                 {
                     // Never crash on a bad config — preserve it for forensics, start fresh.
-                    var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
-                    var backup = AppPaths.ConfigFile + $".broken.{stamp}";
-                    try { File.Copy(AppPaths.ConfigFile, backup, overwrite: true); } catch { }
+                    var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N");
+                    var backup = _path + $".broken.{stamp}";
+                    // Recovery may replace a corrupt file only AFTER preserving
+                    // the original. A failed copy must never authorize data loss.
+                    File.Copy(_path, backup, overwrite: false);
                     _log.Error(ex, "Corrupt config file — preserved at {Backup}, starting fresh", backup);
                     _current = new AppConfig();
                     // _loaded BEFORE Save so the guard doesn't block
@@ -165,6 +167,33 @@ public sealed class ConfigStore
         }
         if (changed) RaiseChanged();
     }
+
+    /// <summary>Refreshes externally written state on demand without polling or
+    /// blocking the UI. Unchanged content emits no event. Failed reads retain the
+    /// last known-good snapshot and can be retried on the next activation.</summary>
+    public Task<bool> ReloadIfChangedAsync(CancellationToken ct = default) => Task.Run(() =>
+    {
+        bool changed;
+        lock (_gate)
+        {
+            ct.ThrowIfCancellationRequested();
+            using var transaction = StateFileLock.Acquire(_path);
+            var bytes = File.ReadAllBytes(_path);
+            var hash = SHA256.HashData(bytes);
+            if (_loaded && _lastKnownFileHash is not null && hash.AsSpan().SequenceEqual(_lastKnownFileHash))
+                return false;
+            var latest = JsonSerializer.Deserialize<AppConfig>(bytes, Json)
+                ?? throw new JsonException("Settings file contains no configuration.");
+            MigrateLegacyNotificationModel(latest);
+            ct.ThrowIfCancellationRequested();
+            _current = latest;
+            _loaded = true;
+            _lastKnownFileHash = hash;
+            changed = true;
+        }
+        if (changed) RaiseChanged();
+        return changed;
+    }, ct);
 
     /// <summary>
     /// Fold the pre-matrix notification + per-event email toggles into
@@ -210,95 +239,97 @@ public sealed class ConfigStore
         _updateDepth++;
         try
         {
-            lock (_gate)
-            {
-                // Snapshot BEFORE mutate so a Save_NoLock throw can roll
-                // back the in-memory mutation. Without this, a failed
-                // save left _current diverged from the on-disk file: the
-                // user saw "save failed" but the in-memory state was
-                // still mutated, and the next Update would then persist
-                // that change atomically with whatever it was doing —
-                // silent persistence of a change that surfaced as
-                // "failed" to the caller.
-                //
-                // EVERY frame takes its own snapshot AND rolls back its
-                // own mutation if its Save throws — regardless of
-                // depth. The two earlier attempts at depth-conditional
-                // rollback both produced silent in-memory-vs-disk
-                // divergence:
-                //
-                //  • Round-3 ("snapshot only when depth==1"): a
-                //    handler-triggered inner Update whose Save threw
-                //    had no snapshot and no rollback; the inner's
-                //    mutation stuck in _current while disk was
-                //    untouched by the failed inner save.
-                //  • Round-4 ("snapshot every frame, restore only on
-                //    outermost catch"): only fixed the case where the
-                //    inner is nested INSIDE the outer's try block. The
-                //    common case — inner Update fired from a Changed
-                //    handler running INSIDE RaiseChanged, which is
-                //    OUTSIDE the outer's try block — has no outer
-                //    catch to perform the rewind. Same divergence as
-                //    round-3.
-                //
-                // The correct semantic: each Update is atomic w.r.t.
-                // its own (mutate + Save) pair. If Save throws, that
-                // frame's mutation is unwound to its own pre-mutate
-                // snapshot; the throw then propagates so the caller
-                // sees failure. An outer's success is committed both
-                // in-memory AND on disk before the outer exits its try
-                // block; a later inner failure can only roll back its
-                // own changes, leaving the outer's successful state
-                // intact. This matches the atomic-write-tmp + Replace
-                // semantics already at the file level.
-                string snapshot = JsonSerializer.Serialize(_current, Json);
-                mutate(_current);
-                try
-                {
-                    Save_NoLock();
-                }
-                catch
-                {
-                    var rolled = JsonSerializer.Deserialize<AppConfig>(snapshot, Json);
-                    if (rolled is not null) _current = rolled;
-                    throw;
-                }
-            }
-            // Only the outermost Update fires Changed. Inner re-entrant
-            // calls (handler → Update → handler again) have already
-            // saved their state under the same lock; firing twice would
-            // double-broadcast.
+            MutateAndSave(mutate);
             if (_updateDepth == 1) RaiseChanged();
         }
-        finally
-        {
-            _updateDepth--;
-        }
+        finally { _updateDepth--; }
     }
 
+    // There are no supported out-of-transaction mutations of Current. Save
+    // therefore refreshes and persists the latest disk state, never a stale
+    // instance snapshot. Writers must express changes through Update.
     public void Save()
     {
-        lock (_gate) Save_NoLock();
+        MutateAndSave(_ => { });
         RaiseChanged();
     }
 
-    /// <summary>
-    /// Mutate-and-save WITHOUT raising <see cref="Changed"/>. Use ONLY
-    /// for state updates that have a more direct UI signalling path
-    /// (e.g. orchestrator's per-run status updates already broadcast
-    /// via <see cref="BackupOrchestrator.RunEnded"/>; firing Changed
-    /// too would trigger every subscribed VM's Refresh redundantly,
-    /// which the debouncer mitigates but doesn't eliminate).
-    /// Save still runs atomically under the mutex; the only thing
-    /// suppressed is the broadcast.
-    /// </summary>
-    public void UpdateQuiet(Action<AppConfig> mutate)
+    public void UpdateQuiet(Action<AppConfig> mutate) => MutateAndSave(mutate);
+
+    /// <summary>Commits an editor draft while retaining operation results which
+    /// may have changed since the dialog opened, including scheduled-process writes.
+    /// Erase/reset commands update those results explicitly before calling here.</summary>
+    public void SaveBackupEdit(Backup draft)
     {
+        ArgumentNullException.ThrowIfNull(draft);
+        var edited = JsonSerializer.Deserialize<Backup>(JsonSerializer.Serialize(draft, Json), Json)!;
+        Update(config =>
+        {
+            var index = config.Backups.FindIndex(b => b.Id == edited.Id);
+            if (index < 0) { config.Backups.Add(edited); return; }
+            var latest = config.Backups[index];
+            edited.CreatedUtc = latest.CreatedUtc;
+            if (!string.IsNullOrEmpty(latest.SnapshotIdSeed)) edited.SnapshotIdSeed = latest.SnapshotIdSeed;
+            edited.LastRunStartUtc = latest.LastRunStartUtc;
+            edited.LastRunEndUtc = latest.LastRunEndUtc;
+            edited.LastRunStatus = latest.LastRunStatus;
+            edited.LastRunSummary = latest.LastRunSummary;
+            edited.LastSuccessUtc = latest.LastSuccessUtc;
+            edited.LastNotificationFiredUtc = latest.LastNotificationFiredUtc;
+            edited.LastNotifiedStatus = latest.LastNotifiedStatus;
+            edited.LastVerifyUtc = latest.LastVerifyUtc;
+            edited.LastVerifyPass = latest.LastVerifyPass;
+            edited.LastVerifySummary = latest.LastVerifySummary;
+            var comparison = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+            var sources = new HashSet<string>(edited.SourcePaths, comparison);
+            edited.SourceLastSizeBytes = new Dictionary<string, long>(comparison);
+            foreach (var pair in latest.SourceLastSizeBytes)
+                if (sources.Contains(pair.Key)) edited.SourceLastSizeBytes[pair.Key] = pair.Value;
+            // A new manual grace reset survives editing. A completed successful
+            // run supersedes older resets; another newer manual reset also wins.
+            if (latest.SkipNotificationGraceResetUtc is { } reset &&
+                (edited.SkipNotificationGraceResetUtc is null || reset > edited.SkipNotificationGraceResetUtc))
+                edited.SkipNotificationGraceResetUtc = reset;
+            if (edited.SkipNotificationGraceResetUtc <= latest.LastSuccessUtc)
+                edited.SkipNotificationGraceResetUtc = null;
+            config.Backups[index] = edited;
+        });
+    }
+
+    private void MutateAndSave(Action<AppConfig> mutate)
+    {
+        ArgumentNullException.ThrowIfNull(mutate);
         lock (_gate)
         {
-            mutate(_current);
-            Save_NoLock();
+            if (!_loaded)
+                throw new InvalidOperationException("Settings have not been loaded successfully. Reload them before saving changes.");
+            using var transaction = StateFileLock.Acquire(_path);
+            // Refresh INSIDE the inter-process transaction. A scheduled run
+            // may have persisted status while the GUI held an older snapshot.
+            // A read failure must propagate; falling back would lose its edits.
+            var latest = ReadCurrentFile();
+            MigrateLegacyNotificationModel(latest);
+            var prior = _current;
+            try
+            {
+                mutate(latest);
+                _current = latest;
+                Save_NoLock();
+            }
+            catch
+            {
+                _current = prior;
+                throw;
+            }
         }
+    }
+
+    private AppConfig ReadCurrentFile()
+    {
+        using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        return JsonSerializer.Deserialize<AppConfig>(stream, Json)
+            ?? throw new JsonException("Settings file contains no configuration.");
     }
 
     /// <summary>
@@ -329,12 +360,12 @@ public sealed class ConfigStore
         // triggers — exactly the regression the audit flagged.
         if (!_loaded)
         {
-            _log.Warning("Save_NoLock skipped — initial Load hasn't completed (transient IO or permission denied at startup); refusing to persist empty defaults over the real on-disk config");
-            return;
+            _log.Warning("Save refused — initial Load has not completed; existing settings were left untouched");
+            throw new InvalidOperationException("Settings have not been loaded successfully.");
         }
         AppPaths.EnsureAll();
         var text = JsonSerializer.Serialize(_current, Json);
-        var tmp = AppPaths.ConfigFile + ".tmp";
+        var tmp = _path + $".{Guid.NewGuid():N}.tmp";
         try
         {
             // Pre-clear any stale .tmp left over from a prior crashed
@@ -357,10 +388,11 @@ public sealed class ConfigStore
             {
                 try
                 {
-                    if (File.Exists(AppPaths.ConfigFile))
-                        File.Replace(tmp, AppPaths.ConfigFile, destinationBackupFileName: null);
+                    if (File.Exists(_path))
+                        File.Replace(tmp, _path, destinationBackupFileName: null);
                     else
-                        File.Move(tmp, AppPaths.ConfigFile);
+                        File.Move(tmp, _path);
+                    _lastKnownFileHash = SHA256.HashData(Encoding.UTF8.GetBytes(text));
                     break;
                 }
                 catch (IOException) when (attempt < maxAttempts)
@@ -373,7 +405,7 @@ public sealed class ConfigStore
         }
         catch (Exception ex)
         {
-            _log.Error(ex, "Failed to save config to {Path}", AppPaths.ConfigFile);
+            _log.Error(ex, "Failed to save config to {Path}", _path);
             // Best-effort cleanup of the orphaned .tmp so the next save
             // attempt isn't blocked by it. We've already failed; no
             // point making it worse by leaving litter.

@@ -108,14 +108,21 @@ public sealed class E04_SnapshotMountWindows : BackupE2EBase
         var cacheDir = Path.Combine(ctx.RootDir, "mount-cache");
         var provider = new EngineBackedSnapshotTreeProvider(
             ServiceLocator.Engine, backup, sourcePath, dest, "default", latest, cacheDir);
-        await using var coord = new WinFspMountCoordinator(provider);
+        await using var coord = new WinFspMountCoordinator(provider, openExplorer: false);
+        var secondProvider = new EngineBackedSnapshotTreeProvider(
+            ServiceLocator.Engine, backup, sourcePath, dest, "default", latest,
+            Path.Combine(ctx.RootDir, "second-mount-cache"));
+        await using var second = new WinFspMountCoordinator(secondProvider, openExplorer: false);
 
-        var result = await coord.MountAsync(CancellationToken.None);
+        var mounts = await Task.WhenAll(coord.MountAsync(CancellationToken.None), second.MountAsync(CancellationToken.None));
+        var result = mounts[0];
         Assert.True(result.Succeeded,
             $"WinFSP mount failed: {result.Message}. WinFSP runtime is installed " +
             $"({WinFspRuntimeDetector.GetInstallDir()}) so this is a real regression, not env.");
 
         Assert.NotNull(result.DriveLetter);
+        Assert.True(mounts[1].Succeeded, mounts[1].Message);
+        Assert.NotEqual(result.DriveLetter, mounts[1].DriveLetter);
         ctx.Snapshot(host, $"mounted at {result.DriveLetter}",
             $"Snapshot rev {latest} mounted as {result.DriveLetter}.");
 
@@ -131,5 +138,18 @@ public sealed class E04_SnapshotMountWindows : BackupE2EBase
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
             .ToList();
         Assert.Equal(expected, observed);
+        foreach (var relative in expected)
+        {
+            Assert.Equal(File.ReadAllBytes(Path.Combine(sourcePath, relative)),
+                File.ReadAllBytes(Path.Combine(mountRoot, relative)));
+        }
+        await coord.DisposeAsync();
+        Assert.False(Directory.Exists(mountRoot));
+        Assert.True(Directory.Exists(mounts[1].DriveLetter + "\\"));
+        var firstFile = expected[0];
+        Assert.Equal(File.ReadAllBytes(Path.Combine(sourcePath, firstFile)),
+            File.ReadAllBytes(Path.Combine(mounts[1].DriveLetter + "\\", firstFile)));
+        ctx.Report.RecordNote("Independent mount lifetimes and real file bytes",
+            $"Concurrent mounts obtained {result.DriveLetter} and {mounts[1].DriveLetter}; every file on the first drive matched its source bytes. Unmounting the first removed that drive while the second stayed readable.");
     }
 }

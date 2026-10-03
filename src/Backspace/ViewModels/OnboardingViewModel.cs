@@ -124,13 +124,13 @@ public sealed partial class OnboardingViewModel : ViewModelBase
     /// <summary>
     /// Number of days the orchestrator will tolerate consecutive
     /// Skipped runs (drive offline / NAS unreachable / cloud
-    /// unreachable) before escalating the next Skipped to Failed
-    /// and firing a notification. Mirrors
+    /// unreachable) before sending warning notifications. Runs stay
+    /// Skipped throughout. Mirrors
     /// <see cref="Backup.SkipNotificationGraceDays"/>; the Easy Mode
     /// wizard surfaces it so first-time users can dial how patient
     /// the orchestrator is per backup (a daily photo backup probably
     /// wants 2 days, a weekly cold-storage probably wants a month).
-    /// 0 disables grace entirely (every Skipped escalates immediately).
+    /// 0 disables grace entirely (every Skipped can notify immediately).
     /// </summary>
     [ObservableProperty] private int _skipNotificationGraceDays = 7;
 
@@ -139,7 +139,7 @@ public sealed partial class OnboardingViewModel : ViewModelBase
     /// "now" via the "Reset grace period" button. The user clicks this
     /// when they're about to be away longer than the configured
     /// window: a 14-day trip with a 7-day grace would otherwise
-    /// fire a Failed notification 7 days in. Resetting before
+    /// fire a warning notification 7 days in. Resetting before
     /// leaving extends the window without faking a backup success.
     /// Mirrored from <see cref="Working"/> on edit so the wizard
     /// surfaces an existing manual reset (rare, mostly informational).
@@ -272,11 +272,19 @@ public sealed partial class OnboardingViewModel : ViewModelBase
         // and removes the previous "default" / "target2" / "target3"
         // index-based naming that didn't tell the user which target
         // a given storage entry was for.
+        var existingTargets = Working.Targets;
         Working.Targets = SelectedDestinations
-            .Select(d => new BackupTarget
+            .SelectMany(d =>
             {
-                DestinationId = d.Id,
-                StorageName = StorageNameForDestination(d),
+                // Easy mode hides storage details; it must not rename an
+                // existing target or collapse multiple storages on a selected
+                // destination when the user merely switches editor modes.
+                var retained = existingTargets.Where(t => t.DestinationId == d.Id).ToArray();
+                return retained.Length > 0 ? retained : new[] { new BackupTarget
+                {
+                    DestinationId = d.Id,
+                    StorageName = StorageNameForDestination(d),
+                } };
             })
             .ToList();
         Working.Schedule.Frequency = Frequency;
@@ -337,13 +345,9 @@ public sealed partial class OnboardingViewModel : ViewModelBase
         => OnPropertyChanged(nameof(GraceReferenceLabel));
 
     /// <summary>
-    /// True iff the grace-period block should be visible in Easy mode.
-    /// Per <see cref="Backup.ShouldShowGraceBlock"/>: only when the
-    /// most recent run was Skipped AND we're still inside the grace
-    /// window. New backups never satisfy both conditions and a healthy
-    /// backup with successful runs also stays clear — so the block
-    /// surfaces precisely when "Reset grace period" would be
-    /// meaningful. Power users find it in Advanced mode regardless.
+    /// Grace controls are always available on the Easy schedule step.
+    /// Users can prepare for an absence before any skipped run, and
+    /// can restart an expired grace window without switching modes.
     /// </summary>
     public bool ShowGraceBlock => Working.ShouldShowGraceBlock(DateTime.UtcNow);
 
@@ -627,16 +631,11 @@ public sealed partial class OnboardingViewModel : ViewModelBase
             // Working.Id already exists in config and a plain Add would
             // produce a duplicate entry. FindIndex+replace covers both
             // new and edit cases without divergent code paths.
-            ServiceLocator.Config.Update(cfg =>
-            {
-                var idx = cfg.Backups.FindIndex(b => b.Id == Working.Id);
-                if (idx >= 0) cfg.Backups[idx] = Working;
-                else cfg.Backups.Add(Working);
-            });
+            ServiceLocator.Config.SaveBackupEdit(Working);
             try
             {
                 // Use the running-exe path. UpsertTask wraps it with a
-                // cmd.exe + stub fallback (see TaskSchedulerService),
+                // literal-data task action + stub fallback,
                 // and CanonicalInstaller.ReupsertIfExePathChanged fixes
                 // every task on the next launch if the user moves the
                 // exe.

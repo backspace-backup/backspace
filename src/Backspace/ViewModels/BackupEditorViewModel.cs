@@ -114,8 +114,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     // Mirrors Backup.SkipNotificationGraceDays and
     // SkipNotificationGraceResetUtc; bound to the Advanced editor's
     // grace-period block. Easy mode has the same controls under
-    // OnboardingViewModel but only surfaces them when the backup is
-    // actively in a Skipped-and-counting state.
+    // OnboardingViewModel, available before and during an absence.
     [ObservableProperty] private int _skipNotificationGraceDays = 7;
     [ObservableProperty] private DateTime? _skipNotificationGraceResetUtc;
     public string GraceReferenceLabel => SkipNotificationGraceResetUtc is { } r
@@ -879,6 +878,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             return;
         }
         HealthcheckId = rec.ExtractPingUuid();
+        Working.HealthcheckPingUrl = rec.PingUrl;
         // Redact the ping URL — it's effectively a write-capability
         // bearer token (anyone with the URL can falsify success/fail
         // pings for this check). Showing it inline in a status
@@ -1212,7 +1212,11 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         Working.ExtraBackupArgs = ExtraBackupArgs ?? "";
         Working.Enabled = Enabled;
         Working.FiltersText = FiltersText ?? "";
-        Working.HealthcheckId = string.IsNullOrWhiteSpace(HealthcheckId) ? null : HealthcheckId.Trim();
+        var nextHealthcheckId = string.IsNullOrWhiteSpace(HealthcheckId) ? null : HealthcheckId.Trim();
+        if (!string.Equals(Working.HealthcheckId, nextHealthcheckId, StringComparison.OrdinalIgnoreCase)
+            && (Working.HealthcheckPingUrl is null || !Working.HealthcheckPingUrl.TrimEnd('/').EndsWith("/" + nextHealthcheckId, StringComparison.OrdinalIgnoreCase)))
+            Working.HealthcheckPingUrl = null;
+        Working.HealthcheckId = nextHealthcheckId;
 
         // Healthcheck inline API-key promotion intentionally lives in
         // SaveAsync, not here. CommitToWorking is also called by Run-now,
@@ -1350,6 +1354,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
                 if (verify.IsValid)
                 {
                     HealthcheckStatus = verify.Message;
+                    Working.HealthcheckPingUrl = verify.PingUrl;
                 }
             }
             finally

@@ -157,6 +157,8 @@ public class VssElevationTests
         Assert.Contains("dest-uid-456", args);
         Assert.Contains("/data/photos", args);
         Assert.Contains("primary",      args);
+        Assert.Contains(VssElevationCoordinator.ConfigRootArgument, args);
+        Assert.Contains(Path.GetFullPath(AppPaths.ConfigRoot), args);
     }
 
     [Fact]

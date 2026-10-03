@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Backspace.Models;
@@ -39,7 +40,11 @@ public sealed class BackupCreationWindow
 
     public BackupCreationWindow(Backup existing)
     {
-        _seed = existing;
+        // Mode-switch snapshots mutate their working model. The caller owns
+        // the live card/config record, so draft changes must never reach it
+        // until a successful Save. Copy nested sources, targets and schedules
+        // too: a shallow copy would still let Cancel leak those changes.
+        _seed = JsonSerializer.Deserialize<Backup>(JsonSerializer.Serialize(existing))!;
         _isEdit = true;
         _isFirstBackup = false;
         _initialMode = existing.LastEditMode;

@@ -70,11 +70,16 @@ public sealed class OAuthFlowCoordinator
     /// is a real risk. Tests still get isolated instances via the
     /// injecting ctor.</summary>
     private readonly HttpClient _http;
+    private readonly Action<string> _openBrowser;
 
     private static readonly HttpClient s_sharedHttp = new();
 
     public OAuthFlowCoordinator() : this(s_sharedHttp) { }
-    public OAuthFlowCoordinator(HttpClient http) => _http = http;
+    public OAuthFlowCoordinator(HttpClient http, Action<string>? openBrowser = null)
+    {
+        _http = http;
+        _openBrowser = openBrowser ?? (url => { using var process = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); });
+    }
 
     public async Task<OAuthFlowResult> RunAsync(IOAuthProvider provider, CancellationToken ct = default)
     {
@@ -98,22 +103,26 @@ public sealed class OAuthFlowCoordinator
         // Allocate a loopback port up-front so we can stitch it
         // into the redirect_uri the authorize URL points at.
         var port = AllocateEphemeralPort();
-        var redirectUri = $"http://127.0.0.1:{port}/callback";
+        // Entra ignores ephemeral ports for localhost native redirects,
+        // but the registered host and /callback path must still match.
+        var loopbackHost = provider.Kind is Models.DestinationKind.OneDrivePersonal or Models.DestinationKind.OneDriveBusiness
+            ? "localhost" : "127.0.0.1";
+        var redirectUri = $"http://{loopbackHost}:{port}/callback";
 
         var authorizeUrl = BuildAuthorizationUrl(provider, redirectUri, state, codeChallenge);
 
         using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Prefixes.Add($"http://{loopbackHost}:{port}/");
         try { listener.Start(); }
         catch (HttpListenerException ex)
         {
             _log.Warning(ex, "OAuth loopback listener failed to start on port {Port}", port);
             return OAuthFlowResult.Failed(
-                $"Couldn't open a local listener on 127.0.0.1:{port} for the OAuth callback: " +
+                $"Couldn't open a local listener on {loopbackHost}:{port} for the OAuth callback: " +
                 $"{ex.Message}");
         }
 
-        _log.Information("OAuth flow starting for {Kind} (callback http://127.0.0.1:{Port}/callback)",
+        _log.Information("OAuth flow starting for {Kind} (local callback port {Port})",
             provider.Kind, port);
 
         // Open the browser AFTER the listener is live — the
@@ -121,7 +130,7 @@ public sealed class OAuthFlowCoordinator
         // (refresh-token flow) and we don't want to race.
         try
         {
-            using var _ = Process.Start(new ProcessStartInfo(authorizeUrl) { UseShellExecute = true });
+            _openBrowser(authorizeUrl);
         }
         catch (Exception ex)
         {
@@ -130,8 +139,8 @@ public sealed class OAuthFlowCoordinator
             // error: it embeds the `state` CSRF token in the query
             // string, and UI toasts / logs that capture this message
             // could leak it. Tell the user how to retry instead, and
-            // log the full URL once at Debug for diagnostics.
-            _log.Debug(ex, "Couldn't open browser for OAuth at {AuthorizeUrl}", authorizeUrl);
+            // keep the state and authorization URL out of logs as well.
+            _log.Debug(ex, "Couldn't open browser for OAuth");
             return OAuthFlowResult.Failed(
                 $"Couldn't open your browser to start sign-in. Close any blocking dialog and try Sign in again. " +
                 $"Reason: {ex.Message}");

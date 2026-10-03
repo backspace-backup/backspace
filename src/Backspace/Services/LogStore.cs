@@ -7,141 +7,63 @@ using Backspace.Models;
 
 namespace Backspace.Services;
 
-/// <summary>
-/// Persists per-backup RunRecords next to their log files so the dashboard can show
-/// recent history without parsing 100MB of log text. Also handles retention (keep
-/// last N runs per backup, matches legacy "logfilecount: 30").
-/// </summary>
+/// <summary>Persists the latest per-backup run history and its retention policy.
+/// Every append is a cross-process transaction: a GUI, scheduler or helper cannot
+/// replace another writer's history. Reads return fresh records, including runs
+/// completed by a different process since the Logs view was last opened.</summary>
 public sealed class LogStore
 {
     public int RetainLastNRuns { get; init; } = 30;
-
-    /// <summary>
-    /// Fired (on whatever thread called <see cref="AppendRun"/>) right
-    /// after a record lands in the per-backup history.json. The
-    /// LogsView model subscribes so its RUN dropdown refreshes the
-    /// instant a Restore / Test-restore / Backup run finishes —
-    /// before this hook the user reported having to manually pick a
-    /// different backup and back to force the list to update.
-    /// </summary>
     public event Action<RunRecord>? RunAppended;
-
-    /// <summary>
-    /// Single gate for all history-file reads and writes. Without it,
-    /// <see cref="AppendRun"/> (which does load → append → atomic-replace)
-    /// can race with <see cref="LoadHistory"/> / <see cref="LoadHistoryByBackupId"/>
-    /// on the same JSON file — the read sees the file mid-replace and
-    /// throws IOException (caught silently, the entry is dropped). Two
-    /// concurrent AppendRuns can also clobber each other's writes if
-    /// they target the same backup-name directory (force-finalise from
-    /// the Stop-watchdog Task.Run + the natural finally is the
-    /// real-world hot path). Lock granularity is process-wide because
-    /// (a) history writes are bounded in time (~ms) and (b) the writer
-    /// already does atomic File.Replace; the lock just serialises
-    /// access to the shared JsonSerializer + file handles.
-    /// </summary>
     private static readonly object _gate = new();
 
-    /// <summary>
-    /// Per-backup-name history cache. Populated lazily by
-    /// <see cref="LoadHistory"/>; invalidated by <see cref="AppendRun"/>.
-    /// Without this cache the LogsView re-parses every history.json on
-    /// disk on every selected-backup change AND every RunEnded fanout —
-    /// for 30 backups × 30 runs each that's ~1MB JSON / click. Cache
-    /// keyed by backup NAME (not id) because that's what the file
-    /// layout is keyed on; LoadHistoryByBackupId uses a separate union
-    /// across folders and is not cached (rename-orphan stitching is
-    /// already a best-effort cold-path).
-    ///
-    /// Instance-scoped (NOT static): tests that construct an isolated
-    /// <c>new LogStore { … }</c> need their own cache so one fixture's
-    /// writes don't bleed into another's reads. Production has a
-    /// single LogStore instance via ServiceLocator so the user-visible
-    /// behaviour is identical.
-    /// </summary>
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<RunRecord>> _cache = new();
+    /// <summary>Every transcript has its own identity even when operations
+    /// start in the same second or source folders share their final name.</summary>
+    internal static string NewTranscriptPath(string backupName, string label, DateTime startedUtc)
+        => Path.Combine(AppPaths.LogDirForBackup(backupName),
+            $"{startedUtc:yyyyMMdd-HHmmss}-{AppPaths.Sanitize(label)}-{Guid.NewGuid():N}.log");
 
     public string GetHistoryFile(string backupName)
         => Path.Combine(AppPaths.LogDirForBackup(backupName), "history.json");
 
     public List<RunRecord> LoadHistory(string backupName)
     {
-        if (_cache.TryGetValue(backupName, out var cached))
-        {
-            // Return a copy so callers can't mutate the cached list
-            // (defensive — most callers ToList() anyway).
-            return new List<RunRecord>(cached);
-        }
         var file = GetHistoryFile(backupName);
-        if (!File.Exists(file)) return new();
         lock (_gate)
         {
             try
             {
-                var text = File.ReadAllText(file);
-                var loaded = JsonSerializer.Deserialize<List<RunRecord>>(text, JsonOpts) ?? new();
-                _cache[backupName] = loaded;
-                return new List<RunRecord>(loaded);
+                using var transaction = StateFileLock.Acquire(file);
+                return ReadHistory(file);
             }
             catch (Exception ex)
             {
-                // Surface unreadable / corrupt history at Warning so
-                // support can tell "no runs yet" from "history is broken".
-                // Returning empty preserves UI behaviour either way.
-                AppLogger.For<LogStore>().Warning(ex,
-                    "Couldn't read history file for {Backup} at {File}", backupName, file);
+                AppLogger.For<LogStore>().Warning(ex, "Couldn't read history for {Backup}", backupName);
                 return new();
             }
         }
     }
 
-    /// <summary>
-    /// Load every run record across every per-backup history file
-    /// whose <c>BackupId</c> matches <paramref name="backupId"/>.
-    /// History files are stored in folders keyed by Backup.Name, so a
-    /// rename creates a new file and orphans the old one — this method
-    /// stitches them back together so the Logs view shows the complete
-    /// run timeline regardless of name changes.
-    /// </summary>
+    /// <summary>History is stored by backup name. Union by the immutable ID
+    /// stitches together folders from before and after a rename.</summary>
     public List<RunRecord> LoadHistoryByBackupId(string backupId)
     {
-        if (string.IsNullOrEmpty(backupId)) return new();
-        var root = AppPaths.EngineLogsRoot;
-        if (!Directory.Exists(root)) return new();
-
+        if (string.IsNullOrEmpty(backupId) || !Directory.Exists(AppPaths.EngineLogsRoot)) return new();
         var merged = new List<RunRecord>();
         lock (_gate)
         {
-            foreach (var dir in Directory.EnumerateDirectories(root))
+            foreach (var directory in Directory.EnumerateDirectories(AppPaths.EngineLogsRoot))
             {
-                var file = Path.Combine(dir, "history.json");
+                var file = Path.Combine(directory, "history.json");
                 if (!File.Exists(file)) continue;
-                // Try cache first by directory name (==backup name).
-                var name = Path.GetFileName(dir);
-                if (!string.IsNullOrEmpty(name) && _cache.TryGetValue(name, out var cached))
-                {
-                    foreach (var r in cached)
-                        if (string.Equals(r.BackupId, backupId, StringComparison.Ordinal))
-                            merged.Add(r);
-                    continue;
-                }
                 try
                 {
-                    var text = File.ReadAllText(file);
-                    var entries = JsonSerializer.Deserialize<List<RunRecord>>(text, JsonOpts) ?? new();
-                    if (!string.IsNullOrEmpty(name)) _cache[name] = entries;
-                    foreach (var r in entries)
-                    {
-                        if (string.Equals(r.BackupId, backupId, StringComparison.Ordinal))
-                            merged.Add(r);
-                    }
+                    using var transaction = StateFileLock.Acquire(file);
+                    merged.AddRange(ReadHistory(file).Where(r => r.BackupId == backupId));
                 }
                 catch (Exception ex)
                 {
-                    // Best-effort union across history files — but leave
-                    // a breadcrumb so support can find which file is bad.
-                    AppLogger.For<LogStore>().Warning(ex,
-                        "Skipping unreadable history file at {File}", file);
+                    AppLogger.For<LogStore>().Warning(ex, "Skipping unreadable history at {File}", file);
                 }
             }
         }
@@ -150,158 +72,68 @@ public sealed class LogStore
 
     public void AppendRun(RunRecord record)
     {
-        // Track the post-append list outside the lock so the orphan-log
-        // prune (filesystem-level cleanup of stale .log files) can run
-        // OUTSIDE the gate. Holding the gate across the prune-loop
-        // serialised every reader behind a directory enumeration;
-        // separating them keeps the gate confined to JSON file I/O
-        // and lets concurrent reads (LoadHistory) proceed once the
-        // history.json has been replaced.
-        List<RunRecord>? finalList = null;
-        string? historyFile = null;
+        ArgumentNullException.ThrowIfNull(record);
         lock (_gate)
         {
-            historyFile = GetHistoryFile(record.BackupName);
-            var list = new List<RunRecord>();
-            if (File.Exists(historyFile))
+            var file = GetHistoryFile(record.BackupName);
+            using var transaction = StateFileLock.Acquire(file);
+            List<RunRecord> previous;
+            try { previous = ReadHistory(file); }
+            catch (JsonException ex)
             {
+                var preserved = file + $".broken.{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
+                // Do not replace even corrupt history if its recovery copy failed.
+                File.Copy(file, preserved, overwrite: false);
+                AppLogger.For<LogStore>().Error(ex, "Corrupt history preserved at {Preserved}", preserved);
+                previous = new();
+            }
+            var all = previous.Append(record).OrderByDescending(r => r.StartedUtc).ToList();
+            var retained = all.Take(Math.Max(0, RetainLastNRuns)).ToList();
+            var expired = all.Skip(Math.Max(0, RetainLastNRuns)).ToList();
+            var temporary = file + $".{Guid.NewGuid():N}.tmp";
+            try
+            {
+                File.WriteAllText(temporary, JsonSerializer.Serialize(retained, JsonOpts));
+                if (File.Exists(file)) File.Replace(temporary, file, destinationBackupFileName: null);
+                else File.Move(temporary, file);
+            }
+            finally { try { File.Delete(temporary); } catch { } }
+
+            // Only a log named by an expired record is ours to remove. Sweeping
+            // every unreferenced .log erased concurrent runs before they had a
+            // terminal history entry. Keep pruning in the transaction so another
+            // append cannot add a reference between the decision and deletion.
+            var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+            var referenced = new HashSet<string>(retained.SelectMany(LogPaths), comparer);
+            var directory = Path.GetFullPath(Path.GetDirectoryName(file)!);
+            foreach (var obsolete in expired.SelectMany(LogPaths).Distinct(comparer))
+            {
+                if (string.IsNullOrWhiteSpace(obsolete) || referenced.Contains(obsolete)) continue;
                 try
                 {
-                    var text = File.ReadAllText(historyFile);
-                    list = JsonSerializer.Deserialize<List<RunRecord>>(text, JsonOpts) ?? new();
+                    var full = Path.GetFullPath(obsolete);
+                    if (!comparer.Equals(Path.GetDirectoryName(full), directory)
+                        || !string.Equals(Path.GetExtension(full), ".log", StringComparison.OrdinalIgnoreCase)) continue;
+                    File.Delete(full);
                 }
-                catch (JsonException ex)
-                {
-                    // True corruption — preserve a forensic copy before
-                    // we overwrite. Without this, a single bad write
-                    // (power loss mid-File.Replace, AV truncation) is
-                    // silently and permanently destroyed on the next
-                    // AppendRun. Best-effort: if the copy fails we
-                    // still proceed (the alternative is failing the
-                    // backup-completion path).
-                    var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
-                    var preserved = historyFile + $".broken.{stamp}";
-                    try { File.Copy(historyFile, preserved, overwrite: true); } catch { }
-                    AppLogger.For<LogStore>().Error(ex,
-                        "Corrupt history.json for {Backup} — preserved at {Preserved}, starting fresh",
-                        record.BackupName, preserved);
-                }
-                catch (IOException ex)
-                {
-                    // Transient IO (sharing-violation from a concurrent
-                    // read, AV-hold, etc.). DO NOT overwrite — that
-                    // would discard every prior run on a blip. Bubble
-                    // up so the caller's outer try sees it; the run is
-                    // already complete on disk via the per-cell .log
-                    // files, and the next successful AppendRun will
-                    // re-read history fine.
-                    AppLogger.For<LogStore>().Warning(ex,
-                        "Transient IO reading history for {Backup} — aborting this AppendRun to avoid data loss",
-                        record.BackupName);
-                    throw;
-                }
+                catch (Exception ex) { AppLogger.For<LogStore>().Debug(ex, "Could not prune expired transcript"); }
             }
-            list.Add(record);
-
-            // Retention: keep last N by StartedUtc desc.
-            list = list.OrderByDescending(r => r.StartedUtc).Take(RetainLastNRuns).ToList();
-
-            Directory.CreateDirectory(Path.GetDirectoryName(historyFile)!);
-            var tmp = historyFile + ".tmp";
-            var json = JsonSerializer.Serialize(list, JsonOpts);
-            try
-            {
-                File.WriteAllText(tmp, json);
-                if (File.Exists(historyFile)) File.Replace(tmp, historyFile, destinationBackupFileName: null);
-                else File.Move(tmp, historyFile);
-            }
-            finally
-            {
-                // Drop any orphaned .tmp on the failure path. Without
-                // this, repeated AV-quarantine / disk-full failures
-                // pile up `.tmp` siblings in the history dir forever.
-                try { if (File.Exists(tmp)) File.Delete(tmp); }
-                catch { /* best-effort; next save retries */ }
-            }
-
-            // Update cache from a re-deserialised copy of the JSON we
-            // just wrote — NOT the in-memory `list`, which holds the
-            // caller's live RunRecord reference. Sharing that reference
-            // through the cache caused a hard-to-spot bug: the
-            // orchestrator passes its synthetic "Running" record by
-            // reference into AppendRun (same instance LogsViewModel had
-            // pinned as SelectedRun while it was the in-flight entry),
-            // mutates Status from Running→Success in-place, and then
-            // when LogsViewModel reloaded History the matching cache
-            // entry was reference-equal to the existing SelectedRun.
-            // CommunityToolkit's [ObservableProperty] setter skipped
-            // PropertyChanged on reference-equal assignment, so
-            // OnSelectedRunChanged never fired and the terminal pane
-            // kept showing the previous run's log file.
-            // Re-deserialising forces fresh RunRecord instances; the
-            // cache is now a snapshot of disk, never a live reference.
-            // The user reported: "I just ran a backup and went to Logs
-            // & runs: it showed the result of the previous run even
-            // though the last run was selected in the dropdown!"
-            // Re-deserialise on a best-effort basis. If the round-trip
-            // somehow throws (corrupted JSON in the in-memory `json`
-            // string is essentially impossible since we just produced
-            // it, but a JsonSerializer change in a future runtime
-            // could introduce a contract mismatch), keep the previous
-            // cache entry rather than wiping it to an empty list. An
-            // empty cache silently breaks the LogsView's "select the
-            // newly-appended run" UX until the next process restart.
-            try
-            {
-                var rebuilt = JsonSerializer.Deserialize<List<RunRecord>>(json, JsonOpts);
-                if (rebuilt is not null) _cache[record.BackupName] = rebuilt;
-                // If the deserialiser returned null (shouldn't happen
-                // for non-null input that we just serialised), we
-                // intentionally leave the prior cache entry alone.
-            }
-            catch (Exception ex)
-            {
-                AppLogger.For<LogStore>().Warning(ex,
-                    "Failed to re-deserialise just-written history JSON for {Backup} — preserving prior cache",
-                    record.BackupName);
-            }
-            finalList = list;
         }
-
-        // Orphan-log prune outside the gate — best-effort filesystem
-        // hygiene that doesn't need to block readers.
-        if (finalList is not null)
-        {
-            try
-            {
-                // Include both the run-level LogPath AND every CellOutcome.LogPath:
-                // multi-source / multi-destination runs produce one .log per cell,
-                // and earlier this prune only saw the run-level path (which is the
-                // first cell's promoted path), so every secondary cell's log file
-                // got deleted on the next AppendRun. The Logs view's Selected Run
-                // pane then rendered "log file not found" for every cell except
-                // the first.
-                var referenced = new HashSet<string>(
-                    finalList.SelectMany(r => new[] { r.LogPath }
-                        .Concat(r.Cells.Select(c => c.LogPath))),
-                    StringComparer.OrdinalIgnoreCase);
-                var dir = AppPaths.LogDirForBackup(record.BackupName);
-                if (Directory.Exists(dir))
-                {
-                    foreach (var f in Directory.EnumerateFiles(dir, "*.log"))
-                        if (!referenced.Contains(f)) { try { File.Delete(f); } catch { } }
-                }
-            }
-            catch { /* swallow — orphan prune is housekeeping, never fatal */ }
-        }
-
-        // Notify subscribers AFTER the gate releases so a handler
-        // that reads back history.json doesn't deadlock against the
-        // write we just finished. Best-effort: a thrown handler
-        // mustn't fail the persist.
         try { RunAppended?.Invoke(record); }
-        catch { /* listener bug shouldn't kill the persistence path */ }
+        catch { /* subscriber failures must not invalidate persisted history */ }
     }
+
+    private static List<RunRecord> ReadHistory(string file)
+    {
+        if (!File.Exists(file)) return new();
+        using var stream = new FileStream(file, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        return JsonSerializer.Deserialize<List<RunRecord>>(stream, JsonOpts)
+            ?? throw new JsonException("History contains no run list.");
+    }
+
+    private static IEnumerable<string> LogPaths(RunRecord record)
+        => new[] { record.LogPath }.Concat(record.Cells.Select(c => c.LogPath));
 
     public RunRecord? MostRecent(string backupName)
         => LoadHistory(backupName).OrderByDescending(r => r.StartedUtc).FirstOrDefault();
@@ -310,13 +142,6 @@ public sealed class LogStore
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        // Enum-as-string serialisation: history.json stays human-readable
-        // for support diagnostics, and adding/reordering a value in
-        // BackupRunStatus / RunKind doesn't silently corrupt the meaning
-        // of every prior on-disk record. JsonStringEnumConverter still
-        // ACCEPTS integers on read by default, so old (integer-encoded)
-        // history files continue to load — only fresh writes use the
-        // string form.
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 }

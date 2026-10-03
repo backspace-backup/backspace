@@ -13,6 +13,7 @@ namespace Backspace.Services;
 public static class AppNavigator
 {
     public static event Action<NavItem>? Requested;
+    public static event Action<string, string>? RunDetailsRequested;
 
     /// <summary>Raised when a caller wants the Restore wizard to land
     /// with a specific backup already chosen — used by the per-backup
@@ -34,6 +35,18 @@ public static class AppNavigator
     public static event Action<string?>? LiveActivityStarted;
 
     public static void Go(NavItem target) => Requested?.Invoke(target);
+
+    /// <summary>Navigate and select the record described by a notification.</summary>
+    public static void OpenRun(string backupId, string runId)
+    {
+        void Open()
+        {
+            Requested?.Invoke(NavItem.Logs);
+            RunDetailsRequested?.Invoke(backupId, runId);
+        }
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) Open();
+        else Avalonia.Threading.Dispatcher.UIThread.Post(Open);
+    }
 
     public static void PreselectRestoreBackup(Backup backup) =>
         RestorePreselectRequested?.Invoke(backup);

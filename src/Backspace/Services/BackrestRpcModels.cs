@@ -212,9 +212,9 @@ internal sealed class DoRepoTaskRequest
 /// Values match the proto field numbers.</summary>
 internal enum BackrestRepoTask
 {
-    TaskCheck = 1,
+    TaskCheck = 3,
     TaskPrune = 2,
-    TaskIndexSnapshots = 3,
+    TaskIndexSnapshots = 1,
     TaskStats = 4,
     TaskUnlock = 5,
     TaskForget = 6,
@@ -386,6 +386,10 @@ internal sealed class BackrestOperation
     /// to read the run-command shape for now — the dry-run preview
     /// pulls captured stdout via <see cref="OperationRunCommand.OutputLogref"/>.</summary>
     [JsonPropertyName("operationRunCommand")] public BackrestOperationRunCommand? OperationRunCommand { get; set; }
+    [JsonPropertyName("operationBackup")] public System.Text.Json.JsonElement? OperationBackup { get; set; }
+    [JsonPropertyName("operationForget")] public System.Text.Json.JsonElement? OperationForget { get; set; }
+    [JsonPropertyName("operationPrune")] public System.Text.Json.JsonElement? OperationPrune { get; set; }
+    [JsonPropertyName("operationCheck")] public System.Text.Json.JsonElement? OperationCheck { get; set; }
 }
 
 internal sealed class BackrestOperationRunCommand

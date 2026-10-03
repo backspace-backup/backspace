@@ -67,7 +67,7 @@ public sealed partial class BackupOrchestrator
             return final;
         }
 
-        if (backup.HealthcheckId is { } hcUuid)
+        if (HealthcheckAddress(backup) is { } hcUuid)
             await _hc.PingStartAsync(hcUuid, ct);
 
         // Pre-populate the (source × destination) cell matrix in the
@@ -203,7 +203,14 @@ public sealed partial class BackupOrchestrator
                     {
                         _log.Information("Skipping cell {Src}→{Dest}: {Detail}", sourcePath, dest.Name, gateMiss.Summary);
                         final.Cells.Add(gateMiss);
-                        final.Warnings.Add($"[{sourcePath} → {dest.Name}] skipped: {gateMiss.Summary}");
+                        if (gateMiss.Status == BackupRunStatus.Failed)
+                        {
+                            final.Errors.Add($"[{sourcePath} → {dest.Name}] {gateMiss.LastError}");
+                            if (HealthcheckAddress(backup) is { } gatePing && _healthcheckFailedRuns.TryAdd(final.Id, 0))
+                                if (!await _hc.PingFailureAsync(gatePing, BuildEmailBody(backup, final), CancellationToken.None))
+                                    _healthcheckFailedRuns.TryRemove(final.Id, out _);
+                        }
+                        else final.Warnings.Add($"[{sourcePath} → {dest.Name}] skipped: {gateMiss.Summary}");
                         continue;
                     }
 
@@ -343,6 +350,10 @@ public sealed partial class BackupOrchestrator
                     }
                     final.Cells.Add(cellOutcome);
                     MergeCellInto(final, cellOutcome);
+                    if (cellOutcome.Status == BackupRunStatus.Failed && HealthcheckAddress(backup) is { } ping
+                        && _healthcheckFailedRuns.TryAdd(final.Id, 0))
+                        if (!await _hc.PingFailureAsync(ping, BuildEmailBody(backup, final), CancellationToken.None))
+                            _healthcheckFailedRuns.TryRemove(final.Id, out _);
 
                     _log.Information(
                         "Cell {Src}→{Dest} finished: status={Status} attempts={Attempts} {Summary}",
@@ -358,27 +369,6 @@ public sealed partial class BackupOrchestrator
 
         final.EndedUtc = DateTime.UtcNow;
         final.Status = ClassifyFromCells(final, ct);
-        // Grace-period escalation: if the aggregate is Skipped AND the
-        // backup has already been outside the grace window since its
-        // last healthy run, promote to Failed. The user explicitly
-        // chose this over a separate "stale" visual state: a backup
-        // that's been Skipped for weeks past the user-configured grace
-        // is functionally Failed (data isn't being protected), and
-        // burying it under the orange Skipped color hides a real
-        // problem. The cell-level Status stays Skipped — only the
-        // aggregate flips — so the run-history detail still records
-        // why each cell was tolerable-skipped, not "failed
-        // mysteriously".
-        if (final.Status == BackupRunStatus.Skipped
-            && !backup.IsWithinSkipGrace(DateTime.UtcNow))
-        {
-            final.Status = BackupRunStatus.Failed;
-            final.Errors.Add(
-                $"Backup has been Skipped for longer than the {backup.SkipNotificationGraceDays}-day " +
-                "grace period — promoting to Failed so the situation surfaces. " +
-                "Resolve the underlying cause (plug the drive back in, reconnect, locate the moved repository) " +
-                "or extend / reset the grace period in Easy Mode.");
-        }
         // Pass the orchestrator's recorded cancel reason as a fallback
         // so the run-level Summary still reads "Manually skipped after
         // 1m 12s" even when the user clicked Stop BEFORE any cell got
@@ -462,7 +452,9 @@ public sealed partial class BackupOrchestrator
 
             try
             {
-                lastRun = await _engine.BackupPruneCheckAsync(backup, sourcePath, dest, target.StorageName, ct, lineSink);
+                lastRun = _engine is ResticBackrestEngine && VssElevationPolicy.Evaluate(backup).RequiresElevation
+                    ? await new VssElevationCoordinator().RunElevatedAsync(new VssElevationRequest(backup, sourcePath, dest, target.StorageName), ct)
+                    : await _engine.BackupPruneCheckAsync(backup, sourcePath, dest, target.StorageName, ct, lineSink);
             }
             catch (OperationCanceledException)
             {
@@ -691,8 +683,7 @@ public sealed partial class BackupOrchestrator
         var srcSlug = AppPaths.Sanitize(Path.GetFileName(sourcePath.TrimEnd('\\', '/')));
         if (string.IsNullOrEmpty(srcSlug)) srcSlug = "root";
         var destSlug = AppPaths.Sanitize(dest.Name);
-        var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
-        return Path.Combine(dir, $"{stamp}-{srcSlug}-{destSlug}-{target.StorageName}.log");
+        return LogStore.NewTranscriptPath(backup.Name, $"{srcSlug}-{destSlug}-{target.StorageName}", DateTime.UtcNow);
     }
 
     /// <summary>
@@ -795,40 +786,47 @@ public sealed partial class BackupOrchestrator
         var unc = dest.PathOrSubpath!;
         var probe = Task.Run(() =>
         {
-            try { return Directory.Exists(unc); }
-            catch { return false; }
+            try
+            {
+                var attributes = File.GetAttributes(unc);
+                return (attributes & FileAttributes.Directory) != 0 ? null
+                    : new IOException("The network destination is not a folder.");
+            }
+            catch (Exception ex) { return ex; }
         }, ct);
-        var completed = await Task.WhenAny(
-            probe,
-            Task.Delay(TimeSpan.FromSeconds(5), ct)
-        ).ConfigureAwait(false);
-        bool unreachable;
-        if (completed != probe)
-        {
-            unreachable = true; // probe timed out
-        }
-        else
-        {
-            unreachable = !(await probe.ConfigureAwait(false));
-        }
-        if (!unreachable) return null;
+        var completed = await Task.WhenAny(probe, Task.Delay(TimeSpan.FromSeconds(5), ct)).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
+        var failure = completed == probe ? await probe.ConfigureAwait(false) : new TimeoutException("Network share timed out.");
+        if (failure is null) return null;
+        var tolerable = IsTolerableShareFailure(failure);
         return new CellOutcome
         {
             SourcePath = sourcePath,
             DestinationName = dest.Name,
             StorageName = storageName,
-            Status = BackupRunStatus.Skipped,
-            Summary = $"Network share unreachable: {unc}",
+            Status = tolerable ? BackupRunStatus.Skipped : BackupRunStatus.Failed,
+            Summary = tolerable ? $"Network share unavailable: {unc}" : $"Cannot access network destination: {unc}",
+            LastError = failure.Message,
         };
     }
 
-    internal static Task? StartMeteredWatchdogIfEnabled(
+    internal static bool IsTolerableShareFailure(Exception error)
+    {
+        if (error is UnauthorizedAccessException or DirectoryNotFoundException or FileNotFoundException or ArgumentException) return false;
+        if (error is TimeoutException) return true;
+        // Preserve the OS reason instead of Directory.Exists swallowing access
+        // denial and missing paths. These Win32 codes describe known outages.
+        var code = error.HResult & 0xffff;
+        return code is 53 or 64 or 121 or 1222 or 1231 or 1232
+            || EngineErrorClassifier.Classify(error.Message) == EngineErrorClassifier.Verdict.Tolerable;
+    }
+    internal Task? StartMeteredWatchdogIfEnabled(
         Backup backup,
         CancellationTokenSource linked,
         Action<string> onMetered)
     {
         if (!backup.AbortOnMeteredNetwork) return null;
-        var watchdog = new MeteredNetworkWatchdog();
+        var watchdog = MeteredWatchdogFactory();
         watchdog.MeteredDetected += reason =>
         {
             onMetered(reason);

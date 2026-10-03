@@ -55,17 +55,22 @@ public class SecretsStoreTests
         Assert.NotNull(store.LoadErrorMessage);
         Assert.Contains("DPAPI", store.LoadErrorMessage);
 
-        // Original ciphertext must be preserved (renamed) so a forensic
-        // recovery on the originating account is still possible.
+        // Reads leave the original in place, so another process still sees
+        // the same failure and recovery on the original account remains possible.
         Assert.NotNull(store.PreservedCorruptPath);
         Assert.True(File.Exists(store.PreservedCorruptPath));
-        Assert.False(File.Exists(AppPaths.SecretsFile)); // moved aside
+        Assert.Equal(AppPaths.SecretsFile, store.PreservedCorruptPath);
+        Assert.True(File.Exists(AppPaths.SecretsFile));
+        var encryptedBytes = File.ReadAllBytes(AppPaths.SecretsFile);
 
-        // A subsequent Set() must NOT touch the preserved file — it
-        // creates a new vault next to it.
+        // Explicitly saving re-entered credentials first preserves a separate
+        // copy; neither that copy nor the prior bytes may be lost.
         store.Set("ref:test", "newvalue");
         Assert.True(File.Exists(AppPaths.SecretsFile));
         Assert.True(File.Exists(store.PreservedCorruptPath));
+        Assert.NotEqual(AppPaths.SecretsFile, store.PreservedCorruptPath);
+        Assert.Equal(encryptedBytes, File.ReadAllBytes(store.PreservedCorruptPath));
+        Assert.Null(store.LoadErrorMessage);
 
         // The new vault works as expected.
         var reopened = new SecretsStore();

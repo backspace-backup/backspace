@@ -106,7 +106,17 @@ public sealed class E14_PruneAfterBackupRealEngine : BackupE2EBase
         // to discard old revisions, NOT to break the live one.
         var revisions = await ServiceLocator.Revisions.ListRevisionsAsync(
             backup, source, dest, "default", CancellationToken.None);
-        Assert.NotEmpty(revisions);
+        Assert.Single(revisions);
+        var client = fixture.Sidecar.Client!;
+        var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
+            "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), CancellationToken.None);
+        var repo = Assert.Single(config.Repos);
+        var operations = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
+            "/v1.Backrest/GetOperations", new GetOperationsRequest { Selector = new OpSelector { RepoGuid = repo.Guid } }, CancellationToken.None);
+        var forgets = operations.Operations!.Where(op => op.OperationForget is not null).ToArray();
+        Assert.True(forgets.Length >= 3, "Each of three backup runs must record a real forget operation.");
+        Assert.All(forgets, op => Assert.Equal("STATUS_SUCCESS", op.Status));
+        ctx.Report.RecordNote("Real retention operations", $"{forgets.Length} successful forget operations; exactly one revision remains and is byte-compared below.");
 
         var outcome = await RestoreEverythingAsync(
             backup, source, dest, "default", restoreDir, CancellationToken.None);

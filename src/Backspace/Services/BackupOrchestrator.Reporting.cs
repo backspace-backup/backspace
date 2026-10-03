@@ -15,8 +15,33 @@ namespace Backspace.Services;
 // per-cell loop's RunRecord is sealed.
 public sealed partial class BackupOrchestrator
 {
-    private async Task SendAlertsAsync(Backup backup, RunRecord record)
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _healthcheckFailedRuns = new();
+
+    private static string? HealthcheckAddress(Backup backup) =>
+        !string.IsNullOrWhiteSpace(backup.HealthcheckPingUrl) ? backup.HealthcheckPingUrl : backup.HealthcheckId;
+
+    private async Task SendHealthcheckTerminalAsync(Backup backup, RunRecord record)
     {
+        var alreadyFailed = _healthcheckFailedRuns.TryRemove(record.Id, out _);
+        var address = HealthcheckAddress(backup);
+        if (address is null) return;
+        var body = BuildEmailBody(backup, record);
+        if (record.Status is BackupRunStatus.Success or BackupRunStatus.Warning)
+            await _hc.PingSuccessAsync(address, body, CancellationToken.None);
+        else if (record.Status == BackupRunStatus.Failed && !alreadyFailed)
+            await _hc.PingFailureAsync(address, body, CancellationToken.None);
+    }
+
+    internal async Task SendAlertsAsync(Backup backup, RunRecord record)
+    {
+        // Config writes publish a fresh snapshot. Resolve current grace/cap
+        // timestamps, including edits made while this backup was running.
+        backup = _config.Current.Backups.FirstOrDefault(b => b.Id == backup.Id) ?? backup;
+        // Machine monitoring gets every run's terminal signal, independent
+        // of human notification caps and slow email delivery.
+        await SendHealthcheckTerminalAsync(backup, record);
+        var now = DateTime.UtcNow;
+        if (record.Status == BackupRunStatus.Skipped && backup.IsWithinSkipGrace(now)) return;
         // Daily cap: at most one notification per backup per 24h
         // window FOR THE SAME STATUS. A status transition (Success →
         // Failed, Skipped → Failed, Failed → Success "we're back") is
@@ -25,8 +50,7 @@ public sealed partial class BackupOrchestrator
         // at 09:00, which code-review correctly flagged as a real
         // silent-failure footgun. Repeat fires of the same status get
         // capped: an hourly backup that keeps failing stops at one
-        // toast/email/HC ping per 24h until the status changes.
-        var now = DateTime.UtcNow;
+        // toast/email per 24h until the status changes.
         if (backup.IsWithinNotificationDailyCap(now, record.Status))
         {
             _log.Information(
@@ -39,7 +63,7 @@ public sealed partial class BackupOrchestrator
             BackupRunStatus.Success => NotificationSeverity.Success,
             BackupRunStatus.Warning => NotificationSeverity.Warning,
             BackupRunStatus.Failed  => NotificationSeverity.Failure,
-            BackupRunStatus.Skipped => NotificationSeverity.Info,
+            BackupRunStatus.Skipped => NotificationSeverity.Warning,
             _                       => NotificationSeverity.Info,
         };
 
@@ -77,15 +101,11 @@ public sealed partial class BackupOrchestrator
 
         // Click-to-logs: clicking the toast body navigates to the
         // Backups → Activity & logs tab and pre-selects this backup's
-        // most recent run. We capture backup.Id by value so the closure
-        // is safe across runs. AppNavigator.Go marshals to UI thread,
-        // and SelectBackupById is a no-op when the run isn't available
-        // yet (e.g. config hasn't been re-read), so the action degrades
-        // gracefully if anything's mid-flight.
+        // exact run, even when a newer run finished before the click.
         var backupIdForToast = backup.Id;
         Action onClick = () =>
         {
-            AppNavigator.Go(NavItem.Logs);
+            AppNavigator.OpenRun(backupIdForToast, record.Id);
             try
             {
                 if (Avalonia.Application.Current?.ApplicationLifetime
@@ -100,8 +120,6 @@ public sealed partial class BackupOrchestrator
                         mw.WindowState = Avalonia.Controls.WindowState.Normal;
                     mw.Show();
                     mw.Activate();
-                    if (mw.DataContext is ViewModels.MainWindowViewModel vm)
-                        vm.Logs.SelectBackupById(backupIdForToast);
                 }
             }
             catch (Exception ex) { _log.Warning(ex, "Click-to-logs handler threw"); }
@@ -139,17 +157,13 @@ public sealed partial class BackupOrchestrator
         // triplet). The Mail provider config still lives in MailSettings
         // — that's the SMTP / API side, not the "when to send" side.
         if (channels.Email)
-            await _mail.SendAsync(title, BuildEmailBody(backup, record), CancellationToken.None);
-
-        // Healthchecks ping.
-        if (backup.HealthcheckId is { } hcUuid)
         {
-            var body = BuildEmailBody(backup, record);
-            if (record.Status is BackupRunStatus.Success or BackupRunStatus.Warning)
-                await _hc.PingSuccessAsync(hcUuid, body, CancellationToken.None);
-            else if (record.Status == BackupRunStatus.Failed)
-                await _hc.PingFailureAsync(hcUuid, body, CancellationToken.None);
-            // "Skipped" intentionally pings neither — the drive wasn't there; that isn't a health signal.
+            var sent = await _mail.SendAsync(title, BuildEmailBody(backup, record), CancellationToken.None);
+            if (!sent.Succeeded && !sent.Disabled)
+                _ = _notify.NotifyAsync("Backspace: email alerts need attention",
+                    sent.Detail + "\nYour backup result is unchanged. Open Settings → Email to fix delivery.",
+                    NotificationSeverity.Warning, () => AppNavigator.Go(NavItem.Settings), null,
+                    new NotificationChannels { Toast = true, Sound = false, Email = false });
         }
 
         // Stamp the daily-cap clock NOW that we've actually fired the
@@ -221,8 +235,8 @@ public sealed partial class BackupOrchestrator
             b.LastRunStatus = record.Status;
             b.LastRunSummary = record.Summary;
             // Auto-reset the grace-period clock on every healthy run.
-            // The orchestrator already escalates Skipped to Failed
-            // after the grace window — without this reset, the clock
+            // Skipped runs produce warning notifications after grace.
+            // Without this reset, the clock
             // would only ever count UP, and a backup that ran cleanly
             // for 6 months then went offline for a weekend would have
             // its grace measured from CreatedUtc (or the last manual
@@ -353,21 +367,11 @@ public sealed partial class BackupOrchestrator
         foreach (var cell in r.Cells)
         {
             if (cell.Status != BackupRunStatus.Skipped) continue;
-            // Round-6 review caught: the hint used to fire for ANY
-            // Skipped cell on a local-like destination, including
-            // transient network blips ("Network share unreachable"
-            // → Tolerable → Skipped). The user got "use Locate
-            // moved repository to repoint it" advice for a
-            // destination that hadn't actually moved — and
-            // panicked into re-pointing at the wrong path. Round-7
-            // refines the gate by reusing EngineErrorClassifier: a
-            // hint is only honest advice when the cell's LastError
-            // does NOT classify as Tolerable. A Tolerable signal
-            // (network unreachable / DNS timeout / metered) means
-            // "come back later," not "your destination has moved."
-            if (string.IsNullOrEmpty(cell.LastError)) continue;
-            if (EngineErrorClassifier.Classify(cell.LastError) == EngineErrorClassifier.Verdict.Tolerable)
-                continue;
+            var reason = cell.Summary ?? "";
+            if (reason.Contains("cancel", StringComparison.OrdinalIgnoreCase)
+                || reason.Contains("manually", StringComparison.OrdinalIgnoreCase)
+                || reason.Contains("metered", StringComparison.OrdinalIgnoreCase)
+                || reason.Contains("stopped", StringComparison.OrdinalIgnoreCase)) continue;
             // Walk the backup's Targets and resolve each into a live
             // Destination, then accept the match ONLY if the resolved
             // destination's display name matches the cell's recorded

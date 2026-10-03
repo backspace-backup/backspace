@@ -47,6 +47,11 @@ public sealed class E30_CustomFilter : BackupE2EBase
         var skipDir    = Path.Combine(sourceRoot, "skip");
         Directory.CreateDirectory(keepDir);
         Directory.CreateDirectory(skipDir);
+        if (FixtureSizeResolver.ResolveSize(FixtureSize.Smoke) == FixtureSize.Huge)
+        {
+            FixtureFactory.GenerateExactTree(keepDir, 30, 10000, 1024L * 1024 * 1024);
+            FixtureFactory.GenerateExactTree(skipDir, 31, 10000, 1024L * 1024 * 1024);
+        }
 
         // 5 files per subdir; bytes intentionally distinct so a
         // restore-side equality check is meaningful.
@@ -124,5 +129,6 @@ public sealed class E30_CustomFilter : BackupE2EBase
         var restoredSkipDir = Path.Combine(restoreDir, "skip");
         Assert.False(Directory.Exists(restoredSkipDir),
             $"skip/ subtree leaked into restore at '{restoredSkipDir}' — the filter didn't apply.");
+        AssertBytesEqual(keepDir, Path.Combine(restoreDir, "keep"), ctx);
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Backspace.Services.Platform;
 using Serilog;
@@ -31,7 +32,7 @@ public sealed class SecretsStore
 {
     private static ILogger _log => AppLogger.For<SecretsStore>();
     private readonly object _gate = new();
-    private Dictionary<string, string>? _cache;
+    private readonly string _path = AppPaths.SecretsFile;
     private readonly ISecretsEncryption _crypto;
 
     public SecretsStore() : this(SelectProvider()) { }
@@ -59,14 +60,27 @@ public sealed class SecretsStore
     /// load was clean.
     /// </summary>
     public string? LoadErrorMessage { get; private set; }
-    /// <summary>Path the corrupt vault was moved to (for forensics /
-    /// manual recovery). Null when no failure occurred.</summary>
+    /// <summary>Path where unreadable bytes remain preserved: the original vault on
+    /// reads, or a unique recovery copy before an explicit credential save.</summary>
     public string? PreservedCorruptPath { get; private set; }
+
+    /// <summary>Opens the vault without exposing a credential. Startup must call
+    /// this before consulting LoadErrorMessage; construction is deliberately lazy.
+    /// Transient access failures propagate and never reset or rename the vault.</summary>
+    public void ValidateReadable()
+    {
+        lock (_gate)
+        {
+            using var transaction = StateFileLock.Acquire(_path);
+            _ = Load();
+        }
+    }
 
     public string Get(string key)
     {
         lock (_gate)
         {
+            using var transaction = StateFileLock.Acquire(_path);
             var map = Load();
             return map.TryGetValue(key, out var v) ? v : "";
         }
@@ -76,6 +90,7 @@ public sealed class SecretsStore
     {
         lock (_gate)
         {
+            using var transaction = StateFileLock.Acquire(_path);
             var map = Load();
             return map.TryGetValue(key, out value!);
         }
@@ -85,19 +100,14 @@ public sealed class SecretsStore
     {
         lock (_gate)
         {
-            // Clone before mutating: Load returns the same reference
-            // _cache holds, so a direct map[key] = value would dirty
-            // the cached map. If Save() then throws (disk-full, AV
-            // quarantine), the cache is invalidated by Save's catch
-            // — but ANY OTHER thread that got the cached reference
-            // before the invalidation would still see the dirty
-            // mutation. Cloning isolates the in-flight write from
-            // observers and makes the failure path consistent.
-            var loaded = Load();
+            using var transaction = StateFileLock.Acquire(_path);
+            // Reload while holding the shared file lock; another process may have saved credentials.
+            var loaded = Load(preserveBeforeReplacement: true);
             var map = new Dictionary<string, string>(loaded);
             var existed = map.ContainsKey(key);
             map[key] = value;
             Save(map);
+            LoadErrorMessage = null;
             // Never log the value — keys are public refs but values are
             // tokens, passwords, OAuth refresh tokens.
             _log.Debug("Secret {Action}: ref={Key} valueLength={Len}",
@@ -109,9 +119,10 @@ public sealed class SecretsStore
     {
         lock (_gate)
         {
+            using var transaction = StateFileLock.Acquire(_path);
             var loaded = Load();
             if (!loaded.ContainsKey(key)) return;
-            // Clone before mutating, same rationale as Set above.
+            // Mutate a private copy only after a successful read.
             var map = new Dictionary<string, string>(loaded);
             map.Remove(key);
             Save(map);
@@ -126,67 +137,50 @@ public sealed class SecretsStore
         return @ref;
     }
 
-    private Dictionary<string, string> Load()
+    private Dictionary<string, string> Load(bool preserveBeforeReplacement = false)
     {
-        if (_cache is not null) return _cache;
-        if (!File.Exists(AppPaths.SecretsFile))
-            return _cache = new();
+        byte[] wrapped;
+        try { wrapped = File.ReadAllBytes(_path); }
+        catch (FileNotFoundException) { return new(); }
+        catch (DirectoryNotFoundException) { return new(); }
 
         try
         {
-            var wrapped = File.ReadAllBytes(AppPaths.SecretsFile);
             var clear = _crypto.Unprotect(wrapped, Entropy);
-            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(clear) ?? new();
+            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(clear)
+                ?? throw new JsonException("The saved secrets must contain a credential map.");
+            LoadErrorMessage = null;
             _log.Debug("Secrets vault opened: {Count} entries", map.Count);
-            return _cache = map;
+            return map;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is CryptographicException or JsonException)
         {
-            // The encryption key is platform-specific (DPAPI /
-            // file-key). Copying secrets.bin to another account/machine
-            // — or losing the keyfile on Unix — produces exactly this
-            // exception. We CANNOT silently overwrite the file with
-            // an empty vault: the next Save() call would clobber the
-            // preserved ciphertext, and the user never knew their
-            // saved tokens/passwords were dropped. Move the unreadable
-            // file aside (preserving it for forensics or manual
-            // recovery on the original system) and surface an error
-            // message the UI can display. Subsequent Save() calls
-            // then start a fresh vault next to the preserved one.
-            var preserved = AppPaths.SecretsFile + $".unreadable-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
-            try
+            // A read must not hide the failure from the next process. Keep the
+            // unreadable vault in place so GUI and unattended launches all see
+            // the same cause. Explicitly saving re-entered credentials is the
+            // existing recovery action; preserve an independent copy before it
+            // may replace anything, and refuse replacement if that copy fails.
+            PreservedCorruptPath = _path;
+            if (preserveBeforeReplacement)
             {
-                File.Move(AppPaths.SecretsFile, preserved);
-                PreservedCorruptPath = preserved;
-                // On Unix, lock down the preserved-aside vault to owner-
-                // only (0600). The original file inherited Backspace.config's
-                // mode (typically 0700 on properly-set-up installs, but a
-                // user who unzipped via cross-platform tools may have laxer
-                // perms). The blob is opaque without the key, but defensive
-                // hardening makes "I leaked secrets.bin.unreadable-X" a
-                // smaller risk surface. Windows ACLs are inherited correctly
-                // from the parent so we only act on non-Windows.
-                if (!OperatingSystem.IsWindows())
+                var preserved = _path + $".unreadable-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
+                try
                 {
-                    try { File.SetUnixFileMode(preserved, UnixFileMode.UserRead | UnixFileMode.UserWrite); }
-                    catch (Exception modeEx)
-                    {
-                        _log.Warning(modeEx, "Couldn't chmod 0600 the preserved-aside vault — left with default permissions");
-                    }
+                    File.Copy(_path, preserved, overwrite: false);
+                    if (!OperatingSystem.IsWindows())
+                        File.SetUnixFileMode(preserved, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                    PreservedCorruptPath = preserved;
+                }
+                catch (Exception copyEx)
+                {
+                    _log.Warning(copyEx, "Couldn't preserve unreadable secrets vault; refusing replacement");
+                    throw new IOException("Saved secrets could not be read or preserved. No credentials were changed.", copyEx);
                 }
             }
-            catch (Exception moveEx)
-            {
-                // Preservation failed (file locked? permissions?). Log
-                // and continue — the worst case is the next Save()
-                // overwrites the file. Surfacing the error in the UI
-                // still gives the user a heads-up that secrets are
-                // gone.
-                _log.Warning(moveEx, "Couldn't move unreadable secrets vault aside");
-            }
             LoadErrorMessage = BuildLoadErrorMessage(_crypto.DisplayName);
-            _log.Error(ex, "Couldn't decrypt secrets vault — starting empty (preserved as {Preserved}; provider={Provider})", preserved, _crypto.DisplayName);
-            return _cache = new();
+            _log.Error(ex, "Couldn't decrypt secrets vault; encrypted bytes preserved at {Preserved}; provider={Provider}",
+                PreservedCorruptPath, _crypto.DisplayName);
+            return new();
         }
     }
 
@@ -204,7 +198,7 @@ public sealed class SecretsStore
               "If the key file was lost, replaced, or copied without its companion, the saved secrets become unreadable.";
         var preserved = PreservedCorruptPath is null
             ? ""
-            : $" The unreadable file was preserved as {Path.GetFileName(PreservedCorruptPath)}.";
+            : $" The unreadable encrypted file remains preserved as {Path.GetFileName(PreservedCorruptPath)}.";
         return
             "Saved cloud tokens and storage passwords couldn't be decrypted on this machine. " +
             why +
@@ -216,32 +210,14 @@ public sealed class SecretsStore
     private void Save(Dictionary<string, string> map)
     {
         AppPaths.EnsureAll();
-        var clear = JsonSerializer.SerializeToUtf8Bytes(map, new JsonSerializerOptions { WriteIndented = false });
+        var clear = JsonSerializer.SerializeToUtf8Bytes(map);
         var wrapped = _crypto.Protect(clear, Entropy);
-        try
-        {
-            AtomicWrite(AppPaths.SecretsFile, wrapped);
-            // Only swap the in-memory cache if disk write succeeded.
-            // Previously _cache was assigned unconditionally — a failed
-            // write (disk full, AV quarantine) would leave the cache
-            // ahead of disk; the next Load would re-read truth and
-            // silently revert the user's just-saved secret.
-            _cache = map;
-        }
-        catch
-        {
-            // Invalidate the cache so the next read pulls truth from
-            // disk rather than serving the in-memory copy that was
-            // about to become canonical. Re-throw so callers see the
-            // failure (Set / Remove already log + propagate).
-            _cache = null;
-            throw;
-        }
+        AtomicWrite(_path, wrapped);
     }
 
     private static void AtomicWrite(string path, byte[] bytes)
     {
-        var tmp = path + ".tmp";
+        var tmp = path + $".{Guid.NewGuid():N}.tmp";
         var bak = path + ".bak";
         // Pre-delete + FileMode.CreateNew + UnixCreateMode 0600 so the
         // .tmp lands at owner-only mode atomically rather than at the
@@ -259,15 +235,22 @@ public sealed class SecretsStore
         };
         if (!OperatingSystem.IsWindows())
             fileOpts.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        using (var fs = new FileStream(tmp, fileOpts))
-            fs.Write(bytes, 0, bytes.Length);
         // Pass a backup filename to File.Replace so a power-cut
         // between write and rename leaves a recoverable .bak. Without
         // this the prior secrets file is gone the moment Replace
         // succeeds; with this the user can rename .bak → secrets if
         // their main file is somehow corrupted post-crash.
-        if (File.Exists(path)) File.Replace(tmp, path, destinationBackupFileName: bak);
-        else File.Move(tmp, path);
+        try
+        {
+            using (var fs = new FileStream(tmp, fileOpts))
+            {
+                fs.Write(bytes, 0, bytes.Length);
+                fs.Flush(flushToDisk: true);
+            }
+            if (File.Exists(path)) File.Replace(tmp, path, destinationBackupFileName: bak);
+            else File.Move(tmp, path);
+        }
+        finally { try { File.Delete(tmp); } catch { } }
         // File.Replace preserves the destination's mode; on Unix the
         // very first launch wrote secrets-key.bin at whatever umask
         // was active, so reassert 0600 after every rename to converge.

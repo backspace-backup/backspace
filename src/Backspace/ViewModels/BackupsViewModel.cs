@@ -464,12 +464,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             // canonical config entry to read). For Advanced mode, this
             // is the first time the backup hits config. FindIndex+
             // replace handles both with one path.
-            ServiceLocator.Config.Update(cfg =>
-            {
-                var idx = cfg.Backups.FindIndex(b => b.Id == result.Id);
-                if (idx >= 0) cfg.Backups[idx] = result;
-                else cfg.Backups.Add(result);
-            });
+            ServiceLocator.Config.SaveBackupEdit(result);
             ApplyScheduleIfPossible(result);
             _log.Information("Backup created: name={Name} sources={SourceCount} targets={TargetCount} enabled={Enabled} runAfterSave={RunAfterSave}",
                 result.Name, result.SourcePaths.Count, result.Targets.Count, result.Enabled, dlg.RunAfterSave);
@@ -497,12 +492,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         var result = await dlg.ShowDialog<Backup?>(owner);
         if (result is not null)
         {
-            ServiceLocator.Config.Update(cfg =>
-            {
-                var idx = cfg.Backups.FindIndex(x => x.Id == result.Id);
-                if (idx >= 0) cfg.Backups[idx] = result;
-                else cfg.Backups.Add(result);
-            });
+            ServiceLocator.Config.SaveBackupEdit(result);
             ApplyScheduleIfPossible(result);
             _log.Information("Backup edited: name={Name}", result.Name);
             if (dlg.RunAfterSave) FireBackgroundRun(result);

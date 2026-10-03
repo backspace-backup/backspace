@@ -490,8 +490,8 @@
 
       <!-- =========== TAB: Schedule =========== -->
       <TabItem Header="Schedule">
-        <ScrollViewer Padding="0,18,0,24" VerticalScrollBarVisibility="Visible">
-          <StackPanel Spacing="18">
+        <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="18" Margin="0,18,0,24">
 
             <Border Classes="surface">
               <StackPanel Spacing="16">
@@ -558,10 +558,8 @@
                 <!-- ===== Grace period for skipped runs =====
                      Always visible in Advanced mode so power users can
                      configure / reset regardless of current run state.
-                     Easy mode shows the same controls but only when
-                     OnboardingViewModel.ShowGraceBlock is true (the
-                     backup just had a Skipped run and grace is
-                     counting down). See Backup.ShouldShowGraceBlock. -->
+                     Easy mode also keeps these controls available
+                     before an absence and after the window expires. -->
                 <Border Classes="rule" Margin="0,4"/>
                 <TextBlock FontWeight="SemiBold"
                            Foreground="{DynamicResource BS.Brush.FgPrimary}"
@@ -581,7 +579,7 @@
                 <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
                            Text="{Binding GraceReferenceLabel}"/>
                 <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
-                           Text="During the grace window, Skipped runs stay orange and don't trigger notifications. After it expires, the next Skipped escalates to Failed (red). Set to 0 to disable the grace window entirely."/>
+                           Text="During the grace window, Skipped runs don't trigger notifications. After it expires, Skipped runs can send warning notifications. Their status stays Skipped. Set to 0 to disable the grace window entirely."/>
               </StackPanel>
             </Border>
 
@@ -687,7 +685,7 @@
             <ScrollViewer VerticalScrollBarVisibility="Visible" Padding="0,12,0,12">
               <StackPanel Spacing="14">
                 <TextBlock Classes="body"
-                           Text="Filter rules control what gets skipped in the backup. Tick the boxes below to insert curated exclusion blocks. Anything you type by hand goes on the Advanced sub-tab; the recommended block lives at the top so it never overwrites your custom rules."
+                           Text="Filter rules control what gets skipped in the backup. Tick the boxes below to insert recommended exclusions. Edit your own rules on the Advanced sub-tab; they stay in the custom block above the recommended rules."
                            Foreground="{DynamicResource BS.Brush.FgSecondary}"
                            TextWrapping="Wrap"/>
 
@@ -699,7 +697,7 @@
                   <StackPanel Spacing="10">
                     <TextBlock Classes="section-title" Text="Recommended exclusions" Margin="0"/>
                     <TextBlock Classes="helper" Margin="0"
-                               Text="Tick what you'd like skipped, then click Apply. We'll insert a labelled block at the top of your filter rules; your own rules below stay untouched."/>
+                               Text="Tick what you'd like skipped, then click Apply. We'll update the labelled recommended block below your custom rules, keeping your own rules intact."/>
 
                     <CheckBox IsChecked="{Binding RecExcludeWindowsSystem}"
                               Content="Windows system files (pagefile, hiberfil, $Recycle.Bin, System Volume Information, Windows.old, ntuser.dat, etc.)"

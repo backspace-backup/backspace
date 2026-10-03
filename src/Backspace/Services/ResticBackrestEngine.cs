@@ -67,6 +67,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         public const string Warning      = "STATUS_WARNING";
         public const string Error        = "STATUS_ERROR";
         public const string UserCancelled = "STATUS_USER_CANCELLED";
+        public const string SystemCancelled = "STATUS_SYSTEM_CANCELLED";
     }
 
     /// <summary>Backrest event-stream control codes. Currently only
@@ -120,422 +121,255 @@ public sealed class ResticBackrestEngine : IBackupEngine
         CancellationToken ct, Action<string>? lineSink = null)
     {
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
-
         var repoId = MakeRepoId(destination, storageName);
         var planId = MakePlanId(backup, sourcePath, destination, storageName);
-
         await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
-
         var started = DateTime.UtcNow;
-
-        // Subscribe to the operation-event stream BEFORE kicking off
-        // the Backup RPC so we don't race past the first events.
-        // /v1.Backrest/Backup is fire-and-forget — the RPC returns
-        // once the op is enqueued, NOT when it finishes. We watch
-        // the event stream for the terminal event matching our plan
-        // and wait on that before returning. Without this wait, the
-        // cell returns "Success" as soon as the daemon enqueues the
-        // op — even if the backup itself fails 30 minutes later.
-        // That was a silent-data-loss class bug: backups that
-        // actually failed showed green in the UI.
-        using var pumpCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var signals = new PumpSignals();
-        var pumpTask = Task.Run(() => PumpOperationEventsAsync(
-            client, planId, lineSink, signals, pumpCts.Token), pumpCts.Token);
-
-        try
+        var terminal = await RunTrackedRepoRpcAsync(client, repoId, "/v1.Backrest/Backup",
+            new BackupRequest { Value = planId }, op => op.PlanId == planId && op.OperationBackup is not null,
+            ct, lineSink).ConfigureAwait(false);
+        var status = StatusFromBackrestTerminal(terminal.Status);
+        var details = terminal.DisplayMessage;
+        if (status is BackupRunStatus.Success or BackupRunStatus.Warning && !ct.IsCancellationRequested)
         {
-            await client.CallVoidAsync("/v1.Backrest/Backup", new BackupRequest { Value = planId }, ct).ConfigureAwait(false);
+            async Task RunPhase<T>(string endpoint, T request, Func<BackrestOperation, bool> matches) where T : class
+            {
+                try
+                {
+                    var result = await RunTrackedRepoRpcAsync(client, repoId, endpoint, request, matches, ct, lineSink).ConfigureAwait(false);
+                    if (result.Status is not BackrestStatus.Success)
+                    {
+                        status = BackupRunStatus.Warning;
+                        details += $" Backup content completed; maintenance reported {result.Status}: {result.DisplayMessage}";
+                    }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    if (ServiceLocator.Maintenance.IsBlocked) throw;
+                    status = BackupRunStatus.Warning;
+                    details += " Backup content completed; maintenance failed: " + ex.Message;
+                }
+            }
+            if (backup.PruneSchedule is null)
+                await RunPhase("/v1.Backrest/Forget", new ForgetRequest { RepoId = repoId, PlanId = planId },
+                    op => op.PlanId == planId && op.OperationForget is not null).ConfigureAwait(false);
+            if (backup.CheckSchedule is null && !ct.IsCancellationRequested)
+                await RunPhase("/v1.Backrest/DoRepoTask", new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskCheck },
+                    op => op.OperationCheck is not null).ConfigureAwait(false);
         }
-        catch (BackrestRpcException ex)
-        {
-            throw TranslateRpcError(ex, "Backup");
-        }
-
-        // Wait for the terminal event from the pump. If the caller
-        // cancels (Stop button, app shutdown) we ask the daemon to
-        // cancel the op too — without that the daemon kept running
-        // the backup in the background even though Backspace
-        // reported the cell Skipped.
-        var lastStatus = "";
-        try
-        {
-            lastStatus = await signals.Terminal.Task.WaitAsync(ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Best-effort send Cancel for the op id we observed —
-            // waits briefly for the op id to arrive if the cancel
-            // raced the first event. Even if it fails we mark the
-            // cell Skipped: the user's intent (Stop) is the source
-            // of truth.
-            await TryCancelObservedOpAsync(client, signals).ConfigureAwait(false);
-            lastStatus = BackrestStatus.UserCancelled;
-        }
-
-        // Optional post-backup phases. Each runs inline only when the
-        // user hasn't opted into an independent cadence — a non-null
-        // schedule means a separate OS-scheduler task already runs
-        // that operation, and tacking it onto every backup too would
-        // double the cost. Only run when the backup itself succeeded;
-        // following a failed backup with a prune would prune against
-        // an inconsistent snapshot tree.
-        var backupOk = lastStatus is BackrestStatus.Success or BackrestStatus.Warning;
-        var runInlinePrune = backupOk && backup.PruneSchedule is null;
-        var runInlineCheck = backupOk && backup.CheckSchedule is null;
-        // Inline maintenance is best-effort. The user-facing run status
-        // is determined by the BACKUP itself — Forget/Check/Unlock that
-        // fail to complete in time (e.g. Backrest 1.13's global task
-        // runner is busy with another repo's queue because two backups
-        // ran concurrently) must NOT downgrade a successful backup to
-        // Failed/Skipped. They get rescheduled on the next run anyway.
-        // The deadline in RunRepoOpAndWaitAsync surfaces as
-        // OperationCanceledException from the linked token; catch both
-        // shapes so contention can't reach the cell-loop's OCE catch
-        // (which would mark the cell Skipped on a successful backup).
-        if (runInlinePrune)
-        {
-            try
-            {
-                await RunRepoOpAndWaitAsync(client,
-                    "/v1.Backrest/Forget",
-                    new ForgetRequest { RepoId = repoId, PlanId = planId },
-                    repoId, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                _log.Warning("Inline prune (Forget) hit the per-RPC deadline for {Backup}/{Repo} — likely Backrest's task runner is busy with another repo. Skipping; will retry on the next run.",
-                    backup.Name, repoId);
-            }
-            catch (BackrestRpcException ex)
-            {
-                _log.Warning(ex, "Inline prune (Forget) returned {Code} for {Backup}/{Repo}; skipping (best-effort).", ex.Code, backup.Name, repoId);
-            }
-        }
-        if (runInlineCheck)
-        {
-            try
-            {
-                await RunRepoOpAndWaitAsync(client,
-                    "/v1.Backrest/DoRepoTask",
-                    new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskCheck },
-                    repoId, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                _log.Warning("Inline check hit the per-RPC deadline for {Backup}/{Repo} — likely Backrest's task runner is busy. Skipping; will retry on the next run.",
-                    backup.Name, repoId);
-            }
-            catch (BackrestRpcException ex)
-            {
-                _log.Warning(ex, "Inline check returned {Code} for {Backup}/{Repo}; skipping (best-effort).", ex.Code, backup.Name, repoId);
-            }
-        }
-
-        // Belt-and-braces: even after our explicit Forget / Check
-        // waits, Backrest can have an auto-scheduled IndexSnapshots
-        // task still in flight that holds the exclusive restic lock.
-        // The next caller's ListSnapshots / restore / rotate would
-        // hit "repo already locked" with milliseconds of skew.
-        // Run TaskUnlock here and wait for IT to terminate; that
-        // drains Backrest's queue AND clears any stale lock files
-        // restic left behind on a crash-recovered repo, so the
-        // hand-off to the caller is reliably clean.
-        if (runInlinePrune || runInlineCheck)
-        {
-            try
-            {
-                await RunRepoOpAndWaitAsync(client,
-                    "/v1.Backrest/DoRepoTask",
-                    new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskUnlock },
-                    repoId, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                _log.Warning("Post-maintenance Unlock hit the per-RPC deadline for {Repo} — next caller may hit a held lock.", repoId);
-            }
-            catch (BackrestRpcException ex)
-            {
-                _log.Warning(ex, "Post-maintenance Unlock returned {Code} — next caller may hit a held lock", ex.Code);
-            }
-        }
-
-        pumpCts.Cancel();
-        try { await pumpTask; }
-        catch (OperationCanceledException) { /* expected on pump shutdown */ }
-
         return new RunRecord
         {
-            BackupId = backup.Id,
-            BackupName = backup.Name,
-            Kind = RunKind.Backup,
-            StartedUtc = started,
-            EndedUtc = DateTime.UtcNow,
-            Status = StatusFromBackrestTerminal(lastStatus),
-            Summary = string.IsNullOrEmpty(lastStatus)
-                ? "Scheduled via Backrest"
-                : $"Backrest reported {lastStatus}",
+            BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Backup,
+            StartedUtc = started, EndedUtc = DateTime.UtcNow, Status = status,
+            Summary = $"Backrest reported {terminal.Status}. {details}".Trim(),
         };
     }
 
-    /// <summary>Stand-alone prune (forget + repack). Used when the
-    /// user opts into an independent prune cadence
-    /// (<see cref="Backup.PruneSchedule"/> non-null). Backrest's
-    /// <c>/Forget</c> RPC runs the configured retention's forget
-    /// step + the repo's PrunePolicy repack in one call, so a
-    /// single RPC per (source, dest, storage) cell is enough.</summary>
-    public async Task<RunRecord> RunPruneOnlyAsync(
+    public Task<RunRecord> RunPruneOnlyAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        CancellationToken ct, Action<string>? lineSink = null)
-    {
-        return await RunMaintenanceRpcAsync(
-            backup, sourcePath, destination, storageName, RunKind.Prune,
-            doRpc: async (client, repoId, planId) =>
-            {
-                await client.CallVoidAsync("/v1.Backrest/Forget",
-                    new ForgetRequest { RepoId = repoId, PlanId = planId }, ct).ConfigureAwait(false);
-            },
-            ct, lineSink).ConfigureAwait(false);
-    }
+        CancellationToken ct, Action<string>? lineSink = null) =>
+        RunMaintenanceRpcAsync(backup, sourcePath, destination, storageName, RunKind.Prune, ct, lineSink);
 
-    /// <summary>Stand-alone integrity check. Used when the user
-    /// opts into an independent check cadence
-    /// (<see cref="Backup.CheckSchedule"/> non-null). Maps to
-    /// Backrest's <c>DoRepoTask(TaskCheck)</c>; the repo's
-    /// CheckPolicy determines whether it's a structure-only scan
-    /// or a read-data-subset verify.</summary>
-    public async Task<RunRecord> RunCheckOnlyAsync(
+    public Task<RunRecord> RunCheckOnlyAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        CancellationToken ct, Action<string>? lineSink = null)
-    {
-        return await RunMaintenanceRpcAsync(
-            backup, sourcePath, destination, storageName, RunKind.Check,
-            doRpc: async (client, repoId, planId) =>
-            {
-                await client.CallVoidAsync("/v1.Backrest/DoRepoTask",
-                    new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskCheck }, ct).ConfigureAwait(false);
-            },
-            ct, lineSink).ConfigureAwait(false);
-    }
+        CancellationToken ct, Action<string>? lineSink = null) =>
+        RunMaintenanceRpcAsync(backup, sourcePath, destination, storageName, RunKind.Check, ct, lineSink);
 
-    /// <summary>Shared scaffolding for the standalone maintenance
-    /// operations: plan + repo bootstrap, operation-event pump for
-    /// live-tail wiring, terminal-status capture, RunRecord
-    /// assembly. The only thing the caller varies is the RPC call
-    /// itself.</summary>
     private async Task<RunRecord> RunMaintenanceRpcAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        RunKind kind, Func<BackrestClient, string, string, Task> doRpc,
-        CancellationToken ct, Action<string>? lineSink)
+        RunKind kind, CancellationToken ct, Action<string>? lineSink)
     {
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
         var planId = MakePlanId(backup, sourcePath, destination, storageName);
         await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
-
         var started = DateTime.UtcNow;
-        using var pumpCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var signals = new PumpSignals();
-        var pumpTask = Task.Run(() => PumpOperationEventsAsync(
-            client, planId, lineSink, signals, pumpCts.Token), pumpCts.Token);
-
-        try
-        {
-            await doRpc(client, repoId, planId).ConfigureAwait(false);
-        }
-        catch (BackrestRpcException ex) { throw TranslateRpcError(ex, $"Standalone {kind}"); }
-
-        // Wait for the terminal event — same wait-for-truth pattern
-        // BackupPruneCheckAsync uses. On caller-cancel, ask the
-        // daemon to cancel the op too.
-        var lastStatus = "";
-        try { lastStatus = await signals.Terminal.Task.WaitAsync(ct).ConfigureAwait(false); }
-        catch (OperationCanceledException)
-        {
-            await TryCancelObservedOpAsync(client, signals).ConfigureAwait(false);
-            lastStatus = BackrestStatus.UserCancelled;
-        }
-
-        pumpCts.Cancel();
-        try { await pumpTask; }
-        catch (OperationCanceledException) { /* expected */ }
-
+        var terminal = kind == RunKind.Prune
+            ? await RunTrackedRepoRpcAsync(client, repoId, "/v1.Backrest/Forget",
+                new ForgetRequest { RepoId = repoId, PlanId = planId },
+                op => op.PlanId == planId && op.OperationForget is not null, ct, lineSink).ConfigureAwait(false)
+            : await RunTrackedRepoRpcAsync(client, repoId, "/v1.Backrest/DoRepoTask",
+                new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskCheck },
+                op => op.OperationCheck is not null, ct, lineSink).ConfigureAwait(false);
         return new RunRecord
         {
-            BackupId = backup.Id,
-            BackupName = backup.Name,
-            Kind = kind,
-            StartedUtc = started,
-            EndedUtc = DateTime.UtcNow,
-            Status = StatusFromBackrestTerminal(lastStatus),
-            Summary = string.IsNullOrEmpty(lastStatus)
-                ? $"{kind} via Backrest (no terminal event observed; marked failed to avoid silent success)"
-                : $"Backrest {kind.ToString().ToLowerInvariant()} reported {lastStatus}",
+            BackupId = backup.Id, BackupName = backup.Name, Kind = kind,
+            StartedUtc = started, EndedUtc = DateTime.UtcNow,
+            Status = StatusFromBackrestTerminal(terminal.Status),
+            Summary = $"Backrest {kind.ToString().ToLowerInvariant()} reported {terminal.Status}. {terminal.DisplayMessage}".Trim(),
         };
     }
 
-    /// <summary>Pump operation events for the lifetime of a backup
-    /// call. Filters the stream to events that belong to the plan we
-    /// just kicked off (other plans share the same daemon and emit
-    /// concurrent events; we don't want to spam our caller's live-tail
-    /// with unrelated activity). Each surfaced event becomes a
-    /// LineWritten line carrying the operation status + display
-    /// message, so subscribers (LogsViewModel, anyone holding
-    /// lineSink) see real progress in real time.</summary>
-    /// <summary>
-    /// Pump events for our plan until the first terminal status
-    /// arrives — at which point the TCS is completed so the caller
-    /// can return. Non-terminal events surface through LineWritten
-    /// + lineSink so the live-tail keeps updating; keep-alives are
-    /// filtered. If the stream dies before terminal, the TCS
-    /// completes with the empty string and the caller's
-    /// StatusFromBackrestTerminal returns Failed — the truthful
-    /// answer is "we don't know it succeeded".
-    /// </summary>
-    /// <summary>
-    /// Holds the two channels the pump publishes back to its caller:
-    ///   - <see cref="Terminal"/>: completed when the pump observes
-    ///     a terminal status for the watched plan (or the stream
-    ///     dies).
-    ///   - <see cref="OpId"/>: completed with the first observed
-    ///     op id for the watched plan. Lets the caller send
-    ///     /v1.Backrest/Cancel for the running op on user-cancel.
-    /// </summary>
-    private sealed class PumpSignals
-    {
-        public TaskCompletionSource<string> Terminal { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource<string> OpId { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-    }
+    // Task RPCs keep HTTP open until completion. Cancelling HTTP does not stop
+    // the task. Ownership lasts until a terminal state or a fail-closed guard.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _repoTaskGates = new();
 
-    private async Task PumpOperationEventsAsync(
-        BackrestClient client, string planId, Action<string>? lineSink,
-        PumpSignals signals, CancellationToken ct)
+    internal async Task<BackrestOperation> RunTrackedRepoRpcAsync<T>(BackrestClient client, string repoId,
+        string endpoint, T request, Func<BackrestOperation, bool> matches,
+        CancellationToken ct, Action<string>? lineSink = null, TimeSpan? uncertaintyTimeout = null) where T : class
     {
+        var gate = _repoTaskGates.GetOrAdd(repoId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        using var transport = new CancellationTokenSource();
+        Task? submission = null;
+        string? ownedId = null;
+        var acknowledged = false;
         try
         {
-            await foreach (var evt in client.StreamAsync<BackrestSidecar.EmptyRequest, BackrestOperationEvent>(
-                "/v1.Backrest/GetOperationEvents", new BackrestSidecar.EmptyRequest(), ct))
+            var repoGuid = await ResolveRepoGuidAsync(client, repoId, ct).ConfigureAwait(false);
+            var before = await GetRepoOperationsAsync(client, repoGuid, ct).ConfigureAwait(false);
+            var previousIds = before.Select(op => op.Id).ToHashSet(StringComparer.Ordinal);
+            ct.ThrowIfCancellationRequested();
+            submission = client.CallVoidAsync(endpoint, request, transport.Token);
+            DateTime? recoveryDeadline = null;
+            string lastStatus = "";
+            while (true)
             {
-                _log.Debug("[pump] evt: keepAlive={KeepAlive} created={Created} updated={Updated} deleted={Deleted}",
-                    evt.KeepAlive is not null,
-                    evt.CreatedOperations?.Operations?.Count ?? 0,
-                    evt.UpdatedOperations?.Operations?.Count ?? 0,
-                    evt.DeletedOperations?.Values?.Count ?? 0);
-
-                // Skip keep-alive frames — they exist for the proxy /
-                // load-balancer layer, not for end-user log surfaces.
-                if (evt.IsKeepAlive) continue;
-
-                // The OperationEvent proto is a oneof — operations
-                // arrive under createdOperations.operations[] (new
-                // operations) and updatedOperations.operations[]
-                // (state transitions of existing operations). We care
-                // about both: a backup might appear as CREATED with
-                // STATUS_PENDING then UPDATED to STATUS_INPROGRESS
-                // and finally STATUS_SUCCESS, all on the same op id.
-                foreach (var op in evt.GetAllOperations())
+                if ((ct.IsCancellationRequested || submission.IsFaulted || submission.IsCanceled) && recoveryDeadline is null)
+                    recoveryDeadline = DateTime.UtcNow + (uncertaintyTimeout ?? TimeSpan.FromSeconds(30));
+                IReadOnlyList<BackrestOperation>? operations = null;
+                try
                 {
-                    _log.Debug("[pump] op: id={Id} planId={PlanId} status={Status} want={Want}",
-                        op.Id, op.PlanId, op.Status, planId);
-                    if (!string.Equals(op.PlanId, planId, StringComparison.Ordinal)) continue;
-
-                    // First-seen op id wins — TrySetResult is a no-op
-                    // after the first hit. This is what the caller
-                    // sends to /v1.Backrest/Cancel on user-cancel.
-                    signals.OpId.TrySetResult(op.Id);
-
-                    var line = $"[backrest] op={op.Id} status={op.Status} {op.DisplayMessage}".TrimEnd();
-                    RaiseLineWritten(line);
-                    lineSink?.Invoke(line);
-                    if (IsTerminalStatus(op.Status))
+                    using var probe = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    operations = await GetRepoOperationsAsync(client, repoGuid, probe.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _log.Debug(ex, "Could not poll repository operation");
+                    recoveryDeadline ??= DateTime.UtcNow + (uncertaintyTimeout ?? TimeSpan.FromSeconds(30));
+                }
+                var owned = operations?.FirstOrDefault(op => ownedId is not null ? op.Id == ownedId :
+                    !previousIds.Contains(op.Id) && matches(op));
+                if (owned is not null)
+                {
+                    ownedId = owned.Id;
+                    if (!ct.IsCancellationRequested && !submission.IsFaulted && !submission.IsCanceled)
+                        recoveryDeadline = null;
+                    if (lastStatus != owned.Status)
                     {
-                        signals.Terminal.TrySetResult(op.Status);
-                        return;
+                        lastStatus = owned.Status;
+                        var line = $"[backrest] op={owned.Id} status={owned.Status} {owned.DisplayMessage}".TrimEnd();
+                        RaiseLineWritten(line);
+                        lineSink?.Invoke(line);
+                    }
+                    if (IsTerminalStatus(owned.Status))
+                    {
+                        await DrainFollowUpOperationsAsync(client, repoGuid, previousIds, ct).ConfigureAwait(false);
+                        acknowledged = true;
+                        return owned;
+                    }
+                    if (ct.IsCancellationRequested)
+                    {
+                        await TrySendCancelAsync(client, owned.Id).ConfigureAwait(false);
+                        using var acknowledgement = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                        var terminal = await WaitForOperationTerminalAsync(client, owned.Id, acknowledgement.Token, lineSink).ConfigureAwait(false);
+                        await DrainFollowUpOperationsAsync(client, repoGuid, previousIds, ct).ConfigureAwait(false);
+                        acknowledged = true;
+                        return terminal;
                     }
                 }
+                else if (operations is not null && submission.IsCompleted &&
+                    (submission.IsCompletedSuccessfully || submission.Exception?.GetBaseException() is BackrestRpcException))
+                {
+                    acknowledged = true;
+                    await submission.ConfigureAwait(false);
+                    throw new IOException("The backup engine finished without recording the requested operation.");
+                }
+                if (recoveryDeadline is not null && DateTime.UtcNow >= recoveryDeadline.Value)
+                    throw new IOException("The backup engine could not confirm that the repository operation stopped.");
+                await Task.Delay(150).ConfigureAwait(false);
             }
-            // Stream closed before terminal — treat as "we didn't see
-            // the daemon say success" and let the caller decide.
-            signals.Terminal.TrySetResult("");
-        }
-        catch (OperationCanceledException)
-        {
-            signals.Terminal.TrySetResult("STATUS_USER_CANCELLED");
-        }
-        catch (Exception ex)
-        {
-            // A stream failure should not bring down the whole backup.
-            // The orchestrator already has its own retry / status
-            // detection; logging here lets us see WHY the live-tail
-            // went quiet without burying the backup's outcome.
-            _log.Warning(ex, "GetOperationEvents pump exited with an error; live-tail will be stale until the next backup");
-            signals.Terminal.TrySetResult("");
         }
         finally
         {
-            // Defence-in-depth: if neither path completed OpId
-            // (stream closed before the first event), still complete
-            // it so a caller awaiting it doesn't hang.
-            signals.OpId.TrySetResult("");
+            if (submission is not null && !acknowledged)
+            {
+                if (ownedId is not null)
+                {
+                    await TrySendCancelAsync(client, ownedId).ConfigureAwait(false);
+                    using var acknowledgement = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    try { await WaitForOperationTerminalAsync(client, ownedId, acknowledgement.Token).ConfigureAwait(false); acknowledged = true; }
+                    catch { }
+                }
+                if (!acknowledged)
+                    ServiceLocator.Maintenance.BlockUntilRestart("The backup engine did not confirm that a repository operation stopped. Restart Backspace before continuing.");
+            }
+            transport.Cancel();
+            if (submission is not null) try { await submission.ConfigureAwait(false); } catch { }
+            gate.Release();
         }
     }
 
-    /// <summary>
-    /// Send /v1.Backrest/Cancel for an op id. Best-effort: the daemon
-    /// may have already finished the op, the RPC may be unreachable,
-    /// the caller is already in a cancellation path. We log + swallow
-    /// — the orchestrator will mark the cell Skipped regardless.
-    /// </summary>
+    private async Task DrainFollowUpOperationsAsync(BackrestClient client, string repoGuid,
+        HashSet<string> previousIds, CancellationToken callerToken)
+    {
+        DateTime? uncertaintyDeadline = null;
+        while (true)
+        {
+            if (callerToken.IsCancellationRequested) uncertaintyDeadline ??= DateTime.UtcNow.AddSeconds(30);
+            try
+            {
+                using var probe = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var operations = await GetRepoOperationsAsync(client, repoGuid, probe.Token).ConfigureAwait(false);
+                // Backup creates index/retention/stat jobs before its terminal
+                // event. The per-repository gate excludes our other task RPCs;
+                // pre-existing work and unrelated RunCommand restores are not
+                // owned by this call and must never be cancelled here.
+                var pending = operations.Where(op => !previousIds.Contains(op.Id) &&
+                    (op.OperationRunCommand is null || string.IsNullOrEmpty(op.OperationRunCommand.Command)) &&
+                    !IsTerminalStatus(op.Status)).ToArray();
+                if (pending.Length == 0) return;
+                if (callerToken.IsCancellationRequested)
+                    foreach (var operation in pending) await TrySendCancelAsync(client, operation.Id).ConfigureAwait(false);
+                else uncertaintyDeadline = null;
+            }
+            catch (Exception ex)
+            {
+                _log.Debug(ex, "Waiting for repository follow-up tasks to stop");
+                uncertaintyDeadline ??= DateTime.UtcNow.AddSeconds(30);
+            }
+            if (uncertaintyDeadline is not null && DateTime.UtcNow >= uncertaintyDeadline)
+            {
+                const string reason = "The backup engine did not confirm that repository cleanup stopped. Restart Backspace before continuing.";
+                ServiceLocator.Maintenance.BlockUntilRestart(reason);
+                throw new IOException(reason);
+            }
+            await Task.Delay(150).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<string> ResolveRepoGuidAsync(BackrestClient client, string repoId, CancellationToken ct)
+    {
+        if (_repoGuidCache.TryGetValue(repoId, out var cached) && !string.IsNullOrEmpty(cached)) return cached;
+        var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
+            "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
+        var guid = config.Repos.FirstOrDefault(repo => repo.Id == repoId)?.Guid;
+        if (string.IsNullOrEmpty(guid)) throw new IOException("The backup engine could not identify this repository.");
+        _repoGuidCache[repoId] = guid;
+        return guid;
+    }
+
+    private static async Task<IReadOnlyList<BackrestOperation>> GetRepoOperationsAsync(
+        BackrestClient client, string repoGuid, CancellationToken ct)
+    {
+        var result = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
+            "/v1.Backrest/GetOperations", new GetOperationsRequest
+            {
+                Selector = new OpSelector { RepoGuid = repoGuid }, LastN = 256,
+            }, ct).ConfigureAwait(false);
+        return result.Operations ?? new List<BackrestOperation>();
+    }
+
     private async Task TrySendCancelAsync(BackrestClient client, string opId)
     {
         if (string.IsNullOrEmpty(opId) || opId == "0") return;
         try
         {
             using var cancelCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            await client.CallVoidAsync("/v1.Backrest/Cancel",
-                new Int64Value { Value = opId }, cancelCts.Token).ConfigureAwait(false);
-            _log.Information("Sent /v1.Backrest/Cancel for op {Op}", opId);
+            await client.CallVoidAsync("/v1.Backrest/Cancel", new Int64Value { Value = opId }, cancelCts.Token).ConfigureAwait(false);
         }
-        catch (Exception ex)
-        {
-            _log.Debug(ex, "Cancel RPC for op {Op} threw (best-effort, ignoring)", opId);
-        }
-    }
-
-    /// <summary>
-    /// On user-cancel, send /v1.Backrest/Cancel for the op id the pump
-    /// observed — or wait briefly for it to arrive if the cancel landed
-    /// in the narrow window between Backup RPC return and the first
-    /// operation event. Without this short wait, a Stop click that fires
-    /// just after the daemon enqueues the op (but before it publishes
-    /// the first event) leaves the daemon running the backup in the
-    /// background while Backspace reports the cell Skipped. 500ms is
-    /// enough headroom for the daemon to publish the op id in normal
-    /// operation; longer would punish the user's Stop responsiveness.
-    /// </summary>
-    private async Task TryCancelObservedOpAsync(BackrestClient client, PumpSignals signals)
-    {
-        string opId;
-        if (signals.OpId.Task.IsCompletedSuccessfully)
-        {
-            opId = signals.OpId.Task.Result;
-        }
-        else
-        {
-            try
-            {
-                using var brief = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
-                opId = await signals.OpId.Task.WaitAsync(brief.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                _log.Warning("User-cancel landed before any op event arrived; daemon op may continue in background.");
-                return;
-            }
-        }
-        await TrySendCancelAsync(client, opId).ConfigureAwait(false);
+        catch (Exception ex) { _log.Debug(ex, "Cancel request for operation {Operation} failed; awaiting terminal state", opId); }
     }
 
     /// <summary>
@@ -552,6 +386,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         BackrestStatus.Warning       => BackupRunStatus.Warning,
         BackrestStatus.Error         => BackupRunStatus.Failed,
         BackrestStatus.UserCancelled => BackupRunStatus.Skipped,
+        BackrestStatus.SystemCancelled => BackupRunStatus.Skipped,
         _                            => BackupRunStatus.Failed,
     };
 
@@ -627,8 +462,12 @@ public sealed class ResticBackrestEngine : IBackupEngine
         foreach (var f in collected)
         {
             var p = f.Path;
-            if (!string.IsNullOrEmpty(srcRel) && p.StartsWith(srcRel, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(srcRel))
+            {
+                // A similarly named sibling (source-old) is not inside source.
+                if (!p.StartsWith(srcRel.TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase)) continue;
                 p = p.Substring(srcRel.Length).TrimStart('/');
+            }
             rebased.Add(new RevisionFile(p, f.SizeBytes, f.ModifiedUtc));
         }
         rebased.Sort((a, b) => string.CompareOrdinal(a.Path, b.Path));
@@ -955,288 +794,401 @@ public sealed class ResticBackrestEngine : IBackupEngine
     {
         if (includePatterns.Count == 0)
             return new RestoreOpResult(0, 0, 0, 0, RestoreTerminalStatus.Success, null);
-
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
-        var (snapshotId, _) = await ResolveSnapshotIdAsync(
+        var (snapshotId, repoGuid) = await ResolveSnapshotIdAsync(
             backup, sourcePath, destination, storageName, revision, ct).ConfigureAwait(false);
-
         Directory.CreateDirectory(targetPath);
         var repoId = MakeRepoId(destination, storageName);
         var srcPrefix = SourcePathToSnapshotPrefix(sourcePath);
+        var includes = includePatterns.Select(NormalizeRestoreRelativePath).ToArray();
+        var exact = expectedLeaves?.Select(NormalizeRestoreRelativePath)
+            .ToHashSet(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
-        // RESTORE STRATEGY — use restic's documented
-        // <c>snapshotID:subfolder</c> literal-path syntax, NOT the
-        // glob-based <c>--include</c> patterns the legacy code was
-        // generating. The subfolder syntax sidesteps two pre-existing
-        // bugs in the restic / Backrest stack on Windows:
-        //
-        //   1. <c>restic --include</c> uses Go's <c>filepath.Match</c>,
-        //      which on Windows disables backslash escapes (<c>\</c>
-        //      is treated as a path separator) AND rejects POSIX
-        //      class-self-escape <c>[[]…[]]</c> with
-        //      "invalid pattern(s) provided". So a file literally
-        //      named <c>"Q3 [draft].pdf"</c> CANNOT be matched by any
-        //      <c>--include</c> pattern on Windows — the brackets
-        //      always parse as a glob character class. Backrest's own
-        //      <c>escapeGlob</c> in repo.go:457 hits this and returns
-        //      the base verbatim on Windows ("escaping is not
-        //      supported on Windows"), then silently produces zero
-        //      matches.
-        //
-        //   2. <c>restic restore --include /full/path --target T</c>
-        //      reconstructs the full absolute source path under T,
-        //      preserving each intermediate directory's original NTFS
-        //      ACL. For sources under <c>C:\Users\&lt;user&gt;</c>
-        //      (the typical case), the literal <c>T\C\Users</c>
-        //      mirror inherits the read-only ACL of real
-        //      <c>C:\Users</c> and blocks creation of
-        //      <c>T\C\Users\&lt;user&gt;</c> beneath it. Per-file
-        //      include hits this trap immediately.
-        //
-        // The <c>snapshotID:subfolder</c> syntax avoids BOTH because:
-        //   - It's a literal path, NOT a glob: brackets / asterisks /
-        //     question marks in folder names round-trip exactly.
-        //   - Restic strips the prefix and lays the subfolder content
-        //     at the top of <c>--target</c>: no <c>\C\Users\</c>
-        //     mirror, no ACL inheritance, no staging dir needed.
-        //
-        // Caller contract: <paramref name="files"/> is a list of
-        // SOURCE-RELATIVE file paths (the shape every RevisionFile
-        // exposes). We issue ONE restic call rooted at the source
-        // prefix (<c>snapshotID:srcPrefix</c>), with one
-        // <c>--include /&lt;rel&gt;</c> per requested file. The
-        // include patterns are interpreted RELATIVE to the
-        // <c>snapshotID:subfolder</c> per restic's documented
-        // behavior, so a request for <c>letter_00/note.txt</c>
-        // becomes <c>--include /letter_00/note.txt</c> and restic
-        // drops it at <c>&lt;target&gt;/letter_00/note.txt</c> —
-        // exactly the layout the caller expects.
-        //
-        // Bracket-fallback: if ANY requested file's path contains
-        // <c>[</c> or <c>]</c> (the Windows-restic upstream gap —
-        // see AGENT.md and docs/backrest-upstream-bracket-bug.md),
-        // we omit <c>--include</c>. Restic then restores the whole
-        // source subfolder; the engine's post-restore filter sweeps
-        // any files the caller didn't ask for. This is the only
-        // non-vanilla path; in the typical case (no brackets in any
-        // selected path) the restore is exact and one-shot.
-        // expectedLeaves drives the bracket-fallback sweep: when the
-        // include pattern uses `?` substitution to dodge the Windows
-        // bracket bug, restic over-fetches same-length siblings, and
-        // we delete anything not in this set after the restore. When
-        // expectedLeaves is null (no caller-provided leaf list), we
-        // skip the sweep — the caller accepts whatever restic emits.
-        var expectedLeavesSet = expectedLeaves is null
-            ? null
-            : new HashSet<string>(
-                expectedLeaves.Select(f => f.Replace('\\', '/').TrimStart('/')),
-                StringComparer.Ordinal);
-        var includeRelSet = new HashSet<string>(
-            includePatterns.Select(p => p.Replace('\\', '/').TrimStart('/')),
-            StringComparer.Ordinal);
-        var anyBracketRel = includeRelSet.Any(HasGlobMetachars);
-
-        var snapshotSubfolder = string.IsNullOrEmpty(srcPrefix) ? "/" : "/" + srcPrefix;
-
-        // Build the include-pattern list as plain strings — written to a
-        // temp file and passed as a single `--include-file <path>` flag
-        // rather than N per-file `--include` args. Windows' CreateProcess
-        // caps a process' combined command line at ~32 KB; a real-world
-        // restore of a few thousand files (each pattern ~40 bytes once
-        // anchored + escaped) easily crosses that and fails to launch
-        // with "The filename or extension is too long" — see
-        // tests/Backspace.Tests/Scenarios/E2E/E34_RestoreLongIncludeList.cs
-        // for the regression test. Using --include-file is also slightly
-        // tidier for the engine log (one quoted path instead of a wall
-        // of --include flags) and is restic-native (no Backrest detour).
-        // Bracket-fallback (see docs/GOTCHAS.md and
-        // docs/backrest-upstream-bracket-bug.md): substitute `[` and
-        // `]` with `?` when any pattern contains brackets. NTFS forbids
-        // `*` and `?` in real filenames so the wildcard can't collide
-        // with a sibling whose name matches exactly; same-length
-        // siblings may over-match, post-restore sweep removes them.
-        IReadOnlyList<string> resticIncludeFileLines = anyBracketRel
-            ? includeRelSet.Select(rel => "/" + SubstituteBracketsWithQuestionMark(rel)).ToList()
-            : includeRelSet.Select(rel => "/" + rel).ToList();
-
-        var includeFile = Path.Combine(Path.GetTempPath(),
-            $"backspace-restore-include-{Guid.NewGuid():N}.txt");
-        await File.WriteAllLinesAsync(includeFile, resticIncludeFileLines, ct).ConfigureAwait(false);
-
-        var sb = new System.Text.StringBuilder();
-        sb.Append("restore ");
-        sb.Append(QuoteArg(snapshotId + ":" + snapshotSubfolder));
-        sb.Append(" --target ").Append(QuoteArg(targetPath));
-        // --json: restic emits one JSON object per progress + final
-        // {message_type:"summary"} line carrying files_restored,
-        // files_skipped, errors counts. The summary is what we parse
-        // post-termination to distinguish a real failure (errors>0)
-        // from a metadata-only failure (exit-1 with errors=0 — restic
-        // wrote every byte but couldn't preserve some mtime/ACL).
-        // Without --json we'd be stuck with the conservative
-        // "always Warning on exit-1" heuristic.
-        sb.Append(" --json");
-        if (backup.BandwidthLimitKBps > 0)
-            sb.Append(" --limit-download ")
-              .Append(backup.BandwidthLimitKBps.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        sb.Append(" --include-file ").Append(QuoteArg(includeFile));
-
-        var cmd = sb.ToString();
-        RestoreTerminalStatus terminalStatus;
-        string? errorMessage = null;
-        long opId = 0;
+        // Never restore wildcard overmatches into an occupied destination or
+        // infer success from a file that existed before this operation. Stage
+        // on the target volume, then move only requested output into place.
+        var staging = Path.Combine(targetPath, ".backspace-restore-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(staging);
+        var includeFile = Path.Combine(Path.GetTempPath(), $"backspace-restore-include-{Guid.NewGuid():N}.txt");
+        var safeToCleanup = true;
+        string? opId = null;
+        var status = RestoreTerminalStatus.Error;
+        string? error = null;
+        int restored = 0;
+        long restoredBytes = 0;
+        var total = exact?.Count ?? 0;
+        long totalBytes = 0;
+        using var logCts = new CancellationTokenSource();
+        using var submissionCts = new CancellationTokenSource();
+        Task<string>? logTask = null;
+        Task<Int64Value>? submission = null;
         try
         {
-            var op = await client.CallAsync<RunCommandRequest, Int64Value>(
-                "/v1.Backrest/RunCommand",
-                new RunCommandRequest { RepoId = repoId, Command = cmd },
-                ct).ConfigureAwait(false);
-            if (op is null)
+            await File.WriteAllLinesAsync(includeFile,
+                includes.Select(p => "/" + SubstituteBracketsWithQuestionMark(p)), ct).ConfigureAwait(false);
+            var command = new System.Text.StringBuilder("restore ")
+                .Append(QuoteArg(snapshotId + ":/" + srcPrefix))
+                .Append(" --target ").Append(QuoteArg(staging))
+                .Append(" --json --quiet --include-file ").Append(QuoteArg(includeFile));
+            // Quiet JSON retains the final summary and errors but suppresses
+            // periodic/per-file output. Thus a healthy multi-day restore cannot
+            // overflow Backrest's 2 MB command log merely because time passed.
+            if (backup.BandwidthLimitKBps > 0)
+                command.Append(" --limit-download ").Append(backup.BandwidthLimitKBps);
+            ct.ThrowIfCancellationRequested();
+            // RunCommand is synchronous: its HTTP response comes only AFTER
+            // restic exits, and an error response contains no operation id.
+            // Discover the operation by this unique command while the request
+            // remains pending so progress and cancellation work during the run.
+            safeToCleanup = false;
+            submission = client.CallAsync<RunCommandRequest, Int64Value>(
+                "/v1.Backrest/RunCommand", new RunCommandRequest { RepoId = repoId, Command = command.ToString() }, submissionCts.Token);
+            opId = await DiscoverRunCommandOperationAsync(client, repoGuid, command.ToString(), submission,
+                ct, () => safeToCleanup = true).ConfigureAwait(false);
+            BackrestOperation? terminal = null;
+            try
             {
-                terminalStatus = RestoreTerminalStatus.Error;
-                errorMessage = "Backrest RunCommand returned no operation id";
+                terminal = await WaitForOperationTerminalAsync(client, opId, ct, observed: op =>
+                {
+                    var logRef = op.OperationRunCommand?.OutputLogref;
+                    if (logTask is null && !string.IsNullOrEmpty(logRef))
+                        logTask = CaptureRestoreLogAsync(client, logRef, onProgress, logCts.Token, exact, staging);
+                }).ConfigureAwait(false);
+                safeToCleanup = true;
             }
-            else
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                opId = long.Parse(op.Value, System.Globalization.CultureInfo.InvariantCulture);
-                await WaitForOperationTerminalAsync(client, op.Value, ct).ConfigureAwait(false);
-                terminalStatus = RestoreTerminalStatus.Success;
+                // Cancellation of the caller's HTTP wait does not cancel a
+                // queued daemon operation. Use an independent cleanup token.
+                await TrySendCancelAsync(client, opId).ConfigureAwait(false);
+                using var acknowledgement = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                try
+                {
+                    terminal = await WaitForOperationTerminalAsync(client, opId, acknowledgement.Token).ConfigureAwait(false);
+                    safeToCleanup = true;
+                }
+                catch (Exception ex)
+                {
+                    error = $"The backup engine did not confirm that restore stopped. Temporary output is kept at {staging}. Restart Backspace before running other operations.";
+                    ServiceLocator.Maintenance.BlockUntilRestart(error);
+                    _log.Warning(ex, "Restore cancellation acknowledgement failed for {Operation}", opId);
+                }
+            }
+            if (terminal is not null)
+            {
+                status = ct.IsCancellationRequested ? RestoreTerminalStatus.Cancelled : terminal.Status switch
+                {
+                    BackrestStatus.Success => RestoreTerminalStatus.Success,
+                    BackrestStatus.Warning => RestoreTerminalStatus.Warning,
+                    BackrestStatus.UserCancelled or BackrestStatus.SystemCancelled => RestoreTerminalStatus.Cancelled,
+                    _ => RestoreTerminalStatus.Error,
+                };
+                error = status == RestoreTerminalStatus.Success ? null :
+                    string.IsNullOrWhiteSpace(terminal.DisplayMessage) ? $"Restore ended with {status}." : terminal.DisplayMessage;
+            }
+
+            string captured = "";
+            if (logTask is not null && safeToCleanup)
+            {
+                try { captured = await logTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
+                catch (Exception ex) { _log.Debug(ex, "Restore log tail did not finish"); }
+            }
+            ParseResticRestoreSummary(captured, out var completedFiles, out var completedBytes,
+                out var reportedTotal, out totalBytes, out var errors);
+            totalBytes = Math.Max(0, totalBytes);
+            if (exact is null && reportedTotal >= 0) total = (int)Math.Min(int.MaxValue, reportedTotal);
+
+            // A success summary never overrides a backend error or cancellation.
+            // Metadata warnings remain warnings even when all content recovered.
+            var leaves = safeToCleanup ? EnumerateRestoreLeaves(staging).ToArray() : Array.Empty<string>();
+            // Restic summary "files" includes directories and its byte total
+            // deduplicates hardlinks, so neither equals our leaf-file counts.
+            // A partial recovery after ERROR requires explicit completion for
+            // every produced leaf, with no error for that leaf, plus a final
+            // summary. An incomplete/preallocated file never replaces originals.
+            var completedLeaves = ParseCompletedRestoreLeaves(captured);
+            var stagedDirectories = CountRestoreDirectories(staging);
+            var allOutputConfirmed = completedFiles == leaves.Length + stagedDirectories &&
+                completedBytes >= 0 && completedBytes == totalBytes;
+            if (status == RestoreTerminalStatus.Error && reportedTotal >= 0 && leaves.Length > 0 &&
+                (allOutputConfirmed || leaves.All(path => completedLeaves.Contains(Path.GetRelativePath(staging, path).Replace('\\', '/')))))
+                status = RestoreTerminalStatus.Warning;
+            if (safeToCleanup && status is RestoreTerminalStatus.Success or RestoreTerminalStatus.Warning)
+            {
+                var output = leaves.Where(path =>
+                {
+                    var relative = Path.GetRelativePath(staging, path).Replace('\\', '/');
+                    return exact?.Contains(relative) ?? includes.Any(p => p.Length == 0 || relative == p || relative.StartsWith(p.TrimEnd('/') + "/", StringComparison.Ordinal));
+                }).ToArray();
+                if (exact is null && total == 0) total = output.Length;
+                foreach (var path in output)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var relative = Path.GetRelativePath(staging, path);
+                    var destinationPath = SafeRestorePath(targetPath, relative);
+                    Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+                    var attributes = File.GetAttributes(path);
+                    var isDirectory = (attributes & FileAttributes.Directory) != 0;
+                    if (isDirectory)
+                        Directory.Move(path, destinationPath); // directory symlink: do not traverse
+                    else
+                    {
+                        var length = (attributes & FileAttributes.ReparsePoint) == 0 ? new FileInfo(path).Length : 0;
+                        File.Move(path, destinationPath, overwrite: true);
+                        restoredBytes += length;
+                    }
+                    restored++;
+                }
+                if (status == RestoreTerminalStatus.Success && (errors > 0 || restored < total))
+                {
+                    status = restored == 0 ? RestoreTerminalStatus.Error : RestoreTerminalStatus.Warning;
+                    error = $"Recovered {restored} of {total} requested files. {Math.Max(errors, total - restored)} item(s) could not be restored.";
+                }
+                if (status == RestoreTerminalStatus.Success && restored == 0)
+                {
+                    status = RestoreTerminalStatus.Error;
+                    error = "The backup engine completed without producing any requested files.";
+                }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (safeToCleanup)
         {
-            terminalStatus = RestoreTerminalStatus.Cancelled;
-            errorMessage = "Restore cancelled by user";
+            status = RestoreTerminalStatus.Cancelled;
+            error = "Restore cancelled.";
         }
-        catch (BackrestRpcException ex)
+        catch (Exception ex)
         {
-            // Restic exits 1 on metadata-only failures (timestamp set
-            // / ACL apply on intermediate dirs) AND on real failures.
-            // We start with the conservative Warning classification +
-            // restic's message verbatim; the JSON-summary drain below
-            // tightens this when restic's --json summary actually
-            // reports zero errors (→ Success with metadata-only
-            // warning), or non-zero errors with zero files restored
-            // (→ Error). Without --json we'd be stuck always-Warning.
-            if (ex.Message.Contains("exit status 1", StringComparison.OrdinalIgnoreCase))
+            status = RestoreTerminalStatus.Error;
+            error = ex.Message;
+            if (!safeToCleanup && opId is not null)
             {
-                terminalStatus = RestoreTerminalStatus.Warning;
-                errorMessage = ex.Message;
+                await TrySendCancelAsync(client, opId).ConfigureAwait(false);
+                using var acknowledgement = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                try
+                {
+                    await WaitForOperationTerminalAsync(client, opId, acknowledgement.Token).ConfigureAwait(false);
+                    safeToCleanup = true;
+                }
+                catch
+                {
+                    error += $" Engine stop is unconfirmed; temporary output is retained at {staging}. Restart Backspace before continuing.";
+                    ServiceLocator.Maintenance.BlockUntilRestart(error);
+                }
             }
-            else
+            else if (!safeToCleanup)
             {
-                throw TranslateRpcError(ex, "Restore");
+                error += $" Submission could not be confirmed. Temporary output is retained at {staging}; restart Backspace before continuing.";
+                ServiceLocator.Maintenance.BlockUntilRestart(error);
             }
         }
         finally
         {
-            try { File.Delete(includeFile); } catch { /* best-effort */ }
+            // Terminal acknowledgement, or the fail-closed ownership guard,
+            // controls cleanup. Cancelling this transport never stops restic.
+            submissionCts.Cancel();
+            if (submission is not null) try { await submission.ConfigureAwait(false); } catch { }
+            logCts.Cancel();
+            if (logTask is not null) try { await logTask.ConfigureAwait(false); } catch { }
+            if (safeToCleanup)
+            {
+                try { File.Delete(includeFile); } catch { }
+                try { DeleteRestoreStaging(staging); } catch (Exception ex) { _log.Debug(ex, "Restore staging cleanup failed"); }
+            }
         }
+        onProgress?.Invoke(new RestoreProgressUpdate(total, restored, Math.Max(totalBytes, restoredBytes), restoredBytes,
+            total == 0 ? 0 : (double)restored / total));
+        return new RestoreOpResult(total, restored, Math.Max(totalBytes, restoredBytes), restoredBytes, status, error);
+    }
 
-        // Drain restic's --json summary line from Backrest's captured
-        // stdout via GetLogs. Restic emits ONE
-        // {"message_type":"summary"} line at the very end with the
-        // structured counts:
-        //   {files_restored, files_skipped, files_unchanged,
-        //    bytes_restored, total_files, total_bytes, errors, ...}
-        // Best-effort: if the drain fails or the summary isn't
-        // present, we fall back to the pre-drain classification
-        // (Warning with restic's stderr) and the pattern-count
-        // approximation below.
-        long jsonFilesRestored = -1;
-        long jsonBytesRestored = -1;
-        long jsonTotalFiles = -1;
-        long jsonTotalBytes = -1;
-        long jsonErrors = -1;
-        if (opId > 0)
+    private async Task<string> DiscoverRunCommandOperationAsync(BackrestClient client, string repoGuid,
+        string command, Task<Int64Value> submission, CancellationToken callerToken, Action rejectedBeforeRun)
+    {
+        DateTime? ownershipDeadline = null;
+        while (true)
+        {
+            if (submission.IsCompletedSuccessfully && !string.IsNullOrWhiteSpace(submission.Result.Value))
+                return submission.Result.Value;
+            // This deadline bounds only ownership recovery after a cancellation
+            // or transport failure. It is never a restore-duration timeout.
+            if ((callerToken.IsCancellationRequested || submission.IsFaulted || submission.IsCanceled) && ownershipDeadline is null)
+                ownershipDeadline = DateTime.UtcNow.AddSeconds(30);
+            try
+            {
+                using var probe = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var operations = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
+                    "/v1.Backrest/GetOperations", new GetOperationsRequest
+                    {
+                        Selector = new OpSelector { RepoGuid = repoGuid }, LastN = 256,
+                    }, probe.Token).ConfigureAwait(false);
+                var owned = operations.Operations?.FirstOrDefault(op =>
+                    string.Equals(op.OperationRunCommand?.Command, command, StringComparison.Ordinal));
+                if (owned is not null) return owned.Id;
+                // A completed application-level response plus a successful
+                // operation-log query proves the handler rejected this command
+                // before it created an operation. Network loss cannot prove it.
+                if (submission.IsFaulted && submission.Exception?.GetBaseException() is BackrestRpcException)
+                {
+                    rejectedBeforeRun();
+                    return (await submission.ConfigureAwait(false)).Value;
+                }
+            }
+            catch (Exception ex) when (ex is not BackrestRpcException || !submission.IsFaulted)
+            {
+                _log.Debug(ex, "Waiting to discover the restore operation");
+                ownershipDeadline ??= DateTime.UtcNow.AddSeconds(30);
+            }
+            if (ownershipDeadline is not null && DateTime.UtcNow >= ownershipDeadline.Value)
+                throw new IOException("The backup engine could not confirm ownership of the restore operation.");
+            await Task.Delay(100).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<string> CaptureRestoreLogAsync(BackrestClient client, string logRef,
+        Action<RestoreProgressUpdate>? progress, CancellationToken ct, HashSet<string>? expected = null, string? staging = null)
+    {
+        var captured = new System.Text.StringBuilder();
+        var pending = new System.Text.StringBuilder();
+        var decoder = System.Text.Encoding.UTF8.GetDecoder();
+        await foreach (var chunk in client.StreamAsync<GetLogsRequest, RestoreLogChunk>(
+            "/v1.Backrest/GetLogs", new GetLogsRequest { Ref = logRef }, ct).ConfigureAwait(false))
+        {
+            // GetLogs returns protobuf BytesValue (base64 in JSON), not
+            // StringValue. Decode UTF-8 across chunk boundaries before parsing.
+            var chars = new char[System.Text.Encoding.UTF8.GetMaxCharCount(chunk.Value.Length)];
+            var count = decoder.GetChars(chunk.Value, 0, chunk.Value.Length, chars, 0, flush: false);
+            captured.Append(chars, 0, count);
+            pending.Append(chars, 0, count);
+            var text = pending.ToString();
+            var end = text.LastIndexOf('\n');
+            if (end < 0) continue;
+            foreach (var line in text[..(end + 1)].Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                RaiseLineWritten(line);
+                if (TryParseRestoreProgress(line, out var update))
+                {
+                    if (expected is not null)
+                    {
+                        // Summary counts include directories. Subtract every
+                        // created ordinary directory; even if its metadata is
+                        // unfinished this remains a conservative leaf count.
+                        var directories = staging is null ? 0 : CountRestoreDirectories(staging);
+                        update = update with { TotalFiles = expected.Count,
+                            FilesRestored = Math.Clamp(update.FilesRestored - directories, 0, expected.Count) };
+                    }
+                    progress?.Invoke(update);
+                }
+            }
+            pending.Clear().Append(text[(end + 1)..]);
+        }
+        if (pending.Length > 0 && TryParseRestoreProgress(pending.ToString(), out var last)) progress?.Invoke(last);
+        return captured.ToString();
+    }
+
+    private sealed class RestoreLogChunk
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("value")]
+        public byte[] Value { get; set; } = Array.Empty<byte>();
+    }
+
+    internal static bool TryParseRestoreProgress(string line, out RestoreProgressUpdate progress)
+    {
+        progress = default!;
+        try
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(line);
+            var root = json.RootElement;
+            if (!root.TryGetProperty("message_type", out var type) || type.GetString() is not ("status" or "summary")) return false;
+            long Read(string name) => root.TryGetProperty(name, out var p) && p.TryGetInt64(out var n) ? n : 0;
+            var total = Read("total_files");
+            var restored = Read("files_restored") + Read("files_skipped");
+            var bytes = Read("bytes_restored") + Read("bytes_skipped");
+            var fraction = root.TryGetProperty("percent_done", out var done) ? done.GetDouble() : total == 0 ? 0 : (double)restored / total;
+            progress = new RestoreProgressUpdate((int)total, (int)restored, Read("total_bytes"), bytes, Math.Clamp(fraction, 0, 1));
+            return true;
+        }
+        catch (System.Text.Json.JsonException) { return false; }
+    }
+
+    internal static HashSet<string> ParseCompletedRestoreLeaves(string output)
+    {
+        var completed = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var failed = new HashSet<string>(completed.Comparer);
+        foreach (var line in output.Split('\n'))
         {
             try
             {
-                var opResp = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
-                    "/v1.Backrest/GetOperations",
-                    new GetOperationsRequest { Selector = new OpSelector { Ids = new[] { opId.ToString() } } },
-                    ct).ConfigureAwait(false);
-                var logRef = opResp.Operations?.FirstOrDefault()?.OperationRunCommand?.OutputLogref;
-                if (!string.IsNullOrEmpty(logRef))
-                {
-                    var summary = new System.Text.StringBuilder();
-                    await foreach (var chunk in client.StreamAsync<GetLogsRequest, StringValue>(
-                        "/v1.Backrest/GetLogs",
-                        new GetLogsRequest { Ref = logRef! }, ct).ConfigureAwait(false))
-                    {
-                        if (!string.IsNullOrEmpty(chunk.Value)) summary.Append(chunk.Value);
-                    }
-                    ParseResticRestoreSummary(summary.ToString(),
-                        out jsonFilesRestored, out jsonBytesRestored,
-                        out jsonTotalFiles, out jsonTotalBytes,
-                        out jsonErrors);
-                }
+                using var doc = System.Text.Json.JsonDocument.Parse(line);
+                var item = doc.RootElement;
+                if (!item.TryGetProperty("item", out var path) || path.ValueKind != System.Text.Json.JsonValueKind.String) continue;
+                var relative = NormalizeRestoreRelativePath(path.GetString()!);
+                var type = item.GetProperty("message_type").GetString();
+                if (type == "error") failed.Add(relative);
+                else if (type == "verbose_status" && item.TryGetProperty("action", out var action) &&
+                    action.GetString() is "restored" or "updated" or "unchanged") completed.Add(relative);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException) { }
+        }
+        completed.ExceptWith(failed);
+        return completed;
+    }
+
+    private static int CountRestoreDirectories(string root)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
+        var count = 0;
+        while (pending.Count > 0)
+        {
+            foreach (var directory in Directory.EnumerateDirectories(pending.Pop()))
             {
-                _log.Debug(ex, "Restore log drain via GetLogs failed; falling back to coarse classification");
+                if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) continue;
+                count++;
+                pending.Push(directory);
             }
         }
+        return count;
+    }
 
-        // Reclassify based on the JSON summary if we got one.
-        //   errors == 0  → Success regardless of exit code (restic
-        //                  may exit 1 on metadata-only warnings).
-        //   errors > 0   AND files_restored == 0 → Error.
-        //   errors > 0   AND files_restored > 0  → Warning (partial).
-        if (jsonErrors == 0)
-        {
-            terminalStatus = RestoreTerminalStatus.Success;
-            errorMessage = null;
-        }
-        else if (jsonErrors > 0 && jsonFilesRestored == 0)
-        {
-            terminalStatus = RestoreTerminalStatus.Error;
-            errorMessage ??= $"restic reported {jsonErrors} error(s), 0 files restored";
-        }
-        else if (jsonErrors > 0)
-        {
-            terminalStatus = RestoreTerminalStatus.Warning;
-            errorMessage ??= $"restic reported {jsonErrors} error(s); {jsonFilesRestored} file(s) restored";
-        }
+    internal static string NormalizeRestoreRelativePath(string path)
+    {
+        var relative = path.Replace('\\', '/').TrimStart('/');
+        if (relative.Split('/').Any(p => p is ".." or ".") || relative.Contains(':') || relative.Contains('\n') || relative.Contains('\r'))
+            throw new InvalidOperationException($"Unsafe snapshot path: {path}");
+        return relative;
+    }
 
-        // Bracket-fallback cleanup: when we substituted `[` / `]` with
-        // `?` for the Windows escape gap, restic may have over-fetched
-        // same-length siblings. If the caller supplied expectedLeaves
-        // (the exact leaf set the user requested), delete anything
-        // outside that set so the final layout matches. Without
-        // expectedLeaves, the over-fetch stays — caller's choice.
-        if (anyBracketRel && expectedLeavesSet is not null)
-        {
-            try { SweepUnrequestedFiles(targetPath, targetPath, expectedLeavesSet); }
-            catch (Exception ex)
-            {
-                _log.Warning(ex, "Sweep of unrequested files at {Target} failed", targetPath);
-            }
-        }
-
-        // Numbers in the RestoreOpResult: prefer the real ones from
-        // restic's --json summary; fall back to the caller-pattern
-        // approximation if the drain didn't produce a summary.
-        long totalFiles = jsonTotalFiles >= 0 ? jsonTotalFiles
-            : (expectedLeavesSet?.Count ?? includePatterns.Count);
-        long filesRestored = jsonFilesRestored >= 0 ? jsonFilesRestored
-            : (terminalStatus == RestoreTerminalStatus.Success ? totalFiles : 0);
-        long totalBytes = jsonTotalBytes >= 0 ? jsonTotalBytes : 0;
-        long bytesRestored = jsonBytesRestored >= 0 ? jsonBytesRestored : 0;
-
-        var result = new RestoreOpResult(
-            TotalFiles: (int)totalFiles,
-            FilesRestored: (int)filesRestored,
-            TotalBytes: totalBytes,
-            BytesRestored: bytesRestored,
-            Status: terminalStatus,
-            ErrorMessage: errorMessage);
-        onProgress?.Invoke(new RestoreProgressUpdate(
-            (int)totalFiles, (int)filesRestored, totalBytes, bytesRestored,
-            totalFiles == 0 ? 0 : (double)filesRestored / totalFiles));
+    private static string SafeRestorePath(string root, string relative)
+    {
+        relative = NormalizeRestoreRelativePath(relative);
+        var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var result = Path.GetFullPath(Path.Combine(fullRoot, relative));
+        if (!result.StartsWith(fullRoot, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            throw new InvalidOperationException("Restore path escapes its destination.");
+        for (var parent = Path.GetDirectoryName(result); parent is not null && parent.Length >= fullRoot.Length; parent = Path.GetDirectoryName(parent))
+            if (Directory.Exists(parent) && (File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException($"Cannot restore through the linked folder {parent}. Choose an ordinary folder as the destination.");
         return result;
     }
 
+    private static IEnumerable<string> EnumerateRestoreLeaves(string root)
+    {
+        foreach (var entry in Directory.EnumerateFileSystemEntries(root))
+        {
+            var attributes = File.GetAttributes(entry);
+            if ((attributes & FileAttributes.Directory) != 0 && (attributes & FileAttributes.ReparsePoint) == 0)
+            {
+                foreach (var leaf in EnumerateRestoreLeaves(entry)) yield return leaf;
+            }
+            else yield return entry;
+        }
+    }
+
+    private static void DeleteRestoreStaging(string root)
+    {
+        // Directory.Delete does not recurse through reparse points. The root
+        // is a fresh GUID directory created by this operation, never a user target.
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
     /// <summary>Parse the final <c>{"message_type":"summary"}</c> line
     /// out of restic's <c>--json</c> stream. Restic emits other
     /// message types (status, error, verbose_status) before the
@@ -1275,37 +1227,6 @@ public sealed class ResticBackrestEngine : IBackupEngine
     }
 
     /// <summary>
-    /// Recursive post-restore filter for the bracket-fallback path.
-    /// Removes every file under <paramref name="root"/> whose
-    /// <c><paramref name="root"/>-relative path</c> is not in
-    /// <paramref name="keep"/>. After the file sweep, prunes any
-    /// directory that's now empty. <paramref name="keep"/> entries
-    /// use forward slashes (snapshot path style).
-    /// </summary>
-    private static void SweepUnrequestedFiles(string root, string current, HashSet<string> keep)
-    {
-        foreach (var entry in Directory.EnumerateFileSystemEntries(current))
-        {
-            if (Directory.Exists(entry))
-            {
-                SweepUnrequestedFiles(root, entry, keep);
-                try
-                {
-                    if (!Directory.EnumerateFileSystemEntries(entry).Any())
-                        Directory.Delete(entry);
-                }
-                catch { /* best-effort */ }
-            }
-            else if (File.Exists(entry))
-            {
-                var rel = Path.GetRelativePath(root, entry).Replace('\\', '/');
-                if (keep.Contains(rel)) continue;
-                try { File.Delete(entry); } catch { /* best-effort */ }
-            }
-        }
-    }
-
-    /// <summary>
     /// True iff <paramref name="name"/> contains a glob metachar that
     /// restic's <c>filepath.Match</c> on Windows cannot escape via
     /// any documented mechanism (<c>\</c> is disabled, class self-
@@ -1337,7 +1258,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
     /// any sibling file of the SAME LENGTH whose name differs only
     /// at the two bracket positions. In practice such siblings are
     /// rare; the post-restore sweep
-    /// (<see cref="SweepUnrequestedFiles"/>) removes them. We use
+    /// (inside the isolated staging directory) excludes them. We use
     /// <c>?</c> instead of <c>*</c> because <c>?</c> matches exactly
     /// one character — the over-match radius is bounded to
     /// same-length filenames, whereas <c>*</c> matches any number of
@@ -1516,165 +1437,52 @@ public sealed class ResticBackrestEngine : IBackupEngine
     /// because fast ops can reach a terminal status BEFORE the stream
     /// subscription lands (the bracket-fix restore shape regularly
     /// completes in &lt; 200 ms).</summary>
-    private async Task WaitForOperationTerminalAsync(
+    private async Task<BackrestOperation> WaitForOperationTerminalAsync(
         BackrestClient client, string opIdString, CancellationToken ct,
-        Action<string>? lineSink = null)
+        Action<string>? lineSink = null, Action<BackrestOperation>? observed = null)
     {
         if (!long.TryParse(opIdString, out _))
             throw new InvalidOperationException($"RunCommand returned an unparseable op id: '{opIdString}'");
-
-        // POLL-based status check via <c>GetOperations</c>. The older
-        // implementation subscribed to <c>GetOperationEvents</c> and
-        // waited for an event matching this op id to reach a terminal
-        // status — that approach races with FAST ops (the snap:
-        // subfolder restore + per-file --include shape introduced in
-        // the bracket-fix refactor often completes in &lt; 200 ms),
-        // because the operation's terminal event can be emitted
-        // BEFORE we subscribe to the stream. GetOperations is a
-        // simple unary RPC that returns the current state for any op
-        // id, so this loop sees the terminal status whether it landed
-        // before or after our subscribe.
-        //
-        // The 100 ms poll cadence matches what
-        // <see cref="WaitForRepoIdleAsync"/> already uses. We cap
-        // total wait at 5 minutes (300 polls × 100 ms + per-call
-        // overhead): a restore of more than 5 minutes is either a
-        // genuinely large user-driven restore (where the orchestrator
-        // already has its own progress + cancel UI) or a stuck
-        // backend (where we'd rather surface a timeout than hang
-        // forever).
-        var deadline = DateTime.UtcNow.AddMinutes(5);
+        // Lifetime is owned by the caller, not a five-minute wall clock. Large
+        // restores may legitimately run for hours. RPC calls remain cancellable.
         string lastStatus = "";
-        while (DateTime.UtcNow < deadline)
+        while (true)
         {
             ct.ThrowIfCancellationRequested();
-            try
+            var response = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
+                "/v1.Backrest/GetOperations",
+                new GetOperationsRequest { Selector = new OpSelector { Ids = new[] { opIdString } } }, ct).ConfigureAwait(false);
+            var operation = response.Operations?.FirstOrDefault(o => o.Id == opIdString);
+            if (operation is not null)
             {
-                var resp = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
-                    "/v1.Backrest/GetOperations",
-                    new GetOperationsRequest { Selector = new OpSelector { Ids = new[] { opIdString } } },
-                    ct).ConfigureAwait(false);
-                var match = resp.Operations?.FirstOrDefault(o => o.Id == opIdString);
-                if (match is not null)
+                observed?.Invoke(operation);
+                if (operation.Status != lastStatus)
                 {
-                    if (match.Status != lastStatus)
-                    {
-                        lastStatus = match.Status;
-                        var line = $"[backrest] op={match.Id} status={match.Status} {match.DisplayMessage}".TrimEnd();
-                        RaiseLineWritten(line);
-                        lineSink?.Invoke(line);
-                    }
-                    if (IsTerminalStatus(match.Status)) return;
+                    lastStatus = operation.Status;
+                    var line = $"[backrest] op={operation.Id} status={operation.Status} {operation.DisplayMessage}".TrimEnd();
+                    RaiseLineWritten(line);
+                    lineSink?.Invoke(line);
                 }
+                if (IsTerminalStatus(operation.Status)) return operation;
             }
-            catch (BackrestRpcException)
-            {
-                // Transient — keep polling.
-            }
-            await Task.Delay(100, ct).ConfigureAwait(false);
+            await Task.Delay(250, ct).ConfigureAwait(false);
         }
-        throw new InvalidOperationException(
-            $"Backrest op {opIdString} didn't reach a terminal status within 5 minutes.");
     }
-
-    /// <summary>
-    /// Fire one of Backrest's repo-scoped task RPCs (Forget / Check
-    /// / Prune / Unlock) and wait until the repo is FULLY idle —
-    /// no PENDING or INPROGRESS ops on it. Without this, restic's
-    /// exclusive repo lock from any one of Backrest's
-    /// auto-scheduled tasks (index_snapshots after every backup,
-    /// the forget we just enqueued, the check we just enqueued)
-    /// can still be held when the next caller hits the wire,
-    /// surfacing as "repository is already locked". Implemented
-    /// as a poll because the event-stream-latch approach
-    /// (subscribe → match first new op id) is racy with
-    /// concurrent auto-scheduled tasks on the same repo.
-    /// </summary>
-    private async Task RunRepoOpAndWaitAsync<TReq>(
-        BackrestClient client, string endpoint, TReq request, string repoId, CancellationToken ct)
-        where TReq : class
-    {
-        // Per-RPC deadline. HttpClient.Timeout on the sidecar's
-        // client is InfiniteTimeSpan (long-lived streaming requires
-        // it), so without a CancelAfter here a Backrest task queue
-        // contention case (E03's two-concurrent-Forget) would block
-        // this call forever. 2 minutes covers normal load plus
-        // some headroom for queue contention — a 50 MB E03 cell's
-        // inline maintenance is sub-second per op, and even with
-        // 6 ops queued on Backrest's global runner the total is
-        // ~30s. Beyond that, the maintenance is "stuck" and the
-        // caller's catch logs a warning and continues; the next
-        // run picks it back up. Cancellation composes with ct.
-        using var deadlineCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadlineCts.Token);
-        await client.CallVoidAsync(endpoint, request, linked.Token).ConfigureAwait(false);
-        await WaitForRepoIdleAsync(client, repoId, linked.Token).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Poll GetOperations until no in-flight (PENDING / INPROGRESS)
-    /// op remains on the given repo. Used as the synchronisation
-    /// point after every inline maintenance call so the next
-    /// caller doesn't race the lock. Hard cap of 30 seconds keeps
-    /// a stuck-forever task from wedging the whole cell.
-    /// </summary>
+    /// <summary>Wait for the repository queue to drain before retrying a read.
+    /// A busy repository is never assumed idle just because a timer expired.</summary>
     private async Task WaitForRepoIdleAsync(BackrestClient client, string repoId, CancellationToken ct)
     {
-        // Fast path: EnsurePlanAndRepoCoreAsync seeded the guid into
-        // _repoGuidCache on its way through (either via AddRepo's
-        // response or the read-modify-write loop's GetConfig). The
-        // guid is stable for the repo's lifetime, so we don't have
-        // to pay another GetConfig RPC here. After inline
-        // prune+check+unlock that's 3 GetConfig calls per cell
-        // saved (more on exit-11 retries) — each fetching the
-        // entire BackrestConfig just to read one field.
-        string repoGuid;
-        if (!_repoGuidCache.TryGetValue(repoId, out var cachedGuid) || string.IsNullOrEmpty(cachedGuid))
+        var guid = await ResolveRepoGuidAsync(client, repoId, ct).ConfigureAwait(false);
+        while (true)
         {
-            var cfg = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
-                "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
-            var repo = cfg.Repos.FirstOrDefault(r => r.Id == repoId);
-            repoGuid = repo?.Guid ?? "";
-            if (!string.IsNullOrEmpty(repoGuid))
-                _repoGuidCache[repoId] = repoGuid;
+            var operations = await GetRepoOperationsAsync(client, guid, ct).ConfigureAwait(false);
+            if (!operations.Any(op => op.Status is "STATUS_PENDING" or "STATUS_INPROGRESS")) return;
+            await Task.Delay(250, ct).ConfigureAwait(false);
         }
-        else
-        {
-            repoGuid = cachedGuid;
-        }
-        if (string.IsNullOrEmpty(repoGuid))
-            return; // can't filter without the guid; assume idle
-
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            try
-            {
-                var resp = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
-                    "/v1.Backrest/GetOperations",
-                    new GetOperationsRequest
-                    {
-                        Selector = new OpSelector { RepoGuid = repoGuid },
-                        LastN = 16,
-                    },
-                    ct).ConfigureAwait(false);
-                var anyInFlight = resp.Operations?.Any(op => op.Status is "STATUS_PENDING" or "STATUS_INPROGRESS")
-                                  ?? false;
-                if (!anyInFlight) return;
-            }
-            catch (BackrestRpcException ex)
-            {
-                _log.Debug(ex, "WaitForRepoIdle: GetOperations probe failed; assuming idle");
-                return;
-            }
-            await Task.Delay(100, ct).ConfigureAwait(false);
-        }
-        _log.Warning("WaitForRepoIdleAsync: repo {RepoId} still had in-flight ops after 30s; returning anyway", repoId);
     }
 
     private static bool IsTerminalStatus(string status) => status is
-        BackrestStatus.Success or BackrestStatus.Warning or BackrestStatus.Error or BackrestStatus.UserCancelled;
+        BackrestStatus.Success or BackrestStatus.Warning or BackrestStatus.Error or BackrestStatus.UserCancelled or BackrestStatus.SystemCancelled;
 
     /// <summary>
     /// Quote an argv element for Backrest's RunCommand RPC. Backrest
@@ -1730,8 +1538,12 @@ public sealed class ResticBackrestEngine : IBackupEngine
     {
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
-        await client.CallVoidAsync("/v1.Backrest/Forget",
-            new ForgetRequest { RepoId = repoId, SnapshotId = snapshotId }, ct).ConfigureAwait(false);
+        var planId = MakePlanId(backup, sourcePath, destination, storageName);
+        var result = await RunTrackedRepoRpcAsync(client, repoId, "/v1.Backrest/Forget",
+            new ForgetRequest { RepoId = repoId, PlanId = planId, SnapshotId = snapshotId },
+            op => op.PlanId == planId && op.OperationForget is not null, ct).ConfigureAwait(false);
+        if (result.Status is not BackrestStatus.Success)
+            throw new IOException($"Snapshot removal reported {result.Status}: {result.DisplayMessage}");
     }
 
     public async Task PruneExhaustiveAsync(
@@ -1740,8 +1552,11 @@ public sealed class ResticBackrestEngine : IBackupEngine
     {
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
-        await client.CallVoidAsync("/v1.Backrest/DoRepoTask",
-            new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskPrune }, ct).ConfigureAwait(false);
+        var result = await RunTrackedRepoRpcAsync(client, repoId, "/v1.Backrest/DoRepoTask",
+            new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskPrune },
+            op => op.OperationPrune is not null, ct).ConfigureAwait(false);
+        if (result.Status is not BackrestStatus.Success)
+            throw new IOException($"Repository cleanup reported {result.Status}: {result.DisplayMessage}");
     }
 
     public async Task EnsureInitializedAsync(
@@ -1771,25 +1586,10 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
         var started = DateTime.UtcNow;
         RaiseLineWritten($"[backspace] prune-to-latest started for {destination.Name}/{storageName}");
-        Int64Value op;
-        try
-        {
-            op = await client.CallAsync<RunCommandRequest, Int64Value>(
-                "/v1.Backrest/RunCommand",
-                new RunCommandRequest
-                {
-                    RepoId = MakeRepoId(destination, storageName),
-                    Command = "forget --keep-last 1 --prune",
-                }, ct).ConfigureAwait(false);
-        }
-        catch (BackrestRpcException ex) { throw TranslateRpcError(ex, "Prune-to-latest"); }
-
-        // Block on the operation's terminal event so the caller's
-        // progress UI doesn't see a fire-and-forget "scheduled"
-        // result and immediately mark it done. The wait helper
-        // also emits LineWritten lines for each status transition,
-        // which the in-app log pane tails live.
-        await WaitForOperationTerminalAsync(client, op.Value, ct).ConfigureAwait(false);
+        const string command = "forget --keep-last 1 --prune";
+        var terminal = await RunTrackedRepoRpcAsync(client, MakeRepoId(destination, storageName), "/v1.Backrest/RunCommand",
+            new RunCommandRequest { RepoId = MakeRepoId(destination, storageName), Command = command },
+            op => op.OperationRunCommand?.Command == command, ct).ConfigureAwait(false);
 
         return new RunRecord
         {
@@ -1798,8 +1598,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
             Kind = RunKind.Backup,
             StartedUtc = started,
             EndedUtc = DateTime.UtcNow,
-            Status = BackupRunStatus.Success,
-            Summary = $"prune-to-latest finished (op {op.Value})",
+            Status = StatusFromBackrestTerminal(terminal.Status),
+            Summary = $"prune-to-latest: {terminal.Status} (op {terminal.Id}) {terminal.DisplayMessage}",
         };
     }
 
@@ -1828,11 +1628,18 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Destination destination, string storageName,
         string oldPassword, string newPassword, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(destination.StoragePasswordRef))
+            return (1, "Cannot change the repository password without a saved credential reference. Save the destination first.");
         if (!File.Exists(AppPaths.ResticBinary))
             return (1, $"restic binary not found at {AppPaths.ResticBinary}. Run a non-skip build " +
                        "(drop -p:SkipBackrestDownload) or place restic(.exe) next to the Backspace exe.");
 
-        var resticEnv = ResticUriResolver.Resolve(destination, _secrets, RcloneConfigBuilder.DefaultPath);
+        using var maintenance = await ServiceLocator.Maintenance.AcquireAsync("Changing destination password", ct: ct).ConfigureAwait(false);
+        var rclone = new RcloneConfigBuilder(_secrets);
+        await rclone.EnsureDriveIdentityAsync(destination, ct, ServiceLocator.Config).ConfigureAwait(false);
+        var rclonePath = RcloneConfigBuilder.NeedsRcloneRemote(destination)
+            ? rclone.MaterialiseDestination(destination, ServiceLocator.Config?.Current?.RcloneOAuthApps) : RcloneConfigBuilder.DefaultPath;
+        var resticEnv = ResticUriResolver.Resolve(destination, _secrets, rclonePath);
 
         // restic --new-password-file <path> reads the new password
         // from that file's first line. On Unix, /tmp is world-readable
@@ -1855,28 +1662,32 @@ public sealed class ResticBackrestEngine : IBackupEngine
             await using (var sw = new StreamWriter(fs))
                 await sw.WriteAsync(newPassword.AsMemory(), ct).ConfigureAwait(false);
 
-            // restic key passwd needs an exclusive repo lock. The
-            // sidecar's auto-scheduled index_snapshots / check / prune
-            // tasks fire right after every backup and routinely hold
-            // the lock for ~100ms–few-seconds. A naïve key-passwd call
-            // races them and surfaces "repo already locked" (exit 11).
-            // Try once; on lock failure, force-unlock and retry. The
-            // forced unlock is safe here because we hold the
-            // maintenance gate at the orchestrator layer — no other
-            // legitimate writer is touching this repo while we run.
-            var args = new[] { "key", "passwd", "--new-password-file", newPwdFile };
+            // Keep real repository locks intact. Restic remains the final
+            // authority for conflicts with external tools or other installs.
+            var args = new[] { "key", "passwd", "--retry-lock", "30s", "--new-password-file", newPwdFile };
             var env = BuildResticPasswordChangeEnv(resticEnv, oldPassword);
-            var (exit, output) = await SpawnResticAsync(args, env, ct).ConfigureAwait(false);
-            if (exit == 11 && (output.Contains("already locked", StringComparison.OrdinalIgnoreCase)
-                               || output.Contains("create lock", StringComparison.OrdinalIgnoreCase)))
+            ct.ThrowIfCancellationRequested();
+            // Once key mutation starts, finish it and save the matching secret
+            // under this same exclusive lease. Preserve a durable recovery copy
+            // before touching the repository in case final persistence fails.
+            var passwordRef = destination.StoragePasswordRef;
+            if (!string.IsNullOrEmpty(passwordRef)) _secrets.Set(passwordRef + ":pending-rotation", newPassword);
+            var (exit, output) = await SpawnResticAsync(args, env, CancellationToken.None).ConfigureAwait(false);
+            if (exit == 0 && !string.IsNullOrEmpty(passwordRef))
             {
-                _log.Information("ChangeStoragePasswordAsync: repo locked, force-unlocking and retrying once");
-                var (unlockExit, unlockOutput) = await SpawnResticAsync(
-                    new[] { "unlock", "--remove-all" }, env, ct).ConfigureAwait(false);
-                if (unlockExit != 0)
-                    return (exit, output + "\n[backspace] unlock returned " + unlockExit + ": " + unlockOutput);
-                (exit, output) = await SpawnResticAsync(args, env, ct).ConfigureAwait(false);
+                try { _secrets.Set(passwordRef, newPassword); }
+                catch (Exception ex)
+                {
+                    var reason = "The repository password changed but its saved credential could not be updated. The new password is preserved in the encrypted recovery entry. Restart after correcting the configuration folder's write access.";
+                    ServiceLocator.Maintenance.BlockUntilRestart(reason);
+                    _log.Error(ex, "Could not persist rotated repository password");
+                    return (1, reason);
+                }
+                try { _secrets.Remove(passwordRef + ":pending-rotation"); }
+                catch (Exception ex) { _log.Debug(ex, "Recovery credential cleanup deferred"); }
             }
+            if (exit == 11)
+                output += "\nThe repository is in use. Wait for the other operation to finish and try again; its lock was preserved.";
             return (exit, output);
         }
         finally
@@ -2029,6 +1840,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         BackrestClient client, string repoId, string planId, CancellationToken ct)
     {
+        await new RcloneConfigBuilder(_secrets).EnsureDriveIdentityAsync(destination, ct, ServiceLocator.Config).ConfigureAwait(false);
+
         // Phase 1: get the repo into Backrest's config with a real
         // 64-char guid IF it isn't already there. Backrest 1.13 has
         // two layers of validation that pin us into using the
@@ -2156,7 +1969,10 @@ public sealed class ResticBackrestEngine : IBackupEngine
             // we materialise alongside) in the same SetConfig pass.
             // ResticUriResolver.Resolve is the canonical URI builder
             // — call it once and compare.
-            var wantedResticEnv = ResticUriResolver.Resolve(destination, _secrets, RcloneConfigBuilder.DefaultPath);
+            var wantedRclonePath = RcloneConfigBuilder.NeedsRcloneRemote(destination)
+                ? new RcloneConfigBuilder(_secrets).MaterialiseDestination(destination, ServiceLocator.Config?.Current?.RcloneOAuthApps)
+                : RcloneConfigBuilder.DefaultPath;
+            var wantedResticEnv = ResticUriResolver.Resolve(destination, _secrets, wantedRclonePath);
             // Path-backed destinations (LocalFolder, ExternalDrive,
             // NetworkShare) produce bare filesystem-path URIs that
             // restic routes through its "local" backend; on Windows
@@ -2174,8 +1990,10 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 ? StringComparison.OrdinalIgnoreCase
                 : StringComparison.Ordinal;
             var uriMatch = string.Equals(liveRepo.Uri, wantedResticEnv.Uri, uriComparison);
+            var wantedEnv = wantedResticEnv.Env.Concat(new[] { "RESTIC_PROGRESS_FPS=0" }).ToList();
+            var envMatch = (liveRepo.Env ?? new()).SequenceEqual(wantedEnv);
 
-            if (existingPlan is not null && flagsMatch && passwordMatch && uriMatch)
+            if (existingPlan is not null && flagsMatch && passwordMatch && uriMatch && envMatch)
                 return; // nothing to do
 
             if (!flagsMatch)
@@ -2192,13 +2010,13 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     repoId, backup.Name);
                 liveRepo.Password = wantedPassword;
             }
-            if (!uriMatch)
+            if (!uriMatch || !envMatch)
             {
                 _log.Information(
                     "EnsurePlanAndRepo: rewriting repo {RepoId} Uri (path/subpath rename detected) for backup {Backup} (was {Was}, now {Now})",
                     repoId, backup.Name, liveRepo.Uri, wantedResticEnv.Uri);
                 liveRepo.Uri = wantedResticEnv.Uri;
-                liveRepo.Env = wantedResticEnv.Env.ToList();
+                liveRepo.Env = wantedEnv;
             }
             if (existingPlan is null)
                 cfg.Plans.Add(BuildPlanFromBackup(planId, repoId, backup, sourcePath));
@@ -2328,12 +2146,13 @@ public sealed class ResticBackrestEngine : IBackupEngine
         // RCLONE_CONFIG / AWS_* env vars onto Repo.env. Custom OAuth
         // apps (if any) come along for the ride so the user's higher
         // rate-limit quota lands in rclone.conf.
+        var rclonePath = RcloneConfigBuilder.DefaultPath;
         if (RcloneConfigBuilder.NeedsRcloneRemote(destination))
         {
             var oauthApps = ServiceLocator.Config?.Current?.RcloneOAuthApps;
-            new RcloneConfigBuilder(_secrets).Materialise(new[] { destination }, oauthApps);
+            rclonePath = new RcloneConfigBuilder(_secrets).MaterialiseDestination(destination, oauthApps);
         }
-        var resticEnv = ResticUriResolver.Resolve(destination, _secrets, RcloneConfigBuilder.DefaultPath);
+        var resticEnv = ResticUriResolver.Resolve(destination, _secrets, rclonePath);
 
         // Repo-level Flags apply to EVERY restic invocation Backrest
         // spawns against this repo: backup, restore, check, prune,
@@ -2363,7 +2182,10 @@ public sealed class ResticBackrestEngine : IBackupEngine
             Guid = "",
             Uri = resticEnv.Uri,
             Password = password,
-            Env = resticEnv.Env.ToList(),
+            // A inherited positive FPS override bypasses restic's --quiet.
+            // Zero leaves normal commands at their default rate and allows
+            // quiet restores to suppress duration-proportional output.
+            Env = resticEnv.Env.Concat(new[] { "RESTIC_PROGRESS_FPS=0" }).ToList(),
             Flags = repoFlags,
             AutoInitialize = false,
             AutoUnlock = true, // recover from stale locks left by crashed processes

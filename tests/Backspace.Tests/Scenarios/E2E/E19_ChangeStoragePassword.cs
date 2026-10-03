@@ -1,5 +1,8 @@
 using System;
 using System.Linq;
+using System.IO;
+using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -94,10 +97,12 @@ public sealed class E19_ChangeStoragePassword : BackupE2EBase
         Assert.True(exit == 0,
             $"`restic key passwd` exited {exit}; output={output}");
 
-        // Mirror ApplyChangedStoragePassword — push the new value into
-        // the SecretsStore so future runs read the rotated password.
-        ServiceLocator.Secrets.Set(pwdRef, newPwd);
+        Assert.Equal(newPwd, ServiceLocator.Secrets.Get(pwdRef));
+        Assert.False(ServiceLocator.Secrets.TryGet(pwdRef + ":pending-rotation", out _));
+        Assert.NotEqual(0, await ReadSnapshotsWithPassword(destPath, oldPwd));
+        Assert.Equal(0, await ReadSnapshotsWithPassword(destPath, newPwd));
         ctx.Snapshot(host, "after rotation", "Storage password rotated; SecretsStore updated.");
+        ctx.Report.RecordNote("Password negative control", "The old password is rejected by restic; the new password opens the repository. The engine saved the new encrypted credential before releasing its maintenance lease.");
 
         // Round 2 — backup must succeed under the NEW password.
         var rec2 = await RunBackupViaUiAsync(ctx, backup, view, CancellationToken.None);
@@ -113,5 +118,44 @@ public sealed class E19_ChangeStoragePassword : BackupE2EBase
             backup, source, dest, "default", restoreDir, CancellationToken.None);
         Assert.Equal(0, outcome.FailedCount);
         AssertBytesEqual(source, restoreDir, ctx);
+
+        var revisions = await ServiceLocator.Revisions.ListRevisionsAsync(backup, source, dest, "default", default);
+        var oldest = revisions.Min(r => r.Number);
+        var oldFiles = await ServiceLocator.Revisions.ListFilesAsync(backup, source, dest, "default", oldest, default);
+        var oldTarget = ctx.MakeRestoreTarget("before-password-change");
+        var oldOutcome = await ServiceLocator.Restore.RunAsync(new RestoreRequest
+        {
+            Backup = backup, SourcePath = source, Destination = dest, StorageName = "default",
+            Revision = oldest, Files = oldFiles.Select(f => f.Path).ToArray(), TargetPath = oldTarget,
+        }, default);
+        Assert.Equal(RestoreTerminalStatus.Success, oldOutcome.TerminalStatus);
+        foreach (var file in oldFiles)
+        {
+            using var original = File.OpenRead(Path.Combine(source, file.Path));
+            using var restored = File.OpenRead(Path.Combine(oldTarget, file.Path));
+            Assert.Equal(SHA256.HashData(original), SHA256.HashData(restored));
+        }
+        ctx.Report.RecordNote("Pre-rotation snapshot", $"Revision {oldest} restored after password rotation; complete SHA-256 hashes matched for all {oldFiles.Count} files, not a sample.");
+    }
+
+    private static async Task<int> ReadSnapshotsWithPassword(string repository, string password)
+    {
+        var info = new ProcessStartInfo(AppPaths.ResticBinary)
+        {
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        info.ArgumentList.Add("snapshots");
+        info.ArgumentList.Add("--json");
+        info.ArgumentList.Add("--no-lock");
+        info.Environment["RESTIC_REPOSITORY"] = repository;
+        info.Environment["RESTIC_PASSWORD"] = password;
+        using var process = Process.Start(info)!;
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await process.WaitForExitAsync(timeout.Token);
+        await Task.WhenAll(stdout, stderr);
+        return process.ExitCode;
     }
 }

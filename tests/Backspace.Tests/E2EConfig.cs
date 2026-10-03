@@ -18,10 +18,10 @@ namespace Backspace.Tests;
 ///   • Persisted tokens live in <c>tests/Backspace.Tests/secrets.env</c>
 ///     (gitignored). Format is documented on
 ///     <see cref="TestHelpers.CloudCredentialsLoader"/>.
-///   • The interactive acquirer uses <c>rclone config create</c>
-///     under the hood, which is exactly what a real Backspace user
-///     does when they set up a cloud destination. Testing the
-///     acquisition flow IS testing the production onboarding UX.
+///   • The interactive acquirer calls the production OAuth
+///     coordinator and opens the provider's consent page. It shares
+///     the editor's token flow, but does not click or render the
+///     destination editor; UI scenarios cover that separate boundary.
 /// </summary>
 public static class E2EConfig
 {
@@ -29,8 +29,7 @@ public static class E2EConfig
     /// When true, every cloud scenario re-runs the interactive token
     /// acquisition path on every test invocation, even if a saved
     /// token already exists in <c>secrets.env</c>. Useful when you
-    /// are specifically trying to exercise the auth screens — e.g.
-    /// "did we just break the Dropbox connect button styling?" —
+    /// are specifically trying to exercise provider consent again,
     /// without having to manually delete the saved token first.
     ///
     /// Leave false in committed code. Flip locally, run the
@@ -43,12 +42,12 @@ public static class E2EConfig
     /// acquire a missing token interactively rather than skipping.
     /// Set to false (or set the <c>BACKSPACE_E2E_NONINTERACTIVE=1</c>
     /// env var) on CI hosts or any context where no human is around
-    /// to complete the rclone OAuth browser dance.
+    /// to complete provider consent in the browser.
     ///
-    /// Interaction runs through <c>rclone config create</c>, which
-    /// opens a browser to the provider's consent screen. The
-    /// developer completes the flow once, rclone writes the remote,
-    /// the test reads the JSON back and persists it to secrets.env
+    /// Interaction runs through the production OAuth coordinator,
+    /// which opens the provider's consent screen. The developer
+    /// completes the flow once; the loopback callback exchanges the
+    /// code, and the test persists the token JSON to secrets.env
     /// for every subsequent run.
     /// </summary>
     public const bool AcquireMissingTokensInteractively = true;

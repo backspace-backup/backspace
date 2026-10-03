@@ -32,8 +32,18 @@ public sealed class SnapshotBrowserLauncher
 {
     private static ILogger _log => AppLogger.For<SnapshotBrowserLauncher>();
     private readonly BackrestSidecar _sidecar;
+    private readonly Action<string> _openBrowser;
 
-    public SnapshotBrowserLauncher(BackrestSidecar sidecar) => _sidecar = sidecar;
+    public SnapshotBrowserLauncher(BackrestSidecar sidecar, Action<string>? openBrowser = null)
+    {
+        _sidecar = sidecar;
+        _openBrowser = openBrowser ?? OpenBrowser;
+    }
+
+    private static void OpenBrowser(string url)
+    {
+        using var process = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
 
     /// <summary>
     /// Open the user's default browser at Backrest's snapshot view
@@ -80,7 +90,7 @@ public sealed class SnapshotBrowserLauncher
         var url = BuildUrlFor(backup);
         try
         {
-            using (var _ = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })) { }
+            _openBrowser(url);
             _log.Information("Snapshot browser opened at {Url} for backup {Name}", url, backup.Name);
             return LaunchResult.Ok(url);
         }
@@ -120,7 +130,7 @@ public sealed class SnapshotBrowserLauncher
     }
 }
 
-/// <summary>Outcome of a <see cref="SnapshotBrowserLauncher.OpenFor"/>
+/// <summary>Outcome of a <see cref="SnapshotBrowserLauncher.OpenForAsync"/>
 /// call. The URL is non-null on success so the UI can show "opened
 /// at <i>http://127.0.0.1:54321/...</i>" as a confirmation toast.</summary>
 public readonly record struct LaunchResult(bool Succeeded, string? Url, string Message)

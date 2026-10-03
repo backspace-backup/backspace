@@ -31,13 +31,9 @@ namespace Backspace.Services;
 ///      waits up to a grace period, and then force-kills if the daemon
 ///      is still alive.
 ///
-/// Auth: Backrest's auth is disabled (<c>Config.auth.disabled = true</c>);
-/// protection relies on the 127.0.0.1-only bind. Same trade-off
-/// Backrest itself uses when the operator hasn't configured a user.
-/// Known limitation: a malicious page loaded in the user's browser
-/// can issue XHR / fetch to localhost and drive the daemon. On the
-/// backlog: pre-seeded bcrypt credential + per-instance JWT picked up
-/// by every BackrestClient call.
+/// Auth: a new daemon starts on loopback with a seed config, then
+/// bootstraps a random bcrypt credential and authenticates the client
+/// with a JWT. Subsequent starts reuse the protected companion file.
 ///
 /// All paths and the port are testable independently of an actual
 /// backrest binary — see <see cref="AllocateEphemeralPort"/> and
@@ -64,15 +60,20 @@ public sealed class BackrestSidecar : IAsyncDisposable
     public string DataDir { get; }
 
     private Process? _proc;
+    private FileStream? _dataLease;
+    private bool _wroteOwnership;
+    private readonly bool _deleteDataOnDispose;
     private HttpClient? _http;
     private BackrestClient? _client;
     private int _port;
 
-    public BackrestSidecar(string backrestBinaryPath, string resticBinaryPath, string dataDir)
+    public BackrestSidecar(string backrestBinaryPath, string resticBinaryPath, string dataDir,
+        bool deleteDataOnDispose = false)
     {
         BackrestBinaryPath = backrestBinaryPath;
         ResticBinaryPath = resticBinaryPath;
         DataDir = dataDir;
+        _deleteDataOnDispose = deleteDataOnDispose;
     }
 
     /// <summary>The port the daemon ended up binding to. 0 before
@@ -98,7 +99,13 @@ public sealed class BackrestSidecar : IAsyncDisposable
 
     /// <summary><c>true</c> once the daemon has been launched and a
     /// readiness probe has succeeded.</summary>
-    public bool IsRunning => _proc is { HasExited: false } && _client is not null;
+    public bool IsRunning => IsAlive(_proc) && _client is not null;
+
+    private static bool IsAlive(Process? process)
+    {
+        try { return process is not null && !process.HasExited; }
+        catch (InvalidOperationException) { return false; } // start failed / already disposed
+    }
 
     /// <summary>Cheap no-op when already running; spins up the daemon
     /// otherwise. Lets callers (the engine, RPC-using services) call
@@ -112,7 +119,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
         try
         {
             if (IsRunning) return;
-            await StartAsync(ct).ConfigureAwait(false);
+            await StartCoreAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -124,8 +131,17 @@ public sealed class BackrestSidecar : IAsyncDisposable
 
     public async Task StartAsync(CancellationToken ct = default)
     {
-        if (_proc is { HasExited: false })
+        await _startGate.WaitAsync(ct).ConfigureAwait(false);
+        try { await StartCoreAsync(ct).ConfigureAwait(false); }
+        finally { _startGate.Release(); }
+    }
+
+    private async Task StartCoreAsync(CancellationToken ct)
+    {
+        if (IsAlive(_proc))
             throw new InvalidOperationException("BackrestSidecar is already running.");
+        if (_dataLease is not null)
+            await StopCoreAsync(TimeSpan.Zero, CancellationToken.None).ConfigureAwait(false);
         if (!File.Exists(BackrestBinaryPath))
             throw new EngineBinaryMissingException(
                 $"Backrest engine isn't installed alongside Backspace.exe. Expected at {BackrestBinaryPath}. " +
@@ -139,151 +155,164 @@ public sealed class BackrestSidecar : IAsyncDisposable
 
         Directory.CreateDirectory(DataDir);
 
-        // Orphan kill: a previous Backspace process may have crashed
-        // while the sidecar was running, leaving it bound to a stale
-        // localhost port and holding a network handle on a slow cloud
-        // upload. The pid-file records the daemon PID + a fingerprint
-        // tying it to our binary, so we can confidently kill it on
-        // next launch without nuking an unrelated process that
-        // happens to have inherited the same PID.
-        KillOrphanedSidecar();
-
-        // Belt-and-braces: if Backspace crashed BEFORE WritePidFile()
-        // completed (i.e. between Process.Start() and the pidfile
-        // write), there's no recorded pid to recover from but the
-        // sidecar is still running. Sweep for any backrest.exe whose
-        // main module matches OUR bundled binary path and kill it —
-        // we know it isn't a user-launched Backrest because the path
-        // is inside our install dir. The user's "Backrest in systray,
-        // no Backspace" report likely traces back to this exact
-        // window.
-        KillByExeFingerprint();
-
-        _port = AllocateEphemeralPort();
-        var configPath = Path.Combine(DataDir, "config.json");
-        // Orphan-auth recovery (BEFORE we boot the daemon): if the
-        // user deleted sidecar-auth.txt but kept config.json, the
-        // daemon would come up bcrypt-protected with a password we
-        // no longer hold and every RPC would 401. Detect that on
-        // disk, strip the auth section back to seed state, and let
-        // WriteSeedConfig + EnsureAuthAsync do a fresh bootstrap as
-        // if the user had nuked the whole config dir. Critically:
-        // this happens BEFORE Process.Start, so Backrest only ever
-        // reads the already-recovered config — no re-entrant restart
-        // logic needed.
-        if (Directory.Exists(DataDir)
-            && ConfigHasAuthUsers(configPath)
-            && !File.Exists(AuthFilePath))
+        // Hold this directory exclusively for the whole daemon lifetime.
+        // A second owner must never rewrite its live database or kill it.
+        _dataLease = AcquireDataDirectoryLease(DataDir);
+        try
         {
-            _log.Warning(
-                "{File} is missing but {Config} still has auth users. " +
-                "Recovering: stripping auth from config so we can re-bootstrap a fresh password on this launch.",
-                AuthFilePath, configPath);
-            try { StripAuthFromConfigOnDisk(configPath); }
-            catch (Exception ex)
+            RecoverOwnedSidecar();
+
+            _port = AllocateEphemeralPort();
+            var configPath = Path.Combine(DataDir, "config.json");
+            // Orphan-auth recovery (BEFORE we boot the daemon): if the
+            // user deleted sidecar-auth.txt but kept config.json, the
+            // daemon would come up bcrypt-protected with a password we
+            // no longer hold and every RPC would 401. Detect that on
+            // disk, strip the auth section back to seed state, and let
+            // WriteSeedConfig + EnsureAuthAsync do a fresh bootstrap as
+            // if the user had nuked the whole config dir. Critically:
+            // this happens BEFORE Process.Start, so Backrest only ever
+            // reads the already-recovered config — no re-entrant restart
+            // logic needed.
+            if (Directory.Exists(DataDir)
+                && ConfigHasAuthUsers(configPath)
+                && !File.Exists(AuthFilePath))
             {
-                _log.Error(ex,
-                    "Couldn't strip stale auth state from {Config}. The daemon will come up auth-gated and every RPC will 401. " +
-                    "Delete {Config} (or the whole {Dir} folder) to reset; backup data at the destination is unaffected.",
-                    configPath, configPath, DataDir);
+                _log.Warning(
+                    "{File} is missing but {Config} still has auth users. " +
+                    "Recovering: stripping auth from config so we can re-bootstrap a fresh password on this launch.",
+                    AuthFilePath, configPath);
+                try { StripAuthFromConfigOnDisk(configPath); }
+                catch (Exception ex)
+                {
+                    _log.Error(ex,
+                        "Couldn't strip stale auth state from {Config}. The daemon will come up auth-gated and every RPC will 401. " +
+                        "Delete {Config} (or the whole {Dir} folder) to reset; backup data at the destination is unaffected.",
+                        configPath, configPath, DataDir);
+                }
             }
+            WriteSeedConfig(configPath);
+
+            var psi = new ProcessStartInfo(BackrestBinaryPath)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = DataDir,
+            };
+            psi.ArgumentList.Add("--bind-address");
+            psi.ArgumentList.Add($"127.0.0.1:{_port}");
+            psi.ArgumentList.Add("--data-dir");
+            psi.ArgumentList.Add(DataDir);
+            psi.ArgumentList.Add("--config-file");
+            psi.ArgumentList.Add(configPath);
+            psi.ArgumentList.Add("--restic-cmd");
+            psi.ArgumentList.Add(ResticBinaryPath);
+            // Backrest defaults --windows-tray=true which puts its OWN
+            // icon next to Backspace's in the system tray on every launch.
+            // The user reported this looked like an orphan Backrest, but
+            // it's just Backrest's daemon-with-tray default. Backspace is
+            // the only UI surface; the sidecar runs headless. Suppress.
+            if (OperatingSystem.IsWindows())
+            {
+                psi.ArgumentList.Add("--windows-tray=false");
+            }
+
+            _log.Information("Starting Backrest sidecar at 127.0.0.1:{Port} (binary={Binary})", _port, BackrestBinaryPath);
+
+            _proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            _proc.OutputDataReceived += (_, e) => { if (e.Data is not null) _log.Debug("[backrest] {Line}", e.Data); };
+            _proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) _log.Warning("[backrest] {Line}", e.Data); };
+            if (!_proc.Start()) throw new InvalidOperationException("Failed to start backrest.");
+
+            // Job-object: tie backrest's lifetime to ours so a Backspace
+            // crash, an unhandled exception, or the user closing the app
+            // can't leave the engine running in the background as an
+            // orphan. Windows tears down the job (KILL_ON_JOB_CLOSE)
+            // when the parent process dies, taking every member with it.
+            // The graceful StopAsync path is still the primary teardown
+            // mechanism — the job object is just the safety net.
+            //
+            // If the assignment fails (nested job we couldn't break away
+            // from, restricted token, etc.), we have a hard choice: keep
+            // running an un-supervised sidecar that WILL outlive a crash,
+            // or kill the sidecar we just started and surface a clear
+            // error. Past user-visible orphan bug: chose the former and
+            // got "Backrest in systray after Backspace died". Choose the
+            // latter from now on — better a startup error the user sees
+            // than a silent orphan they can't explain.
+            if (!KillOnExitJobObject.TryAssign(_proc))
+            {
+                // The outer teardown owns termination and retains our lease if
+                // it fails. Do not drop the process handle before death is known.
+                throw new InvalidOperationException(
+                    "Couldn't tie the Backrest sidecar to Backspace's lifetime via a Windows Job Object. " +
+                    "An un-supervised sidecar would outlive a Backspace crash as an orphan process; " +
+                    "Backspace refuses to proceed. Run Backspace from File Explorer / Start Menu " +
+                    "instead of nested inside another job (some debugger / build-farm wrappers " +
+                    "create a job that refuses nested assignment).");
+            }
+
+            _proc.BeginOutputReadLine();
+            _proc.BeginErrorReadLine();
+
+            // Stamp the pid file as soon as we have a live PID. Doing this
+            // before the readiness probe means even a startup that hangs
+            // leaves a recoverable pid-file for next launch's orphan-kill.
+            try { WritePidFile(); }
+            catch (Exception ex) { _log.Warning(ex, "Failed to write Backrest sidecar pid-file (continuing)"); }
+
+            // HttpClient.Timeout = InfiniteTimeSpan is mandatory here.
+            // Backrest's blocking RPCs (Forget, Check, Backup, Restore)
+            // hold the connection open until the underlying op terminates;
+            // for a large repo a Forget/Prune can run for tens of minutes,
+            // and the operation-event stream is *meant* to be long-lived.
+            // The .NET default of 100s would fire TaskCanceledException
+            // mid-flight and mark the cell Skipped — observed in E03's
+            // two-concurrent-backups scenario where contention on Backrest's
+            // global task queue made one inline Forget cross the 100s mark.
+            // Cancellation is still cooperatively respected via the
+            // per-call CancellationToken; the only thing this disables is
+            // the wall-clock timer.
+            _http = new HttpClient
+            {
+                BaseAddress = new Uri($"http://127.0.0.1:{_port}/"),
+                Timeout = System.Threading.Timeout.InfiniteTimeSpan,
+            };
+            _client = new BackrestClient(_http);
+
+            await WaitForReadyAsync(_client, ct).ConfigureAwait(false);
+            await EnsureAuthAsync(_client, ct).ConfigureAwait(false);
         }
-        WriteSeedConfig(configPath);
-
-        var psi = new ProcessStartInfo(BackrestBinaryPath)
+        catch
         {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            WorkingDirectory = DataDir,
-        };
-        psi.ArgumentList.Add("--bind-address");
-        psi.ArgumentList.Add($"127.0.0.1:{_port}");
-        psi.ArgumentList.Add("--data-dir");
-        psi.ArgumentList.Add(DataDir);
-        psi.ArgumentList.Add("--config-file");
-        psi.ArgumentList.Add(configPath);
-        psi.ArgumentList.Add("--restic-cmd");
-        psi.ArgumentList.Add(ResticBinaryPath);
-        // Backrest defaults --windows-tray=true which puts its OWN
-        // icon next to Backspace's in the system tray on every launch.
-        // The user reported this looked like an orphan Backrest, but
-        // it's just Backrest's daemon-with-tray default. Backspace is
-        // the only UI surface; the sidecar runs headless. Suppress.
-        if (OperatingSystem.IsWindows())
-        {
-            psi.ArgumentList.Add("--windows-tray=false");
+            await StopCoreAsync(TimeSpan.Zero, CancellationToken.None).ConfigureAwait(false);
+            throw;
         }
-
-        _log.Information("Starting Backrest sidecar at 127.0.0.1:{Port} (binary={Binary})", _port, BackrestBinaryPath);
-
-        _proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        _proc.OutputDataReceived += (_, e) => { if (e.Data is not null) _log.Debug("[backrest] {Line}", e.Data); };
-        _proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) _log.Warning("[backrest] {Line}", e.Data); };
-        if (!_proc.Start()) throw new InvalidOperationException("Failed to start backrest.");
-
-        // Job-object: tie backrest's lifetime to ours so a Backspace
-        // crash, an unhandled exception, or the user closing the app
-        // can't leave the engine running in the background as an
-        // orphan. Windows tears down the job (KILL_ON_JOB_CLOSE)
-        // when the parent process dies, taking every member with it.
-        // The graceful StopAsync path is still the primary teardown
-        // mechanism — the job object is just the safety net.
-        //
-        // If the assignment fails (nested job we couldn't break away
-        // from, restricted token, etc.), we have a hard choice: keep
-        // running an un-supervised sidecar that WILL outlive a crash,
-        // or kill the sidecar we just started and surface a clear
-        // error. Past user-visible orphan bug: chose the former and
-        // got "Backrest in systray after Backspace died". Choose the
-        // latter from now on — better a startup error the user sees
-        // than a silent orphan they can't explain.
-        if (!KillOnExitJobObject.TryAssign(_proc))
-        {
-            try { _proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
-            try { DeletePidFile(); } catch { /* best-effort */ }
-            _proc.Dispose();
-            _proc = null;
-            throw new InvalidOperationException(
-                "Couldn't tie the Backrest sidecar to Backspace's lifetime via a Windows Job Object. " +
-                "An un-supervised sidecar would outlive a Backspace crash as an orphan process; " +
-                "Backspace refuses to proceed. Run Backspace from File Explorer / Start Menu " +
-                "instead of nested inside another job (some debugger / build-farm wrappers " +
-                "create a job that refuses nested assignment).");
-        }
-
-        _proc.BeginOutputReadLine();
-        _proc.BeginErrorReadLine();
-
-        // Stamp the pid file as soon as we have a live PID. Doing this
-        // before the readiness probe means even a startup that hangs
-        // leaves a recoverable pid-file for next launch's orphan-kill.
-        try { WritePidFile(_proc.Id, BackrestBinaryPath); }
-        catch (Exception ex) { _log.Warning(ex, "Failed to write Backrest sidecar pid-file (continuing)"); }
-
-        // HttpClient.Timeout = InfiniteTimeSpan is mandatory here.
-        // Backrest's blocking RPCs (Forget, Check, Backup, Restore)
-        // hold the connection open until the underlying op terminates;
-        // for a large repo a Forget/Prune can run for tens of minutes,
-        // and the operation-event stream is *meant* to be long-lived.
-        // The .NET default of 100s would fire TaskCanceledException
-        // mid-flight and mark the cell Skipped — observed in E03's
-        // two-concurrent-backups scenario where contention on Backrest's
-        // global task queue made one inline Forget cross the 100s mark.
-        // Cancellation is still cooperatively respected via the
-        // per-call CancellationToken; the only thing this disables is
-        // the wall-clock timer.
-        _http = new HttpClient
-        {
-            BaseAddress = new Uri($"http://127.0.0.1:{_port}/"),
-            Timeout = System.Threading.Timeout.InfiniteTimeSpan,
-        };
-        _client = new BackrestClient(_http);
-
-        await WaitForReadyAsync(_client, ct).ConfigureAwait(false);
-        await EnsureAuthAsync(_client, ct).ConfigureAwait(false);
     }
+
+    internal static FileStream AcquireDataDirectoryLease(string dataDir)
+    {
+        Directory.CreateDirectory(dataDir);
+        try
+        {
+            return new FileStream(Path.Combine(dataDir, "sidecar.owner.lock"),
+                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (IOException ex)
+        {
+            throw new IOException("Another Backspace process is using this engine data folder. " +
+                "Its running work was left untouched. Try again when that process finishes.", ex);
+        }
+    }
+
+    /// <summary>Per-run engine state stays within the portable config
+    /// root. It is separate from the GUI daemon; run transcripts are still copied
+    /// to the app's common log store by the engine.</summary>
+    internal static string CreateIsolatedDataDirectory(string purpose)
+        => Path.Combine(AppPaths.ConfigRoot, "engine-runs", purpose,
+            $"{Environment.ProcessId}-{Guid.NewGuid():N}");
 
     /// <summary>One-shot bcrypt auth bootstrap.
     ///
@@ -531,39 +560,67 @@ public sealed class BackrestSidecar : IAsyncDisposable
 
     public async Task StopAsync(TimeSpan? gracePeriod = null, CancellationToken ct = default)
     {
-        if (_proc is null) return;
-        var grace = gracePeriod ?? Timing.StopGracePeriod;
+        await _startGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try { await StopCoreAsync(gracePeriod, ct).ConfigureAwait(false); }
+        finally { _startGate.Release(); }
+    }
 
+    private async Task StopCoreAsync(TimeSpan? gracePeriod, CancellationToken ct)
+    {
+        var process = _proc;
         try
         {
-            if (!_proc.HasExited)
+            if (IsAlive(process))
             {
-                _log.Information("Stopping Backrest sidecar (pid={Pid})", _proc.Id);
-                try { _proc.CloseMainWindow(); } catch { /* headless */ }
-                if (!await WaitForExitAsync(_proc, grace, ct).ConfigureAwait(false))
+                var grace = gracePeriod ?? Timing.StopGracePeriod;
+                _log.Information("Stopping owned Backrest sidecar (pid={Pid})", process!.Id);
+                try { process.CloseMainWindow(); } catch { }
+                try { await WaitForExitAsync(process, grace, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { /* teardown still must terminate our child */ }
+                if (!process.HasExited)
                 {
-                    _log.Warning("Backrest did not exit within {Grace}s, forcing kill", grace.TotalSeconds);
-                    try { _proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
                 }
-                // Best-effort cleanup; if we crash before reaching this
-                // the next StartAsync's KillOrphanedSidecar handles the
-                // leftover.
-                try { DeletePidFile(); } catch { /* ignore */ }
             }
         }
         finally
         {
-            _http?.Dispose();
-            _proc.Dispose();
-            _proc = null;
-            _http = null;
-            _client = null;
+            // Keep the lease and ownership record if termination failed. A
+            // second process must never open a still-live daemon's database.
+            if (!IsAlive(process))
+            {
+                if (_wroteOwnership) TryDeletePidFile();
+                _wroteOwnership = false;
+                _http?.Dispose();
+                process?.Dispose();
+                _proc = null;
+                _http = null;
+                _client = null;
+                _port = 0;
+                _dataLease?.Dispose();
+                _dataLease = null;
+            }
         }
     }
 
     public async ValueTask DisposeAsync()
     {
         await StopAsync().ConfigureAwait(false);
+        if (_deleteDataOnDispose)
+        {
+            // Only disposable per-run folders explicitly created under this
+            // root qualify; never recursively remove the persistent GUI data.
+            var root = Path.GetFullPath(Path.Combine(AppPaths.ConfigRoot, "engine-runs"))
+                .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var target = Path.GetFullPath(DataDir);
+            if (target.StartsWith(root, OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            {
+                try { if (Directory.Exists(target)) Directory.Delete(target, recursive: true); }
+                catch (Exception ex) { _log.Debug(ex, "Could not remove disposable engine state"); }
+            }
+        }
     }
 
     // ---- helpers, public-internal for unit testing ----
@@ -785,217 +842,39 @@ public sealed class BackrestSidecar : IAsyncDisposable
     /// <summary>Marker type for RPCs that take <c>google.protobuf.Empty</c>.</summary>
     internal sealed class EmptyRequest { }
 
-    // ---- pid file + orphan-safe kill ----
-    //
-    // The pid file lives at <DataDir>/sidecar.pid as a single line:
-    //   "<pid>|<binary-path>"
-    //
-    // Killing on PID alone is unsafe: a process with the same PID may
-    // have been recycled to an unrelated program. We compare the
-    // recorded binary path to the live process's main module path to
-    // confirm "yes, this PID is one of our backrest daemons" before
-    // sending the kill. The path comparison tolerates Windows path
-    // casing.
-
-    /// <summary>Path of the pid-file. Public for testability; callers
-    /// outside this class shouldn't touch it.</summary>
+    // The JSON ownership record includes both process creation times and paths.
+    // A legacy PID|path record cannot establish ownership and never permits a kill.
     internal string PidFilePath => Path.Combine(DataDir, "sidecar.pid");
 
-    private void WritePidFile(int pid, string binaryPath)
+    private void WritePidFile()
     {
-        Directory.CreateDirectory(DataDir);
-        // pipe-separated is enough — neither field contains a pipe in any realistic case.
-        // Atomic write (tmp + Move/Replace) so a concurrent reader
-        // (e.g. KillOrphanedSidecar in another process racing the
-        // first launch) never observes a torn half-written pid-file
-        // and silently no-ops because the parsed pid is bogus.
-        var path = PidFilePath;
-        var tmp = path + ".tmp";
-        File.WriteAllText(tmp, $"{pid}|{binaryPath}");
-        try
-        {
-            if (File.Exists(path)) File.Replace(tmp, path, destinationBackupFileName: null);
-            else File.Move(tmp, path);
-        }
-        catch
-        {
-            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
-            throw;
-        }
+        if (_proc is null) throw new InvalidOperationException("Sidecar has not started.");
+        OwnedProcessRegistry.Write(PidFilePath, OwnedProcessRegistry.CaptureOwnership(_proc));
+        _wroteOwnership = true;
     }
 
-    private void DeletePidFile()
+    private void DeletePidFile() => File.Delete(PidFilePath);
+
+    private void RecoverOwnedSidecar()
     {
-        if (File.Exists(PidFilePath)) File.Delete(PidFilePath);
-    }
-
-    /// <summary>Read the pid file (if any) and kill the recorded process
-    /// if and only if its main module path matches our backrest binary.
-    /// Best-effort: every failure is logged at debug and swallowed so a
-    /// stale or unreadable pid-file never blocks startup.</summary>
-    private void KillOrphanedSidecar()
-    {
-        string? raw;
-        try
-        {
-            if (!File.Exists(PidFilePath)) return;
-            raw = File.ReadAllText(PidFilePath);
-        }
-        catch (Exception ex)
-        {
-            _log.Debug(ex, "Couldn't read sidecar pid-file at {Path}", PidFilePath);
-            return;
-        }
-
-        if (!TryParsePidFile(raw, out var pid, out var recordedBinary))
-        {
-            _log.Debug("Sidecar pid-file at {Path} is malformed; ignoring", PidFilePath);
-            TryDeletePidFile();
-            return;
-        }
-
-        Process? p = null;
-        try { p = Process.GetProcessById(pid); }
-        catch { /* PID isn't live — nothing to kill */ }
-
-        if (p is null)
-        {
-            TryDeletePidFile();
-            return;
-        }
-
-        // Confirm the live process is actually OUR backrest daemon and
-        // not an unrelated program that inherited the PID. MainModule
-        // throws on Windows if the target process is elevated and we're
-        // not; swallow and conservatively skip the kill in that case.
-        string? liveBinary = null;
-        try { liveBinary = p.MainModule?.FileName; }
-        catch { /* access denied / cross-arch / process died mid-read */ }
-
-        if (string.IsNullOrEmpty(liveBinary) ||
-            !string.Equals(liveBinary, recordedBinary, StringComparison.OrdinalIgnoreCase))
-        {
-            _log.Warning(
-                "Found pid-file PID={Pid} recorded for {Recorded}, but the live process is {Live}; leaving alone",
-                pid, recordedBinary, liveBinary ?? "<unknown>");
-            TryDeletePidFile();
-            return;
-        }
-
-        try
-        {
-            _log.Information("Killing orphaned Backrest sidecar (pid={Pid}, binary={Binary})", pid, recordedBinary);
-            p.Kill(entireProcessTree: true);
-            p.WaitForExit(Timing.OrphanKillReapMs);
-        }
-        catch (Exception ex)
-        {
-            _log.Warning(ex, "Failed to kill orphaned Backrest sidecar (pid={Pid})", pid);
-        }
-        finally
-        {
-            TryDeletePidFile();
-            try { p.Dispose(); } catch { /* ignore */ }
-        }
+        var ownership = OwnedProcessRegistry.Read(PidFilePath);
+        if (ownership is null) return;
+        OwnedProcessRegistry.Reap(PidFilePath);
+        // Do not open a database still held by a live or unidentified daemon.
+        if (OwnedProcessRegistry.Inspect(ownership.Child)
+            is OwnedProcessRegistry.Presence.Matching or OwnedProcessRegistry.Presence.Unknown)
+            throw new IOException("The previous Backspace engine still owns this data folder. " +
+                "Its process was left untouched because ownership could not be safely released.");
     }
 
     private void TryDeletePidFile()
     {
-        try { DeletePidFile(); } catch { /* swallow */ }
+        try { DeletePidFile(); } catch { }
     }
-
-    /// <summary>Fingerprint-based orphan scan: every live backrest.exe
-    /// process whose binary sits next to a Backspace.exe (any of our
-    /// builds: prod install, dev build, test build) gets killed.
-    /// Belt-and-braces against the pidfile path: that one fails when
-    /// Backspace crashes between Process.Start() and WritePidFile(),
-    /// AND it fails across DIFFERENT Backspace builds — a prod Backspace
-    /// launching can't recognise a backrest left over from a `dotnet
-    /// test` run because the binary paths don't match. The sibling-
-    /// Backspace.exe heuristic catches both cases without false-killing
-    /// a Backrest that some unrelated tool happens to ship.</summary>
-    private void KillByExeFingerprint()
-    {
-        Process[] candidates;
-        try
-        {
-            var name = Path.GetFileNameWithoutExtension(BackrestBinaryPath);
-            candidates = Process.GetProcessesByName(name);
-        }
-        catch (Exception ex)
-        {
-            _log.Debug(ex, "KillByExeFingerprint: GetProcessesByName threw; skipping");
-            return;
-        }
-
-        var me = Environment.ProcessId;
-        foreach (var p in candidates)
-        {
-            string? path = null;
-            try
-            {
-                if (p.Id == me) continue;
-                path = p.MainModule?.FileName;
-            }
-            catch { /* access denied / elevated / died mid-read */ }
-
-            if (string.IsNullOrEmpty(path) || !IsBackspaceBundledBackrest(path))
-            {
-                try { p.Dispose(); } catch { /* ignore */ }
-                continue;
-            }
-
-            try
-            {
-                _log.Warning(
-                    "Killing fingerprint-matched orphan Backrest sidecar (pid={Pid}, binary={Binary}). " +
-                    "A previous Backspace process (this install or another) likely crashed before " +
-                    "its pid-file was written, or its Job Object teardown didn't reach this child.",
-                    p.Id, path);
-                p.Kill(entireProcessTree: true);
-                p.WaitForExit(Timing.OrphanKillReapMs);
-            }
-            catch (Exception ex)
-            {
-                _log.Warning(ex, "KillByExeFingerprint: kill failed for pid {Pid}", SafePid(p));
-            }
-            finally
-            {
-                try { p.Dispose(); } catch { /* ignore */ }
-            }
-        }
-    }
-
-    /// <summary>True iff <paramref name="backrestPath"/> sits next to a
-    /// Backspace.exe (or Backspace.Tests.dll for the test build). The
-    /// directory layout for every shape we ship — prod install, dev
-    /// build, test build — colocates backrest.exe with the host
-    /// executable, so this is a robust "is this OUR backrest" test
-    /// that doesn't depend on the EXACT install path.</summary>
-    private static bool IsBackspaceBundledBackrest(string backrestPath)
-    {
-        try
-        {
-            var dir = Path.GetDirectoryName(backrestPath);
-            if (string.IsNullOrEmpty(dir)) return false;
-            // Prod / dev build → Backspace.exe alongside.
-            if (File.Exists(Path.Combine(dir, "Backspace.exe"))) return true;
-            // Test build → Backspace.Tests.dll alongside (host is testhost.exe,
-            // not Backspace.exe, but the bundled binaries still land here).
-            if (File.Exists(Path.Combine(dir, "Backspace.Tests.dll"))) return true;
-            // Backspace.dll alongside catches the .NET runtime layout where
-            // the entry-point exe is a stub and the real assembly is a DLL.
-            if (File.Exists(Path.Combine(dir, "Backspace.dll"))) return true;
-            return false;
-        }
-        catch { return false; }
-    }
-
-    private static int SafePid(Process p) { try { return p.Id; } catch { return -1; } }
 
     /// <summary>Parse the <c>"&lt;pid&gt;|&lt;binary-path&gt;"</c> wire
-    /// format. Exposed for testing; the orphan-kill path uses it
-    /// internally. Returns <c>false</c> on any malformed input.</summary>
+    /// format. Retained only for migration diagnostics and tests; it never
+    /// authorizes termination. Returns false on any malformed input.</summary>
     internal static bool TryParsePidFile(string raw, out int pid, out string binaryPath)
     {
         pid = 0;

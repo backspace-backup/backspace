@@ -90,7 +90,7 @@ public static class ServiceLocator
     /// </summary>
     internal static Func<SecretsStore, IBackupEngine>? EngineOverride { get; set; }
 
-    public static void InitializeCore()
+    public static void InitializeCore(string? backrestDataDir = null)
     {
         if (Initialized) return;
         AppPaths.EnsureAll();
@@ -106,7 +106,8 @@ public static class ServiceLocator
         BackrestSidecar = new BackrestSidecar(
             backrestBinaryPath: AppPaths.BackrestBinary,
             resticBinaryPath: AppPaths.ResticBinary,
-            dataDir: AppPaths.BackrestDataDir);
+            dataDir: backrestDataDir ?? AppPaths.BackrestDataDir,
+            deleteDataOnDispose: backrestDataDir is not null);
         Engine = EngineOverride?.Invoke(Secrets)
             ?? new ResticBackrestEngine(BackrestSidecar, Secrets);
         Logs = new LogStore();

@@ -9,8 +9,8 @@ namespace Backspace.Tests.Services;
 
 /// <summary>
 /// Covers both layouts the importer must handle:
-///   1. plain restic — picked folder IS the repo (contains .restic/preferences)
-///   2. restic-util — picked folder CONTAINS many repo folders, plus per-repo yamls
+///   1. plain Duplicacy — picked folder IS the repo (contains .duplicacy/preferences)
+///   2. duplicacy-util — picked folder CONTAINS many repo folders, plus per-repo yamls
 /// Plus the "no repos found" path so the friendly error text doesn't regress.
 /// </summary>
 public class ConfigMigratorTests
@@ -21,7 +21,7 @@ public class ConfigMigratorTests
         using var sandbox = new ConfigSandbox();
         using var src = new TempDir();
 
-        // Layout: <repoRoot>/.restic/preferences
+        // Layout: <repoRoot>/.duplicacy/preferences
         var repoRoot = src.Path;
         var duplDir = Path.Combine(repoRoot, ".duplicacy");
         Directory.CreateDirectory(duplDir);
@@ -40,7 +40,7 @@ public class ConfigMigratorTests
         // Filters file should be picked up too.
         File.WriteAllText(Path.Combine(duplDir, "filters"), "+*.txt\n-*.log\n");
 
-        var store = new ConfigStore();
+        var store = CreateLoadedStore();
         var migrator = new ConfigMigrator(store);
         var report = migrator.MigrateFrom(repoRoot);
 
@@ -64,6 +64,10 @@ public class ConfigMigratorTests
         var target = Assert.Single(backup.Targets);
         Assert.Equal(dest.Id, target.DestinationId);
         Assert.Equal("default", target.StorageName);
+
+        var reopened = CreateLoadedStore();
+        Assert.Equal(backup.Id, Assert.Single(reopened.Current.Backups).Id);
+        Assert.Equal(dest.Id, Assert.Single(reopened.Current.Destinations).Id);
     }
 
     [Fact]
@@ -87,7 +91,7 @@ public class ConfigMigratorTests
             ]
             """);
 
-        var store = new ConfigStore();
+        var store = CreateLoadedStore();
         new ConfigMigrator(store).MigrateFrom(src.Path);
 
         var dest = Assert.Single(store.Current.Destinations);
@@ -102,11 +106,11 @@ public class ConfigMigratorTests
         using var sandbox = new ConfigSandbox();
         using var parent = new TempDir();
 
-        // Two repos as siblings under parent, plus a restic-util yaml for one of them.
+        // Two repos as siblings under parent, plus a duplicacy-util yaml for one of them.
         MakeRepo(parent.Path, "local_c", id: "local_c",   storage: @"D:\Backups\c",                   encrypted: false);
         MakeRepo(parent.Path, "dropbox", id: "dropbox", storage: "dropbox://Apps/dupli/main",       encrypted: true);
 
-        // restic-util style yaml: threads + keep + prune for the dropbox repo.
+        // duplicacy-util style yaml: threads + keep + prune for the dropbox repo.
         File.WriteAllText(Path.Combine(parent.Path, "dropbox.yaml"),
             """
             repository: .
@@ -122,7 +126,7 @@ public class ConfigMigratorTests
                 -   storage: default
             """);
 
-        var store = new ConfigStore();
+        var store = CreateLoadedStore();
         var report = new ConfigMigrator(store).MigrateFrom(parent.Path);
 
         Assert.False(report.Skipped, report.Reason);
@@ -157,7 +161,7 @@ public class ConfigMigratorTests
         File.WriteAllText(Path.Combine(src.Path, ".duplicacy", "preferences"),
             """[ { "name":"default","id":"x","repository":".","storage":"dropbox://a/b","encrypted":false } ]""");
 
-        var store = new ConfigStore();
+        var store = CreateLoadedStore();
         new ConfigMigrator(store).MigrateFrom(src.Path);
         new ConfigMigrator(store).MigrateFrom(src.Path);
 
@@ -171,7 +175,7 @@ public class ConfigMigratorTests
         using var sandbox = new ConfigSandbox();
         using var empty = new TempDir();
 
-        var report = new ConfigMigrator(new ConfigStore()).MigrateFrom(empty.Path);
+        var report = new ConfigMigrator(CreateLoadedStore()).MigrateFrom(empty.Path);
 
         Assert.True(report.Skipped);
         Assert.Contains(".duplicacy", report.Reason!);
@@ -183,7 +187,7 @@ public class ConfigMigratorTests
         using var sandbox = new ConfigSandbox();
         var missing = Path.Combine(Path.GetTempPath(), "definitely-not-a-real-path-" + Guid.NewGuid().ToString("N"));
 
-        var report = new ConfigMigrator(new ConfigStore()).MigrateFrom(missing);
+        var report = new ConfigMigrator(CreateLoadedStore()).MigrateFrom(missing);
 
         Assert.True(report.Skipped);
         Assert.Equal("Directory does not exist", report.Reason);
@@ -198,7 +202,7 @@ public class ConfigMigratorTests
         // Duplicacy-style: s3://region@endpoint/bucket/subdir
         MakeRepo(parent, "s3-repo", "s3-id", "s3://us-east-1@s3.amazonaws.com/my-bucket/path/to/data", encrypted: true);
 
-        var cs = new ConfigStore();
+        var cs = CreateLoadedStore();
         var report = new ConfigMigrator(cs).MigrateFrom(parent);
 
         var dest = cs.Current.Destinations.Single(d => d.Kind == DestinationKind.S3Compatible);
@@ -218,7 +222,7 @@ public class ConfigMigratorTests
         // No region@ prefix — Duplicacy supported this for self-hosted endpoints.
         MakeRepo(parent, "s3-noregion", "s3-id", "s3://s3.eu-west-1.amazonaws.com/bucket-only/sub", encrypted: false);
 
-        var cs = new ConfigStore();
+        var cs = CreateLoadedStore();
         new ConfigMigrator(cs).MigrateFrom(parent);
 
         var dest = cs.Current.Destinations.Single(d => d.Kind == DestinationKind.S3Compatible);
@@ -236,7 +240,7 @@ public class ConfigMigratorTests
         var parent = src.Path;
         MakeRepo(parent, "s3-bare", "s3-id", "s3://just-the-bucket", encrypted: false);
 
-        var cs = new ConfigStore();
+        var cs = CreateLoadedStore();
         new ConfigMigrator(cs).MigrateFrom(parent);
 
         var dest = cs.Current.Destinations.Single(d => d.Kind == DestinationKind.S3Compatible);
@@ -244,6 +248,16 @@ public class ConfigMigratorTests
         Assert.Equal("", dest.PathOrSubpath);
     }
 
+    // Mirrors ServiceLocator.InitializeCore: writes are allowed only after
+    // a successful load, so a missing/unreadable settings file cannot be
+    // replaced accidentally by a fresh in-memory default.
+    private static ConfigStore CreateLoadedStore()
+    {
+        var store = new ConfigStore();
+        store.Load();
+        Assert.True(store.IsLoaded);
+        return store;
+    }
     // ---- helpers ----
 
     private static void MakeRepo(string parent, string folderName, string id, string storage, bool encrypted)

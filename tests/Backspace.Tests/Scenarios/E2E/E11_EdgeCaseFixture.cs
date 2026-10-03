@@ -56,6 +56,8 @@ public sealed class E11_EdgeCaseFixture : BackupE2EBase
         var manifest = EdgeCaseFileTree.Generate(sourcePath,
             totalBytes: 50L * 1024 * 1024,
             randomSeed: 4242);
+        if (FixtureSizeResolver.ResolveSize(FixtureSize.Smoke) == FixtureSize.Huge)
+            FixtureFactory.GenerateScaleSource(Path.Combine(sourcePath, "scale-payload"), 4242);
 
         foreach (var u in manifest.Unsupported)
             ctx.Report.RecordAnomaly(
@@ -101,8 +103,17 @@ public sealed class E11_EdgeCaseFixture : BackupE2EBase
         ctx.Snapshot(host, "after run",
             $"Edge-case backup: {record.Summary}.");
 
-        var outcome = await RestoreEverythingAsync(
-            backup, sourcePath, dest, "default", restoreDir, CancellationToken.None);
+        var restoreLines = new System.Text.StringBuilder();
+        void Capture(string line) { lock (restoreLines) restoreLines.AppendLine(line); }
+        fixture.Engine.LineWritten += Capture;
+        RestoreOutcome outcome;
+        try
+        {
+            outcome = await RestoreEverythingAsync(
+                backup, sourcePath, dest, "default", restoreDir, CancellationToken.None);
+        }
+        finally { fixture.Engine.LineWritten -= Capture; }
+        ctx.Report.RecordNote("Restore terminal evidence", $"{outcome.TerminalStatus}: {outcome.RestoredCount}/{outcome.TotalFiles}. {outcome.ErrorMessage}\n{restoreLines}");
         // The edge-case fixture intentionally includes file types
         // restic 0.18 cannot reify on every host: a junction's link
         // entry, an ADS's hidden-stream-only entry. Per-feature
@@ -140,7 +151,7 @@ public sealed class E11_EdgeCaseFixture : BackupE2EBase
             AssertRestoredContains(restoreDir, sourcePath, manifest.AclChildFile!, "ACL'd child file");
 
         // Comprehensive restore validation — the headline behaviour
-        // E11 actually cares about. Beyond a sampled byte compare,
+        // E11 actually cares about. Every regular file is byte-compared;
         // we turn on ACL + sparse-flag checks here because this
         // scenario is the one that exercises those preservations.
         // ADS stream CONTENT is not part of the comparison (restic

@@ -59,6 +59,22 @@ public class EngineBackedSnapshotTreeProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task UncachedMountedRead_WaitsForExclusiveMaintenance_AndHonoursCancellation()
+    {
+        using var provider = new EngineBackedSnapshotTreeProvider(_engine, _backup, _backup.SourcePaths[0], _destination, "default", 1, _cacheDir);
+        using var maintenance = await ServiceLocator.Maintenance.AcquireAsync("mount regression test");
+        using var cancel = new CancellationTokenSource();
+        var listing = provider.ListAsync("", cancel.Token);
+        await Task.Delay(150);
+        Assert.False(listing.IsCompleted);
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listing);
+        Assert.False(ServiceLocator.Maintenance.HasReaders);
+        maintenance.Dispose();
+        Assert.NotEmpty((await provider.ListAsync("", CancellationToken.None))!);
+    }
+
+    [Fact]
     public async Task ListAsync_Root_EnumeratesTopLevelChildren()
     {
         using var provider = new EngineBackedSnapshotTreeProvider(
@@ -156,7 +172,7 @@ public class EngineBackedSnapshotTreeProviderTests : IDisposable
         Assert.Equal(bulkBefore, _engine.Calls.Count(c => c.StartsWith("RestoreSnapshotSubtree")));
         // Per-file restore happened exactly once for the one file
         // we asked for; nothing else was written to the cache dir.
-        Assert.Single(_engine.Calls.Where(c => c.StartsWith("RestoreFiles")));
+        Assert.Single(_engine.Calls, c => c.StartsWith("RestoreFiles"));
     }
 
     [Fact]

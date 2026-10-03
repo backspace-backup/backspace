@@ -30,7 +30,7 @@ public class BackupGraceAndCapTests
         };
     }
 
-    // ---- D-4: grace escalation Skipped → Failed --------------------
+    // ---- Skip-notification grace ---------------------------------
 
     [Fact]
     public void Grace_FirstSkippedRunWithinGraceDays_StaysOrange()
@@ -46,23 +46,21 @@ public class BackupGraceAndCapTests
     }
 
     [Fact]
-    public void Grace_SkippedRunPastGraceDays_EscalatesToFailed()
+    public void Grace_SkippedRunPastGraceDays_AllowsWarningNotification()
     {
         // 8 days past the reference (no LastSuccess, no Reset) with a
-        // 7-day grace means the next Skipped run must escalate. The
-        // pin is exact: 7.0 days elapsed is INSIDE grace (boundary
-        // condition the original review pinned at < not <=).
+        // 7-day grace means the next Skipped run is eligible for a
+        // warning notification, while its stored status stays Skipped.
         var now = new DateTime(2026, 6, 10, 12, 0, 0, DateTimeKind.Utc);
         var b = MakeBackup(createdUtc: now.AddDays(-8));
         Assert.False(b.IsWithinSkipGrace(now));
     }
 
     [Fact]
-    public void Grace_BoundaryAtExactlyGraceDays_EscalatesToFailed()
+    public void Grace_BoundaryAtExactlyGraceDays_AllowsWarningNotification()
     {
         // The predicate uses strict <, so elapsed == grace is OUT of
-        // the window. Confirmed deliberately: the orange→red flip
-        // happens at the start of day N+1, not at the end of day N.
+        // the window. Notifications become eligible at this boundary.
         var now = new DateTime(2026, 6, 10, 12, 0, 0, DateTimeKind.Utc);
         var b = MakeBackup(createdUtc: now.AddDays(-7));
         Assert.False(b.IsWithinSkipGrace(now));

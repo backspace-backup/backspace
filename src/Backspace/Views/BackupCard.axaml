@@ -502,13 +502,13 @@
             <Button Classes="ghost"
                     IsEnabled="{Binding !IsRunning}"
                     IsVisible="{Binding CanMountSnapshot}"
-                    ToolTip.Tip="Mount the latest snapshot as a Windows drive letter and open Explorer at it."
+                    ToolTip.Tip="{Binding MountTooltip}"
                     ToolTip.ShowOnDisabled="True"
                     Margin="0,0,10,0"
                     Command="{Binding MountInExplorerCommand}">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <PathIcon Data="{StaticResource Icon.Destinations}" Width="13" Height="13"/>
-                <TextBlock Text="Mount" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding MountActionLabel}" VerticalAlignment="Center"/>
               </StackPanel>
             </Button>
             <Button Classes="restore-action"

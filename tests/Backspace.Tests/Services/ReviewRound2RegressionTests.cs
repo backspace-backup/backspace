@@ -81,11 +81,12 @@ public class ReviewRound2RegressionTests
             // a startup where IOException prevented Load from setting
             // _loaded=true.
             var fresh = new ConfigStore();
-            fresh.Update(c => c.Backups.Add(new Backup { Id = "id2", Name = "should-not-persist" }));
+            Assert.Throws<InvalidOperationException>(() =>
+                fresh.Update(c => c.Backups.Add(new Backup { Id = "id2", Name = "should-not-persist" })));
 
             // The on-disk file should still hold ONLY the original
             // pre-existing backup. The "should-not-persist" Update was
-            // silently dropped because Save_NoLock refused.
+            // visibly rejected because the initial Load never completed.
             var reread = new ConfigStore();
             reread.Load();
             Assert.Single(reread.Current.Backups);
@@ -203,7 +204,7 @@ public class ReviewRound2RegressionTests
         {
             new() { DestinationId = "d1", StorageName = "default" },
             new() { DestinationId = "d1", StorageName = "default" }, // dupe
-            new() { DestinationId = "d1", StorageName = null },      // null → "" still dupe-key? no, distinct from "default"
+            new() { DestinationId = "d1", StorageName = null! },     // intentionally exercise a legacy null: distinct from "default"
             new() { DestinationId = "d2", StorageName = "default" },
         };
         var distinct = targets

@@ -179,7 +179,8 @@ public static class RestoreValidator
         // Sample 1% of files OR options.MaxSampledFiles, whichever
         // is smaller. Bounded so a huge tree doesn't blow the budget.
         var presentInBoth = sourceFiles.Where(restoredSet.Contains).ToList();
-        var sampleCount = Math.Min(options.MaxSampledFiles, Math.Max(1, presentInBoth.Count / 100));
+        var sampleCount = options.VerifyAllBytes ? presentInBoth.Count
+            : Math.Min(options.MaxSampledFiles, Math.Max(1, presentInBoth.Count / 100));
         if (presentInBoth.Count > 0)
             sampleCount = Math.Min(sampleCount, presentInBoth.Count);
         var rng = new Random(options.SampleSeed);
@@ -194,8 +195,8 @@ public static class RestoreValidator
         }
         report.Add(Dimension.SampledBytes, ok: byteMismatches.Count == 0,
             byteMismatches.Count == 0
-                ? $"Random-sample byte compare of {sample.Count} files: all match."
-                : $"{byteMismatches.Count} of {sample.Count} sampled files differ in content.",
+                ? $"{(options.VerifyAllBytes ? "Full SHA-256 comparison" : "Random-sample byte comparison")} of {sample.Count} files: all match."
+                : $"{byteMismatches.Count} of {sample.Count} {(options.VerifyAllBytes ? "compared" : "sampled")} files differ in content.",
             byteMismatches.Take(10).ToList());
 
         return report;
@@ -244,6 +245,8 @@ public static class RestoreValidator
 
 public sealed class ValidationOptions
 {
+    /// <summary>Compare every regular file; used by real backup/restore scenarios.</summary>
+    public bool VerifyAllBytes { get; set; }
     /// <summary>±N seconds wiggle on file modified-time. FAT
     /// timestamps round to 2s and the conversion path loses
     /// sub-second precision in either direction. The remaining

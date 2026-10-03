@@ -32,10 +32,10 @@ public class ReachabilityGateTests
     [Fact]
     public async Task NetworkShare_NonexistentUnc_ReturnsSkippedCellOutcome()
     {
-        // Real UNC that DNS resolution can't even start on — Directory.Exists
-        // returns false synchronously. The 5s Task.WhenAny timeout
-        // covers the slower "host resolves but doesn't respond" path
-        // we can't safely test for in CI.
+        // A nonexistent host produces a known network-path outage or hits
+        // the five-second deadline. Both are tolerable skips. The production
+        // probe uses GetAttributes so permission/missing-folder failures
+        // remain distinguishable from an unavailable host.
         var dest = new Destination
         {
             Name = "Offline NAS",
@@ -46,8 +46,9 @@ public class ReachabilityGateTests
             dest, sourcePath: @"C:\src", storageName: "default", ct: CancellationToken.None);
         Assert.NotNull(miss);
         Assert.Equal(BackupRunStatus.Skipped, miss!.Status);
-        Assert.Contains("Network share unreachable", miss.Summary);
+        Assert.Contains("Network share unavailable", miss.Summary);
         Assert.Contains(@"\\backspace-tests-nonexistent-host\share", miss.Summary);
+        Assert.False(string.IsNullOrWhiteSpace(miss.LastError));
     }
 
     [Fact]

@@ -36,29 +36,30 @@ public sealed class MailService
     private static ILogger _log => AppLogger.For<MailService>();
     private readonly ConfigStore _config;
     private readonly SecretsStore _secrets;
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
+    private readonly HttpClient _http;
+    internal Func<TimeSpan, CancellationToken, Task> DelayAsync { get; set; } = Task.Delay;
 
-    public MailService(ConfigStore config, SecretsStore secrets)
+    public MailService(ConfigStore config, SecretsStore secrets, HttpClient? http = null)
     {
         _config = config;
         _secrets = secrets;
+        _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
     }
 
     public bool IsEnabled => _config.Current.Mail.Provider != MailProvider.Disabled;
 
-    public async Task SendAsync(string subject, string plainBody, CancellationToken ct)
+    public async Task<MailSendResult> SendAsync(string subject, string plainBody, CancellationToken ct)
     {
         var m = _config.Current.Mail;
         if (m.Provider == MailProvider.Disabled)
         {
             _log.Debug("Mail send skipped — provider disabled");
-            return;
+            return new(true, true, "Email is disabled.");
         }
         var recipients = ResolveRecipients(m);
         if (recipients.Count == 0)
         {
-            _log.Debug("Mail send skipped — no recipients configured");
-            return;
+            return new(false, false, "No email recipient is configured. Add a TO address in Settings → Email.");
         }
 
         try
@@ -67,9 +68,8 @@ public sealed class MailService
             // from the provider. A failure-notification email blocked by
             // a 30-second Resend hiccup is exactly the wrong moment to
             // silently drop the alert. 2+8s waits + 3 total attempts =
-            // ~10s worst case; the orchestrator's own SendAlertsAsync
-            // already runs the mail send on a finally block, so this
-            // doesn't gate UI.
+            // 10 seconds of retry waits plus the bounded HTTP attempts.
+            // The run result is published before alert delivery begins.
             await SendWithRetryAsync(
                 () => m.Provider switch
                 {
@@ -81,6 +81,7 @@ public sealed class MailService
                 ct);
             _log.Information("Mail sent via {Provider} to {Count} recipient(s): {Subject}",
                 m.Provider, recipients.Count, subject);
+            return new(true, false, "Email sent.");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -94,14 +95,16 @@ public sealed class MailService
             // Never fail the backup because of a notification failure —
             // but make sure the user can find out why no email arrived.
             _log.Warning(ex, "Mail send failed via {Provider}", m.Provider);
+            return new(false, false, $"{m.Provider} could not send the email: {ex.GetBaseException().Message}");
         }
     }
 
     /// <summary>Retry waits between send attempts. Tuned for a
     /// provider hiccup ("Bad Gateway", "Service Unavailable") to
     /// resolve before we give up on the failure-notification email
-    /// the user most needs to actually receive. 3 attempts ≈ 10s
-    /// worst case. Non-transient errors (auth, malformed payload)
+    /// the user most needs to actually receive. Three attempts add
+    /// 10 seconds of waits to the bounded HTTP request timeouts.
+    /// Non-transient errors (auth, malformed payload)
     /// throw <see cref="InvalidOperationException"/> with a code
     /// the caller surfaces verbatim — those don't retry.</summary>
     private static readonly TimeSpan[] MailRetryBackoffs =
@@ -128,14 +131,15 @@ public sealed class MailService
             {
                 _log.Information("Retrying {Provider} send (attempt {Attempt}/{Total}) after {Wait}s",
                     providerName, i + 1, MailRetryBackoffs.Length, MailRetryBackoffs[i].TotalSeconds);
-                await Task.Delay(MailRetryBackoffs[i], ct).ConfigureAwait(false);
+                await DelayAsync(MailRetryBackoffs[i], ct).ConfigureAwait(false);
             }
             try
             {
                 await sendOnce().ConfigureAwait(false);
                 return;
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException ex) { lastEx = ex; } // per-attempt HttpClient timeout
             catch (HttpRequestException ex)
             {
                 // Network-layer failure (DNS, connection refused, timeout):
@@ -172,7 +176,8 @@ public sealed class MailService
         // 500–599 fits the "HTTP 5..": prefix; we keep the check
         // textual so we don't have to ship a new exception type just
         // for retry classification.
-        return message.Contains(" HTTP 5", StringComparison.Ordinal);
+        return message.Contains(" HTTP 5", StringComparison.Ordinal)
+            || message.Contains(" HTTP 429", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -409,3 +414,5 @@ public sealed class MailService
         return s.Trim().TrimEnd('.');
     }
 }
+
+public sealed record MailSendResult(bool Succeeded, bool Disabled, string Detail);

@@ -62,8 +62,8 @@ first-time users from cold install to first backup in under a minute.
 ![File picker in the restore wizard](docs/screenshots/05-restore-files.png)
 
 Browse a snapshot, tick the files you want back, choose where they go.
-Parallel downloads with per-file retry — one slow file doesn't block the
-rest.
+Watch progress as the engine restores your selection. You can leave the wizard,
+return through Restores, or cancel safely while other work continues.
 
 ### Browse and mount snapshots in place
 
@@ -171,35 +171,12 @@ to convert that claim into a check.
 
 What it does, end-to-end:
 
-1. Picks ten random files from the latest snapshot's pre-walked file
-   list, weighted so empty files don't dominate.
-2. **Pre-flight freshness gate.** Each candidate file's CURRENT source
-   mtime is compared against the snapshot's recorded mtime (with a 2 s
-   filesystem-rounding fudge factor). A file that's been edited since
-   the backup is skipped — its current bytes aren't what the snapshot
-   stored, so a byte-compare would be a false negative. The picker keeps
-   walking a shuffled pool until it finds ten unchanged files OR exhausts
-   a per-call attempt budget (max 30 candidates inspected). If the
-   entire pool turns out to be too fresh — every sampled file edited
-   since the last backup — the drill reports that as a soft failure
-   ("try again after a fresh backup") rather than a misleading pass.
-3. **Restore.** The ten files are restored into a temp directory under
-   `Backspace.config/verify/`, with the standard per-file retry cascade.
-4. **Per-file verify.** For each restored file:
-   * Restored size vs snapshot's recorded size — always asserted. A
-     mismatch here is real corruption.
-   * Restored bytes vs current source bytes — only when the source
-     file's mtime is still older than the snapshot at this moment.
-   * If the source file has been edited *during the drill* (passed the
-     pre-flight gate, failed the post-restore gate), the file is marked
-     "mid-flight dirty" and **the drill picks a replacement** from the
-     unconsumed tail of the shuffled pool, restores it, and verifies it
-     too. Bounded at ten additional restore rounds so a pathological
-     "user keeps editing everything" scenario can't loop indefinitely.
-5. **Result.** A per-destination breakdown of OK / OkNoCompare /
-   SizeMismatch / BytesMismatch / RestoreFailed counts, plus a stamp
-   on `Backup.LastVerifyUtc`. The Dashboard flags any backup whose
-   last verify is older than 30 days.
+1. Lists every file in the latest snapshot of **each source at each destination**, including empty files. It also checks whether an unchanged, included local file is missing from the snapshot.
+2. Restores files in batches of 128 to a private temporary directory. This limits temporary disk usage, although a single large file still needs enough free space for its full size. Testing a cloud destination downloads the restored data and uses the destination's bandwidth limits.
+3. Checks each restored file's size against the snapshot and compares its bytes with the local original when that original is still unchanged. Files edited or removed since the backup are reported as restored but not byte-compared, rather than counted as verified matches.
+4. Shows per-source and per-destination results and records each file's result in Activity & logs. Missing files, mismatches and restore failures remain visible. Cancel stops the engine operation before its temporary files are cleaned up.
+
+The drill is a full recovery check, so large backups can take time. It is started on demand from **Test restore**; it does not silently download your cloud backups on a schedule.
 
 This is **not** restic's `check` — that one verifies the repository's
 internal Merkle structure (blobs, packs, indexes) and is what catches

@@ -26,6 +26,15 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     private readonly bool _showActions;
     private readonly bool _showProgress;
     private readonly Action<string>? _progressHandler;
+    private readonly Services.WebDav.ISnapshotMountRegistry? _mountRegistry;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(MountActionLabel))]
+    [NotifyPropertyChangedFor(nameof(MountTooltip))]
+    private string? _mountedDrive;
+    public string MountActionLabel => MountedDrive is null ? "Mount" : "Unmount";
+    public string MountTooltip => MountedDrive is null
+        ? "Browse your snapshots as a read-only drive in Explorer."
+        : $"Unmount {MountedDrive}. Your snapshots stay safely in the backup.";
 
     public string Id { get; }
     public Backup Snapshot { get; private set; }
@@ -231,10 +240,17 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// <param name="showActions">Wire Run / Stop / Edit / Delete / Test buttons.</param>
     /// <param name="showProgress">Subscribe to <see cref="BackupProgressService"/>
     /// and surface per-source live progress.</param>
-    public BackupCardViewModel(Backup b, bool showActions, bool showProgress)
+    public BackupCardViewModel(Backup b, bool showActions, bool showProgress,
+        Services.WebDav.ISnapshotMountRegistry? mountRegistry = null)
     {
         Id = b.Id;
         Snapshot = b;
+        _mountRegistry = mountRegistry ?? ServiceLocator.SnapshotMounts;
+        if (_mountRegistry is not null)
+        {
+            _mountRegistry.Changed += OnMountChanged;
+            MountedDrive = _mountRegistry.GetMountedDrive(Id);
+        }
         _showActions = showActions;
         _showProgress = showProgress;
         Apply(b);
@@ -561,6 +577,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _disposed = true;
+        if (_mountRegistry is not null) _mountRegistry.Changed -= OnMountChanged;
         if (_progressHandler is not null)
             ServiceLocator.Progress.Updated -= _progressHandler;
     }
@@ -663,7 +680,16 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// reason.</summary>
     public bool CanMountSnapshot =>
         Services.Platform.PlatformInfo.IsWindows
-        && ServiceLocator.SnapshotMounts is not null;
+        && _mountRegistry is not null;
+
+    private void OnMountChanged(string backupId)
+    {
+        if (backupId != Id || _disposed) return;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed) MountedDrive = _mountRegistry?.GetMountedDrive(Id);
+        });
+    }
 
     /// <summary>Mount the latest snapshot of this backup as a
     /// Windows drive letter, then open Explorer at it. Wired to
@@ -674,10 +700,15 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task MountInExplorer()
     {
-        var registry = ServiceLocator.SnapshotMounts;
+        var registry = _mountRegistry;
         if (registry is null) return; // not Windows; the button is hidden anyway
         try
         {
+            if (registry.GetMountedDrive(Id) is not null)
+            {
+                await registry.UnmountAsync(Id);
+                return;
+            }
             var result = await registry.MountForAsync(Snapshot).ConfigureAwait(false);
             if (!result.Succeeded)
             {
@@ -702,6 +733,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
                         " (run a backup first if this is a brand-new destination; there's nothing to mount until a snapshot exists)",
                 severity: NotificationSeverity.Failure);
         }
+        finally { OnMountChanged(Id); }
     }
 
     /// <summary>

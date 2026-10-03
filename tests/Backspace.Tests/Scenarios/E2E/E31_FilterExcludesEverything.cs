@@ -44,6 +44,8 @@ public sealed class E31_FilterExcludesEverything : BackupE2EBase
     {
         var sourceRoot = Path.Combine(ctx.SourcesDir, "tmp-only");
         Directory.CreateDirectory(sourceRoot);
+        if (FixtureSizeResolver.ResolveSize(FixtureSize.Smoke) == FixtureSize.Huge)
+            FixtureFactory.GenerateExactTree(sourceRoot, 31, 20000, 2L * 1024 * 1024 * 1024, ".tmp");
         for (int i = 0; i < 5; i++)
             await File.WriteAllTextAsync(Path.Combine(sourceRoot, $"junk{i:00}.tmp"),
                 $"this is junk number {i}");

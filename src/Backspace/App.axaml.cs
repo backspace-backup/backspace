@@ -149,11 +149,26 @@ public partial class App : Application
             //    catches whatever this misses, but a graceful stop
             //    drains stderr / flushes the sqlite oplog properly
             //    where a Kill-via-job-object would not.
-            desktop.ShutdownRequested += (_, __) =>
+            // ShutdownRequested is cancellable. Never tear down a live
+            // engine before the main window has finished its safe-quit flow.
+            desktop.ShutdownRequested += (_, e) =>
+            {
+                if (QuitRequested) return;
+                e.Cancel = true;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (desktop.MainWindow is MainWindow window) window.RequestQuit();
+                });
+            };
+            desktop.Exit += (_, __) =>
             {
                 try { ServiceLocator.SnapshotMounts?.DisposeAllAsync().GetAwaiter().GetResult(); }
                 catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Unmount-on-shutdown threw"); }
-                try { ServiceLocator.BackrestSidecar?.DisposeAsync().GetAwaiter().GetResult(); }
+                try
+                {
+                    ServiceLocator.BackrestSidecar?.DisposeAsync().GetAwaiter().GetResult();
+                    ServiceLocator.Maintenance?.ReleaseEngineOwnershipAfterStop();
+                }
                 catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Backrest engine stop-on-shutdown threw"); }
             };
 
@@ -168,33 +183,24 @@ public partial class App : Application
             // binaries are only present as embedded AvaloniaResources.
             Program.RunPostInitStartup();
 
-            // If the secrets vault failed to decrypt at startup
-            // (DPAPI on Windows / AES-GCM keyfile on Unix can't open
-            // it on this machine/account), surface a one-shot dialog
-            // so the user knows their saved tokens/passwords are
-            // gone and they need to re-enter them. Without this the
-            // first failed backup would be the user's only signal —
-            // and by then the app may have already overwritten the
-            // unreadable file.
-            var secretsErr = ServiceLocator.Secrets.LoadErrorMessage;
-            if (!string.IsNullOrEmpty(secretsErr))
+            // Open the lazy vault before deciding whether to warn. A busy file
+            // is reported separately from a preserved, unreadable encrypted blob.
+            var startupSecrets = ServiceLocator.Secrets;
+            Dispatcher.UIThread.Post(async () =>
             {
-                Dispatcher.UIThread.Post(async () =>
+                try
                 {
-                    try
-                    {
-                        // Informational acknowledgement — no typing gate.
+                    var warning = await SecretsStartupWarning.CheckAsync(startupSecrets);
+                    if (warning is not null && !QuitRequested && desktop.MainWindow?.IsVisible == true)
                         await DestructiveConfirmWindow.ShowInfoAsync(
                             desktop.MainWindow!,
-                            title: "Saved tokens couldn't be opened",
-                            subtitle: secretsErr);
-                    }
-                    catch (Exception ex)
-                    {
-                        AppLogger.For<App>().Warning(ex, "Failed to surface secrets-load warning dialog");
-                    }
-                });
-            }
+                            title: warning.Title, subtitle: warning.Message);
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.For<App>().Warning(ex, "Failed to surface secrets-load warning dialog");
+                }
+            });
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -214,16 +220,15 @@ public partial class App : Application
     /// so RestoreMainWindow is harmless either way.</summary>
     private void OnTrayIconClicked(object? sender, EventArgs e) => RestoreMainWindow();
 
-    /// <summary>Tray-menu "Quit" handler. Sets <see cref="QuitRequested"/>
-    /// so the MainWindow's Closing event doesn't intercept the shutdown
-    /// for the close-to-tray detour, then asks Avalonia to exit. The
-    /// ShutdownRequested + ProcessExit cleanup hooks already wired
-    /// earlier handle the actual engine teardown.</summary>
+    /// <summary>Tray Quit uses the same safe operation drain as window
+    /// close. Exit and ProcessExit handle committed engine teardown.</summary>
     private void OnTrayQuit(object? sender, EventArgs e)
     {
-        QuitRequested = true;
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-            desktop.Shutdown();
+        {
+            if (desktop.MainWindow is MainWindow window) window.RequestQuit();
+            else desktop.Shutdown();
+        }
     }
 
     /// <summary>Flag set when the user has chosen "Quit Backspace"

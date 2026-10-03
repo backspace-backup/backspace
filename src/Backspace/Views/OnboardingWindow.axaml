@@ -298,21 +298,11 @@
             </StackPanel>
 
             <!-- ===== Grace period for skipped runs ===== -->
-            <!-- A backup whose destination is intermittently unreachable
-                 (laptop away from home, NAS off for the weekend, USB
-                 unplugged) gets Skipped status on every attempt. We
-                 suppress notifications for the first N days so a normal
-                 trip doesn't trigger a daily "Failed" alert; after N
-                 days the next Skipped escalates to Failed (red) so the
-                 user notices something might actually need their
-                 attention. Default 7. Reset button shifts the clock
-                 forward for known-ahead absences.
-
-                 Easy-mode visibility: only show when the most recent
-                 run was Skipped AND grace is still counting down (see
-                 OnboardingViewModel.ShowGraceBlock). Power users edit
-                 the value in Advanced mode regardless. -->
-            <Border Background="{DynamicResource BS.Brush.Surface2}"
+            <!-- Always available so a user can prepare for an absence,
+                 including before the first skipped run. Expired grace
+                 permits warning notifications; it never changes Skipped
+                 into Failed. Reset starts a fresh window on Save. -->
+            <Border x:Name="GraceSettings" Background="{DynamicResource BS.Brush.Surface2}"
                     CornerRadius="8" Padding="14,12"
                     IsVisible="{Binding ShowGraceBlock}">
               <StackPanel Spacing="10">
@@ -320,7 +310,7 @@
                            Foreground="{DynamicResource BS.Brush.FgPrimary}"
                            Text="Quiet skipped-run alerts for…"/>
                 <Grid ColumnDefinitions="Auto,10,Auto,10,Auto" VerticalAlignment="Center">
-                  <NumericUpDown Grid.Column="0"
+                  <NumericUpDown x:Name="GraceDays" Grid.Column="0"
                                  Value="{Binding SkipNotificationGraceDays}"
                                  Minimum="0" Maximum="365"
                                  Width="110"/>
@@ -334,7 +324,7 @@
                 <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
                            Text="{Binding GraceReferenceLabel}"/>
                 <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
-                           Text="During the grace window, Skipped runs stay orange and don't trigger notifications. After it expires, the next Skipped escalates to Failed (red). Set to 0 to disable the grace window entirely."/>
+                           Text="During the grace window, Skipped runs don't trigger notifications. After it expires, Skipped runs can send warning notifications. Their status stays Skipped. Set to 0 to disable the grace window entirely."/>
               </StackPanel>
             </Border>
 

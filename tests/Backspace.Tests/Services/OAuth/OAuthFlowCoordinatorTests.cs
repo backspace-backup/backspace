@@ -56,7 +56,8 @@ public class OAuthFlowCoordinatorTests
         // The caller must be able to cancel — e.g. when the user
         // closes the destination editor mid-flow.
         var provider = new StubProvider("real-looking-id", "http://unused.invalid");
-        var coord = new OAuthFlowCoordinator { TimeoutSeconds = 60 };
+        using var http = new System.Net.Http.HttpClient();
+        var coord = new OAuthFlowCoordinator(http, _ => { }) { TimeoutSeconds = 60 };
         using var cts = new CancellationTokenSource();
         cts.CancelAfter(200);
 
@@ -68,13 +69,11 @@ public class OAuthFlowCoordinatorTests
     [Fact]
     public async Task RunAsync_TimesOut_WithReadableMessage()
     {
-        // Set a very short timeout so the test runs in <1s. The
-        // browser will likely open (Process.Start succeeds against
-        // example.invalid → user's browser shows a "site not
-        // reachable" error). The coordinator stays in the wait
-        // loop until the timeout elapses, then returns Failed.
+        // Exercise the real listener timeout without opening an
+        // unrelated browser tab. No callback or token HTTP occurs.
         var provider = new StubProvider("real-looking-id", "http://unused.invalid");
-        var coord = new OAuthFlowCoordinator { TimeoutSeconds = 1 };
+        using var http = new System.Net.Http.HttpClient();
+        var coord = new OAuthFlowCoordinator(http, _ => { }) { TimeoutSeconds = 1 };
 
         var result = await coord.RunAsync(provider);
         Assert.False(result.Succeeded);

@@ -305,9 +305,12 @@ public sealed class BackupMountTreeProvider : ISnapshotTreeProvider, IDisposable
 
     private Task<IReadOnlyList<RevisionSummary>> GetRevisionsAsync(string sourceFolder, CancellationToken ct)
     {
-        return _revisionsCache.GetOrAdd(sourceFolder, key =>
-            ServiceLocator.Revisions.ListRevisionsAsync(
-                _backup, _sourceByFolder[key], _destination, _storageName, ct));
+        return _revisionsCache.GetOrAdd(sourceFolder, async key =>
+        {
+            using var lease = await ServiceLocator.Maintenance.AcquireReadAsync(ct).ConfigureAwait(false);
+            return await ServiceLocator.Revisions.ListRevisionsAsync(
+                _backup, _sourceByFolder[key], _destination, _storageName, ct).ConfigureAwait(false);
+        });
     }
 
     private async Task<int> LatestRevisionAsync(string sourceFolder, CancellationToken ct)

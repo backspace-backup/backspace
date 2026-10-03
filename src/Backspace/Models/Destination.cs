@@ -62,6 +62,10 @@ public sealed class Destination
     /// </summary>
     public string? OAuthTokenRef { get; set; }
 
+    /// <summary>Canonical Microsoft Graph drive identity discovered during sign-in.</summary>
+    public string? OneDriveDriveId { get; set; }
+    public string? OneDriveDriveType { get; set; }
+
     /// <summary>
     /// When the OAuth token was last validated (we probe with a list call).
     /// Helps the UI surface a "re-authenticate" prompt proactively.

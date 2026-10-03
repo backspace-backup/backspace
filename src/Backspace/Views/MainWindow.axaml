@@ -140,7 +140,7 @@
                          IsVisible="{Binding HasActiveRestores}"
                          IsChecked="{Binding SelectedNav, Converter={x:Static v:NavConverters.IsSelected}, ConverterParameter={x:Static vm:NavItem.ActiveRestores}, Mode=TwoWay}">
               <StackPanel Orientation="Horizontal" Spacing="12">
-                <PathIcon Classes="active-restore-icon"
+                <PathIcon Classes.active-restore-icon="{Binding HasRunningRestores}"
                           Data="{StaticResource Icon.ArrowDownTray}" Width="16" Height="16"/>
                 <TextBlock Text="Restores" VerticalAlignment="Center"/>
               </StackPanel>

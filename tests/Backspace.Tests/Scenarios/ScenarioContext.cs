@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media.Imaging;
@@ -15,15 +16,14 @@ namespace Backspace.Tests.Scenarios;
 /// <see cref="ScenarioBase.RunAsync"/>; the base class instantiates
 /// it, hands it to the concrete scenario, and disposes it after.
 ///
-/// Directory layout (under tests/Backspace.Tests/artifacts/scenarios/):
-///   &lt;name&gt;/
+/// Working layout (under the operating system's temporary directory):
+///   backspace-scenarios/&lt;name&gt;-&lt;unique id&gt;/
 ///     sources/        — synthetic dummy file trees (one subdir per source)
 ///     destinations/   — local-folder destinations the scenario uses
 ///     restored/       — restore targets so a scenario can compare hashes
-///     screenshots/    — every Snapshot() PNG, prefixed by step number
+/// Screenshots remain under tests/Backspace.Tests/artifacts/scenarios/&lt;name&gt;/screenshots/.
 ///
-/// Each scenario gets a fresh dir on every run (stale data is wiped on
-/// construction). Source content is regenerated deterministically from a
+/// Each scenario gets a fresh unique dir on every run. Source content is regenerated deterministically from a
 /// seed so the same scenario produces byte-identical fixtures across runs
 /// — handy for "did this change my output?" diffs.
 /// </summary>
@@ -48,17 +48,16 @@ public sealed class ScenarioContext : IDisposable
         Secrets = secrets;
 
         var artifactsRoot = ResolveArtifactsRoot();
-        RootDir         = Path.Combine(artifactsRoot, name);
+        // Keep mutable fixtures outside synced checkouts. Sync clients can
+        // change attributes between backup and validation (including Archive).
+        // A unique directory also keeps concurrent test runs isolated.
+        RootDir         = Path.Combine(Path.GetTempPath(), "backspace-scenarios", name + "-" + Guid.NewGuid().ToString("N"));
         SourcesDir      = Path.Combine(RootDir, "sources");
         DestinationsDir = Path.Combine(RootDir, "destinations");
         RestoredDir     = Path.Combine(RootDir, "restored");
-        ScreenshotsDir  = Path.Combine(RootDir, "screenshots");
+        ScreenshotsDir  = Path.Combine(artifactsRoot, name, "screenshots");
 
-        // Wipe and recreate. Stale screenshots from a previous run
-        // would otherwise pile up and confuse the summary's "step 7"
-        // index. The wipe is cheap (small file trees) and makes
-        // every run idempotent.
-        TryDelete(RootDir);
+        // Each mutable workspace is unique; screenshots are overwritten by step.
         Directory.CreateDirectory(SourcesDir);
         Directory.CreateDirectory(DestinationsDir);
         Directory.CreateDirectory(RestoredDir);
@@ -66,6 +65,10 @@ public sealed class ScenarioContext : IDisposable
 
         Report = new ScenarioReport(name, ScreenshotsDir);
         ScenarioRunSummary.Register(Report);
+        if (ServiceLocator.ActiveRestores.HasRunning)
+            throw new InvalidOperationException("The preceding scenario left a restore running. Stop and await it before starting a new scenario.");
+        foreach (var session in ServiceLocator.ActiveRestores.Sessions.ToArray())
+            ServiceLocator.ActiveRestores.Dismiss(session);
 
         // Reset the in-process config so prior scenarios' Backups /
         // Destinations don't leak in. Every scenario starts from a
@@ -90,7 +93,12 @@ public sealed class ScenarioContext : IDisposable
     {
         var path = Path.Combine(SourcesDir, name);
         Directory.CreateDirectory(path);
-        SyntheticFileTree.Generate(path, seed: seed, targetBytes: targetBytes);
+        if (FixtureSizeResolver.ResolveSize(FixtureSize.Smoke) == FixtureSize.Huge)
+        {
+            FixtureFactory.GenerateScaleSource(path, seed);
+            Report.RecordNote("Production-scale fixture", "20,000 files and 2 GiB generated outside the synced checkout: " + path);
+        }
+        else SyntheticFileTree.Generate(path, seed: seed, targetBytes: targetBytes);
         return path;
     }
 
@@ -172,63 +180,6 @@ public sealed class ScenarioContext : IDisposable
         // headless lifecycle does most cleanup itself.
         Driver.Dispose();
         if (Report.Status == ScenarioStatus.Pending) Report.MarkPassed();
-    }
-
-    private static void TryDelete(string dir)
-    {
-        if (!Directory.Exists(dir)) return;
-        try
-        {
-            Directory.Delete(dir, recursive: true);
-            return;
-        }
-        catch (UnauthorizedAccessException) { /* fall through to the robust path */ }
-        catch (IOException) { /* fall through (open handle, ReadOnly, ACL) */ }
-        catch (System.Security.SecurityException) { /* fall through */ }
-
-        // Robust fallback. The plain Directory.Delete fails on three
-        // common shapes that show up in real-engine scenarios:
-        //
-        //   1. ReadOnly / Hidden / System file attributes that restic
-        //      preserves through restore (peculiarities/readonly.txt
-        //      is the canonical example).
-        //   2. NTFS DACLs the restic restore reproduced from the
-        //      ORIGINAL absolute-source-path scaffold. After restore
-        //      the test target contains a `<target>/C/Users/...`
-        //      mirror tree whose intermediate dirs inherit
-        //      system-protected ACLs from the real C:\Users — the
-        //      current user can read but not delete them.
-        //   3. Stale handles from a prior testhost process (e.g. a
-        //      backrest sidecar still holding a lock).
-        //
-        // The fallback enumerates the tree, clears the obstructing
-        // attribute on every file + dir, and retries. ACL-protected
-        // cases that still fail are logged-then-swallowed because the
-        // next scenario uses a DIFFERENT artifact dir (the size suffix
-        // in ScenarioName disambiguates the matrix runs) — leaving
-        // the husk is strictly better than throwing out of the
-        // constructor and aborting the scenario.
-        try
-        {
-            foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
-            {
-                try { File.SetAttributes(f, FileAttributes.Normal); } catch { }
-            }
-            foreach (var d in Directory.EnumerateDirectories(dir, "*", SearchOption.AllDirectories))
-            {
-                try
-                {
-                    var attrs = File.GetAttributes(d);
-                    if ((attrs & (FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.System)) != 0)
-                        File.SetAttributes(d, attrs & ~(FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.System));
-                }
-                catch { }
-            }
-        }
-        catch { /* best-effort enumeration */ }
-
-        try { Directory.Delete(dir, recursive: true); }
-        catch { /* truly stuck — accept the husk, downstream scenario continues */ }
     }
 
     private static string SafeFilename(string label)

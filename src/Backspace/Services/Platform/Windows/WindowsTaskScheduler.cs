@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.Versioning;
+using System.Text;
 using Microsoft.Win32.TaskScheduler;
 using Backspace.Models;
 using Serilog;
@@ -108,6 +109,20 @@ public sealed class WindowsTaskScheduler : IScheduler
             TaskNameFor(backup, kind), kind, schedule.Frequency, schedule.TimeOfDay, schedule.HourlyInterval,
             schedule.SkipOnBattery, schedule.StopOnBattery, schedule.RequireNetwork, schedule.CatchUpMissedRuns);
 
+        using var td = BuildTaskDefinition(ts, backup, exePath, kind, schedule);
+        folder.RegisterTaskDefinition(
+            path: TaskNameFor(backup, kind),
+            definition: td,
+            createType: TaskCreation.CreateOrUpdate,
+            userId: td.Principal.UserId,
+            logonType: TaskLogonType.S4U);
+    }
+
+    /// <summary>Build the exact definition without registering it. Keeping
+    /// construction separate permits policy verification without changing tasks.</summary>
+    internal static TaskDefinition BuildTaskDefinition(TaskService ts, Backup backup,
+        string exePath, ScheduledTaskKind kind, BackupSchedule schedule)
+    {
         var td = ts.NewTask();
         td.RegistrationInfo.Description = $"Backspace - {backup.Name}" +
             (kind == ScheduledTaskKind.Backup ? "" : $" ({kind})");
@@ -139,7 +154,7 @@ public sealed class WindowsTaskScheduler : IScheduler
         var trigger = BuildTrigger(schedule);
         if (trigger is not null) td.Triggers.Add(trigger);
 
-        // Action — cmd.exe wrapper that prefers the user's main exe but
+        // Action — literal-data wrapper that prefers the user's main exe but
         // falls back to the stub at CanonicalInstaller.StubExePath when
         // the main exe is missing (typical case: user moved the .exe
         // and forgot to reopen the app). The CLI flag varies by kind:
@@ -147,12 +162,7 @@ public sealed class WindowsTaskScheduler : IScheduler
         td.Actions.Clear();
         td.Actions.Add(BuildExecAction(exePath, CanonicalInstaller.StubExePath, backup.Name, kind));
 
-        folder.RegisterTaskDefinition(
-            path: TaskNameFor(backup, kind),
-            definition: td,
-            createType: TaskCreation.CreateOrUpdate,
-            userId: userId,
-            logonType: TaskLogonType.S4U);
+        return td;
     }
 
     public void DeleteTask(Backup backup)
@@ -285,62 +295,83 @@ public sealed class WindowsTaskScheduler : IScheduler
     }
 
     /// <summary>
-    /// Builds the cmd.exe-wrapped ExecAction. The wrapper pattern:
-    /// <code>
-    /// cmd /D /S /C "if exist ""MAIN"" ( ""MAIN"" --run ""NAME"" ) else ( ""STUB"" )"
-    /// </code>
-    /// <para>
-    /// Why cmd: it's the smallest dependable scripting layer present on
-    /// every Windows install. /D skips AutoRun, /S preserves the whole
-    /// quoted command verbatim (necessary because we have multiple
-    /// quoted paths inside), /C runs and exits.
-    /// </para>
-    /// <para>
-    /// Quoting: inside cmd /S /C "...", a literal " is written as "".
-    /// So each "..." quoted path here is rendered as ""..."" in the
-    /// argument string. Backup names are restricted to ^[A-Za-z0-9_-]+$
-    /// at validation time, so they can't contain shell metacharacters.
-    /// Path arguments come from Environment.ProcessPath / canonical
-    /// stub path; on Windows neither contains a " character.
-    /// </para>
-    /// <para>
-    /// Internal so the unit test can assert the exact command-line shape
-    /// without needing a real Task Scheduler environment.
-    /// </para>
+    /// Run the selected executable without passing user data through a command
+    /// shell. Stock Windows PowerShell supplies the missing-main fallback and
+    /// waits for the GUI-subsystem child, preserving its exit code for Scheduler.
+    /// The encoded script contains only single-quoted literal data; the child's
+    /// argument string follows Windows native argv quoting, not shell escaping.
     /// </summary>
     internal static ExecAction BuildExecAction(string mainExe, string stubExe, string backupName,
         ScheduledTaskKind kind = ScheduledTaskKind.Backup)
     {
-        var args = BuildCmdWrapperArguments(mainExe, stubExe, backupName, kind);
-        var workDir = Path.GetDirectoryName(mainExe);
-        if (string.IsNullOrEmpty(workDir)) workDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return new ExecAction("cmd.exe", args, workDir);
+        var systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
+        var powershell = Path.Combine(systemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+        // The main exe's old parent directory may itself have moved. The
+        // wrapper must start from a stable directory for fallback to work.
+        return new ExecAction(powershell,
+            BuildPowerShellWrapperArguments(mainExe, stubExe, backupName, kind), systemDirectory);
     }
 
-    internal static string BuildCmdWrapperArguments(string mainExe, string stubExe, string backupName,
+    internal static string BuildPowerShellWrapperArguments(string mainExe, string stubExe, string backupName,
         ScheduledTaskKind kind = ScheduledTaskKind.Backup)
     {
-        var qm = CmdQuote(mainExe);
-        var qs = CmdQuote(stubExe);
-        var qn = CmdQuote(backupName);
-        // The CLI flag the main exe is invoked with depends on the
-        // task kind — --run / --prune / --check each map to a
-        // RunMode in Program.cs. The fallback-stub branch stays
-        // identical: the stub's job is just to pop "open Backspace
-        // from its new location" regardless of which task fired it.
         var flag = kind switch
         {
             ScheduledTaskKind.Prune => "--prune",
             ScheduledTaskKind.Check => "--check",
-            _                       => "--run",
+            _ => "--run",
         };
-        return $@"/D /S /C ""if exist {qm} ( {qm} {flag} {qn} ) else ( {qs} )""";
+        var childArguments = flag + " " + QuoteWindowsArgument(backupName);
+        var script = """
+            $ErrorActionPreference = 'Stop'
+            try {
+                $main = MAIN_LITERAL
+                $stub = STUB_LITERAL
+                $info = New-Object System.Diagnostics.ProcessStartInfo
+                $info.UseShellExecute = $false
+                if ([System.IO.File]::Exists($main)) {
+                    $info.FileName = $main
+                    $info.Arguments = ARGS_LITERAL
+                } else {
+                    $info.FileName = $stub
+                }
+                $info.WorkingDirectory = [System.IO.Path]::GetDirectoryName($info.FileName)
+                $child = [System.Diagnostics.Process]::Start($info)
+                try { $child.WaitForExit(); $code = $child.ExitCode }
+                finally { $child.Dispose() }
+                exit $code
+            } catch {
+                [Console]::Error.WriteLine($_.Exception.Message)
+                exit 1
+            }
+            """;
+        // Replace placeholders in one pass: user text containing another
+        // placeholder is data and must never be rewritten as script syntax.
+        script = System.Text.RegularExpressions.Regex.Replace(script, "MAIN_LITERAL|STUB_LITERAL|ARGS_LITERAL",
+            match => PowerShellLiteral(match.Value switch
+            {
+                "MAIN_LITERAL" => mainExe,
+                "STUB_LITERAL" => stubExe,
+                _ => childArguments,
+            }));
+        return "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " +
+            Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
     }
 
-    /// <summary>
-    /// Quote a token for inclusion inside the outer <c>cmd /S /C "..."</c>
-    /// string. Each literal <c>"</c> becomes <c>""</c> per cmd's quoting
-    /// rule for the quoted command.
-    /// </summary>
-    private static string CmdQuote(string s) => "\"\"" + s.Replace("\"", "\"\"\"\"") + "\"\"";
+    private static string PowerShellLiteral(string value) => "'" + value.Replace("'", "''") + "'";
+
+    internal static string QuoteWindowsArgument(string value)
+    {
+        var result = new StringBuilder("\"");
+        var slashes = 0;
+        foreach (var c in value)
+        {
+            if (c == '\\') { slashes++; continue; }
+            result.Append('\\', c == '"' ? slashes * 2 + 1 : slashes);
+            result.Append(c);
+            slashes = 0;
+        }
+        result.Append('\\', slashes * 2);
+        return result.Append('"').ToString();
+    }
 }

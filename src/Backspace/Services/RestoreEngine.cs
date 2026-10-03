@@ -47,7 +47,10 @@ public sealed class RestoreEngine
 
         // Maintenance gate (Erase / Wipe / Prune). Returns immediately
         // when no maintenance is in flight (common case).
-        await ServiceLocator.Maintenance.WaitForReadAsync(ct);
+        using var operationCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        ct = operationCts.Token;
+        using var readLease = request.MaintenanceLeaseHeld ? null :
+            await ServiceLocator.Maintenance.AcquireReadAsync(ct, operationCts.Cancel);
 
         using var _syncing = AppStatus.BeginSyncing();
 
@@ -74,7 +77,14 @@ public sealed class RestoreEngine
         // Register with the multi-restore registry so the "Restores"
         // left-nav cards reflect the in-flight operation.
         ActiveRestoreSession? session = null;
-        try { session = ServiceLocator.ActiveRestores.Begin(request.Backup, request); }
+        try
+        {
+            if (request.ShowInRegistry)
+            {
+                session = ServiceLocator.ActiveRestores.Begin(request.Backup, request, operationCts.Cancel);
+                if (request.SessionOwner is not null) ServiceLocator.ActiveRestores.Open(session);
+            }
+        }
         catch (Exception ex) { _log.Debug(ex, "Couldn't register active-restore session — non-fatal"); }
 
         try
@@ -84,7 +94,7 @@ public sealed class RestoreEngine
                 request.Revision, includes, request.TargetPath,
                 onProgress: p =>
                 {
-                    outcome.TotalFiles = Math.Max(outcome.TotalFiles, p.TotalFiles);
+                    outcome.TotalFiles = request.Files.Count > 0 ? request.Files.Count : p.TotalFiles;
                     outcome.RestoredCount = p.FilesRestored;
                     outcome.TotalBytes = p.TotalBytes;
                     outcome.BytesRestored = p.BytesRestored;
@@ -94,7 +104,7 @@ public sealed class RestoreEngine
                         try
                         {
                             ServiceLocator.ActiveRestores.UpdateProgress(
-                                session, p.TotalFiles, p.FilesRestored, p.TotalBytes, p.BytesRestored);
+                                session, outcome.TotalFiles, p.FilesRestored, p.TotalBytes, p.BytesRestored);
                         }
                         catch { /* registry update never blocks restore */ }
                     }
@@ -102,7 +112,7 @@ public sealed class RestoreEngine
                 ct,
                 expectedLeaves: request.Files.Count > 0 ? request.Files : null);
 
-            outcome.TotalFiles = Math.Max(outcome.TotalFiles, result.TotalFiles);
+            outcome.TotalFiles = request.Files.Count > 0 ? request.Files.Count : result.TotalFiles;
             outcome.RestoredCount = result.FilesRestored;
             outcome.FailedCount = Math.Max(0, outcome.TotalFiles - result.FilesRestored);
             outcome.TotalBytes = result.TotalBytes;
@@ -117,8 +127,20 @@ public sealed class RestoreEngine
                 ct.IsCancellationRequested);
             Log?.Invoke($"[restore] done: status={result.Status} {result.FilesRestored}/{outcome.TotalFiles}");
             if (session is not null)
-                try { ServiceLocator.ActiveRestores.End(session, result.Status, result.ErrorMessage); }
+                try
+                {
+                    ServiceLocator.ActiveRestores.UpdateProgress(session, outcome.TotalFiles,
+                        outcome.RestoredCount, outcome.TotalBytes, outcome.BytesRestored);
+                    ServiceLocator.ActiveRestores.End(session, result.Status, result.ErrorMessage);
+                }
                 catch { /* never block */ }
+        }
+        catch (OperationCanceledException)
+        {
+            outcome.TerminalStatus = RestoreTerminalStatus.Cancelled;
+            outcome.ErrorMessage = "Restore cancelled.";
+            outcome.FailedCount = Math.Max(0, outcome.TotalFiles - outcome.RestoredCount);
+            if (session is not null) ServiceLocator.ActiveRestores.End(session, RestoreTerminalStatus.Cancelled, outcome.ErrorMessage);
         }
         catch (Exception ex)
         {
@@ -141,6 +163,9 @@ public sealed class RestoreEngine
 
 public sealed class RestoreRequest
 {
+    internal bool MaintenanceLeaseHeld { get; init; }
+    public bool ShowInRegistry { get; init; } = true;
+    public object? SessionOwner { get; init; }
     public required Backup Backup { get; init; }
 
     /// <summary>

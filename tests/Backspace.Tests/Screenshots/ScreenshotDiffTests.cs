@@ -30,6 +30,43 @@ namespace Backspace.Tests.Screenshots;
 /// </summary>
 public class ScreenshotDiffTests
 {
+    // Publish a finished PNG by rename. A sync client or image preview can
+    // memory-map the previous file; truncating that mapped file fails on Windows.
+    internal static void SaveAndVerify(Avalonia.Media.Imaging.Bitmap bitmap, string currentPath)
+    {
+        var staging = currentPath + "." + Guid.NewGuid().ToString("N") + ".png";
+        try
+        {
+            bitmap.Save(staging);
+            File.Move(staging, currentPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(staging)) File.Delete(staging);
+        }
+        AssertCurrentMatchesBaseline(currentPath);
+    }
+
+    /// <summary>Called immediately after each generator saves its PNG. This
+    /// ties a regression to this render, regardless of xUnit class ordering.</summary>
+    internal static void AssertCurrentMatchesBaseline(string currentPath)
+    {
+        var name = Path.GetFileName(currentPath);
+        var baselineDir = Path.Combine(Paths.ArtifactsRoot, "baseline");
+        var diffDir = Path.Combine(Paths.ArtifactsRoot, "diffs");
+        Directory.CreateDirectory(baselineDir);
+        Directory.CreateDirectory(diffDir);
+        var baselinePath = Path.Combine(baselineDir, name);
+        if (!File.Exists(baselinePath) || Environment.GetEnvironmentVariable("BACKSPACE_UPDATE_BASELINES") == "1")
+        {
+            File.Copy(currentPath, baselinePath, overwrite: true);
+            return;
+        }
+        var diff = Diff(baselinePath, currentPath, diffDir, name);
+        Assert.True(diff.Fraction <= MaxDiffFraction,
+            $"Fresh screenshot regression: {name}: {diff.Fraction:P2} pixels differ; inspect {diff.DiffPath}.");
+    }
+
     /// <summary>
     /// Allowed fraction of pixels that can differ between current and
     /// baseline before the test fails. Scaled to a "meaningful" diff —

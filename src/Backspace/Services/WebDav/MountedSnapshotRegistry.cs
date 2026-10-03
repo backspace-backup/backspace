@@ -30,6 +30,35 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
 {
     private static ILogger _log => AppLogger.For<MountedSnapshotRegistry>();
     private readonly ConcurrentDictionary<string, WinFspMountCoordinator> _byBackupId = new();
+    private readonly SemaphoreSlim _mutationGate = new(1, 1);
+    private readonly CancellationTokenSource _shutdown = new();
+    private readonly object _cancelGate = new();
+    private CancellationTokenSource _pendingCancellation = new();
+    private int _pendingCount;
+    public bool HasPendingOperations => Volatile.Read(ref _pendingCount) != 0;
+    public void CancelPending()
+    {
+        CancellationTokenSource prior;
+        lock (_cancelGate) { prior = _pendingCancellation; _pendingCancellation = new(); }
+        prior.Cancel();
+        prior.Dispose();
+    }
+    public event Action<string>? Changed;
+
+    public string? GetMountedDrive(string backupId) =>
+        _byBackupId.TryGetValue(backupId, out var mount) && mount.DriveLetter is { } letter
+        && DriveLetterExists(letter) ? letter : null;
+
+    public async Task UnmountAsync(string backupId, CancellationToken ct = default)
+    {
+        await _mutationGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_byBackupId.TryRemove(backupId, out var mount))
+                await mount.DisposeAsync().ConfigureAwait(false);
+        }
+        finally { _mutationGate.Release(); Changed?.Invoke(backupId); }
+    }
 
     /// <summary>
     /// Pre-install consent callback. Invoked the first time a Mount
@@ -52,6 +81,23 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
     /// coordinator under the backup id so subsequent calls reuse
     /// it instead of fighting for a second drive letter.</summary>
     public async Task<MountResult> MountForAsync(Backup backup, CancellationToken ct = default)
+    {
+        if (backup is null) return MountResult.Failed("No backup selected.");
+        CancellationTokenSource pending;
+        lock (_cancelGate)
+            pending = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown.Token, _pendingCancellation.Token);
+        using var linked = pending;
+        Interlocked.Increment(ref _pendingCount);
+        try
+        {
+            await _mutationGate.WaitAsync(linked.Token).ConfigureAwait(false);
+            try { return await MountCoreAsync(backup, linked.Token).ConfigureAwait(false); }
+            finally { _mutationGate.Release(); Changed?.Invoke(backup.Id); }
+        }
+        finally { Interlocked.Decrement(ref _pendingCount); }
+    }
+
+    private async Task<MountResult> MountCoreAsync(Backup backup, CancellationToken ct)
     {
         if (!OperatingSystem.IsWindows())
             return MountResult.Failed("Snapshot mount is Windows-only.");
@@ -114,11 +160,15 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
         // useless and we surface that upfront. (Probing every source
         // here would just slow down the common case where the user
         // backs everything up at once.)
-        var firstSource = backup.SourcePaths[0];
-        var revisions = await ServiceLocator.Revisions
-            .ListRevisionsAsync(backup, firstSource, destination, target.StorageName, ct)
-            .ConfigureAwait(false);
-        if (revisions.Count == 0)
+        bool hasSnapshots = false;
+        foreach (var source in backup.SourcePaths)
+        {
+            var revisions = await ServiceLocator.Revisions
+                .ListRevisionsAsync(backup, source, destination, target.StorageName, ct)
+                .ConfigureAwait(false);
+            if (revisions.Count > 0) { hasSnapshots = true; break; }
+        }
+        if (!hasSnapshots)
             return MountResult.Failed(
                 "No snapshots yet. Run a backup first, then come back to mount it.");
 
@@ -133,7 +183,7 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
             if (RequestInstallConsent is { } prompt)
             {
                 bool ok;
-                try { ok = await prompt().ConfigureAwait(false); }
+                try { ok = await prompt().WaitAsync(ct).ConfigureAwait(false); }
                 catch (Exception ex)
                 {
                     _log.Warning(ex, "RequestInstallConsent threw — treating as declined");
@@ -233,12 +283,19 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
     /// pointing at a stopped WebDAV server.</summary>
     public async Task DisposeAllAsync()
     {
+        _shutdown.Cancel();
+        await _mutationGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
         var copies = _byBackupId.ToArray();
         _byBackupId.Clear();
         foreach (var kv in copies)
         {
             try { await kv.Value.DisposeAsync().ConfigureAwait(false); }
             catch (Exception ex) { _log.Warning(ex, "Mount dispose threw for {Backup}", kv.Key); }
+            Changed?.Invoke(kv.Key);
         }
+        }
+        finally { _mutationGate.Release(); }
     }
 }

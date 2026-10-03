@@ -34,6 +34,9 @@ public sealed class UiDriver : IDisposable
 {
     private readonly ScenarioContext _ctx;
     private readonly List<Window> _ownedWindows = new();
+    private readonly HashSet<Window> _closedWindows = new();
+    private readonly Dictionary<Window, EventHandler> _closedHandlers = new();
+    private bool _disposed;
 
     public UiDriver(ScenarioContext ctx) => _ctx = ctx;
 
@@ -44,11 +47,12 @@ public sealed class UiDriver : IDisposable
     /// </summary>
     public TWindow Show<TWindow>(TWindow window) where TWindow : Window
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        TrackWindow(window);
         window.Show();
         window.UpdateLayout();
         Pump();
         window.UpdateLayout();
-        _ownedWindows.Add(window);
         return window;
     }
 
@@ -100,8 +104,7 @@ public sealed class UiDriver : IDisposable
             var text = ExtractText(btn);
             if (string.Equals(text, content, StringComparison.OrdinalIgnoreCase))
             {
-                Click(btn);
-                return true;
+                return Click(btn);
             }
         }
         return false;
@@ -112,7 +115,8 @@ public sealed class UiDriver : IDisposable
     {
         var btn = root.FindDescendantByName(name) as Button
                   ?? throw new InvalidOperationException($"No button named '{name}' under {root}");
-        Click(btn);
+        if (!Click(btn))
+            throw new InvalidOperationException($"Button '{name}' is not enabled");
     }
 
     /// <summary>
@@ -153,47 +157,95 @@ public sealed class UiDriver : IDisposable
 
     public void Dispose()
     {
-        foreach (var w in _ownedWindows)
+        if (_disposed) return;
+        Dispatcher.UIThread.VerifyAccess();
+        // A scenario that started real work must await completion (including
+        // cancellation acknowledgement) itself. Never make a green teardown by
+        // killing a backend or disposing its VM while it still owns an operation.
+        if (!WaitFor(() => !Backspace.Views.MainWindow.HasAnyRunningOperation(), timeoutMs: 1000))
+            throw new InvalidOperationException("Scenario cleanup found active backup, restore, mount or maintenance work. Await its completion before disposing the UI driver; teardown will not terminate a backend.");
+
+        var previousQuit = Backspace.App.QuitRequested;
+        var failures = new List<Exception>();
+        var visited = new HashSet<Window>();
+        var disposedContexts = new HashSet<IDisposable>();
+        Backspace.App.QuitRequested = true;
+        try
         {
-            try { w.Close(); } catch { /* best-effort */ }
-            // Closing a plain host Window does not dispose its
-            // DataContext; leaked VMs stay subscribed to singleton
-            // events (Config.Changed, Engine.LineWritten, ...) and
-            // slow every later test in the shared session.
-            try { (w.DataContext as IDisposable)?.Dispose(); } catch { /* best-effort */ }
+            // Test cleanup is not the user closing a window. In particular,
+            // close-to-tray must not leave a hidden MainWindow subscribed to
+            // Config/AppStatus events for the next scenario. Keep normal close
+            // behavior in every scenario action; bypass it only in teardown.
+            foreach (var window in _ownedWindows.ToArray().Reverse()) CloseWindow(window);
+            Pump();
         }
-        _ownedWindows.Clear();
-        Dispatcher.UIThread.RunJobs();
+        finally
+        {
+            Backspace.App.QuitRequested = previousQuit;
+            foreach (var (window, handler) in _closedHandlers) window.Closed -= handler;
+            _closedHandlers.Clear();
+            _closedWindows.Clear();
+            _ownedWindows.Clear();
+            _disposed = true;
+        }
+        if (failures.Count > 0) throw new AggregateException("Scenario window cleanup failed.", failures);
+
+        void CloseWindow(Window window)
+        {
+            if (!visited.Add(window)) return;
+            // Dialogs opened in code-behind are not passed through Show().
+            // Track and close them before the owning window so modal tasks can
+            // finish without leaking an untracked child into xUnit teardown.
+            foreach (var child in window.OwnedWindows.ToArray())
+            {
+                TrackWindow(child);
+                CloseWindow(child);
+            }
+            try
+            {
+                if (!_closedWindows.Contains(window)) window.Close();
+                if (!_closedWindows.Contains(window))
+                    throw new InvalidOperationException($"{window.GetType().Name} refused to close during scenario cleanup.");
+            }
+            catch (Exception ex) { failures.Add(ex); }
+            // MainWindow.OnClosed owns its actual DataContext. Plain host
+            // windows do not; explicitly release those singleton subscriptions.
+            if (window is not Backspace.Views.MainWindow && window.DataContext is IDisposable context
+                && disposedContexts.Add(context))
+                try { context.Dispose(); } catch (Exception ex) { failures.Add(ex); }
+        }
     }
 
     // ---- internals ----
 
-    private void Click(Button button)
+    private void TrackWindow(Window window)
     {
+        if (_closedHandlers.ContainsKey(window)) return;
+        EventHandler handler = (_, _) => _closedWindows.Add(window);
+        _closedHandlers.Add(window, handler);
+        _ownedWindows.Add(window);
+        window.Closed += handler;
+    }
+
+    private bool Click(Button button)
+    {
+        if (!button.IsEffectivelyEnabled || !button.IsVisible) return false;
         var cmd = button.Command;
         var param = button.CommandParameter;
-        if (cmd is not null && cmd.CanExecute(param))
+        if (cmd is not null)
         {
+            if (!cmd.CanExecute(param)) return false;
             cmd.Execute(param);
         }
         else
         {
-            // No bound command (or the command refuses execution).
-            // Buttons with code-behind Click handlers expose a
-            // public RaiseClickEvent() in some Avalonia versions but
-            // not all; fall back to a direct OnClick via reflection
-            // so code-behind handlers still fire. Failure to find
-            // the method is logged into the report rather than
-            // thrown — a scenario clicking a disabled button is a
-            // real finding the auditor should record.
-            var raise = button.GetType().GetMethod("RaiseClickEvent",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
-              | System.Reflection.BindingFlags.Public);
-            if (raise is not null) raise.Invoke(button, null);
-            else _ctx.Report.RecordAnomaly(
-                $"clicked button '{ExtractText(button)}' but it had no enabled command and no RaiseClickEvent shim");
+            // Exercise registered code-behind handlers through Avalonia's public
+            // routed event API. The former optional reflection shim silently
+            // did nothing on this Avalonia version while reporting a click.
+            button.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         }
         Pump();
+        return true;
     }
 
     private static string ExtractText(Button btn)

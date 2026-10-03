@@ -71,8 +71,17 @@ public sealed class E15_CheckAfterBackupRealEngine : BackupE2EBase
         ctx.Snapshot(host, $"after run {record.Status}",
             $"Backup ran with inline check; status={record.Status}.");
 
-        Assert.True(record.Status is BackupRunStatus.Success or BackupRunStatus.Warning,
-            $"Backup + inline check ended {record.Status}; errors={string.Join(" | ", record.Errors)}.");
+        Assert.Equal(BackupRunStatus.Success, record.Status);
+        var client = fixture.Sidecar.Client!;
+        var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
+            "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), CancellationToken.None);
+        var repo = Assert.Single(config.Repos);
+        var operations = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
+            "/v1.Backrest/GetOperations", new GetOperationsRequest { Selector = new OpSelector { RepoGuid = repo.Guid } }, CancellationToken.None);
+        var checks = operations.Operations!.Where(op => op.OperationCheck is not null).ToArray();
+        Assert.NotEmpty(checks);
+        Assert.All(checks, check => Assert.Equal("STATUS_SUCCESS", check.Status));
+        ctx.Report.RecordNote("Real integrity-check operation", $"OperationCheck #{checks[^1].Id} reached {checks[^1].Status}. A snapshot-index operation does not satisfy this assertion.");
 
         // Round-trip the latest revision. A check that incorrectly
         // ate the repo would surface here, not just as a wrong

@@ -208,13 +208,15 @@ public abstract class BackupE2EBase : ScenarioBase
     protected void AssertRestoreEquivalent(string expected, string actual, ScenarioContext ctx,
         ValidationOptions? options = null)
     {
+        options ??= new ValidationOptions();
+        options.VerifyAllBytes = true;
         var report = RestoreValidator.Validate(expected, actual, options);
         var dimensions = string.Join(", ", report.Rows.Select(r => r.Dimension));
 
         // Always write the markdown report so SUMMARY.md can link
         // to a single canonical file regardless of pass/fail —
         // future inspections + diffs don't have to re-run the test.
-        var reportPath = Path.Combine(ctx.RootDir, "restore-validation.md");
+        var reportPath = Path.Combine(Path.GetDirectoryName(ctx.ScreenshotsDir)!, "restore-validation.md");
         File.WriteAllText(reportPath,
             $"# Restore validation — {ctx.Name}\n\n" +
             $"Source:   `{report.SourceRoot}`\n\n" +

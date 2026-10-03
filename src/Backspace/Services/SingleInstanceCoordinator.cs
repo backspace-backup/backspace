@@ -36,9 +36,9 @@ namespace Backspace.Services;
 /// </para>
 ///
 /// <para>
-/// The mutex name embeds the assembly path hash so a developer running
-/// two distinct builds (debug vs release in different folders) doesn't
-/// see them collide.
+/// The mutex name embeds the config-root hash. Different installations with
+/// different state stay independent; two builds pointing at the same portable
+/// folder share the GUI owner instead of competing for its daemon.
 /// </para>
 /// </summary>
 public sealed class SingleInstanceCoordinator : IDisposable
@@ -80,7 +80,7 @@ public sealed class SingleInstanceCoordinator : IDisposable
 
     public SingleInstanceCoordinator()
     {
-        var hash = HashAssemblyPath();
+        var hash = HashConfigRoot();
         // Windows uses the `Local\` namespace prefix to keep mutexes
         // per-session; Unix Mutex names are flat. The `Local\` prefix
         // would cause a name-too-long / invalid-name failure on Linux
@@ -238,11 +238,10 @@ public sealed class SingleInstanceCoordinator : IDisposable
         return text.Split('\n');
     }
 
-    private static string HashAssemblyPath()
+    internal static string HashConfigRoot()
     {
-        var path = Environment.ProcessPath
-                ?? System.Reflection.Assembly.GetExecutingAssembly().Location
-                ?? "Backspace";
+        var path = Path.GetFullPath(AppPaths.ConfigRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (OperatingSystem.IsWindows()) path = path.ToUpperInvariant();
         var h = System.Security.Cryptography.SHA1.HashData(Encoding.UTF8.GetBytes(path));
         // 16 hex chars is plenty of entropy and keeps the mutex name short.
         var sb = new StringBuilder(16);

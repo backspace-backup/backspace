@@ -5,15 +5,30 @@ obvious from the code. Read before touching the related subsystem.
 
 ## OAuth first-run flow (Dropbox / OneDrive / Google Drive)
 
-`OAuthFlowCoordinator` runs a full PKCE round-trip on a localhost
-loopback listener. The user never copy-pastes a token. If the provider's
-authorize-URL contract changes (Dropbox has a habit of this every couple
-of years), the flow returns `OAuthFlowResult.Failed` with a
-human-readable reason — it never surfaces a half-validated token.
+`OAuthFlowCoordinator` runs a PKCE round-trip through a local listener.
+Connect receives the token automatically; pasted tokens remain an advanced
+fallback. OneDrive uses `http://localhost:<port>/callback` to match Entra's
+native localhost registration rules. Other providers use `127.0.0.1`.
+Closing the destination editor cancels an in-flight sign-in.
 
 `DropboxAuthProbe` does an `rclone lsd` round-trip against a per-flow
 temp `rclone.conf` before save so a stale or scope-mismatched token
 fails loudly.
+
+OneDrive instead queries Graph's default drive and persists its ID and
+actual type before reporting connected. Google requests `drive.file`, and
+its rclone remote uses the same scope; a captured Google token still needs
+a real provider backup/list/restore check. Files created under another
+OAuth client may not be visible. Official OneDrive and Google client IDs
+remain unregistered; see [the registration guide](OAUTH_REGISTRATION.md).
+
+Production engine calls use one rclone config per destination, under
+`rclone-remotes`. Do not switch these back to the old shared file: rclone
+writes refreshed tokens itself. The builder imports a newer on-disk token
+into SecretsStore before rendering and preserves a newer interactive
+sign-in. Shared-config compatibility writes merge unrelated remote sections
+under a cross-process lock. No real cloud refresh/restart test has been
+performed with the current registrations.
 
 ## Backrest 1.13.0+ `SetConfig` guid contract
 
@@ -42,8 +57,12 @@ a separate feature and does not require a mounted drive.
 
 ## Healthchecks.io management API rate limits
 
-We batch settings updates. Adding 50 backups in a loop may hit 429s; we
-retry with backoff.
+Management calls log HTTP failures and return an unsuccessful result; they
+do not currently retry a batch of check creations. A rejected creation must
+not be shown as a connected check. Terminal run pings happen before email
+delivery and outside the per-status daily human-alert cap. Use the exact
+`ping_url` returned by management/verification for self-hosted services;
+a bare legacy UUID still means the public hc-ping.com endpoint.
 
 ## macOS / Linux untested
 
@@ -66,25 +85,41 @@ restic's `ValidatePatterns` rejects the POSIX class self-escape `[[]` /
 `[]]` as `invalid pattern(s)`. There is currently no way to express a
 literal `[` or `]` as a match character on Windows.
 
-Workaround inside `ResticBackrestEngine.RestoreFilesAsync`: substitute
-each `[` and `]` with `?` (Go's single-char wildcard) when any
-requested file has glob metachars in its leaf name; NTFS forbids `?` in
-real filenames, so the wildcard cannot collide with a sibling whose
-name is exactly the requested file. After the restic call returns, the
-engine sweeps anything outside the requested set so the user sees only
-the files they asked for.
+Backspace substitutes each bracket with `?` for restic's include matcher.
+That can also match same-length sibling names, so every restore writes
+into an isolated staging directory first. Only validated requested paths
+are published to the target after a successful or explicitly partial
+terminal result. Unrelated existing target files are never swept.
+Failed or cancelled staged output is not published. Existing target
+junctions and other reparse points are rejected before publishing.
 
-Upstream status:
-[garethgeorge/backrest#1254](https://github.com/garethgeorge/backrest/pull/1254)
-(the same `?`-substitution in Backrest's `escapeGlob`) **merged
-2026-06-30**, but it is not yet in a Backrest release (latest is
-v1.13.0) — and it does **not** affect Backspace: our restore builds a
-raw `restic restore` invocation and runs it via `/v1.Backrest/RunCommand`,
-so Backrest's `escapeGlob` (which only runs in the `/v1.Backrest/Restore`
-RPC we don't use) never executes for us. The actual retirement gate for
-the in-process `?`-substitution + sweep is
-[restic/restic#21872](https://github.com/restic/restic/pull/21872)
-(adds `--include-from-raw` for literal-path includes, still open): once
-it ships in a restic release we bundle, the substitution + sweep can be
-replaced with a literal include. Until then the in-process workaround
-stays load-bearing. See [ROADMAP.md](ROADMAP.md).
+The [Backrest Windows bracket fix](https://github.com/garethgeorge/backrest/pull/1254)
+was merged on June 30, 2026. It changes Backrest's native Restore RPC;
+Backspace uses RunCommand to support arbitrary include lists and exact
+staging. The proposed [restic literal include flag](https://github.com/restic/restic/pull/21872)
+was still open when checked on October 2, 2026. Only retire our wildcard
+workaround after a bundled restic version supports literal includes and
+the occupied-target preservation tests still pass.
+
+## Repository command lifetime and cancellation
+
+Some Backrest RPCs hold their HTTP response until restic finishes.
+Cancelling that HTTP request is not confirmation that restic stopped.
+Track the actual operation, request daemon cancellation with an independent
+token, and hold the operation's read lease until terminal acknowledgement.
+If ownership cannot be resolved, fail closed until restart rather than
+unlocking maintenance over a possibly live writer. GetLogs returns a
+protobuf BytesValue: decode its base64 payload before parsing restic JSON.
+
+## Password changes and test restore
+
+Password changes require exclusive repository ownership. Never force-remove
+an active repository lock. Save a pending encrypted recovery password
+before mutating the repository, and finish secret persistence even if the
+user closes or cancels after mutation starts.
+
+Test restore compares every eligible file from each source and target in
+bounded batches, including empty files. Source files changed since the
+snapshot cannot be called byte-identical; the result labels their weaker
+comparison. Invalid relative paths and linked directories must not escape
+the scratch directory during comparison or cleanup.

@@ -30,7 +30,7 @@ public static class VolumeDetector
         WrongVolumeLabel,
     }
 
-    public readonly record struct CheckResult(Verdict Verdict, string Detail);
+    public readonly record struct CheckResult(Verdict Verdict, string Detail, string? MountedRoot = null);
 
     public static CheckResult Check(string? expectedDriveLetter, string? expectedVolumeLabel)
     {
@@ -51,12 +51,18 @@ public static class VolumeDetector
         // If only a label is requested, scan all drives for it.
         if (string.IsNullOrWhiteSpace(expectedDriveLetter))
         {
+            string? foundRoot = null;
             foreach (var d in DriveInfo.GetDrives())
             {
                 if (!d.IsReady) continue;
                 if (Equal(d.VolumeLabel, expectedVolumeLabel))
-                    return new(Verdict.Mounted, $"Found label '{expectedVolumeLabel}' at {d.Name}");
+                {
+                    if (foundRoot is not null)
+                        return new(Verdict.WrongVolumeLabel, $"More than one drive is labelled '{expectedVolumeLabel}'. Set an expected drive letter to choose safely.");
+                    foundRoot = d.Name;
+                }
             }
+            if (foundRoot is not null) return new(Verdict.Mounted, $"Found label '{expectedVolumeLabel}' at {foundRoot}", foundRoot);
             return new(Verdict.DriveNotAttached, $"No drive with label '{expectedVolumeLabel}' is mounted");
         }
 

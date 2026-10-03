@@ -105,12 +105,8 @@ public class BackupOrchestratorBuildSummaryTests
             EndedUtc   = DateTime.UtcNow,
             Cells =
             {
-                // Round-7+: hint requires the cell's LastError NOT to
-                // classify as Tolerable in EngineErrorClassifier. Any
-                // Intolerable / TransientRetriable LastError qualifies
-                // — the classifier is the single source of truth.
-                // Network-unreachable Skipped cells (Tolerable) no
-                // longer fire the hint.
+                // A previously working local repository gets an optional
+                // relocation hint, rather than an assertion that it moved.
                 new CellOutcome { Status = BackupRunStatus.Skipped, DestinationName = "Local Drive", StorageName = "default", Summary = "Repository missing", LastError = "Fatal: repository does not exist (exit status 10)" },
             },
         };
@@ -119,19 +115,10 @@ public class BackupOrchestratorBuildSummaryTests
     }
 
     [Fact]
-    public void SkippedRun_NoHint_WhenSkipReasonIsNetworkBlip()
+    public void SkippedRun_ConditionalRelocationHint_WhenPreviouslyWorkingShareIsOffline()
     {
-        // Round-6 review caught: the hint used to fire for ANY
-        // Skipped cell on a local-like destination, including
-        // transient network blips (offline NAS, VPN down). The user
-        // got "use Locate moved repository to repoint it" advice for
-        // a destination that hadn't actually moved — and panicked
-        // into re-pointing the destination at the wrong path.
-        // Round-7+ refined the gate to use EngineErrorClassifier:
-        // any Tolerable LastError (network unreachable, DNS timeout,
-        // metered) does NOT trigger the hint. The "Network path was
-        // not found" LastError below classifies as Tolerable → no
-        // hint → no panic.
+        // The user requested a pointer to relocation after previous
+        // success. Conditional wording preserves the offline explanation.
         var dest = new Destination
         {
             Id = "d1", Name = "NAS",
@@ -155,7 +142,7 @@ public class BackupOrchestratorBuildSummaryTests
             Cells = { new CellOutcome { Status = BackupRunStatus.Skipped, DestinationName = "NAS", StorageName = "default", Summary = "Network share unreachable", LastError = "Network path was not found" } },
         };
         var s = BackupOrchestrator.BuildSummary(r, backup: backup, config: config);
-        Assert.DoesNotContain("Locate moved repository", s);
+        Assert.Contains("if you've moved this backup folder", s);
     }
 
     [Fact]

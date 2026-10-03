@@ -1,228 +1,205 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Serilog;
 
 namespace Backspace.Services;
 
-/// <summary>
-/// Process-wide reader / writer gate around "sensitive" restic
-/// operations — Erase-backup-from-destination, Wipe-entire-destination,
-/// Prune-to-latest. While one of these is in flight, no backup or
-/// restore may begin (and any backup currently running gets a
-/// best-effort cancel + wait so it tears down before the destructive
-/// op proceeds). The user reported: "ensure that NO backup or restore
-/// at all can run (including those which may be scheduled, and/or
-/// already running in the background: stop them first, or maybe kill
-/// them all) while one of these sensitive operations is in progress."
-///
-/// Why an explicit coordinator rather than reusing the per-destination
-/// gate: the per-destination semaphore only blocks runs targeting the
-/// SAME destination. A user erasing one backup's storage may also be
-/// triggering metadata operations against the storage chain that need
-/// no other restic command running ANYWHERE in the process —
-/// metadata lock contention is a real footgun even across different
-/// backup ids. This coordinator escalates the guarantee to the entire
-/// process.
-///
-/// Cross-process scope: this class is in-process only. The
-/// per-backup-id and per-destination NAMED semaphores still gate
-/// across processes; the coordinator adds a stricter in-process layer
-/// on top so the same Backspace instance never overlaps a backup /
-/// restore with an erase / prune. A second Backspace process would
-/// still hit the existing named semaphores.
-/// </summary>
+/// <summary>Lifetime reader/writer gate for repository operations. Readers keep a
+/// lease until their daemon work has stopped. An exclusive file handle also gates
+/// other Backspace processes using this portable configuration directory.</summary>
 public sealed class MaintenanceCoordinator
 {
-    private static ILogger _log => AppLogger.For<MaintenanceCoordinator>();
-
-    /// <summary>Default time we wait for in-flight backups to honor a
-    /// cancel signal before the maintenance op proceeds anyway. Tuned
-    /// to let restic complete an in-flight chunk upload + checkpoint
-    /// without leaving an orphan lock on the storage; longer would
-    /// punish the maintenance UX (Erase / Prune sitting on "waiting").</summary>
     public static readonly TimeSpan DefaultCancelGracePeriod = TimeSpan.FromSeconds(30);
-
-    /// <summary>One writer at a time. Backups + restores wait on this
-    /// asynchronously; erase / prune Wait on it exclusively. Reentrancy
-    /// is NOT supported — nested Acquire calls in the same async chain
-    /// would self-deadlock. Don't do that.</summary>
     private readonly SemaphoreSlim _writeLock = new(1, 1);
-
-    /// <summary>Set to >0 while a maintenance op holds the gate.
-    /// Read by <see cref="IsActive"/> and the polling in
-    /// <see cref="WaitForReadAsync"/> so callers can short-circuit
-    /// without taking a semaphore on the hot path.</summary>
-    private int _activeMaintenance;
-
-    /// <summary>Fires when maintenance starts and ends. Args:
-    /// (active, reason). UI surfaces this to disable Run Now / Restore
-    /// buttons during the window.</summary>
+    private readonly object _sync = new();
+    private readonly Dictionary<Guid, Action?> _readers = new();
+    // Strong roots prevent finalizers releasing an uncertain daemon's OS gate
+    // if a coordinator is replaced. Successful engine shutdown releases these.
+    private static readonly HashSet<MaintenanceCoordinator> QuarantinedOwners = new();
+    private FileStream? _quarantinedHandle;
+    private bool _engineStopped;
+    private bool _active;
+    private bool _shutdownRequested;
+    private string? _unsafeReason;
     public event Action<bool, string>? MaintenanceStateChanged;
-
-    /// <summary>True iff a maintenance op is currently holding the
-    /// gate. UI checks this to grey out backup/restore commands.</summary>
-    public bool IsActive => Volatile.Read(ref _activeMaintenance) > 0;
-
-    /// <summary>Human-readable description of what's running, when one is.
-    /// Empty when idle. Useful for tooltips on disabled buttons.</summary>
+    public bool IsActive { get { lock (_sync) return _active; } }
+    public bool HasReaders { get { lock (_sync) return _readers.Count > 0; } }
+    public bool IsBlocked { get { lock (_sync) return _unsafeReason is not null; } }
+    public bool IsShuttingDown { get { lock (_sync) return _shutdownRequested; } }
     public string CurrentReason { get; private set; } = "";
 
-    /// <summary>
-    /// Block until no maintenance is in flight. Runs on a 100ms poll
-    /// (cheap because the field read is unsynchronised). Cancellation
-    /// honoured. Returns immediately when the gate is idle, which is
-    /// the common case.
-    /// </summary>
-    public async Task WaitForReadAsync(CancellationToken ct)
+    /// <summary>Stops admission in this process only. Existing operations retain
+    /// their leases until they stop; other scheduler/helper processes are unaffected.
+    /// Keep the lease through committed exit, or dispose it to cancel shutdown.</summary>
+    public bool TryBeginShutdown(out IDisposable? lease)
     {
-        while (IsActive)
+        lock (_sync)
         {
-            ct.ThrowIfCancellationRequested();
-            try { await Task.Delay(100, ct); }
-            catch (OperationCanceledException) { throw; }
+            if (_shutdownRequested) { lease = null; return false; }
+            _shutdownRequested = true;
+            lease = new Lease(() => { lock (_sync) _shutdownRequested = false; });
+            return true;
         }
     }
 
-    /// <summary>
-    /// Take the maintenance lock. The returned <see cref="IDisposable"/>
-    /// releases it on Dispose; callers MUST wrap the work in
-    /// <c>using var lease = await Maintenance.AcquireAsync(...)</c> so a
-    /// throw still releases the gate.
-    ///
-    /// On acquire we:
-    ///   1. Take the writeLock semaphore (waits for any prior maintenance to finish).
-    ///   2. Cancel every in-flight backup run via the orchestrator.
-    ///   3. Wait up to <paramref name="cancelGracePeriod"/> for those
-    ///      runs to finalise (their finally blocks unregister from
-    ///      _runningRuns). Force-finalises any holdouts so the lock is
-    ///      truly exclusive.
-    ///   4. Bump _activeMaintenance and fire MaintenanceStateChanged.
-    /// </summary>
-    public async Task<IDisposable> AcquireAsync(
-        string reason,
-        IProgress<string>? progress = null,
-        TimeSpan? cancelGracePeriod = null,
-        CancellationToken ct = default)
+    private void ThrowIfShuttingDown()
     {
-        var grace = cancelGracePeriod ?? DefaultCancelGracePeriod;
+        if (_shutdownRequested)
+            throw new InvalidOperationException("Backspace is closing. New work cannot start until quitting is cancelled.");
+    }
 
-        progress?.Report("Waiting for the maintenance gate…");
-        await _writeLock.WaitAsync(ct);
-        try
+    /// <summary>Compatibility preflight. Actual work must hold AcquireReadAsync.</summary>
+    public async Task WaitForReadAsync(CancellationToken ct)
+    {
+        using var lease = await AcquireReadAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task<IDisposable> AcquireReadAsync(CancellationToken ct, Action? cancel = null)
+    {
+        while (true)
         {
-            // CRITICAL ORDERING: bump _activeMaintenance and stamp
-            // CurrentReason BEFORE we start cancelling in-flight runs.
-            // The cancel-and-wait loop below can take seconds; while
-            // it runs, a brand-new backup could enter the orchestrator
-            // and hit its own WaitForReadAsync. If _activeMaintenance
-            // were still 0 at that moment, the new backup would slip
-            // past the gate and start running concurrently with the
-            // maintenance op we're about to begin.
-            // Earlier shape (bump flag AFTER cancel loop) had this race
-            // — found in code review. The flag MUST be set first so
-            // any concurrent WaitForReadAsync waits.
-            CurrentReason = reason;
-            Interlocked.Increment(ref _activeMaintenance);
-            try { MaintenanceStateChanged?.Invoke(true, reason); }
-            catch (Exception ex) { _log.Warning(ex, "MaintenanceStateChanged handler threw"); }
-
-            // Cancel-and-wait LOOP until the orchestrator's running
-            // registry is empty. A single snap-then-wait pass had a
-            // narrow but real race: a backup that was past
-            // `WaitForReadAsync` (because IsActive was still false at
-            // its check time) but hadn't yet hit `_runningRuns.TryAdd`
-            // could miss the snapshot, register itself, and start
-            // running cells concurrently with maintenance. Looping
-            // until the snapshot returns empty closes that gap — by
-            // the time we exit the loop, no run can still be entering
-            // (any new attempt sees IsActive=true at WaitForReadAsync
-            // and waits) AND no run is currently in the registry.
-            var orch = ServiceLocator.Orchestrator;
-            const int maxIterations = 5; // belt-and-braces against pathological re-entry
-            for (int iter = 0; iter < maxIterations; iter++)
+            ct.ThrowIfCancellationRequested();
+            lock (_sync)
             {
-                var inflight = orch.SnapshotRunningBackupIds();
-                if (inflight.Count == 0) break;
-
-                if (iter == 0)
+                ThrowIfShuttingDown();
+                if (_unsafeReason is not null) throw new InvalidOperationException(_unsafeReason);
+                if (!_active)
                 {
-                    progress?.Report($"Stopping {inflight.Count} in-flight backup{(inflight.Count == 1 ? "" : "s")}…");
-                    _log.Information(
-                        "Maintenance «{Reason}» cancelling {Count} in-flight backup(s) first",
-                        reason, inflight.Count);
-                }
-                else
-                {
-                    _log.Information(
-                        "Maintenance «{Reason}» loop iter {Iter}: still {Count} in-flight (likely a registration that landed mid-cancel)",
-                        reason, iter, inflight.Count);
-                }
-
-                foreach (var id in inflight)
-                    orch.CancelRun(id, $"Stopped to make way for: {reason}");
-
-                // Wait for each to leave the registry. The wait is a
-                // best-effort poll loop — if the run is still in
-                // _runningRuns after the grace period, force-finalise
-                // it so the gate isn't held forever by a stuck run
-                // (this matches the existing escape-hatch pattern in
-                // BackupOrchestrator.ForceFinaliseRun).
-                foreach (var id in inflight)
-                {
-                    await orch.WaitForRunCompletionAsync(id, grace, ct);
-                    if (orch.IsRunning(id))
+                    var handle = TryOpenGate(exclusive: false);
+                    if (handle is not null)
                     {
-                        _log.Warning(
-                            "Backup {Id} did not stop within {Grace}s — force-finalising before maintenance proceeds",
-                            id, grace.TotalSeconds);
-                        try { orch.ForceFinaliseRun(id, $"Force-stopped for: {reason}"); }
-                        catch (Exception ex) { _log.Warning(ex, "ForceFinaliseRun threw for {Id}", id); }
+                        var id = Guid.NewGuid();
+                        _readers.Add(id, cancel);
+                        return new Lease(() => { lock (_sync) { ReleaseGate(handle); _readers.Remove(id); } });
                     }
                 }
             }
-
-            return new Lease(this);
+            await Task.Delay(100, ct).ConfigureAwait(false);
         }
-        catch
+    }
+
+    public void CancelReaders()
+    {
+        Action?[] cancellations;
+        lock (_sync) cancellations = _readers.Values.ToArray();
+        foreach (var cancel in cancellations) { try { cancel?.Invoke(); } catch { } }
+    }
+
+    /// <summary>Fail closed when daemon ownership is uncertain. A restart reaps
+    /// the owned sidecar before operations can resume.</summary>
+    public void BlockUntilRestart(string reason)
+    {
+        lock (_sync)
         {
-            // Setup failed AFTER we bumped the maintenance flag —
-            // unwind so the next caller isn't permanently locked
-            // out AND so concurrent WaitForReadAsync callers don't
-            // see a phantom-active maintenance forever. Order
-            // matters: clear the flag first (so readers can wake),
-            // THEN release the writeLock semaphore.
-            CurrentReason = "";
-            if (Interlocked.Decrement(ref _activeMaintenance) < 0)
-                Interlocked.Increment(ref _activeMaintenance);  // never go negative
-            try { MaintenanceStateChanged?.Invoke(false, reason); }
-            catch (Exception ex) { _log.Warning(ex, "MaintenanceStateChanged (rollback) handler threw"); }
-            try { _writeLock.Release(); } catch { }
-            throw;
+            _unsafeReason = reason;
+            // A reader can be logically finished while its daemon outcome is
+            // unknown. Keep one real OS lease to block other processes' writers.
+            if (_quarantinedHandle is null && !_engineStopped)
+            {
+                var guard = TryOpenGate(exclusive: false);
+                if (guard is not null) ReleaseGate(guard);
+                // An existing exclusive owner cannot open a shared guard; its
+                // own file handle is retained when its logical lease is released.
+            }
         }
     }
 
-    private void Release()
+    /// <summary>Call only after the owned engine has successfully stopped.
+    /// Does not clear the blocked state or admit more work in this process.</summary>
+    public void ReleaseEngineOwnershipAfterStop()
     {
-        Interlocked.Decrement(ref _activeMaintenance);
-        var reason = CurrentReason;
-        CurrentReason = "";
-        try { _writeLock.Release(); } catch { }
-        try { MaintenanceStateChanged?.Invoke(false, reason); }
-        catch (Exception ex) { _log.Warning(ex, "MaintenanceStateChanged (release) handler threw"); }
+        lock (_sync)
+        {
+            _engineStopped = true;
+            _quarantinedHandle?.Dispose();
+            _quarantinedHandle = null;
+            lock (QuarantinedOwners) QuarantinedOwners.Remove(this);
+        }
     }
 
-    private sealed class Lease : IDisposable
+    private void ReleaseGate(FileStream handle)
     {
-        private readonly MaintenanceCoordinator _coord;
+        if (_unsafeReason is not null && !_engineStopped && _quarantinedHandle is null)
+        {
+            _quarantinedHandle = handle;
+            lock (QuarantinedOwners) QuarantinedOwners.Add(this);
+        }
+        else handle.Dispose();
+    }
+
+    public async Task<IDisposable> AcquireAsync(string reason, IProgress<string>? progress = null,
+        TimeSpan? cancelGracePeriod = null, CancellationToken ct = default)
+    {
+        lock (_sync) ThrowIfShuttingDown();
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            lock (_sync)
+            {
+                ThrowIfShuttingDown();
+                if (_unsafeReason is not null) throw new InvalidOperationException(_unsafeReason);
+                _active = true;
+                CurrentReason = reason;
+            }
+            Notify(true, reason);
+            progress?.Report("Waiting for active backups and restores to stop…");
+            var orch = ServiceLocator.Orchestrator;
+            foreach (var id in orch.SnapshotRunningBackupIds())
+                orch.CancelRun(id, $"Stopped to make way for: {reason}");
+            // A held reader is real ownership, not a UI running flag. Never
+            // force-finalise a flag and pretend an active daemon has stopped.
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                lock (_sync)
+                {
+                    if (_unsafeReason is not null) throw new InvalidOperationException(_unsafeReason);
+                    if (_readers.Count == 0 && orch.SnapshotRunningBackupIds().Count == 0)
+                    {
+                        var handle = TryOpenGate(exclusive: true);
+                        if (handle is not null)
+                            return new Lease(() => { lock (_sync) ReleaseGate(handle); Release(reason); });
+                    }
+                }
+                await Task.Delay(100, ct).ConfigureAwait(false);
+            }
+        }
+        catch { Release(reason); throw; }
+    }
+
+    private static FileStream? TryOpenGate(bool exclusive)
+    {
+        Directory.CreateDirectory(AppPaths.ConfigRoot);
+        var path = Path.Combine(AppPaths.ConfigRoot, "operations.lock");
+        try
+        {
+            if (!File.Exists(path))
+            {
+                using var create = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite);
+            }
+            return new FileStream(path, FileMode.Open, exclusive ? FileAccess.ReadWrite : FileAccess.Read,
+                exclusive ? FileShare.None : FileShare.Read);
+        }
+        catch (IOException) { return null; }
+    }
+
+    private void Release(string reason)
+    {
+        lock (_sync) { _active = false; CurrentReason = ""; }
+        _writeLock.Release();
+        Notify(false, reason);
+    }
+    private void Notify(bool active, string reason)
+    {
+        try { MaintenanceStateChanged?.Invoke(active, reason); }
+        catch (Exception ex) { AppLogger.For<MaintenanceCoordinator>().Warning(ex, "Maintenance state handler threw"); }
+    }
+    private sealed class Lease(Action release) : IDisposable
+    {
         private int _disposed;
-        public Lease(MaintenanceCoordinator c) { _coord = c; }
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-            _coord.Release();
-        }
+        public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) release(); }
     }
 }

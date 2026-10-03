@@ -1,5 +1,5 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:platform="using:Backspace.Services.Platform"
              xmlns:vm="using:Backspace.ViewModels"
              xmlns:m="using:Backspace.Models"
              xmlns:conv="using:Avalonia.Data.Converters"
@@ -76,7 +76,7 @@
           <CheckBox IsChecked="{Binding MinimizeToTrayOnClose}"
                     Content="When I close the window, keep Backspace in the tray for faster reopen"/>
           <TextBlock Classes="helper" TextWrapping="Wrap"
-                     Text="When parked in the tray Backspace uses essentially no CPU; it's just waiting for you to click. Right-click the tray icon to quit completely."/>
+                     Text="Keeping Backspace in the tray makes it quick to reopen. Scheduled backups also run when the app is closed. Right-click the tray icon to quit completely."/>
 
           <!-- Quit-vs-tray reassurance. Users asked: what happens to
                scheduled backups if I just quit? Answer: Windows Task
@@ -254,7 +254,7 @@
                 </StackPanel>
               </Grid>
               <StackPanel Orientation="Horizontal" Spacing="20" Margin="42,0,0,0">
-                <CheckBox IsChecked="{Binding SuccessToast}" Content="Show a Windows notification"/>
+                <CheckBox IsChecked="{Binding SuccessToast}" Content="{x:Static platform:PlatformInfo.NotificationLabel}"/>
                 <CheckBox IsChecked="{Binding SuccessSound}" Content="Play a short sound"/>
                 <CheckBox IsChecked="{Binding SuccessEmail}" Content="Send an email"/>
               </StackPanel>
@@ -276,7 +276,7 @@
                 </StackPanel>
               </Grid>
               <StackPanel Orientation="Horizontal" Spacing="20" Margin="42,0,0,0">
-                <CheckBox IsChecked="{Binding SkippedToast}" Content="Show a Windows notification"/>
+                <CheckBox IsChecked="{Binding SkippedToast}" Content="{x:Static platform:PlatformInfo.NotificationLabel}"/>
                 <CheckBox IsChecked="{Binding SkippedSound}" Content="Play a short sound"/>
                 <CheckBox IsChecked="{Binding SkippedEmail}" Content="Send an email"/>
               </StackPanel>
@@ -294,11 +294,11 @@
                 <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
                   <TextBlock Classes="event-title" Text="Failures and warnings"/>
                   <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
-                             Text="Backspace tried but couldn't finish, or finished with errors. Windows notifications for failures pop in front of you (even with Focus Assist on) and stay until you dismiss them."/>
+                             Text="Backspace tried but couldn't finish, or finished with errors. The notification lists the affected destinations and opens the log for that run."/>
                 </StackPanel>
               </Grid>
               <StackPanel Orientation="Horizontal" Spacing="20" Margin="42,0,0,0">
-                <CheckBox IsChecked="{Binding FailureToast}" Content="Show a Windows notification"/>
+                <CheckBox IsChecked="{Binding FailureToast}" Content="{x:Static platform:PlatformInfo.NotificationLabel}"/>
                 <CheckBox IsChecked="{Binding FailureSound}" Content="Play a short sound"/>
                 <CheckBox IsChecked="{Binding FailureEmail}" Content="Send an email"/>
               </StackPanel>

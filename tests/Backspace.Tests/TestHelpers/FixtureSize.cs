@@ -24,7 +24,7 @@ namespace Backspace.Tests.TestHelpers;
 ///     one ~180 MB blob. Pins large-file streaming behavior (chunker
 ///     window crossings, progress reporting through long stalls, restore
 ///     buffer sizing).
-///   • <see cref="Huge"/>    — 3 sources, ~8000 files total, ~2 GB.
+///   • <see cref="Huge"/>    — 3 sources, ~20,000 files total, ~2 GB.
 ///     Pins scaling behavior that the smaller sizes' file counts can't
 ///     trigger — notably Windows' ~32 KB CreateProcess command-line
 ///     ceiling (each --include flag is ~40 bytes; ~800 files is enough
@@ -38,8 +38,7 @@ namespace Backspace.Tests.TestHelpers;
 /// attribute requests. Intended for pre-push validation — catches the
 /// class of scale bugs (32 KB command line, listing pagination,
 /// progress overflow) without paying their runtime cost on every
-/// local iteration. Use <see cref="ResolveSize"/> from the scenarios
-/// so they honour the override.
+/// local iteration. The shared generators apply <see cref="FixtureSizeResolver.ResolveSize"/> automatically.
 ///
 /// The Large blob is session-cached so a sweep that fans 8+ scenarios
 /// across all sizes doesn't regenerate 180 MB worth of pseudo-random
@@ -65,10 +64,10 @@ public sealed record FixtureSpec(
         FixtureSize.Smoke => new(size, SourceCount: 1, TargetFiles: 30,   TargetTotalBytes: 18 * 1024L * 1024L,   LargeBlobBytes: 0),
         FixtureSize.Many  => new(size, SourceCount: 3, TargetFiles: 500,  TargetTotalBytes: 18 * 1024L * 1024L,   LargeBlobBytes: 0),
         FixtureSize.Large => new(size, SourceCount: 3, TargetFiles: 50,   TargetTotalBytes: 200 * 1024L * 1024L,  LargeBlobBytes: 180 * 1024L * 1024L),
-        // Huge: spread ~8000 files across 3 sources so a single source
+        // Huge: spread ~20,000 files across 3 sources so a single source
         // crosses the ~800-file CreateProcess threshold by ~3x. ~2 GB
-        // total, half of it in one large blob.
-        FixtureSize.Huge  => new(size, SourceCount: 3, TargetFiles: 8000, TargetTotalBytes: 2L * 1024 * 1024 * 1024, LargeBlobBytes: 1024L * 1024 * 1024),
+        // total, distributed across all files to exercise enumeration and I/O.
+        FixtureSize.Huge  => new(size, SourceCount: 3, TargetFiles: 20000, TargetTotalBytes: 2L * 1024 * 1024 * 1024, LargeBlobBytes: 0),
         _ => throw new ArgumentOutOfRangeException(nameof(size)),
     };
 }
@@ -117,7 +116,25 @@ public static class FixtureFactory
     /// </summary>
     public static string[] Generate(string rootDir, FixtureSize size, int seed)
     {
+        size = FixtureSizeResolver.ResolveSize(size);
         var spec = FixtureSpec.For(size);
+        if (size == FixtureSize.Huge)
+        {
+            var largeSources = new string[spec.SourceCount];
+            long remainingBytes = spec.TargetTotalBytes;
+            int remainingFiles = spec.TargetFiles;
+            for (int i = 0; i < largeSources.Length; i++)
+            {
+                largeSources[i] = Path.Combine(rootDir, $"source-{i + 1}");
+                var files = remainingFiles / (largeSources.Length - i);
+                var bytes = remainingBytes / (largeSources.Length - i);
+                GenerateExactTree(largeSources[i], seed + i, files, bytes);
+                remainingFiles -= files;
+                remainingBytes -= bytes;
+            }
+            SyntheticFileTreePeculiarities.Emit(largeSources[0], seed + 1000);
+            return largeSources;
+        }
         var sources = new string[spec.SourceCount];
 
         // Per-source budget: split the total roughly evenly. Large
@@ -212,6 +229,35 @@ public static class FixtureFactory
         }
 
         return sources;
+    }
+
+    public static void GenerateScaleSource(string rootDir, int seed) =>
+        GenerateExactTree(rootDir, seed, 20000, 2L * 1024 * 1024 * 1024);
+
+    // Deterministic count and byte budget: the old random tree could stop
+    // branching early and silently produce a tiny "Huge" fixture.
+    internal static void GenerateExactTree(string rootDir, int seed, int files, long bytes, string extension = ".bin")
+    {
+        if (files <= 0 || bytes < files) throw new ArgumentOutOfRangeException(nameof(files));
+        Directory.CreateDirectory(rootDir);
+        var rng = new Random(seed);
+        var buffer = new byte[64 * 1024];
+        long remaining = bytes;
+        for (int i = 0; i < files; i++)
+        {
+            var dir = Path.Combine(rootDir, $"documents-{i / 100:D4}");
+            Directory.CreateDirectory(dir);
+            long length = remaining / (files - i);
+            remaining -= length;
+            using var output = File.Create(Path.Combine(dir, $"document-{i:D6}{extension}"));
+            while (length > 0)
+            {
+                rng.NextBytes(buffer);
+                int take = (int)Math.Min(buffer.Length, length);
+                output.Write(buffer, 0, take);
+                length -= take;
+            }
+        }
     }
 
     private static readonly object _largeBlobLock = new();

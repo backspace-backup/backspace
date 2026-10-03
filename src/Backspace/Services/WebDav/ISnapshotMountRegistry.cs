@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Backspace.Models;
@@ -18,6 +19,11 @@ namespace Backspace.Services.WebDav;
 /// </summary>
 public interface ISnapshotMountRegistry
 {
+    event Action<string>? Changed;
+    bool HasPendingOperations { get; }
+    void CancelPending();
+    string? GetMountedDrive(string backupId);
+    Task UnmountAsync(string backupId, CancellationToken ct = default);
     /// <summary>Mount the latest snapshot of <paramref name="backup"/>'s
     /// first plan as a system-visible drive / mount, opening a
     /// file-browser at the result. Idempotent for the same backup id.</summary>

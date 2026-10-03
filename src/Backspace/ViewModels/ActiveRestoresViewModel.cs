@@ -33,6 +33,9 @@ public sealed partial class ActiveRestoresViewModel : ViewModelBase, IDisposable
     public void Dispose() => ServiceLocator.ActiveRestores.Changed -= OnRegistryChanged;
 
     [ObservableProperty] private bool _hasNone;
+    [ObservableProperty] private ActiveRestoreSession? _selectedSession;
+    public bool HasSelectedSession => SelectedSession is not null;
+    partial void OnSelectedSessionChanged(ActiveRestoreSession? value) => OnPropertyChanged(nameof(HasSelectedSession));
 
     private void OnRegistryChanged()
     {
@@ -50,6 +53,19 @@ public sealed partial class ActiveRestoresViewModel : ViewModelBase, IDisposable
         // most recent restore on the Restore tab. Routing back there
         // gives the user the live progress view they navigated away
         // from. Multi-restore distinct VM scoping is the next layer.
-        AppNavigator.Go(NavItem.Restore);
+        ServiceLocator.ActiveRestores.Open(session);
+    }
+
+    [RelayCommand]
+    private void CancelSession(ActiveRestoreSession? session) => session?.Cancel();
+
+    [RelayCommand]
+    private void DismissSession(ActiveRestoreSession? session)
+    {
+        if (session is not null)
+        {
+            ServiceLocator.ActiveRestores.Dismiss(session);
+            if (ReferenceEquals(SelectedSession, session) && !session.IsRunning) SelectedSession = null;
+        }
     }
 }

@@ -12,7 +12,7 @@ using Backspace.Services;
 namespace Backspace.Views;
 
 /// <summary>
-/// Dialog that runs <c>restic password</c> against an existing
+/// Dialog that runs <c>restic key passwd</c> against an existing
 /// storage to rotate the master-key encryption password. The actual
 /// re-encryption is fast (touches only a ~1 KB config file at the
 /// storage root, not the chunks), so the UI just shows a brief
@@ -20,12 +20,12 @@ namespace Backspace.Views;
 /// verbatim on failure.
 /// <para>
 /// Returned dialog result:
-///   <c>true</c>  — password changed successfully; caller must update
-///                  <see cref="SecretsStore"/> with the new value.
+///   <c>true</c>  — password changed successfully and the engine saved its new
+///                  secret under the exclusive maintenance lease.
 ///   <c>false</c> — user cancelled or the change failed.
 /// </para>
-/// The new password value lives only in <see cref="NewPassword"/>; the
-/// caller pulls it out before disposing of the window.
+/// The caller can read <see cref="NewPassword"/> to refresh its editor.
+/// Closing during work requests cancellation but waits for safe completion.
 /// </summary>
 public partial class ChangeStoragePasswordWindow : Window
 {
@@ -53,6 +53,12 @@ public partial class ChangeStoragePasswordWindow : Window
         TitleBlock.Text = $"Change password for «{destination.Name}»";
 
         Opened += (_, _) => NewPasswordBox.Focus();
+        Closing += (_, e) =>
+        {
+            if (!_busy) return;
+            e.Cancel = true;
+            RequestCancellation();
+        };
 
         // Escape cancels.
         KeyDown += (_, e) =>
@@ -90,10 +96,9 @@ public partial class ChangeStoragePasswordWindow : Window
     }
 
     /// <summary>Live cancellation token for the in-flight re-encrypt.
-    /// Cancel button → cancels this token → the engine kills the restic
-    /// process tree, freeing the cloud connection. Without this, Cancel
-    /// only closed the window while the rewrite continued fire-and-
-    /// forget on a background thread.</summary>
+    /// Cancellation stops preparation before mutation. Once key rotation
+    /// starts, the engine completes it and saves the new credential before
+    /// the dialog may close.</summary>
     private System.Threading.CancellationTokenSource? _busyCts;
 
     /// <summary>True once the window has been closed. OnConfirm's
@@ -101,19 +106,19 @@ public partial class ChangeStoragePasswordWindow : Window
     /// the gate, an OperationCanceledException after Close would run
     /// ClearBusy() on a defunct visual tree.</summary>
     private bool _closing;
+    private bool _busy;
 
     private void OnCancel(object? sender, RoutedEventArgs e)
     {
-        // If a re-encrypt is in flight, cancel it before closing so
-        // the engine binary stops. The restic CLI is in the middle of
-        // rewriting the storage's encrypted master key; killing it
-        // mid-write can leave the storage in a half-rewritten state,
-        // which is undesirable but recoverable (the user runs the
-        // rotate again with the same old password). Better than
-        // letting it run to completion silently after the user
-        // explicitly asked to bail.
-        try { _busyCts?.Cancel(); } catch { }
+        if (_busy) { RequestCancellation(); return; }
         Close(false);
+    }
+
+    private void RequestCancellation()
+    {
+        try { _busyCts?.Cancel(); } catch { }
+        CancelButton.IsEnabled = false;
+        StatusInfo.Text = "Stopping safely. If the password change has started, it will finish and save the new password first.";
     }
 
     private async void OnConfirm(object? sender, RoutedEventArgs e)
@@ -138,7 +143,7 @@ public partial class ChangeStoragePasswordWindow : Window
         // Validate first; only allocate when we're committed to running.
         if (newPwd.Length < 8)
         {
-            ShowError("New password must be at least 8 characters. restic refuses shorter passwords.");
+            ShowError("Use at least 8 characters for the new password.");
             NewPasswordBox.Focus();
             ConfirmButton.IsEnabled = true;
             return;
@@ -191,6 +196,7 @@ public partial class ChangeStoragePasswordWindow : Window
                 _log.Information(
                     "Storage password rotated for destination {Name} ({Kind}); newLength={Len}",
                     _destination.Name, _destination.Kind, newPwd.Length);
+                _busy = false;
                 Close(true);
                 return;
             }
@@ -211,9 +217,11 @@ public partial class ChangeStoragePasswordWindow : Window
         }
         catch (OperationCanceledException)
         {
-            // User clicked Cancel mid-flight. The window has already
-            // been closed by OnCancel; nothing more to surface here.
+            // Preparation was cancelled before key mutation. It is now safe
+            // to close the dialog.
             _log.Information("Storage password change cancelled by user: dest={Name}", _destination.Name);
+            _busy = false;
+            Close(false);
         }
         catch (Exception ex)
         {
@@ -245,13 +253,14 @@ public partial class ChangeStoragePasswordWindow : Window
 
     private void SetBusy(string status)
     {
+        _busy = true;
         StatusInfo.Text = status;
         StatusRow.IsVisible = true;
         ConfirmButton.IsEnabled = false;
         // Keep Cancel ENABLED during busy — re-encrypting against a slow
         // cloud destination can take 5-30s and the user must always be
-        // able to bail out. Cancel triggers OnCancel → CancelTokenSource
-        // cancel → the runner kills the restic process. The form
+        // able to request a stop. Once mutation starts, cancellation waits
+        // for the new key and saved credential to agree. The form
         // password fields stay locked so the user doesn't accidentally
         // edit while a re-encrypt is in flight.
         CancelButton.IsEnabled = true;
@@ -261,6 +270,7 @@ public partial class ChangeStoragePasswordWindow : Window
 
     private void ClearBusy()
     {
+        _busy = false;
         StatusRow.IsVisible = false;
         ConfirmButton.IsEnabled = true;
         CancelButton.IsEnabled = true;

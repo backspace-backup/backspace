@@ -53,6 +53,7 @@ public sealed partial class BackupOrchestrator
     private readonly MailService _mail;
     private readonly NotificationService _notify;
     private readonly BackupProgressService _progress;
+    internal Func<MeteredNetworkWatchdog> MeteredWatchdogFactory { get; init; } = static () => new();
     private static ILogger _log => AppLogger.For<BackupOrchestrator>();
 
     public BackupOrchestrator(
@@ -598,11 +599,13 @@ public sealed partial class BackupOrchestrator
         // free 99% of the time. Cancellation here surfaces as a
         // Skipped RunRecord so callers downstream don't have to
         // catch OCE separately.
-        try { await ServiceLocator.Maintenance.WaitForReadAsync(ct); }
+        IDisposable maintenanceRead;
+        try { maintenanceRead = await ServiceLocator.Maintenance.AcquireReadAsync(ct); }
         catch (OperationCanceledException)
         {
             return MakeSkippedRunRecord(backup, "Cancelled before run started.");
         }
+        using var maintenanceReadLease = maintenanceRead;
 
         // Cross-process gate. See AcquireCrossProcessRunGate for the
         // full rationale. Returns (null, false) when the acquire was
@@ -673,13 +676,8 @@ public sealed partial class BackupOrchestrator
             }
 
             // Re-check the maintenance gate now that we're registered.
-            // The earlier WaitForReadAsync at the top of this method
-            // was a snapshot read — between its return and the TryAdd
-            // above, a concurrent Erase / Wipe / Prune could have
-            // started its Acquire. The maintenance Acquire's snap-and-
-            // cancel loop will see us in the registry and cancel us,
-            // but that takes some time during which we'd otherwise be
-            // doing setup work concurrent with the maintenance op.
+            // A writer may be waiting for our held read lease by now.
+            // Give it priority before dispatching new engine work.
             // Fast-path skip: if maintenance is now active, unwind
             // ourselves cleanly and return Skipped without waiting
             // for the cancel-loop to chase us. The maintenance

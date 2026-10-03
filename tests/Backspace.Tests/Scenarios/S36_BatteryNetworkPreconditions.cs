@@ -53,7 +53,7 @@ public sealed class S36_BatteryNetworkPreconditions : ScenarioBase
         ServiceLocator.Config.Update(cfg => { cfg.Destinations.Add(dest); cfg.Backups.Add(backup); });
 
         // -------- Toggle each flag through the editor VM --------
-        var vm = new BackupEditorViewModel(backup, isNew: false);
+        using var vm = new BackupEditorViewModel(backup, isNew: false);
 
         // The default may be true or false depending on platform defaults
         // (Windows laptops tend to opt-in by default). Toggle through ON

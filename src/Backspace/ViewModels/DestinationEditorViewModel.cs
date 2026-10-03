@@ -214,7 +214,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         DestinationKind.OneDriveBusiness =>
             "Backspace will access your OneDrive for Business tenant as the signed-in user.",
         DestinationKind.GoogleDrive =>
-            "Backspace will access your Google Drive.",
+            "Backspace can access files it creates or you authorize for it in Google Drive.",
         _ => "",
     };
 
@@ -229,6 +229,11 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     };
 
     private CancellationTokenSource? _validationCts;
+    private CancellationTokenSource? _oauthCts;
+    private readonly string? _originalOneDriveDriveId;
+    private readonly string? _originalOneDriveDriveType;
+    internal Services.OAuth.OAuthFlowCoordinator? OAuthFlowOverride { get; set; }
+    internal Services.OAuth.OneDriveDiscovery? OneDriveDiscoveryOverride { get; set; }
 
     /// <summary>Cancels any in-flight OAuth-token probe. Called from
     /// the editor window's Closed handler so a user pasting then
@@ -238,6 +243,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     /// process eventually finishes.</summary>
     public void Dispose()
     {
+        try { _oauthCts?.Cancel(); } catch { }
         try { _validationCts?.Cancel(); _validationCts?.Dispose(); } catch { }
         _validationCts = null;
     }
@@ -314,6 +320,8 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     public DestinationEditorViewModel(Destination working, bool isNew, bool simplifiedMode)
     {
         Working = working;
+        _originalOneDriveDriveId = working.OneDriveDriveId;
+        _originalOneDriveDriveType = working.OneDriveDriveType;
         IsNew = isNew;
         SimplifiedMode = simplifiedMode;
         _name = working.Name;
@@ -758,10 +766,13 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         AuthOk = false;
         AuthStatus = "Opening your browser for sign-in…";
         bool flowSucceeded = false;
+        using var oauthCts = new CancellationTokenSource();
+        _oauthCts = oauthCts;
         try
         {
-            var result = await ServiceLocator.OAuthFlow.RunAsync(provider, CancellationToken.None)
+            var result = await (OAuthFlowOverride ?? ServiceLocator.OAuthFlow).RunAsync(provider, oauthCts.Token)
                 .ConfigureAwait(true);
+            oauthCts.Token.ThrowIfCancellationRequested();
             if (!result.Succeeded)
             {
                 AuthStatus = result.Message;
@@ -774,8 +785,12 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
             // automatically. AuthBusy stays true until that
             // probe finishes, so the UI shows "Checking..." right
             // through to "Connected".
-            OAuthTokenInput = result.TokenJson!;
+            if (OAuthTokenInput == result.TokenJson)
+                await RunValidationAsync(result.TokenJson!, oauthCts.Token);
+            else
+                OAuthTokenInput = result.TokenJson!;
         }
+        catch (OperationCanceledException) when (oauthCts.IsCancellationRequested) { AuthStatus = "Sign-in cancelled."; }
         catch (Exception ex)
         {
             AppLogger.For<DestinationEditorViewModel>().Error(ex, "OAuth flow threw for {Kind}", Kind);
@@ -788,7 +803,8 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
             // exit must clear it ourselves — otherwise a failed
             // sign-in when the input already had a stale value
             // leaves the spinner stuck.
-            if (!flowSucceeded) AuthBusy = false;
+            if (!flowSucceeded || oauthCts.IsCancellationRequested) AuthBusy = false;
+            if (ReferenceEquals(_oauthCts, oauthCts)) _oauthCts = null;
         }
     }
 
@@ -814,6 +830,10 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
 
         if (string.IsNullOrWhiteSpace(value))
         {
+            // Clearing a replacement token keeps the saved account. Its
+            // drive identity must stay paired with that saved credential.
+            Working.OneDriveDriveId = _originalOneDriveDriveId;
+            Working.OneDriveDriveType = _originalOneDriveDriveType;
             AuthStatus = "";
             AuthOk = false;
             AuthBusy = false;
@@ -834,13 +854,23 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
 
             AuthBusy = true;
             AuthOk = false;
-            AuthStatus = "Checking with Dropbox…";
+            AuthStatus = "Checking the connected account…";
+
+            if (Kind is DestinationKind.OneDrivePersonal or DestinationKind.OneDriveBusiness)
+            {
+                var drive = await (OneDriveDiscoveryOverride ?? new Services.OAuth.OneDriveDiscovery()).DiscoverAsync(token, ct);
+                ct.ThrowIfCancellationRequested();
+                Working.OneDriveDriveId = drive.Id;
+                Working.OneDriveDriveType = drive.DriveType;
+            }
 
             var probe = ServiceLocator.DropboxProbe;
             var result = Kind switch
             {
                 DestinationKind.DropboxAppScoped or DestinationKind.DropboxFullAccess
                     => await probe.HealthCheckAsync(token, ct),
+                DestinationKind.OneDrivePersonal or DestinationKind.OneDriveBusiness
+                    => ProbeResult.Ok("Connected. Your OneDrive is ready for backups."),
                 _ => ProbeResult.Ok("Token captured. It will be validated on first backup."),
             };
 
@@ -861,7 +891,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         }
         finally
         {
-            AuthBusy = false;
+            if (!ct.IsCancellationRequested) AuthBusy = false;
         }
     }
 
@@ -1214,7 +1244,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
             var hasPersistedToken = Working.LastTokenValidatedUtc is not null;
             if (string.IsNullOrWhiteSpace(OAuthTokenInput) && !hasPersistedToken)
             {
-                AuthStatus = "Click Connect, sign in, and paste the token before saving.";
+                AuthStatus = "Click Connect and finish signing in before saving.";
                 errors.Add("Cloud destinations need a verified token.");
             }
             else if (!string.IsNullOrWhiteSpace(OAuthTokenInput) && !AuthOk)

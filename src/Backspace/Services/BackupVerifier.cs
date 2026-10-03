@@ -11,8 +11,8 @@ namespace Backspace.Services;
 
 /// <summary>
 /// "Test restore" drill — the user-facing answer to "is this backup
-/// actually restorable?". Picks ten random non-empty files from the
-/// latest snapshot, restores them to a temp dir, and (when possible)
+/// actually restorable?". Restores every file, including empty files, from each
+/// source's latest snapshot at every destination and (when possible)
 /// byte-compares each one against the live source.
 ///
 /// Why this exists: a backup that succeeds for six months but produces
@@ -39,7 +39,7 @@ namespace Backspace.Services;
 /// </summary>
 public sealed class BackupVerifier
 {
-    /// <summary>How many random files to sample from the latest revision.</summary>
+    /// <summary>Legacy sample size retained for compatibility with older scenario helpers.</summary>
     public const int FilesToSample = 10;
 
     /// <summary>Backups whose LastVerifyUtc is older than this are flagged on the Dashboard.</summary>
@@ -105,6 +105,16 @@ public sealed class BackupVerifier
                 if (IsScratchDirAlive(dir))
                 {
                     skippedYoung++;
+                    continue;
+                }
+                // An active owner keeps this handle even through sleep or a
+                // debugger pause. Heartbeat age alone cannot prove death.
+                using (var owner = new FileStream(Path.Combine(dir, ".owner.lock"), FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite, FileShare.None)) { }
+                // An unacknowledged daemon may still be writing staging data.
+                if (Directory.EnumerateDirectories(dir, ".backspace-restore-*", SearchOption.TopDirectoryOnly).Any())
+                {
+                    kept++;
                     continue;
                 }
                 Directory.Delete(dir, recursive: true);
@@ -189,7 +199,9 @@ public sealed class BackupVerifier
         // sole caller (BackupsViewModel.TestRestore) already wraps
         // the call in `catch (Exception ex)` which handles OCE
         // quietly without polluting run history.
-        await ServiceLocator.Maintenance.WaitForReadAsync(ct);
+        using var operationCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        ct = operationCts.Token;
+        using var readLease = await ServiceLocator.Maintenance.AcquireReadAsync(ct, operationCts.Cancel);
 
         var started = DateTime.UtcNow;
         using var _syncing = AppStatus.BeginSyncing();
@@ -224,7 +236,7 @@ public sealed class BackupVerifier
         var capturedLog = new System.Text.StringBuilder();
         Action<string> tee = ln =>
         {
-            try { capturedLog.AppendLine(ln); } catch { /* never fail the drill on log capture */ }
+            try { lock (capturedLog) capturedLog.AppendLine(ln); } catch { /* logging never fails the drill */ }
         };
         _engine.LineWritten += tee;
 
@@ -257,9 +269,9 @@ public sealed class BackupVerifier
         if (string.IsNullOrEmpty(sourcePath))
             return Failed(backup, started, "Backup has no source paths configured.");
 
-        var reachableDests = ResolveReachableDestinations(backup);
+        var reachableDests = ResolveVerificationTargets(backup);
         if (reachableDests.Count == 0)
-            return Failed(backup, started, "No reachable destination: drives unmounted, no destinations configured, or all targets unreachable.");
+            return Failed(backup, started, "No destinations are configured for this backup.");
 
         // Per-destination outcomes — collected as structured items so
         // the final Summary can group successes vs failures with bullet
@@ -282,16 +294,16 @@ public sealed class BackupVerifier
         int? successFilesByteIdentical = null;
         int? successFilesSizeOnly = null;
 
-        foreach (var dest in reachableDests)
+        foreach (var (dest, target, unavailable) in reachableDests)
         {
             ct.ThrowIfCancellationRequested();
-            var target = backup.Targets.FirstOrDefault(t => t.DestinationId == dest.Id);
-            if (target is null) continue; // shouldn't happen — ResolveReachable filters by Targets
 
             try
             {
+                if (unavailable is not null) throw new IOException(unavailable);
                 var (perDestResults, latest, latestCreatedUtc, err) = await VerifyOneDestinationAsync(
                     backup, sourcePath, dest, target, started, ct);
+                allFileResults.AddRange(perDestResults);
                 if (err is not null)
                 {
                     destinationsFailed++;
@@ -300,7 +312,6 @@ public sealed class BackupVerifier
                     continue;
                 }
                 latestRevisionAcrossDests = Math.Max(latestRevisionAcrossDests, latest);
-                allFileResults.AddRange(perDestResults);
                 var failedHere = perDestResults.Count(r => r.Status is
                     FileVerifyStatus.SizeMismatch or
                     FileVerifyStatus.BytesMismatch or
@@ -317,9 +328,9 @@ public sealed class BackupVerifier
                     var ok = perDestResults.Count(r => r.Status == FileVerifyStatus.OK);
                     var okNoCompare = perDestResults.Count(r => r.Status == FileVerifyStatus.OkNoCompare);
                     successItems.Add($"«{dest.Name}»: {revStamp}");
-                    successFilesPicked ??= perDestResults.Count;
-                    successFilesByteIdentical ??= ok;
-                    successFilesSizeOnly ??= okNoCompare;
+                    successFilesPicked = (successFilesPicked ?? 0) + perDestResults.Count;
+                    successFilesByteIdentical = (successFilesByteIdentical ?? 0) + ok;
+                    successFilesSizeOnly = (successFilesSizeOnly ?? 0) + okNoCompare;
                 }
                 else
                 {
@@ -380,7 +391,9 @@ public sealed class BackupVerifier
         // restore or a restore operation, it should show up the
         // related logs in Activity & logs". Best-effort: a failed
         // persist must never demote a successful drill.
-        try { PersistTestRestoreRunRecord(backup, outcome, runRecord.Id, capturedLog.ToString()); }
+        string logText;
+        lock (capturedLog) logText = capturedLog.ToString();
+        try { PersistTestRestoreRunRecord(backup, outcome, runRecord.Id, logText); }
         catch (Exception ex)
         {
             _log.Warning(ex, "Failed to persist test-restore RunRecord for {Backup}", backup.Name);
@@ -404,8 +417,7 @@ public sealed class BackupVerifier
         {
             var dir = AppPaths.LogDirForBackup(backup.Name);
             System.IO.Directory.CreateDirectory(dir);
-            var stamp = outcome.StartedUtc.ToLocalTime().ToString("yyyyMMdd-HHmmss");
-            logPath = System.IO.Path.Combine(dir, $"{stamp}-test-restore.log");
+            logPath = LogStore.NewTranscriptPath(backup.Name, "test-restore", outcome.StartedUtc);
             // Persist the actual streamed restic output, then a
             // human-readable summary footer. Earlier the code wrote
             // ONLY the summary, so the LogsView's terminal pane
@@ -421,6 +433,10 @@ public sealed class BackupVerifier
                 sb.AppendLine("=== Summary ===");
                 sb.Append(outcome.Summary);
             }
+            sb.AppendLine();
+            sb.AppendLine("=== Every file checked ===");
+            foreach (var file in outcome.Files)
+                sb.AppendLine($"[{file.Status}] {file.DestinationName} / {file.SourcePath} / {file.Path} — {file.ActualBytes:N0}/{file.ExpectedBytes:N0} bytes{(file.Detail is null ? "" : ": " + file.Detail)}");
             System.IO.File.WriteAllText(logPath, sb.ToString());
         }
         catch (Exception ex)
@@ -432,7 +448,8 @@ public sealed class BackupVerifier
             ? (outcome.FilesFailed == 0 ? Models.BackupRunStatus.Success : Models.BackupRunStatus.Warning)
             : Models.BackupRunStatus.Failed;
 
-        var summary = $"rev {outcome.RevisionNumber} · {outcome.FilesOk}/{outcome.FilesPicked} byte-identical";
+        var identical = outcome.Files.Count(f => f.Status == FileVerifyStatus.OK);
+        var summary = $"rev {outcome.RevisionNumber} · {identical}/{outcome.FilesPicked} byte-identical";
         if (outcome.FilesFailed > 0) summary += $" · {outcome.FilesFailed} mismatched";
 
         var rec = new Models.RunRecord
@@ -462,7 +479,69 @@ public sealed class BackupVerifier
     /// other failure is reported via the returned tuple.
     /// </summary>
     private async Task<(IReadOnlyList<FileVerifyResult> Results, int Revision, DateTime RevisionCreatedUtc, string? Error)>
-        VerifyOneDestinationAsync(
+        VerifyOneDestinationAsync(Backup backup, string unusedSource, Destination dest, BackupTarget target,
+            DateTime started, CancellationToken ct)
+    {
+        var all = new List<FileVerifyResult>();
+        var failures = new List<string>();
+        int revision = 0;
+        DateTime created = default;
+        foreach (var source in backup.SourcePaths.Where(p => !string.IsNullOrWhiteSpace(p)))
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var result = await VerifyOneSourceAsync(backup, source, dest, target, started, ct);
+                all.AddRange(result.Results.Select(f => f with { SourcePath = source, DestinationName = dest.Name }));
+                revision = Math.Max(revision, result.Revision);
+                if (result.RevisionCreatedUtc > created) created = result.RevisionCreatedUtc;
+                if (result.Error is not null) failures.Add($"{source}: {result.Error}");
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { failures.Add($"{source}: {ex.Message}"); }
+        }
+        return (all, revision, created, failures.Count == 0 ? null : string.Join("; ", failures));
+    }
+
+    internal static List<FileVerifyResult> FindMissingSnapshotFiles(Backup backup, string sourceRoot,
+        IReadOnlyList<RevisionFile> snapshot, DateTime capturedUtc, CancellationToken ct)
+    {
+        var result = new List<FileVerifyResult>();
+        if (!Directory.Exists(sourceRoot)) return result;
+        if ((File.GetAttributes(sourceRoot) & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("Verification does not follow a linked source folder: " + sourceRoot);
+        var known = snapshot.Select(f => f.Path.Replace('\\', '/')).ToHashSet(
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var rules = SavingsEstimator.ParseRules(backup.FiltersText);
+        var stack = new Stack<string>();
+        stack.Push(sourceRoot);
+        while (stack.Count > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+            var directory = stack.Pop();
+            foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+            {
+                ct.ThrowIfCancellationRequested();
+                var attributes = File.GetAttributes(entry);
+                if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
+                var relative = Path.GetRelativePath(sourceRoot, entry).Replace('\\', '/');
+                var isDirectory = (attributes & FileAttributes.Directory) != 0;
+                if (SavingsEstimator.IsExcluded(rules, relative + (isDirectory ? "/" : ""))) continue;
+                if (isDirectory) { stack.Push(entry); continue; }
+                if (known.Contains(relative)) continue;
+                var file = new FileInfo(entry);
+                // Files created or edited after capture belong to the next
+                // backup. Only flag an unchanged pre-existing omission.
+                if (file.LastWriteTimeUtc > capturedUtc || file.CreationTimeUtc > capturedUtc) continue;
+                result.Add(new FileVerifyResult(relative, file.Length, 0, FileVerifyStatus.RestoreFailed,
+                    "This unchanged source file is included by the current filters but absent from the snapshot. Run a fresh backup to check completeness.")
+                    { SourcePath = sourceRoot });
+            }
+        }
+        return result;
+    }
+    private async Task<(IReadOnlyList<FileVerifyResult> Results, int Revision, DateTime RevisionCreatedUtc, string? Error)>
+        VerifyOneSourceAsync(
             Backup backup, string sourcePath, Destination dest, BackupTarget target,
             DateTime started, CancellationToken ct)
     {
@@ -498,61 +577,16 @@ public sealed class BackupVerifier
                 $"couldn't list files in revision {latest.Number}: {ex.Message}");
         }
 
-        var pool = files.Where(f => f.SizeBytes > 0).ToList();
-        if (pool.Count == 0)
-            return (Array.Empty<FileVerifyResult>(), latest.Number, latest.CreatedUtc,
-                "latest snapshot has no non-empty files to verify");
-
-        // Operator precedence pitfall: `??` binds looser than `^`, so without
-        // the parens around `(dest.Id?.GetHashCode() ?? 0)` the whole xor
-        // chain collapsed to null whenever dest.Id was null, and the seed
-        // became deterministic 0 — every verify produced the same shuffle.
-        var rng = new Random(unchecked(Environment.TickCount * 397)
-                             ^ started.GetHashCode()
-                             ^ (dest.Id?.GetHashCode() ?? 0));
-
-        // Pre-filter pool to files that haven't been edited since the
-        // backup captured them. Without this, sampling a recently-edited
-        // file would either fail the byte comparison or fall back to
-        // OkNoCompare — neither outcome actually verifies that the
-        // backup is restorable to the bytes it claims. We compare the
-        // CURRENT source file's mtime against the per-file snapshot
-        // mtime (with the same 2-second fudge factor as VerifyOneFile),
-        // so a file that was edited mid-test can be replaced with a
-        // different random pick instead of polluting the result.
-        // The retry cap (3× FilesToSample) guards against a pathological
-        // case where every file in the pool has been touched since the
-        // backup — we don't want to walk the entire pool synchronously
-        // doing FileInfo on every entry. If we can't find FilesToSample
-        // unchanged files within the cap, we use what we have; an
-        // empty result returns a per-destination error.
-        // Run the FileInfo walk on a worker thread so a slow source
-        // (SMB share over VPN, slow USB drive) doesn't block the
-        // awaiter chain — the user just sees the Test Restore button
-        // hang otherwise. Each candidate gets a per-file timeout via
-        // Task.Run + Task.Wait so a single hung handle can't stall the
-        // whole drill.
-        // The shuffle, seen-set, and walking index are surfaced from
-        // the Task.Run lambda so the replacement loop further down
-        // can resume picking from where the initial walk left off
-        // without re-shuffling (which would be biased toward already-
-        // seen entries via the HashSet). PickerState is the mutable
-        // holder so the helper can advance idx across calls without
-        // a ref parameter (refs don't cross lambda capture).
-        var pickerState = new PickerState
-        {
-            Seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            PoolShuffled = pool.OrderBy(_ => rng.Next()).ToList(),
-            Idx = 0,
-            MaxAttempts = Math.Max(FilesToSample * 3, 30),
-        };
-        var picked = await Task.Run(() => PickFreshCandidates(
-            pickerState, FilesToSample, sourcePath, ct), ct);
+        // Full verification is intentional: every source, every snapshot file,
+        // including empty files. Modified originals are reported as size-only;
+        // they never cause an unrelated fresh file to be silently omitted.
+        var picked = files.ToList();
+        var missing = await Task.Run(() => FindMissingSnapshotFiles(
+            backup, sourcePath, files, latest.CreatedUtc, ct), ct);
         if (picked.Count == 0)
-            return (Array.Empty<FileVerifyResult>(), latest.Number, latest.CreatedUtc,
-                "every sampled file has been edited since the last backup; couldn't find any " +
-                "byte-comparable file to verify within the retry cap. Try again after a fresh backup.");
-
+            return (missing, latest.Number, latest.CreatedUtc,
+                missing.Count > 0 ? "Expected source files are absent from this snapshot." :
+                "The latest snapshot contains no files to restore.");
         // Per-destination temp dir — including the destination id so
         // a multi-destination drill doesn't have all dests writing
         // into the same folder (which would clobber each other's
@@ -568,8 +602,10 @@ public sealed class BackupVerifier
         // ~/.config and breaks portable installs).
         var verifyRoot = Path.Combine(
             AppPaths.ConfigRoot, "verify",
-            $"{backup.Id}-{started:yyyyMMddHHmmssfff}-{ShortId(dest.Id)}");
+            $"{backup.Id}-{started:yyyyMMddHHmmssfff}-{ShortId(dest.Id)}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(verifyRoot);
+        using var scratchOwner = new FileStream(Path.Combine(verifyRoot, ".owner.lock"),
+            FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
         // Write the heartbeat sentinel SYNCHRONOUSLY before launching
         // the background refresh task. If the synchronous write
         // throws (disk full, AV quarantine, ACL race) we ALSO touch
@@ -603,46 +639,7 @@ public sealed class BackupVerifier
                 picked, backup, sourcePath, dest, target.StorageName,
                 latest.Number, verifyRoot, ct);
 
-            // Replacement loop: every result whose IsMidFlightDirty
-            // flag is set means the user edited the source between our
-            // pre-restore freshness check and the post-restore byte
-            // compare — that slot didn't actually verify anything.
-            // Try to refill it with a fresh pick from the unconsumed
-            // tail of the shuffled pool. Capped at FilesToSample
-            // additional rounds so a pathological "user keeps editing
-            // everything" scenario can't loop forever; also stops
-            // early when the pool is exhausted or the user cancels.
-            const int maxReplacementRounds = FilesToSample;
-            for (int round = 0; round < maxReplacementRounds; round++)
-            {
-                if (ct.IsCancellationRequested) break;
-                var dirtyCount = fileResults.Count(r => r.IsMidFlightDirty);
-                if (dirtyCount == 0) break;
-                var replacements = await Task.Run(() => PickFreshCandidates(
-                    pickerState, dirtyCount, sourcePath, ct), ct);
-                if (replacements.Count == 0) break; // pool exhausted
-                var replResults = await RunRestoreAndVerifyAsync(
-                    replacements, backup, sourcePath, dest, target.StorageName,
-                    latest.Number, verifyRoot, ct);
-                // REPLACE the dirty entries in-place, don't append.
-                // The original shape (an unconditional AddRange) caused
-                // dirtyCount to monotonically increase across rounds —
-                // the dirty entries stayed in the list and were re-counted
-                // every loop, driving an exponential pool walk AND
-                // inflating FilesPicked / FilesOk in the user-facing
-                // summary (a 10-file drill could report "23 files
-                // verified" when the user kept editing source files).
-                // Remove the oldest dirty entries up to the count of
-                // fresh replacements we got; if we got fewer than
-                // dirtyCount this round (pool getting sparse), the
-                // un-replaced dirty slots stay so the next round can
-                // try again until we hit maxReplacementRounds.
-                RemoveOldestDirty(fileResults, replResults.Count);
-                fileResults.AddRange(replResults);
-                _log.Debug(
-                    "Verify replacement round {Round}: dirty={Dirty}, picked={Picked}, fresh-results={Results}, total-now={Total}",
-                    round + 1, dirtyCount, replacements.Count, replResults.Count, fileResults.Count);
-            }
+            fileResults.AddRange(missing);
             return ((IReadOnlyList<FileVerifyResult>)fileResults, latest.Number, latest.CreatedUtc, null);
         }
         finally
@@ -654,7 +651,8 @@ public sealed class BackupVerifier
             try { await heartbeatTask.ConfigureAwait(false); }
             catch (OperationCanceledException) { /* expected */ }
             catch (Exception ex) { _log.Debug(ex, "Heartbeat task teardown threw"); }
-            try { Directory.Delete(verifyRoot, recursive: true); }
+            scratchOwner.Dispose();
+            try { if (!ServiceLocator.Maintenance.IsBlocked) Directory.Delete(verifyRoot, recursive: true); }
             catch (Exception ex) { _log.Debug(ex, "Cleanup of verify temp dir failed"); }
         }
     }
@@ -714,24 +712,40 @@ public sealed class BackupVerifier
         Backup backup, string sourcePath, Destination dest, string storageName,
         int revision, string verifyRoot, CancellationToken ct)
     {
-        var request = new RestoreRequest
+        var results = new List<FileVerifyResult>();
+        // Bound scratch-space growth for large backups. Each batch is fully
+        // restored and byte-compared before its output is removed.
+        foreach (var batch in files.Chunk(128))
         {
-            Backup = backup,
-            SourcePath = sourcePath,
-            Destination = dest,
-            StorageName = storageName,
-            Revision = revision,
-            Files = files.Select(f => f.Path).ToList(),
-            TargetPath = verifyRoot,
-            Overwrite = true,
-            PreserveStructure = true,
-            Threads = Math.Max(1, backup.Threads == 0 ? 4 : backup.Threads),
-            RetryDelaysSeconds = new[] { 2, 5 },
-        };
-        var outcome = await _restore.RunAsync(request, ct);
-        return files.Select(f => VerifyOneFile(f, sourcePath, verifyRoot, outcome)).ToList();
+            ct.ThrowIfCancellationRequested();
+            var request = new RestoreRequest
+            {
+                MaintenanceLeaseHeld = true,
+                ShowInRegistry = false,
+                Backup = backup, SourcePath = sourcePath, Destination = dest,
+                StorageName = storageName, Revision = revision,
+                Files = batch.Select(f => f.Path).ToList(), TargetPath = verifyRoot,
+                Overwrite = true, PreserveStructure = true,
+                Threads = Math.Max(1, backup.Threads == 0 ? 4 : backup.Threads),
+            };
+            var outcome = await _restore.RunAsync(request, ct);
+            ct.ThrowIfCancellationRequested();
+            foreach (var file in batch)
+            {
+                ct.ThrowIfCancellationRequested();
+                results.Add(await Task.Run(() => VerifyOneFile(file, sourcePath, verifyRoot, outcome, ct), ct));
+                var restored = SafeVerificationPath(verifyRoot, file.Path);
+                try { File.Delete(restored); }
+                catch (Exception ex) { _log.Debug(ex, "Could not remove verified scratch file"); }
+            }
+            if (outcome.TerminalStatus == RestoreTerminalStatus.Cancelled)
+                throw new OperationCanceledException("Test restore cancelled.", ct);
+            if (outcome.TerminalStatus is RestoreTerminalStatus.Error or RestoreTerminalStatus.Warning)
+                results.Add(new FileVerifyResult("(restore operation)", 0, 0, FileVerifyStatus.RestoreFailed,
+                    outcome.ErrorMessage ?? $"The restore engine returned {outcome.TerminalStatus}."));
+        }
+        return results;
     }
-
     /// <summary>
     /// Walk-and-pick helper: advance <paramref name="state"/>'s
     /// Idx through the pre-shuffled pool, dedup against Seen, and
@@ -852,19 +866,26 @@ public sealed class BackupVerifier
     /// <summary>Reachable destinations for verify — every target whose
     /// volume is mounted (local-like) or unconditionally reachable
     /// (cloud / S3). Returns the destinations in target-list order.</summary>
-    private List<Destination> ResolveReachableDestinations(Backup backup)
+    private List<(Destination Destination, BackupTarget Target, string? Unavailable)> ResolveVerificationTargets(Backup backup)
     {
-        var list = new List<Destination>();
+        var list = new List<(Destination, BackupTarget, string?)>();
         foreach (var t in backup.Targets)
         {
             var d = _config.Current.Destinations.FirstOrDefault(x => x.Id == t.DestinationId);
-            if (d is null) continue;
+            if (d is null)
+            {
+                list.Add((new Destination { Id = t.DestinationId, Name = t.DestinationId }, t,
+                    "This configured destination no longer exists. Verification could not run."));
+                continue;
+            }
+            string? unavailable = null;
             if (d.IsLocalLike)
             {
                 var v = VolumeDetector.Check(d.ExpectedDriveLetter, d.ExpectedVolumeLabel);
-                if (v.Verdict != VolumeDetector.Verdict.Mounted) continue;
+                if (v.Verdict != VolumeDetector.Verdict.Mounted)
+                    unavailable = "The destination drive is not connected. Verification could not run.";
             }
-            list.Add(d);
+            list.Add((d, t, unavailable));
         }
         return list;
     }
@@ -902,12 +923,16 @@ public sealed class BackupVerifier
         _ => DateTime.SpecifyKind(d, DateTimeKind.Local).ToUniversalTime(),
     };
 
-    private FileVerifyResult VerifyOneFile(
+    internal static FileVerifyResult VerifyOneFile(
         RevisionFile snapshot, string sourceRoot, string restoreRoot,
-        RestoreOutcome restoreOutcome)
+        RestoreOutcome restoreOutcome, CancellationToken ct = default)
     {
-        var rel = snapshot.Path.Replace('/', Path.DirectorySeparatorChar);
-        var restoredPath = Path.Combine(restoreRoot, rel);
+        ct.ThrowIfCancellationRequested();
+        var rel = snapshot.Path;
+        var restoredPath = SafeVerificationPath(restoreRoot, rel);
+        if (File.Exists(restoredPath) && (File.GetAttributes(restoredPath) & FileAttributes.ReparsePoint) != 0)
+            return new FileVerifyResult(snapshot.Path, snapshot.SizeBytes, 0, FileVerifyStatus.OkNoCompare,
+                "This is a symbolic link. Its target was not followed or byte-compared.");
 
         // 2026-06-12 refactor: the per-file outcome map is gone.
         // File.Exists is the ground truth — same check restic uses
@@ -935,7 +960,10 @@ public sealed class BackupVerifier
         }
 
         // Byte-compare against current source when possible.
-        var sourcePath = Path.Combine(sourceRoot, rel);
+        var sourcePath = SafeVerificationPath(sourceRoot, rel);
+        if (File.Exists(sourcePath) && (File.GetAttributes(sourcePath) & FileAttributes.ReparsePoint) != 0)
+            return new FileVerifyResult(snapshot.Path, snapshot.SizeBytes, restoredFi.Length, FileVerifyStatus.OkNoCompare,
+                "The current source is a symbolic link; its target was not followed or byte-compared.");
         if (!File.Exists(sourcePath))
         {
             return new FileVerifyResult(
@@ -975,7 +1003,14 @@ public sealed class BackupVerifier
                 "Source size differs from snapshot. Byte comparison skipped.");
         }
 
-        return BytesEqual(sourcePath, restoredPath)
+        var previousWrite = srcFi.LastWriteTimeUtc;
+        var previousLength = srcFi.Length;
+        var matches = BytesEqual(sourcePath, restoredPath, ct);
+        srcFi.Refresh();
+        if (srcFi.LastWriteTimeUtc != previousWrite || srcFi.Length != previousLength)
+            return new FileVerifyResult(snapshot.Path, snapshot.SizeBytes, restoredFi.Length, FileVerifyStatus.OkNoCompare,
+                "Source changed during comparison; size matched the snapshot but byte comparison is inconclusive.") { IsMidFlightDirty = true };
+        return matches
             ? new FileVerifyResult(
                 snapshot.Path, snapshot.SizeBytes, restoredFi.Length,
                 FileVerifyStatus.OK, null)
@@ -985,8 +1020,24 @@ public sealed class BackupVerifier
                 "Restored bytes differ from source bytes: possible backup corruption.");
     }
 
-    private static bool BytesEqual(string p1, string p2)
+    internal static string SafeVerificationPath(string root, string relative)
     {
+        if (Path.IsPathRooted(relative)) throw new InvalidOperationException("Snapshot paths must be relative to the source.");
+        relative = ResticBackrestEngine.NormalizeRestoreRelativePath(relative);
+        var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+        var full = Path.GetFullPath(Path.Combine(fullRoot, relative));
+        if (!full.StartsWith(fullRoot + Path.DirectorySeparatorChar,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            throw new InvalidOperationException("Snapshot path escapes the verification folder.");
+        for (var parent = Path.GetDirectoryName(full); parent is not null && parent.Length >= fullRoot.Length; parent = Path.GetDirectoryName(parent))
+            if (Directory.Exists(parent) && (File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Verification does not follow linked folders: " + parent);
+        return full;
+    }
+
+    internal static bool BytesEqual(string p1, string p2, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
         const int BufSize = 64 * 1024;
         using var f1 = File.OpenRead(p1);
         using var f2 = File.OpenRead(p2);
@@ -995,6 +1046,7 @@ public sealed class BackupVerifier
         var b2 = new byte[BufSize];
         while (true)
         {
+            ct.ThrowIfCancellationRequested();
             int n1 = f1.Read(b1, 0, BufSize);
             int n2 = f2.Read(b2, 0, BufSize);
             if (n1 != n2) return false;
@@ -1073,7 +1125,7 @@ public sealed class BackupVerifier
             }
             sb.Append($"{destinationsOk} of {totalDests} destinations SUCCEEDED: ");
             sb.Append(FilesLine());
-            sb.Append(" (same for all destinations normally)");
+            sb.Append(" across these destinations");
             foreach (var item in successItems)
             {
                 sb.AppendLine();
@@ -1126,6 +1178,9 @@ public sealed record FileVerifyResult(
     FileVerifyStatus Status,
     string? Detail)
 {
+    public string SourcePath { get; init; } = "";
+    public string DestinationName { get; init; } = "";
+
     /// <summary>
     /// True iff this <see cref="FileVerifyStatus.OkNoCompare"/> verdict
     /// was specifically caused by the source file being edited DURING

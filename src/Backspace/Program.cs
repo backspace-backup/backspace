@@ -54,7 +54,13 @@ internal static class Program
                                        or RunMode.VssElevatedHelper;
             if (!skipInit)
             {
-                ServiceLocator.InitializeCore();
+                // A headless scheduled run can overlap an open GUI. It shares
+                // settings through transactional stores, but owns a separate
+                // daemon/database so either process can exit independently.
+                var headless = mode.Mode is RunMode.RunOne or RunMode.RunAll
+                    or RunMode.PruneOne or RunMode.CheckOne;
+                ServiceLocator.InitializeCore(headless
+                    ? BackrestSidecar.CreateIsolatedDataDirectory("scheduled") : null);
                 AppLogger.For("Program").Information(
                     "Invoked: mode={Mode} args={Args}",
                     mode.Mode, string.Join(" ", args));
@@ -62,8 +68,8 @@ internal static class Program
                 // Reap orphan rclone processes from prior sessions
                 // BEFORE the new Backrest sidecar (and its rclone
                 // children) start. See RcloneOrphanReaper docs for
-                // the heuristic and BACKSPACE_PORT_DESIGN § 6.3 for
-                // the original bug report this guards against.
+                // persisted ownership checks. Unregistered processes are
+                // never terminated based on their executable name/path.
                 RcloneOrphanReaper.Sweep();
             }
 
@@ -91,6 +97,15 @@ internal static class Program
         }
         finally
         {
+            if (ServiceLocator.Initialized)
+            {
+                try
+                {
+                    ServiceLocator.BackrestSidecar.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                    ServiceLocator.Maintenance.ReleaseEngineOwnershipAfterStop();
+                }
+                catch (Exception ex) { AppLogger.For("Program").Warning(ex, "Engine teardown failed"); }
+            }
             AppLogger.Shutdown();
         }
     }
@@ -219,8 +234,11 @@ internal static class Program
             // can render a friendly toast if the boot failed.
             try
             {
+                using var startupCancellation = new System.Threading.CancellationTokenSource();
+                using var startupLease = ServiceLocator.Maintenance.AcquireReadAsync(
+                    startupCancellation.Token, startupCancellation.Cancel).GetAwaiter().GetResult();
                 ServiceLocator.BackrestSidecar
-                    .EnsureStartedAsync(System.Threading.CancellationToken.None)
+                    .EnsureStartedAsync(startupCancellation.Token)
                     .GetAwaiter().GetResult();
                 AppLogger.For("Program").Information(
                     "Backrest sidecar ready at {Url}",
@@ -239,12 +257,38 @@ internal static class Program
     }
 
     public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<App>()
+        ConfigureDesktopPlatform(AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
-            .LogToTrace();
+            .LogToTrace());
+
+    /// <summary>Use the Windows redirection compositor. The bundled Avalonia
+    /// WinUI/DirectComposition render timers can spin while an empty window is
+    /// idle or hidden on some drivers. RedirectionSurface avoids that compositor
+    /// loop while retaining Avalonia's normal GPU/software rendering fallbacks.</summary>
+    public static AppBuilder ConfigureDesktopPlatform(AppBuilder builder)
+    {
+#if WINDOWS
+        return builder.With(new Win32PlatformOptions
+        {
+            CompositionMode = new[] { Win32CompositionMode.RedirectionSurface },
+        });
+#else
+        return builder;
+#endif
+    }
 
     // ---- unattended ----
+
+    private static async Task<bool> ValidateUnattendedSecretsAsync()
+    {
+        // The store is lazy. Open it before any engine/network operation rather
+        // than consulting an error flag that has not yet been populated.
+        var warning = await SecretsStartupWarning.CheckAsync(ServiceLocator.Secrets).ConfigureAwait(false);
+        if (warning is null) return true;
+        Console.Error.WriteLine($"Backspace's saved credentials are unavailable. {warning.Message}");
+        return false;
+    }
 
     private static async Task<int> RunUnattended(string? backupName, bool onlyThisOne)
     {
@@ -261,19 +305,7 @@ internal static class Program
             Console.Error.WriteLine("Backspace config couldn't be read at startup (see app log for the cause). Aborting unattended run.");
             return 3;
         }
-        if (ServiceLocator.Secrets.LoadErrorMessage is { Length: > 0 } secretsErr)
-        {
-            // Secrets vault failed to decrypt — typically a portable
-            // config moved between machines (DPAPI is per-user-per-
-            // machine on Windows; AES-GCM keyfile is bound to the
-            // specific machine that created it). Without this guard,
-            // the run proceeds with empty credentials and restic /
-            // rclone fail with cryptic "wrong password" or auth
-            // errors deep in the cell loop after the 85s retry
-            // cascade. Surface the actual cause to the operator.
-            Console.Error.WriteLine($"Backspace's secrets vault couldn't be opened on this machine. {secretsErr}");
-            return 4;
-        }
+        if (!await ValidateUnattendedSecretsAsync().ConfigureAwait(false)) return 4;
         var cfg = ServiceLocator.Config.Current;
 
         var backups = onlyThisOne
@@ -342,11 +374,7 @@ internal static class Program
             Console.Error.WriteLine("Backspace config couldn't be read at startup (see app log for the cause). Aborting unattended maintenance run.");
             return 3;
         }
-        if (ServiceLocator.Secrets.LoadErrorMessage is { Length: > 0 } secretsErr)
-        {
-            Console.Error.WriteLine($"Backspace's secrets vault couldn't be opened on this machine. {secretsErr}");
-            return 4;
-        }
+        if (!await ValidateUnattendedSecretsAsync().ConfigureAwait(false)) return 4;
         var backup = ServiceLocator.Config.Current.Backups
             .FirstOrDefault(b => b.Name == backupName);
         if (backup is null)
@@ -478,54 +506,35 @@ internal static class Program
 
     private static ParsedMode ParseMode(string[] args)
     {
-        for (int i = 0; i < args.Length; i++)
+        if (args.Length == 0) return new(RunMode.Gui);
+        // Validate the entire ordinary command before any startup side effects.
+        // The second argument is positional data: backup names can start with '-'.
+        var hasValue = args.Length == 2 && !string.IsNullOrWhiteSpace(args[1]);
+        switch (args[0])
         {
-            switch (args[i])
-            {
-                case "--run":
-                    if (i + 1 < args.Length) return new(RunMode.RunOne, BackupName: args[++i]);
-                    return new(RunMode.UsageError);
-                case "--run-all":
-                    return new(RunMode.RunAll);
-                case "--prune":
-                    // Entry point for an OS scheduler task wired to a
-                    // Backup.PruneSchedule. Just like --run, but skips
-                    // the backup itself and runs only the prune
-                    // (forget + repack) phase against the backup's
-                    // configured targets.
-                    if (i + 1 < args.Length) return new(RunMode.PruneOne, BackupName: args[++i]);
-                    return new(RunMode.UsageError);
-                case "--check":
-                    // Same shape as --prune, for the standalone
-                    // integrity-check pass driven by Backup.CheckSchedule.
-                    if (i + 1 < args.Length) return new(RunMode.CheckOne, BackupName: args[++i]);
-                    return new(RunMode.UsageError);
-                case "--migrate":
-                    if (i + 1 < args.Length) return new(RunMode.Migrate, Path: args[++i]);
-                    return new(RunMode.UsageError);
-                case "--restore-prompt":
-                    // Stash the path on the static so MainWindow picks
-                    // it up when it's loaded; fall through to GUI mode.
-                    if (i + 1 < args.Length) PendingRestorePath = args[++i];
-                    return new(RunMode.Gui);
-                case VssElevationCoordinator.HelperCliArgument:
-                    // The elevated child of a parent process that
-                    // needed VSS. Helper-mode IPC (consuming the
-                    // request, running the cell, replying with a
-                    // RunRecord) is still TBD; for now we recognise
-                    // the flag so the parent's UAC-launched child
-                    // exits cleanly with code 2 instead of falling
-                    // into the GUI bootstrap.
-                    return new(RunMode.VssElevatedHelper);
-                case "--version":
-                case "-v":
-                    return new(RunMode.Version);
-                case "--help":
-                case "-h":
-                case "/?":
-                    return new(RunMode.Help);
-            }
+            case "--run" when hasValue:
+                return new(RunMode.RunOne, BackupName: args[1]);
+            case "--prune" when hasValue:
+                return new(RunMode.PruneOne, BackupName: args[1]);
+            case "--check" when hasValue:
+                return new(RunMode.CheckOne, BackupName: args[1]);
+            case "--migrate" when hasValue:
+                return new(RunMode.Migrate, Path: args[1]);
+            case "--restore-prompt" when hasValue:
+                PendingRestorePath = args[1];
+                return new(RunMode.Gui);
+            case "--run-all" when args.Length == 1:
+                return new(RunMode.RunAll);
+            case "--version" or "-v" when args.Length == 1:
+                return new(RunMode.Version);
+            case "--help" or "-h" or "/?" when args.Length == 1:
+                return new(RunMode.Help);
+            case VssElevationCoordinator.HelperCliArgument:
+                // The dedicated helper validates its full IPC argument payload
+                // before reading the request or running an elevated backup cell.
+                return new(RunMode.VssElevatedHelper);
+            default:
+                return new(RunMode.UsageError);
         }
-        return new(RunMode.Gui);
     }
 }

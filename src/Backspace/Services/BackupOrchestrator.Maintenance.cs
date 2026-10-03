@@ -55,7 +55,9 @@ public sealed partial class BackupOrchestrator
 
         // Maintenance gate. Backup + prune/check should not interleave
         // on the same storage; let in-flight backups finish first.
-        try { await ServiceLocator.Maintenance.WaitForReadAsync(ct); }
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        IDisposable maintenanceRead;
+        try { maintenanceRead = await ServiceLocator.Maintenance.AcquireReadAsync(ct, linked.Cancel); }
         catch (OperationCanceledException)
         {
             aggregate.EndedUtc = DateTime.UtcNow;
@@ -65,6 +67,7 @@ public sealed partial class BackupOrchestrator
             catch (Exception ex) { _log.Warning(ex, "Failed to persist {Action} cancelled-pre-start run for {Backup}", action, backup.Name); }
             return aggregate;
         }
+        using var maintenanceReadLease = maintenanceRead;
 
         // Metered-network watchdog. Mirrors the in-process guard the
         // backup path adds when AbortOnMeteredNetwork is set on the
@@ -76,7 +79,6 @@ public sealed partial class BackupOrchestrator
         // watchdog enforces the "no metered" intent MID-RUN. Inherits
         // AbortOnMeteredNetwork from the Backup so the user only has
         // one knob to flip — same setting governs both paths.
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         bool meteredAborted = false;
         var watchdogTask = StartMeteredWatchdogIfEnabled(backup, linked, _ => meteredAborted = true);
 
