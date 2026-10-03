@@ -155,8 +155,8 @@ older scenario comments that describe broader coverage.
 | Require-network → run skips when offline | Actual unregistered Windows task network setting both on/off; no machine connectivity change or registered-task execution | ⛔ OS acceptance |
 | Metered-network watchdog stops mid-run | `RuntimeGuardCoverageTests`: actual backup/prune/check orchestration, injected metered signal after first cell starts, cancellation/persistence and opt-out negatives. Real WinRT network-state detection unexercised | ✅ injected signal |
 | Catch-up missed runs after sleep | Actual unregistered Windows task catch-up setting both on/off; no sleep/resume or reboot | ⛔ OS acceptance |
-| Headless `--run <name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows/report.html): existing option-shaped name `-h`, real snapshot and both files verified by SHA-256; missing backup exits 2 | ✅ isolated local repository |
-| Headless `--run-all` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows/report.html): both enabled/unpaused backups run; paused and disabled repositories remain untouched | ✅ isolated local repositories |
+| Headless `--run <name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): existing option-shaped name `-h`, real snapshot and both files verified by SHA-256; missing backup exits 2 | ✅ isolated local repository |
+| Headless `--run-all` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): both enabled/unpaused backups run; paused and disabled repositories remain untouched | ✅ isolated local repositories |
 | Schedule fires at the configured time (Task Scheduler) | `RuntimeGuardCoverageTests` inspects real unregistered daily/weekly/monthly definitions and exact per-kind CLI actions; does not register tasks or advance OS time | ⛔ OS acceptance |
 
 ### Restore
@@ -262,13 +262,13 @@ older scenario comments that describe broader coverage.
 
 | Action | Scenario(s) | Status |
 |---|---|---|
-| `--run <backup-name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows/report.html): real option-shaped backup name `-h`, snapshot count and every fixture byte verified by SHA-256; missing backup exits 2 | ✅ |
-| `--run-all` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows/report.html): real snapshots for enabled/unpaused backups, skipped paused and disabled repositories, independent byte checks | ✅ |
-| `--migrate <duplicacy-path>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows/report.html): isolated legacy import preserves names, source, destination, encryption setting and filters; second invocation preserves identity without duplicates | ✅ |
-| `--prune <name>`, `--check <name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows/report.html): both maintenance modes exit 0 against the disposable repository; all snapshot file hashes still match afterward | ✅ |
-| Generated Windows task action | [Actual action execution](../audit-dashboard/evidence/packaged-task-action/report.html): spaced executable path, real backup snapshot, hostile literal names, child wait/exit code, missing-main fallback and both-missing failure; no task registered | ✅ action execution |
-| `--version`, `--help` | [Actual published executable report](../audit-dashboard/evidence/packaged-app/report.html): output/version, exit status and PID-matched native-loader trace; parser aliases also covered | ✅ |
-| Unknown/mixed/trailing/missing CLI arguments | `CliParserCoverageTests`: 32 positive/negative cases. [Actual published checks](../audit-dashboard/evidence/packaged-app/report.html): unknown flag/positional input and missing required arguments return exit 2 without creating configuration; option-shaped backup names remain valid data | ✅ |
+| `--run <backup-name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): real option-shaped backup name `-h`, snapshot count and every fixture byte verified by SHA-256; missing backup exits 2 | ✅ |
+| `--run-all` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): real snapshots for enabled/unpaused backups, skipped paused and disabled repositories, independent byte checks | ✅ |
+| `--migrate <duplicacy-path>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): isolated legacy import preserves names, source, destination, encryption setting and filters; second invocation preserves identity without duplicates | ✅ |
+| `--prune <name>`, `--check <name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): both maintenance modes exit 0 against the disposable repository; all snapshot file hashes still match afterward | ✅ |
+| Generated Windows task action | [Actual action execution](../audit-dashboard/evidence/packaged-task-action-final/report.html): spaced executable path, real backup snapshot, hostile literal names, child wait/exit code, missing-main fallback and both-missing failure; no task registered | ✅ action execution |
+| `--version`, `--help` | [Actual published executable report](../audit-dashboard/evidence/packaged-vault-final/loader/report.html): output/version, exit status and PID-matched native-loader trace; parser aliases also covered | ✅ |
+| Unknown/mixed/trailing/missing CLI arguments | `CliParserCoverageTests`: 32 positive/negative cases. [Actual published checks](../audit-dashboard/evidence/packaged-vault-final/loader/report.html): unknown flag/positional input and missing required arguments return exit 2 without creating configuration; option-shaped backup names remain valid data | ✅ |
 
 Guard, scheduler-definition and parser proof: [44 passing cases plus 13 scheduled-action regressions](../audit-dashboard/evidence/infrastructure-tests/runtime-coverage-report.html). Battery/network availability and maintenance due-time execution are Windows Task Scheduler policies; manual orchestration does not have a separate battery or due/not-due branch. The report distinguishes injected signals, unregistered OS definitions, and actual packaged processes from real machine-state acceptance.
 

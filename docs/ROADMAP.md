@@ -7,18 +7,21 @@ for the workflow rules an agent must follow before touching this file.
 
 ## Actively working
 
+**2026-10-03 review queue:** Open [the local review desk](http://127.0.0.1:4317/) using the root BAT launcher. Every original note is preserved on [the linked notes page](http://127.0.0.1:4317/notes). Review evidence-ready repairs and the separately reversible design. Remaining input: cloud app registrations/accounts, optional real email delivery, real UAC/VSS acceptance, a reboot window, physical-drive/cloud-placeholder fixtures, the missing Word document, and whether to retain the historical port plan. Older June/July validation requests remain open until explicitly accepted; no entries have been removed. Local dashboard decisions are reconciled when requested.
+
 ### P0: Development launchers terminate unrelated processes and replace configuration
 
 - **Raised:** 2026-10-03
 - **Type:** bug
 - **Status:** Awaiting validation
-- **Context:** A024: The root release launcher still kills processes by executable name and clears the output directory, including its portable configuration, before publishing. The debug launcher also force-kills every Backspace process. These paths bypass the application's operation-aware shutdown and process-ownership safeguards.
-- **Current result:** All four launchers preserve existing portable configuration and unrelated output files, remove process-name termination and automatic fixture seeding, and support `--build-only`. A failed build or missing executable returns failure without starting an old app. File-lock failures direct the user to choose Quit normally, finish current operations, and retry.
-- **Proof — open and look:** [24 launcher safety checks](../audit-dashboard/evidence/launcher-safety.html) — expand each result to inspect actual command output. Configuration JSON, binary secret sentinels and unrelated files remain byte-for-byte unchanged; all four disposable same-name app/engine processes remain alive; failed or missing output never launches.
-- **Limitations / adversarial review:** Actual Windows command and Git Bash interpreters exercised copied scripts with fake build/app tools in isolated temporary directories, including spaces, ampersands and exclamation marks and inherited delayed expansion. The failure case includes a stale executable to catch accidental launches. No repository output or personal configuration was touched. Native macOS/Linux app behavior and a real compiler/publish are outside this fixture's scope.
-- **I need from you:** Review the linked report and confirm the launcher behavior, or describe what still needs adjustment.
-
-**2026-10-03 review queue:** Open [the local review desk](http://127.0.0.1:4317/) using the root BAT launcher. Every original note is preserved on [the linked notes page](http://127.0.0.1:4317/notes). Review evidence-ready repairs and the separately reversible design. Remaining input: cloud app registrations/accounts, optional real email delivery, real UAC/VSS acceptance, a reboot window, physical-drive/cloud-placeholder fixtures, the missing Word document, and whether to retain the historical port plan. Older June/July validation requests remain open until explicitly accepted; no entries have been removed. Local dashboard decisions are reconciled when requested.
+- **Context:** A024: All four development launchers preserve portable configuration and unrelated output files, avoid terminating app/engine processes, and never seed test settings. --build-only supports rebuilds without starting the app. Build failure or missing output is an error and does not launch a stale executable; file-lock errors direct the user to Quit normally and retry.
+- **Current result:** All four development launchers preserve portable configuration and unrelated output files, avoid terminating app/engine processes, and never seed test settings. --build-only supports rebuilds without starting the app. Build failure or missing output is an error and does not launch a stale executable; file-lock errors direct the user to Quit normally and retry.
+- **Remaining:** Review the 24-case launcher safety report and confirm the item.
+- **Proof — open and look:**
+  - [24 launcher safety checks](../audit-dashboard/evidence/launcher-safety.html) — Expand each result to see the command output: preserved settings and files, no stale launch on failure or missing output, no process termination, and safe paths containing spaces, & and !.
+  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
+- **Limitations / adversarial review:** Copied launchers ran through actual Windows cmd and Git Bash against fake dotnet/app tools in disposable folders, including spaces and shell metacharacters. Configuration/secret bytes and unrelated files were preserved; four disposable same-name processes stayed alive. This proves launcher behavior, not a real build or native macOS/Linux app launch.
+- **I need from you:** A024: Review the 24-case launcher safety report and confirm the item.
 
 ### P0: rclone orphan-safe kill
 
@@ -73,8 +76,8 @@ for the workflow rules an agent must follow before touching this file.
 - **Remaining:** Review the revised matrix and linked process evidence. Remaining acceptance needs real accounts or machine-state changes; every possible installation and workflow variation has not been exercised.
 - **Proof — open and look:**
   - [Scheduler, guard and parser regression results](../audit-dashboard/evidence/infrastructure-tests/runtime-coverage-report.html) — 57 passed, 0 failed, 0 skipped: 44 guard/parser plus13 action regressions
-  - [Published command-line and native-loader checks](../audit-dashboard/evidence/packaged-app/report.html) — Nine actual published CLI/argument-error checks passed with expected exit codes, no config creation and PID-matched wrapper/native/type-initializer success Installed WinFSP and existing app extraction cache reused. Does not claim fresh-cache extraction, a GUI Mount click, or the user original repository.
-- **Limitations / adversarial review:** Final unit/visual and local E2E batches passed within their scope. The additional 46-case coverage batch and strengthened 36-case editor subset passed too; these overlap and are not summed. Actual OS battery/sleep/network transitions and live provider accounts remain environment acceptance. Published valid command execution is being recorded separately by the packaging proof; parser and orchestration tests alone do not establish that process boundary.
+  - [Final packaged app: saved-credential validation](../audit-dashboard/evidence/packaged-vault-final/report.html) — 12 public CLI launches and 145 assertions passed, plus nine loader/argument checks. Each backup, prune and check entry point rejects the same unreadable ciphertext on two launches without changing its bytes or starting an operation. Real current-user DPAPI empty-map and absent-vault negatives proceed to normal missing-backup handling. Synthetic disposable vaults; no personal credential recovery, live cloud account, registered task or reboot is claimed.
+- **Limitations / adversarial review:** The final broad suite passed 998 checks with 2 credential skips; 39 local engine cases and the 20,000-file / 2 GiB round trip passed separately. Final packaged backup, maintenance, migration, scheduled-action, credential-preflight and native-loader checks also passed. Overlapping regression batches are not unique test counts. Actual OS battery/sleep/network transitions, reboot, elevated consent and live provider accounts remain environment acceptance.
 - **I need from you:** R006: Review the revised matrix and linked process evidence. Remaining acceptance needs real accounts or machine-state changes; every possible installation and workflow variation has not been exercised.
 
 ### P0: Investigate "why do we deviate from Backrest's native restore RPC?"
@@ -129,8 +132,8 @@ for the workflow rules an agent must follow before touching this file.
 - **Current result:** The real E04 mount now hard-fails on runtime errors and passes two-volume byte/read/unmount checks. The published application also passed its actual WinFSP loader check. The unavailable original user dist configuration is the remaining reproduction boundary.
 - **Remaining:** If Mount still fails with your original dist-folder configuration, provide that reproduction context and its app log. Otherwise inspect the packaged-loader and real-mount evidence and decide whether to accept.
 - **Proof — open and look:**
-  - [Published command-line and native-loader checks](../audit-dashboard/evidence/packaged-app/report.html) — Nine actual published CLI/argument-error checks passed with expected exit codes, no config creation and PID-matched wrapper/native/type-initializer success Installed WinFSP and existing app extraction cache reused. Does not claim fresh-cache extraction, a GUI Mount click, or the user original repository.
-  - [R009 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — The native mount result is hard-asserted when WinFSP is installed. The report distinguishes this from the still-missing packaged-app/Explorer proof.
+  - [Published command-line and native-loader checks](../audit-dashboard/evidence/packaged-vault-final/loader/report.html) — Nine final-executable CLI and native-loader checks passed, with expected exits, no configuration creation and PID-matched loader traces. Installed WinFSP and existing app extraction cache reused. Does not claim fresh-cache extraction, a GUI Mount click, or the user original repository.
+  - [R009 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — Earlier carryover report: E04 proves native mount behavior on disposable data. The later packaged-loader report closes the dependency-discovery gap; the original user repository and a physical Explorer click remain unexercised.
 - **Limitations / adversarial review:** Published loader proof establishes dependency discovery and native DLL loading; E04 separately establishes real readable-volume behavior. These complementary tests do not recreate the user's unavailable original config or a physical Explorer click.
 - **I need from you:** R009: If Mount still fails with your original dist-folder configuration, provide that reproduction context and its app log. Otherwise inspect the packaged-loader and real-mount evidence and decide whether to accept.
 
@@ -158,7 +161,7 @@ for the workflow rules an agent must follow before touching this file.
 - **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
 - **Proof — open and look:**
   - [Scheduler, guard and parser regression results](../audit-dashboard/evidence/infrastructure-tests/runtime-coverage-report.html) — 57 passed, 0 failed, 0 skipped: 44 guard/parser plus13 action regressions
-  - [Actual generated scheduled-action execution](../audit-dashboard/evidence/packaged-task-action/report.html) — 25 actual processes,46 assertions,all passed Compiled production action builder launches actual published binary plus harmless WinExe fixtures; no OS task registration.
+  - [Actual generated scheduled-action execution](../audit-dashboard/evidence/packaged-task-action-final/report.html) — 25 actual processes, 46 assertions, all passed; generated action invokes the final packaged executable Compiled production action builder launches actual published binary plus harmless WinExe fixtures; no OS task registration.
 - **Limitations / adversarial review:** Original failure retained. 13 focused action/native-parser tests and actual25process/46assertion proof passed; real published backup adds exactly1snapshot with bothfileSHA256 matches. Delayed WinExe, hostile names, exit23, missing-main17, missing-both1 and published missing-backup2 are asserted.
 - **I need from you:** A021: Review the linked evidence and accept the item, or describe what still needs adjustment.
 
@@ -172,8 +175,8 @@ for the workflow rules an agent must follow before touching this file.
 - **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
 - **Proof — open and look:**
   - 🖼️ [Unreadable credentials remain explained on later launches](../audit-dashboard/evidence/final-persistence/unreadable-vault-warning.png) — The actual warning names the original secrets.bin as preserved; OK closes it without changing ciphertext. A fresh store also raises the same warning.
+  - [Final packaged app: saved-credential validation](../audit-dashboard/evidence/packaged-vault-final/report.html) — 12 public CLI launches and 145 assertions passed, plus nine loader/argument checks. Each backup, prune and check entry point rejects the same unreadable ciphertext on two launches without changing its bytes or starting an operation. Real current-user DPAPI empty-map and absent-vault negatives proceed to normal missing-backup handling. Synthetic disposable vaults; no personal credential recovery, live cloud account, registered task or reboot is claimed.
   - [Final credential and transcript safety proof](../audit-dashboard/evidence/final-persistence/report.html) — 38 passing checks: actual unattended entry points, repeat-launch preservation, locked vault, complete distinct transcripts, and selective retention.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
 - **Limitations / adversarial review:** Tests invoke the actual production unattended entry points in-process; separately launched packaged-process coverage remains distinct. Re-entering credentials uses the existing recovery flow and does not recover foreign-account DPAPI contents.
 - **I need from you:** A022: Review the linked evidence and accept the item, or describe what still needs adjustment.
 
@@ -412,8 +415,8 @@ for the workflow rules an agent must follow before touching this file.
 - **Proof — open and look:**
   - 🖼️ [Unreadable credentials are explained at startup](../audit-dashboard/evidence/infrastructure-tests/secrets-startup-warning.png) — The real warning names the preserved encrypted file; OK closes it without modifying the preserved bytes.
   - 🖼️ [Unreadable credentials remain explained on later launches](../audit-dashboard/evidence/final-persistence/unreadable-vault-warning.png) — The actual warning names the original secrets.bin as preserved; OK closes it without changing ciphertext. A fresh store also raises the same warning.
+  - [Final packaged app: saved-credential validation](../audit-dashboard/evidence/packaged-vault-final/report.html) — 12 public CLI launches and 145 assertions passed, plus nine loader/argument checks. Each backup, prune and check entry point rejects the same unreadable ciphertext on two launches without changing its bytes or starting an operation. Real current-user DPAPI empty-map and absent-vault negatives proceed to normal missing-backup handling. Synthetic disposable vaults; no personal credential recovery, live cloud account, registered task or reboot is claimed.
   - [Final infrastructure checks](../audit-dashboard/evidence/infrastructure-tests/final-report.html) — 50 selected tests passed; broad run933passed2credentialskips0failed
-  - [Infrastructure repair evidence](../audit-dashboard/evidence/infrastructure-tests/report.html) — 86 passed, 0 failed, 0 skipped
 - **Limitations / adversarial review:** Tests invoke the actual production unattended entry points in-process; separately launched packaged-process coverage remains distinct. Re-entering credentials uses the existing recovery flow and does not recover foreign-account DPAPI contents.
 - **I need from you:** A006: Review the linked evidence and accept the item, or describe what still needs adjustment.
 
@@ -739,7 +742,7 @@ for the workflow rules an agent must follow before touching this file.
 - **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
 - **Proof — open and look:**
   - [Scheduler, guard and parser regression results](../audit-dashboard/evidence/infrastructure-tests/runtime-coverage-report.html) — 57 passed, 0 failed, 0 skipped: 44 guard/parser plus13 action regressions
-  - [Published command-line and native-loader checks](../audit-dashboard/evidence/packaged-app/report.html) — Nine actual published CLI/argument-error checks passed with expected exit codes, no config creation and PID-matched wrapper/native/type-initializer success Installed WinFSP and existing app extraction cache reused. Does not claim fresh-cache extraction, a GUI Mount click, or the user original repository.
+  - [Published command-line and native-loader checks](../audit-dashboard/evidence/packaged-vault-final/loader/report.html) — Nine final-executable CLI and native-loader checks passed, with expected exits, no configuration creation and PID-matched loader traces. Installed WinFSP and existing app extraction cache reused. Does not claim fresh-cache extraction, a GUI Mount click, or the user original repository.
 - **Limitations / adversarial review:** 32 parser cases passed; malformed/mixed/trailing/missing inputs return UsageError without changing restore state. Existing option-shaped backup names remain valid. Nine actual published help/version and invalid-input commands passed expected exits and did not create configuration; actual --run -h also created the expected snapshot.
 - **I need from you:** A019: Review the linked evidence and accept the item, or describe what still needs adjustment.
 
@@ -761,14 +764,16 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Raised:** 2026-10-02
 - **Type:** feature
-- **Status:** Open
+- **Status:** Awaiting validation
 - **Context:** N002: Feel free to improve the overall app design as well so it looks stunning if you see it is lacking in any area (without compromising the ease of use, legibility, and philosophy).
-- **Current result:** Functional remediation comes first. The visual redesign will be isolated from safety fixes so it can be reverted independently.
-- **Remaining:** Finish functional checks, then prepare the redesign and screenshots for your review.
+- **Current result:** The separate visual proposal uses a warmer canvas, clearer page hierarchy, compact upper navigation and balanced backup-card actions. Functional repairs are committed independently.
+- **Remaining:** Open the before/after gallery and runnable preview. Approve the design or describe changes; ask to revert only the design commit if you prefer the previous appearance.
 - **Proof — open and look:**
-  - No completion proof claimed; the missing input is stated above.
-- **Limitations / adversarial review:** No redesign approval is presumed.
-- **I need from you:** N002: Finish functional checks, then prepare the redesign and screenshots for your review.
+  - 🖼️ [The proposed Backups window](../audit-dashboard/evidence/design-after/full/02-backups-overview.png) — White backup cards on a warm canvas, full action labels and compact upper navigation; compare the previous appearance in the gallery.
+  - [Before and after: design proposal](../audit-dashboard/evidence/design-review.html) — Compare the same seeded app views, inspect light/dark and minimum-size captures, and open the safe preview instructions.
+  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
+- **Limitations / adversarial review:** Aesthetic approval remains yours. Light/dark and minimum-size checks are linked; no design change is accepted on your behalf.
+- **I need from you:** N002: Open the before/after gallery and runnable preview. Approve the design or describe changes; ask to revert only the design commit if you prefer the previous appearance.
 
 ### P2: UI copy overuses em dashes
 
@@ -1008,8 +1013,8 @@ for the workflow rules an agent must follow before touching this file.
 - **Current result:** Measured idle CPU exposed a Windows compositor loop. Using Windows redirection composition reduced the measured idle cost by over 90% in the controlled comparison; the final shared production-builder run is linked in the report.
 - **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
 - **Proof — open and look:**
+  - [Idle CPU with the final design](../audit-dashboard/evidence/design-native-idle/report.html) — Two 30-second samples: 0.203% visible and 0.209% hidden of total CPU on this 22-thread host. Empty disposable configuration; no universal zero-CPU claim.
   - [Idle CPU measurements and diagnosis](../audit-dashboard/evidence/idle-cpu-comparison.html) — Compare raw visible/hidden-window samples and the shared production-builder confirmation; measurement scope and machine details are disclosed.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
 - **Limitations / adversarial review:** CPU is small but not zero. These measurements describe this Windows machine and isolated window/daemon, not every device or full installed integration.
 - **I need from you:** B024: Review the linked evidence and accept the item, or describe what still needs adjustment.
 
@@ -1078,9 +1083,10 @@ for the workflow rules an agent must follow before touching this file.
 - **Current result:** A new audit-only fixture loads ten sources and ten destinations in one backup. Both lists have independent scrollbars and can display item 10; the action shelf stays visible. Editor top/bottom captures are available too.
 - **Remaining:** User visual approval of layout; optional native mouse-wheel test at high display scaling.
 - **Proof — open and look:**
-  - 🖼️ [Ten-source/destination card, top](../audit-dashboard/evidence/ui-probes/ten-sources-destinations-top.png) — Counts read 10 SOURCES and 10 DESTINATIONS; independent list scrollbars keep actions visible.
-  - 🖼️ [Both lists scrolled to the bottom](../audit-dashboard/evidence/ui-probes/ten-sources-destinations-bottom.png) — Source-10 and Destination 10 are visible at the bottom of their lists.
-  - 🖼️ [Ten-source editor, top](../audit-dashboard/evidence/ui-probes/ten-sources-editor-top.png) — The source list occupies the scrollable form, with Save buttons fixed below.
+  - 🖼️ [Ten-source/destination card, top](../audit-dashboard/evidence/design-after/dense/ten-sources-destinations-top.png) — Counts read 10 SOURCES and 10 DESTINATIONS; independent list scrollbars keep actions visible.
+  - 🖼️ [Both lists scrolled to the bottom](../audit-dashboard/evidence/design-after/dense/ten-sources-destinations-bottom.png) — Source-10 and Destination 10 are visible at the bottom of their lists.
+  - 🖼️ [Ten-source editor, top](../audit-dashboard/evidence/design-after/dense/ten-sources-editor-top.png) — The source list occupies the scrollable form, with Save buttons fixed below.
+  - [Final dense-layout and pointer checks](../audit-dashboard/evidence/design-checks.html) — Five fresh UI probes pass with the proposed design, including ten sources/destinations and reachable scrolling controls.
 - **Limitations / adversarial review:** Data is seeded directly into view models; this does not prove ten repetitions of picker/add/save interactions or ten actual backup destinations.
 - **I need from you:** B038: User visual approval of layout; optional native mouse-wheel test at high display scaling.
 
@@ -1088,14 +1094,16 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Raised:** 2026-10-02 (original note reintroduced for audit)
 - **Type:** coverage
-- **Status:** Open
+- **Status:** Awaiting validation
 - **Context:** B039: Maybe move the down menu block right below Destinations, see what to do with label Your Backups, ask Claude for advice.
-- **Current result:** The old sidebar YOUR BACKUPS label is removed. Settings and Activity & logs remain docked at the bottom rather than immediately beneath Destinations. The request to 'maybe' move that block is a design decision, not a completed move.
-- **Remaining:** Confirm the current grouping or choose a compact top-aligned navigation block.
+- **Current result:** The separate visual proposal uses a warmer canvas, clearer page hierarchy, compact upper navigation and balanced backup-card actions. Functional repairs are committed independently.
+- **Remaining:** Open the before/after gallery and runnable preview. Approve the design or describe changes; ask to revert only the design commit if you prefer the previous appearance.
 - **Proof — open and look:**
-  - 🖼️ [Current sidebar with an active restore](../audit-dashboard/evidence/unit-visual/S31-restores-nav-item/screenshots/01-one-restore-in-flight.png) — Main navigation is above; Settings and Activity & logs remain in the bottom footer.
-- **Limitations / adversarial review:** The page still appropriately has a 'Your backups' heading; only the extra sidebar heading was removed.
-- **I need from you:** B039: Confirm the current grouping or choose a compact top-aligned navigation block.
+  - 🖼️ [The proposed Backups window](../audit-dashboard/evidence/design-after/full/02-backups-overview.png) — White backup cards on a warm canvas, full action labels and compact upper navigation; compare the previous appearance in the gallery.
+  - [Before and after: design proposal](../audit-dashboard/evidence/design-review.html) — Compare the same seeded app views, inspect light/dark and minimum-size captures, and open the safe preview instructions.
+  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
+- **Limitations / adversarial review:** Aesthetic approval remains yours. Light/dark and minimum-size checks are linked; no design change is accepted on your behalf.
+- **I need from you:** B039: Open the before/after gallery and runnable preview. Approve the design or describe changes; ask to revert only the design commit if you prefer the previous appearance.
 
 ### P2: Prove the schedule fires after a real reboot
 
@@ -1106,8 +1114,8 @@ for the workflow rules an agent must follow before touching this file.
 - **Current result:** The generated Windows task action now launches the published backup, waits for completion and propagates failures; its resulting snapshot bytes were independently checked. The requested real reboot and unattended second snapshot remain a machine acceptance exercise.
 - **Remaining:** Choose a disposable source and a reboot window for the scheduled-task acceptance check.
 - **Proof — open and look:**
-  - [Actual generated scheduled-action execution](../audit-dashboard/evidence/packaged-task-action/report.html) — 25 actual processes,46 assertions,all passed Compiled production action builder launches actual published binary plus harmless WinExe fixtures; no OS task registration.
-  - [Real packaged backup, maintenance and migration](../audit-dashboard/evidence/packaged-workflows/report.html) — 22 actual processes,55 assertions,all passed Actual published --run -h, --run-all, --check, --prune, migration twice; exact snapshot counts and SHA256 file bytes; missing/paused/disabled/idempotence negatives; isolated local fixtures.
+  - [Actual generated scheduled-action execution](../audit-dashboard/evidence/packaged-task-action-final/report.html) — 25 actual processes, 46 assertions, all passed; generated action invokes the final packaged executable Compiled production action builder launches actual published binary plus harmless WinExe fixtures; no OS task registration.
+  - [Real packaged backup, maintenance and migration](../audit-dashboard/evidence/packaged-workflows-final/report.html) — 22 actual processes, 55 assertions, all passed on the final executable Actual published --run -h, --run-all, --check, --prune, migration twice; exact snapshot counts and SHA256 file bytes; missing/paused/disabled/idempotence negatives; isolated local fixtures.
 - **Limitations / adversarial review:** No reboot or live Task Scheduler configuration was performed during this repair pass.
 - **I need from you:** B040: Choose a disposable source and a reboot window for the scheduled-task acceptance check.
 
@@ -1149,6 +1157,9 @@ for the workflow rules an agent must follow before touching this file.
 - **Proof — open and look:** [Audit overview](../audit-dashboard/evidence/audit-overview.html) — test results, per-issue evidence and remaining work; [dashboard screenshot](../audit-dashboard/evidence/dashboard-overview.png) — separate issues, evidence links and user-controlled completion.
 - **Limitations / adversarial review:** Real-account OAuth/email, VSS, reboot, native simultaneous mounts and idle CPU remain unproven. Restore safety and persistence probes reproduce negative cases, and complete hash checks include a wrong-revision control. Historical screenshots are not promoted to fresh results.
 - **I need from you:** Review the dashboard and identify which findings or scope need revision.
+
+
+
 
 
 
