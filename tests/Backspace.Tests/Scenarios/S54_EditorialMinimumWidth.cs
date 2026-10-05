@@ -113,9 +113,9 @@ public sealed class S54_EditorialMinimumWidth : ScenarioBase
             var shelfAt = BoundsIn(shelf, scroller);
             AssertContained(shelfAt, scroller.Viewport, "The action shelf is clipped at maximum scroll");
             ctx.Snapshot(window, $"{label}-1180-all-actions-fit",
-                $"{label} theme at the actual 1180 × 720 minimum window: populated backup, every action fits without overlap, supporting navigation is grouped near the top and provenance stays at the bottom.");
+                $"{label} theme at a 1180 × 720 window: populated backup, every action fits without overlap, supporting navigation is grouped near the top and provenance stays at the bottom.");
 
-            // The minimum application width can still fit one compact row.
+            // This wider application window can still fit one compact row.
             // A narrower card forces wrapping, so restoring the former Auto
             // column cannot pass merely because this machine's labels fit.
             card.Width = 600;
@@ -135,7 +135,7 @@ public sealed class S54_EditorialMinimumWidth : ScenarioBase
             ctx.Driver.Pump(); window.UpdateLayout();
         }
         ServiceLocator.ActiveRestores.Dismiss(retained);
-        ctx.Report.RecordNote("proof boundary", "This is a layout fixture with realistic names and paths. No backup, mount or deletion runs. Both light/dark bounds are measured; native Windows review remains necessary for display scaling and Georgia font rendering.");
+        ctx.Report.RecordNote("proof boundary", "This is a layout fixture with realistic names and paths. No backup, mount or deletion runs. Both light/dark bounds are measured; S58 separately checks smaller laptop working areas; native Windows review remains necessary for display scaling.");
     }
 
     private static string Label(Control control) => control is ContentControl { Content: string text }

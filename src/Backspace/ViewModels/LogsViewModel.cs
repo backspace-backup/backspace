@@ -60,16 +60,21 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         SelectedRun is null
         || SelectedRun is { EndedUtc: null, Status: BackupRunStatus.Running };
 
-    /// <summary>Header label for the unified log pane. "Live" while
-    /// the live buffer is what's on screen, otherwise a friendly
-    /// timestamp + status for the selected past run.</summary>
+    /// <summary>Context for the unified log pane. The view owns the
+    /// single LIVE indicator; this label identifies its content instead
+    /// of repeating that state. Past runs show their timestamp + status.</summary>
     public string DisplayLabel
     {
         get
         {
             var r = SelectedRun;
-            if (r is null) return "Live";
-            if (IsShowingLive) return $"Live · {r.BackupName}";
+            if (r is null) return "Current output";
+            if (IsShowingLive) return r.Kind switch
+            {
+                RunKind.Restore => $"Restore · {r.BackupName}",
+                RunKind.TestRestore => $"Test restore · {r.BackupName}",
+                _ => r.BackupName,
+            };
             var stamp = r.StartedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
             var status = r.Status switch
             {
@@ -455,6 +460,10 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         SelectedRun = previouslySelectedRunId is { } id
             ? History.FirstOrDefault(r => r.Id == id) ?? History.FirstOrDefault()
             : History.FirstOrDefault();
+        // Activity and history events can change the empty-state predicate
+        // without changing SelectedBackup. Notify its bindings here too, so
+        // the first run uncovers the console and removing it restores the hint.
+        OnPropertyChanged(nameof(HasNoHistoryForSelected));
     }
 
     /// <summary>Resolve the SelectedBackup name to its Backup.Id and

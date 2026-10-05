@@ -2,8 +2,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
   <!-- =================================================================== -->
-  <!-- Shared type scale. See DESIGN.md for the native and editorial roles. -->
-  <!-- Body: 14/22/400, page title: Georgia 32/44/400. Tabular numbers.      -->
+  <!-- Shared type scale: bundled Manrope headings, native readable body. -->
+  <!-- Body: 14/22/400, page title: Manrope 28/38/700. Tabular numbers.  -->
   <!-- =================================================================== -->
 
   <!--
@@ -15,7 +15,7 @@
     constrains the wrap width, without silently indenting the block.
   -->
   <!-- LineHeight values are sized so the line box always contains the
-       full descender + ascender of Georgia and native display fonts. The
+       full descender + ascender of Manrope and native display fonts. The
        earlier pass sized them at ~1.21× the FontSize (e.g. 28/34),
        which is fine for Latin without descenders but visibly clips
        the "g" / "p" / "y" tails in titles like "Logs & runs". The
@@ -23,20 +23,22 @@
        absorb full descenders + a small breathing margin so multi-line
        titles don't feel cramped. -->
   <Style Selector="TextBlock.hero-status">
-    <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Editorial}"/>
-    <Setter Property="FontSize" Value="40"/>
-    <Setter Property="LineHeight" Value="56"/>
-    <Setter Property="FontWeight" Value="Normal"/>
+    <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Heading}"/>
+    <Setter Property="FontSize" Value="36"/>
+    <Setter Property="LineHeight" Value="48"/>
+    <Setter Property="FontWeight" Value="Bold"/>
+    <Setter Property="LetterSpacing" Value="-0.6"/>
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
     <Setter Property="TextWrapping" Value="Wrap"/>
     <Setter Property="HorizontalAlignment" Value="Left"/>
   </Style>
 
   <Style Selector="TextBlock.page-title">
-    <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Editorial}"/>
-    <Setter Property="FontSize" Value="32"/>
-    <Setter Property="LineHeight" Value="44"/>
-    <Setter Property="FontWeight" Value="Normal"/>
+    <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Heading}"/>
+    <Setter Property="FontSize" Value="28"/>
+    <Setter Property="LineHeight" Value="38"/>
+    <Setter Property="FontWeight" Value="Bold"/>
+    <Setter Property="LetterSpacing" Value="-0.5"/>
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
     <Setter Property="TextWrapping" Value="Wrap"/>
     <Setter Property="HorizontalAlignment" Value="Left"/>
@@ -48,10 +50,7 @@
     <Setter Property="LineHeight" Value="24"/>
     <Setter Property="FontWeight" Value="Normal"/>
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
-    <!-- 12px gap (was 10): the page-title's 34 line-height already
-         eats most of a 10px margin in descender space, leaving the
-         subtitle visually crowded against the title baseline. -->
-    <Setter Property="Margin" Value="0,12,0,0"/>
+    <Setter Property="Margin" Value="0,8,0,0"/>
     <Setter Property="TextWrapping" Value="Wrap"/>
     <Setter Property="HorizontalAlignment" Value="Left"/>
   </Style>
@@ -153,6 +152,7 @@
   <!-- =================================================================== -->
 
   <Style Selector="RadioButton.nav">
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
     <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Body}"/>
     <Setter Property="FontSize" Value="14"/>
     <Setter Property="FontWeight" Value="Normal"/>
@@ -910,6 +910,29 @@
     </Setter>
   </Style>
 
+  <!-- Fluent's dropdown path uses a 2048-unit filled geometry. Our general
+       PathIcon template strokes it at 2 units, which becomes imperceptible
+       after scaling to 12px. Keep this override AFTER the general template:
+       Avalonia resolves equal-priority setters by declaration order.
+       Retain Fluent's popup, focus and input behavior unchanged. -->
+  <Style Selector="ComboBox /template/ PathIcon#DropDownGlyph">
+    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Viewbox Stretch="Uniform">
+          <Grid Width="12" Height="12">
+            <Path Data="M2 4 L6 8 L10 4" Stroke="{TemplateBinding Foreground}"
+                  StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round"/>
+          </Grid>
+        </Viewbox>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+
+  <Style Selector="ComboBox:disabled /template/ PathIcon#DropDownGlyph">
+    <Setter Property="Opacity" Value="0.45"/>
+  </Style>
+
   <!-- "filled" variant: icons whose geometry IS the silhouette
        (favicon-style brand marks like the GitHub Octocat). The path
        data uses fill-rule=evenodd to cut the cat shape OUT of a disc;
@@ -1571,7 +1594,7 @@
          Positive paddings only: a negative Margin on the header
          template part caused layout churn that destabilized the whole
          headless test session. -->
-    <Setter Property="Padding" Value="10,14"/>
+    <Setter Property="Padding" Value="10,8"/>
     <!-- Match the elevation rhythm used by Border.surface so the
          Settings page reads consistent with the rest of the app. -->
     <Setter Property="BoxShadow" Value="0 1 2 0 #14000000, 0 2 6 0 #0A000000"/>

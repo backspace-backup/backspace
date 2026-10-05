@@ -52,6 +52,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        WindowPlacement.Attach(this);
 
         // Tear down VM event subscriptions on close so the app shuts
         // down cleanly. Without this, MainWindowViewModel and its child

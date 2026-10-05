@@ -6,7 +6,7 @@
              Background="{DynamicResource BS.Brush.BgBase}">
 
   <ScrollViewer>
-    <StackPanel Margin="48,40,48,48">
+    <StackPanel Margin="32,24,32,32">
 
       <!-- Page header: plain title + subtitle, flush left. -->
       <TextBlock Classes="page-title" Text="Where backups live"/>

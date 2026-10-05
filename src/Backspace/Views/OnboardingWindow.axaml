@@ -7,7 +7,7 @@
         x:DataType="vm:OnboardingViewModel"
         Title="Set up your first backup - Backspace"
         Width="820" Height="700"
-        MinWidth="720" MinHeight="600"
+        MinWidth="720" MinHeight="500"
         Background="{DynamicResource BS.Brush.BgBase}"
         WindowStartupLocation="CenterOwner">
 

@@ -25,6 +25,7 @@ public partial class OnboardingWindow : Window
         else                      _vm.HeaderTitle = "Let's add a new backup.";
         DataContext = _vm;
         InitializeComponent();
+        WindowPlacement.Attach(this);
     }
 
     /// <summary>True iff the user clicked "Save and run my first backup"

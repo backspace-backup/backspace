@@ -6,8 +6,8 @@
         x:DataType="vm:MainWindowViewModel"
         Title="Backspace"
         Icon="avares://Backspace/Assets/Backspace.ico"
-        Width="1280" Height="840"
-        MinWidth="1180" MinHeight="720"
+        Width="1180" Height="760"
+        MinWidth="920" MinHeight="540"
         Background="{DynamicResource BS.Brush.BgBase}"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="NoChrome"
@@ -78,7 +78,7 @@
           <!--
             Masthead. Logo (per-accent ICO swapped by code-behind on a
             160 ms timer for the syncing animation) + wordmark. The
-            Georgia wordmark matches the large page headings; native
+            Manrope wordmark matches the large page headings; native
             text remains on every navigation label. A thin rule below
             separates the identity from the compact navigation group.
             User feedback: "YOUR BACKUPS" caps label between the
@@ -91,8 +91,8 @@
                    Source="avares://Backspace/Assets/Backspace.ico"/>
             <TextBlock Grid.Column="1" Text="Backspace"
                        VerticalAlignment="Center" Margin="12,0,0,0"
-                       FontFamily="{DynamicResource BS.Font.Editorial}"
-                       FontSize="22" FontWeight="Normal"
+                       FontFamily="{DynamicResource BS.Font.Heading}"
+                       FontSize="21" FontWeight="Bold" LetterSpacing="-0.5"
                        LineHeight="30"
                        Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
           </Grid>

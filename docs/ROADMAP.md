@@ -7,7 +7,7 @@ for the workflow rules an agent must follow before touching this file.
 
 ## Actively working
 
-**2026-10-03 review queue:** Open [the local review desk](http://127.0.0.1:4317/) using the root BAT launcher. Every original note is preserved on [the linked notes page](http://127.0.0.1:4317/notes). Review evidence-ready repairs and the separately reversible design. Remaining input: cloud app registrations/accounts, optional real email delivery, real UAC/VSS acceptance, a reboot window, physical-drive/cloud-placeholder fixtures, the missing Word document, and whether to retain the historical port plan. Older June/July validation requests remain open until explicitly accepted; no entries have been removed. Local dashboard decisions are reconciled when requested.
+**2026-10-05 review queue:** Open [the local review desk](http://127.0.0.1:4317/) using the root BAT launcher. There are 92 issues: 79 have proof ready to review and 13 need your input. [Your original notes](http://127.0.0.1:4317/notes) are unchanged and linked to all 42 related issues. Review the clearer explanations and [revised design](http://127.0.0.1:4317/proof/design-review.html), then accept issues or leave comments. Remaining input includes cloud accounts and app registrations, optional email delivery, permission to test Windows elevation and a real reboot, physical-drive and cloud-file checks, the referenced Word document, and two decisions about restore behavior and the historical port plan. Older June/July requests still await explicit validation; no entries have been removed. Dashboard decisions will be reconciled when requested.
 
 ### P0: Development launchers terminate unrelated processes and replace configuration
 
@@ -150,6 +150,63 @@ for the workflow rules an agent must follow before touching this file.
   - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
 - **Limitations / adversarial review:** This ran against local disposable repositories and the installed WinFSP runtime. It does not exercise cloud fetching, a machine without WinFSP, or native Explorer UI.
 - **I need from you:** R016: Inspect the native mount assertions. The original packaged-app acceptance remains separately tracked as R009.
+
+### P1: Show live output when a backup starts its first run
+
+- **Raised:** 2026-10-04
+- **Type:** bug
+- **Status:** Awaiting validation
+- **Context:** If you opened a backup’s logs before it had ever run, starting its first operation could leave the empty message on screen. The LIVE badge could remain hidden too.
+- **Root cause + fix (short):** The view now updates as soon as the first activity appears. It replaces the empty message with current output and one LIVE badge. When the operation is saved as history, the console shows that saved result without the LIVE badge.
+- **Proof — open and look:**
+  - 🖼️ **[The first run appears immediately](../audit-dashboard/evidence/revision-after/logs/07-first-activity-replaces-the-empty-hint.png)** — The empty message is gone, the first operation is selected, and one LIVE badge is visible.
+  - 🖼️ **[The first saved result](../audit-dashboard/evidence/revision-after/logs/09-first-saved-result-replaces-the-empty-hint.png)** — The successful result remains available as history, with no LIVE badge.
+  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
+- **Adversarial checks and limitations:** The test stays on the same backup throughout the transition. It also removes an unfinished sample activity without saving it and checks that the empty message returns. The activity is a test fixture rather than a real cloud backup.
+- **I need from you:** Open the two screenshots to compare the first live run with its saved result.
+
+### P1: Make review explanations understandable on first reading
+
+- **Raised:** 2026-10-03
+- **Type:** refactor
+- **Status:** Awaiting validation
+- **Context:** resume, and also I want you to rewrite ALL the text you wrote in the review desk (but don't touch my verbatim quotes) so it is much clearer to understand for a normal human. I am not a machine who can read super compressed sentences full of jargon (even if I am a veteran software engineer).
+- **Root cause + fix (short):** All 86 existing issue titles, explanations, next steps and proof captions have been rewritten in clear sentences. The 21 supporting reports were rewritten too. New issues use the same style. Your original notes and follow-up quotes remain unchanged; raw test names and logs are still available when you want the technical details.
+- **Proof — open and look:**
+  - 🖼️ **[An issue in plain language](../audit-dashboard/evidence/review-assets/readable-issue.png)** — Your original quote appears first. Below it, the explanation describes what changed and what you can check.
+  - **[Review text and saved-data checks](../audit-dashboard/evidence/review-assets/review-checks.html)** — Shows the quote comparison, report-link checks, browser reading sizes and persistence-test result.
+- **Adversarial checks and limitations:** The complete notes page was compared with the original attachment and matches exactly. The report rewrite preserved all 308 existing links and 1,992 raw evidence blocks. Historical test names and diagnostic output remain verbatim so the results can still be checked.
+- **I need from you:** Read any issue, including the three examples you mentioned. If a sentence still takes effort to understand, leave a comment on that issue.
+
+### P1: Make dropdown controls visibly distinguishable from text fields
+
+- **Raised:** 2026-10-03
+- **Type:** bug
+- **Status:** Awaiting validation
+- **Context:** Some dropdowns looked like ordinary text fields because their arrows were almost invisible. It was hard to tell that you could open a list of choices.
+- **Root cause + fix (short):** The dropdown arrow now has its own small, visible shape. The control keeps its normal popup, keyboard navigation and saved selection behavior.
+- **Proof — open and look:**
+  - 🖼️ **[Visible dropdown arrows](../audit-dashboard/evidence/dropdown-repair/after-light.png)** — The Theme and Accent color controls now have clear arrows at their right edge.
+  - **[Dropdown comparison and interaction checks](../audit-dashboard/evidence/dropdown-repair/report.html)** — Compare the old and revised controls at the same size, then inspect the open list and keyboard-selection evidence.
+  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
+- **Adversarial checks and limitations:** The tests inspect the rendered arrow and use real Avalonia dropdown controls. They cover pointer opening and selection, keyboard navigation, Escape, disabled controls and saved choices in both themes.
+- **I need from you:** Open the before-and-after comparison. Check that dropdowns now visibly offer a list of choices in both themes.
+
+### P1: Fit consumer laptop work areas and Windows scaling
+
+- **Raised:** 2026-10-03
+- **Type:** coverage
+- **Status:** Awaiting validation
+- **Context:** What's the benefit of Before 1024 × 768; proposal 1240 × 820? Wasn't it supposed to be a minimum width? I just want to make sure the app will open fine on 99.9% of consumer laptops.
+- **Root cause + fix (short):** The different screenshot sizes offered no benefit; they came from a change in the screenshot tool. Separately, the app required at least 1180 × 720 logical pixels and did not fit itself to the available screen. The main window now allows 920 × 540 and starts at 1180 × 760 when there is room. It shrinks to the monitor’s usable area when Windows scaling or the taskbar leaves less space. The editors also fit themselves to that area.
+- **Proof — open and look:**
+  - 🖼️ **[Small window, before scrolling](../audit-dashboard/evidence/revision-after/laptop/01-minimum-920x540-initial-overview.png)** — 920 × 540 logical pixels. This is the initial view of the backup card.
+  - 🖼️ **[Small window, after scrolling](../audit-dashboard/evidence/revision-after/laptop/03-minimum-920x540-backups.png)** — The action buttons are reachable and stay within the card.
+  - 🖼️ **[Space available on a scaled laptop](../audit-dashboard/evidence/revision-after/laptop/04-1366x768-at125-percent-initial-overview.png)** — 1076 × 558 logical pixels, representing a 1366 × 768 display at 125% scaling with taskbar space reserved.
+  - 🖼️ **[Actions on that scaled layout](../audit-dashboard/evidence/revision-after/laptop/06-1366x768-at125-percent-backups.png)** — The same card after scrolling, with every action inside the page margins.
+  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
+- **Adversarial checks and limitations:** The tests cover 920 × 540, 1076 × 558 and 1264 × 672 logical-pixel layouts, short editor windows, and several scaling calculations. They also simulate moving between monitors and restoring a maximized window. They do not establish a percentage of all laptops or replace a check on a physical multi-monitor setup. The review caught and fixed clipped card actions, inconsistent gutters, and an early window event that could overwrite the requested startup size. Tests now cover these failures as well as the intended layouts.
+- **I need from you:** Open the small-window screenshots and try the safe preview on your laptop. Tell me if a control is hard to reach at your usual Windows scaling setting.
 
 ### P1: Generated scheduled action silently skips backups
 
@@ -732,6 +789,33 @@ for the workflow rules an agent must follow before touching this file.
 - **Limitations / adversarial review:** Tests use disposable data. Review the linked report scope before accepting the item.
 - **I need from you:** B037: Review the linked evidence and accept the item, or describe what still needs adjustment.
 
+### P2: Improve review desk legibility and information density
+
+- **Raised:** 2026-10-03
+- **Type:** feature
+- **Status:** Awaiting validation
+- **Context:** Also improve the legibility of the Review desk UX. It's not because it's tiny with plenty of padding that it is more professional. Just do better, be smarter than the frontend-design skill alone!
+- **Root cause + fix (short):** Important text was only 9–13 pixels tall. Explanations now use 17-pixel text, original quotes use 16 pixels, and proof captions use 15 pixels. The margins are smaller, the issue list stays available while you read, and the background information at the top can be expanded when needed.
+- **Proof — open and look:**
+  - 🖼️ **[The revised issue layout](../audit-dashboard/evidence/review-assets/readable-issue.png)** — Larger text, tighter margins and a visible issue list while you read.
+  - 🖼️ **[Your notes and their related issues](../audit-dashboard/evidence/review-assets/readable-notes.png)** — The original text uses larger type, with readable issue links beside each section.
+  - **[Browser and persistence checks](../audit-dashboard/evidence/review-assets/review-checks.html)** — Includes the small-width layout checks and confirmation that comments and decisions still save.
+- **Adversarial checks and limitations:** This changes presentation and wording. Posted comments, completion decisions and discussion threads still use the existing saved review data.
+- **I need from you:** Read a few issues and open the original-notes page. Confirm that the text is comfortable at your usual browser zoom, or tell me what still feels cramped.
+
+### P2: Remove redundant LIVE Live labeling in the log console
+
+- **Raised:** 2026-10-03
+- **Type:** bug
+- **Status:** Awaiting validation
+- **Context:** Why Logs & runs have LIVE Live in the console, not redundant?
+- **Root cause + fix (short):** The two labels meant the same thing. The console now uses one LIVE badge and a separate description of the operation, such as Restore · Documents. Saved runs do not show the LIVE badge.
+- **Proof — open and look:**
+  - 🖼️ **[The console with one LIVE label](../audit-dashboard/evidence/revision-after/logs/04-unselected-output-has-one-live-indicator.png)** — The single LIVE badge sits beside Current output. The same test checks saved runs and confirms that clearing the display leaves saved logs intact.
+  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
+- **Adversarial checks and limitations:** The screenshots use sample activity. The tests also check that clearing the display leaves saved log files and history intact.
+- **I need from you:** Open the console screenshots. Check that current output has one LIVE label and saved runs have none.
+
 ### P2: Unknown command-line arguments launch the desktop app
 
 - **Raised:** 2026-10-03
@@ -765,15 +849,14 @@ for the workflow rules an agent must follow before touching this file.
 - **Raised:** 2026-10-02
 - **Type:** feature
 - **Status:** Awaiting validation
-- **Context:** N002: Feel free to improve the overall app design as well so it looks stunning if you see it is lacking in any area (without compromising the ease of use, legibility, and philosophy).
-- **Current result:** The separate visual proposal uses a warmer canvas, clearer page hierarchy, compact upper navigation and balanced backup-card actions. Functional repairs are committed independently.
-- **Remaining:** Open the before/after gallery and runnable preview. Approve the design or describe changes; ask to revert only the design commit if you prefer the previous appearance.
+- **Context:** Feel free to improve the overall app design as well so it looks stunning if you see it is lacking in any area (without compromising the ease of use, legibility, and philosophy). The user rejected Georgia for the wordmark and page titles and requested a full interface audit. The first design proposal was not accepted.
+- **Root cause + fix (short):** The revised app uses bundled Manrope for the Backspace name and page titles. Page margins and navigation are consistent, Settings sections use less space, dropdown arrows are visible, and the console shows one LIVE label. Windows fit the available laptop work area, and backup-card actions remain reachable when the window narrows.
 - **Proof — open and look:**
-  - 🖼️ [The proposed Backups window](../audit-dashboard/evidence/design-after/full/02-backups-overview.png) — White backup cards on a warm canvas, full action labels and compact upper navigation; compare the previous appearance in the gallery.
-  - [Before and after: design proposal](../audit-dashboard/evidence/design-review.html) — Compare the same seeded app views, inspect light/dark and minimum-size captures, and open the safe preview instructions.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Aesthetic approval remains yours. Light/dark and minimum-size checks are linked; no design change is accepted on your behalf.
-- **I need from you:** N002: Open the before/after gallery and runnable preview. Approve the design or describe changes; ask to revert only the design commit if you prefer the previous appearance.
+  - 🖼️ **[The revised Backups page](../audit-dashboard/evidence/revision-after/full/02-backups-overview.png)** — Manrope headings, aligned content and a clear navigation selection.
+  - **[Compare the previous and revised designs](../audit-dashboard/evidence/design-review.html)** — Every before-and-after pair has matching dimensions. Smaller laptop layouts and the preview instructions are included.
+  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
+- **Adversarial checks and limitations:** The gallery uses the same-sized windows for each comparison. Small-laptop screenshots are shown separately. Tests use disposable local data; your aesthetic approval is still needed, and no completion box is checked on your behalf.
+- **I need from you:** Open the matching-size comparison and try Launch-Design-Preview.bat. Approve the appearance or leave specific changes on this issue. The design remains separately reversible from the earlier backup and restore repairs.
 
 ### P2: UI copy overuses em dashes
 
@@ -1095,15 +1178,14 @@ for the workflow rules an agent must follow before touching this file.
 - **Raised:** 2026-10-02 (original note reintroduced for audit)
 - **Type:** coverage
 - **Status:** Awaiting validation
-- **Context:** B039: Maybe move the down menu block right below Destinations, see what to do with label Your Backups, ask Claude for advice.
-- **Current result:** The separate visual proposal uses a warmer canvas, clearer page hierarchy, compact upper navigation and balanced backup-card actions. Functional repairs are committed independently.
-- **Remaining:** Open the before/after gallery and runnable preview. Approve the design or describe changes; ask to revert only the design commit if you prefer the previous appearance.
+- **Context:** Maybe move the down menu block right below Destinations, see what to do with label Your Backups, ask Claude for advice.
+- **Root cause + fix (short):** Backups and Destinations sit together at the top of the sidebar, followed by Settings and Activity & logs. The current page has a highlight across the full navigation row. The version and Backrest credit remain at the bottom.
 - **Proof — open and look:**
-  - 🖼️ [The proposed Backups window](../audit-dashboard/evidence/design-after/full/02-backups-overview.png) — White backup cards on a warm canvas, full action labels and compact upper navigation; compare the previous appearance in the gallery.
-  - [Before and after: design proposal](../audit-dashboard/evidence/design-review.html) — Compare the same seeded app views, inspect light/dark and minimum-size captures, and open the safe preview instructions.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Aesthetic approval remains yours. Light/dark and minimum-size checks are linked; no design change is accepted on your behalf.
-- **I need from you:** B039: Open the before/after gallery and runnable preview. Approve the design or describe changes; ask to revert only the design commit if you prefer the previous appearance.
+  - 🖼️ **[The revised Backups page](../audit-dashboard/evidence/revision-after/full/02-backups-overview.png)** — Manrope headings, aligned content and a clear navigation selection.
+  - **[Compare the previous and revised designs](../audit-dashboard/evidence/design-review.html)** — Every before-and-after pair has matching dimensions. Smaller laptop layouts and the preview instructions are included.
+  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
+- **Adversarial checks and limitations:** The gallery uses the same-sized windows for each comparison. Small-laptop screenshots are shown separately. Tests use disposable local data; your aesthetic approval is still needed, and no completion box is checked on your behalf.
+- **I need from you:** Open the matching-size comparison and try Launch-Design-Preview.bat. Approve the appearance or leave specific changes on this issue. The design remains separately reversible from the earlier backup and restore repairs.
 
 ### P2: Prove the schedule fires after a real reboot
 
@@ -1157,13 +1239,6 @@ for the workflow rules an agent must follow before touching this file.
 - **Proof — open and look:** [Audit overview](../audit-dashboard/evidence/audit-overview.html) — test results, per-issue evidence and remaining work; [dashboard screenshot](../audit-dashboard/evidence/dashboard-overview.png) — separate issues, evidence links and user-controlled completion.
 - **Limitations / adversarial review:** Real-account OAuth/email, VSS, reboot, native simultaneous mounts and idle CPU remain unproven. Restore safety and persistence probes reproduce negative cases, and complete hash checks include a wrong-revision control. Historical screenshots are not promoted to fresh results.
 - **I need from you:** Review the dashboard and identify which findings or scope need revision.
-
-
-
-
-
-
-
 
 ### P3: "Restores" left-nav item — single-restore variant shipped
 

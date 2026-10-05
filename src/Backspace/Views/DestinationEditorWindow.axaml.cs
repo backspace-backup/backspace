@@ -29,6 +29,7 @@ public partial class DestinationEditorWindow : Window
         _vm = new DestinationEditorViewModel(working, isNew, simplifiedMode);
         DataContext = _vm;
         InitializeComponent();
+        WindowPlacement.Attach(this);
 
         // Escape cancels (matches OS dialog convention). Enter is not
         // bound globally because the auth-token input would otherwise

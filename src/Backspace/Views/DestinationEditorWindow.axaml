@@ -6,7 +6,7 @@
         x:DataType="vm:DestinationEditorViewModel"
         Title="Destination - Backspace"
         Width="820" Height="780"
-        MinWidth="720" MinHeight="560"
+        MinWidth="720" MinHeight="500"
         Background="{DynamicResource BS.Brush.BgBase}"
         WindowStartupLocation="CenterOwner">
 
@@ -102,7 +102,7 @@
                     Margin="0,4,0,0">
                 <TextBlock Grid.Column="0" Classes="helper" VerticalAlignment="Center"
                            Text="Moved the backup folder?"/>
-                <Button Grid.Column="1" Classes="link" HorizontalAlignment="Left"
+                <Button Grid.Column="1" Classes="row-action" HorizontalAlignment="Left"
                         Margin="6,0,0,0"
                         Command="{Binding LocateMovedRepositoryCommand}"
                         Content="Locate moved repository…"/>
@@ -155,7 +155,7 @@
                     Margin="0,4,0,0">
                 <TextBlock Grid.Column="0" Classes="helper" VerticalAlignment="Center"
                            Text="Moved the backup folder?"/>
-                <Button Grid.Column="1" Classes="link" HorizontalAlignment="Left"
+                <Button Grid.Column="1" Classes="row-action" HorizontalAlignment="Left"
                         Margin="6,0,0,0"
                         Command="{Binding LocateMovedRepositoryCommand}"
                         Content="Locate moved repository…"/>

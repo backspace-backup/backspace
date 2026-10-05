@@ -82,13 +82,13 @@
   <DockPanel LastChildFill="True">
 
     <!-- ============================= Header ============================= -->
-    <StackPanel DockPanel.Dock="Top" Margin="48,40,48,20">
+    <StackPanel DockPanel.Dock="Top" Margin="32,24,32,16">
       <TextBlock Classes="page-title" Text="Bring files back"/>
       <TextBlock Classes="page-subtitle" MaxWidth="720"
                  Text="Pick a backup, choose a moment in time, and restore whichever files you need. Default is back to where they came from. You can pick a different folder if you’d rather not overwrite anything."/>
     </StackPanel>
 
-    <Border DockPanel.Dock="Top" Classes="rule" Margin="48,0,48,0"/>
+    <Border DockPanel.Dock="Top" Classes="rule" Margin="32,0,32,0"/>
 
     <!-- ========================== Wizard body ===========================
          Two zones share the LastChildFill slot:
@@ -108,7 +108,7 @@
     -->
     <Grid>
     <ScrollViewer IsVisible="{Binding IsScrollableInputStep}">
-      <Grid Margin="48,22,48,48" RowDefinitions="Auto,*">
+      <Grid Margin="32,18,32,24" RowDefinitions="Auto,*">
 
         <!-- Step indicator: quiet, always reflects effective length
              (PickSource/PickDestination collapse for single-source /
@@ -560,7 +560,7 @@
          height so it ALWAYS shows between the filter and the Next
          button (and we always can see the Next button)". -->
     <DockPanel IsVisible="{Binding IsStepPickFiles}"
-               Margin="48,22,48,48"
+               Margin="32,18,32,24"
                LastChildFill="True">
       <!-- Step indicator: same style as the inner ScrollViewer's
            label so the visual continuity is preserved across step
@@ -675,7 +675,7 @@
          app. The user explicitly asked: "the Log component should
          have the same format as in Activity & Logs". -->
     <Grid IsVisible="{Binding IsStepProgressOrSummary}"
-          Margin="48,22,48,48"
+          Margin="32,18,32,24"
           RowDefinitions="Auto,Auto,Auto,*">
       <!-- Title swaps based on step. The terminal + stats stay
            visible on Summary so the user can keep reading the log

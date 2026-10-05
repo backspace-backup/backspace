@@ -7,7 +7,7 @@
         x:DataType="vm:BackupEditorViewModel"
         Title="Backup settings - Backspace"
         Width="980" Height="840"
-        MinWidth="820" MinHeight="640"
+        MinWidth="820" MinHeight="500"
         Background="{DynamicResource BS.Brush.BgBase}"
         WindowStartupLocation="CenterOwner">
 

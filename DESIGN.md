@@ -13,9 +13,9 @@ like. When the code and this file disagree, the code wins.
 
 ## Aesthetic
 
-**Calm editorial.** Warm paper behind white cards, a confident deep-blue accent,
-generous whitespace, serif headings. Think "well-designed journal app"
-rather than "system utility". Restrained, not flashy.
+**Calm and clear.** Warm paper behind white cards, a confident deep-blue accent,
+distinctive sans-serif headings, and enough space to read without wasting the
+screen. The working controls stay familiar and easy to find.
 
 What we're not:
 
@@ -88,32 +88,40 @@ palette, that test will tell you immediately if a pair drops below 4.5:1.
 
 ## Typography
 
-Four font tokens have distinct roles. Native installed fonts are used;
-the bundled Fraunces variable asset is not selected by this proposal.
+Four font tokens have distinct roles. Manrope is bundled as static SemiBold
+and Bold faces, so the wordmark and page titles do not depend on installed
+fonts. Body text and controls use native Windows families. The older Fraunces
+variable asset is retained but is not selected by the current design.
 
 | Role | Family | Notes |
 |---|---|---|
-| Large page headings and wordmark | **Georgia** | Editorial serif; generic serif fallback outside Windows. Normal weight keeps the forms open. |
+| Large page headings and wordmark | **Manrope** | Bundled static Bold face; open shapes and a compact, distinct silhouette. |
 | Card and section headings | **Segoe UI Variable Display** | Native sans serif; retains the familiar hierarchy inside working surfaces. |
 | Body and controls | **Segoe UI Variable Text** | Segoe UI fallback; unchanged native text rendering for labels, paths and inputs. |
 | Monospace | **Cascadia Mono** | Consolas / monospace fallback for log lines and identifiers. |
 
 Scale (14px body):
 
-- Hero — Georgia, 40px / 56px line height, normal weight
-- Page title — Georgia, 32px / 44px line height, normal weight
-- Wordmark — Georgia, 22px / 30px line height
+- Hero — Manrope, 36px / 48px line height, bold
+- Page title — Manrope, 28px / 38px line height, bold
+- Wordmark — Manrope, 21px / 30px line height, bold
 - Card name — native display sans, 22px / 28px, semibold
 - Section title — native display sans, 16px / 24px, semibold
 - Body — native text sans, 14px / 22px
 - Label — native text sans, 11–12px, semibold, with light tracking
 - Mono — Cascadia Mono, 13px / 20px
 
+The Manrope files use the SIL Open Font License included as
+`Assets/Fonts/Manrope-OFL.txt`. They come from the open-source v4 upstream
+revision `6f81ebecdf65e4463b798cc07b16a4f8d5216917` in
+[aaronbell/manrope](https://github.com/aaronbell/manrope/tree/6f81ebecdf65e4463b798cc07b16a4f8d5216917),
+as recorded by [Google Fonts](https://github.com/google/fonts/blob/main/ofl/manrope/upstream_info.md).
+
 ## Shape language
 
 - **Corners**: 10-12px on panels and primary buttons, 6-8px on inputs and small chips. Never sharp 0; never overly round.
 - **Borders**: single hairline (`BS.Brush.BorderSubtle`). Shadows stay shallow and faint on cards; floating dialogs can use a softer, larger shadow.
-- **Space**: generous. Prefer wider margins to tighter rows. The app is single-user, single-screen — we have the room.
+- **Space**: protect readable text and reachable controls first. Main pages share 32px side margins; cards use tighter internal grouping. Small laptop work areas and Windows scaling determine how much room is actually available.
 - **Custom title bar** on Windows: 32px high; its left segment matches the sidebar and its right segment matches the canvas. The app owns the chrome.
 
 ## Iconography

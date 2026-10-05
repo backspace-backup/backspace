@@ -321,3 +321,11 @@ captures and checks intermediate hover frames rather than using this settling
 step. `S54_EditorialMinimumWidth` checks both themes at 1180 × 720, including the
 retained Restores navigation row, all action-label bounds and viewport edges,
 and a deliberately narrow card that must wrap its actions onto multiple rows.
+
+### Laptop working areas
+
+MainWindow starts at 1180 × 760 logical pixels when space permits, with a 920 × 540 minimum. Main and resizable editor windows fit to the current monitor's working area after Windows display scaling, taskbar space, and native frame are accounted for. If a monitor is smaller than a requested minimum, the window's minimum is lowered to keep its controls on screen. This is a layout policy, not a claim about laptop market share.
+
+S58_LaptopWorkingAreas renders main pages at 920 × 540, 1076 × 558 (1366 × 768 at 125% with a taskbar), and 1264 × 672 (1920 × 1080 at 150% with a taskbar). It captures the initial backup overview and the scrolled actions, checks matching page gutters and non-overlapping controls, and verifies four resizable dialogs with a 519-pixel client height. WindowPlacementTests separately checks scaling, native frame allowance, off-screen positions, negative-origin monitors and a screen smaller than the normal minimum. Its window-event tests preserve configured startup dimensions, fit moves between simulated monitors at the same scaling, leave ordinary dragging alone, and refit after restoring a maximized window. Screenshots show logical working areas; physical multi-monitor transitions remain an OS acceptance check.
+
+S59_DropdownAffordance checks the painted dropdown arrow in both themes, opens the actual popup with a pointer click, selects choices, checks persisted settings, and exercises keyboard selection, Escape and disabled controls. S11_LogsViewPopulated checks live and saved output separately, including the first-ever run of a selected backup and the return to the empty state when an unfinished activity is removed. Screenshot comparisons serialize their file access so a directory scan cannot write the same diff image as a fresh capture.

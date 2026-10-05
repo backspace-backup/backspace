@@ -210,9 +210,9 @@
 
   </ResourceDictionary.ThemeDictionaries>
 
-  <!-- Georgia is reserved for large page headings and the wordmark. Native
-       Segoe remains the body, card-title, label and control family. -->
-  <FontFamily x:Key="BS.Font.Editorial">Georgia, serif</FontFamily>
+  <!-- Bundled static faces keep the wordmark and large headings consistent.
+       Native Segoe remains the body, card-title, label and control family. -->
+  <FontFamily x:Key="BS.Font.Heading">avares://Backspace/Assets/Fonts#Manrope</FontFamily>
   <FontFamily x:Key="BS.Font.Display">Segoe UI Variable Display, Segoe UI Variable, Segoe UI, system-ui, sans-serif</FontFamily>
   <FontFamily x:Key="BS.Font.Body">Segoe UI Variable Text, Segoe UI Variable, Segoe UI, system-ui, sans-serif</FontFamily>
   <FontFamily x:Key="BS.Font.Mono">Cascadia Mono, Consolas, monospace</FontFamily>

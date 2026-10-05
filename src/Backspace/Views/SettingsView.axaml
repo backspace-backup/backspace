@@ -14,7 +14,7 @@
        scrollbar doesn't visually crowd the right edge of the
        cards. -->
   <ScrollViewer VerticalScrollBarVisibility="Visible">
-    <StackPanel Margin="48,40,48,48" Spacing="14" HorizontalAlignment="Stretch">
+    <StackPanel Margin="32,24,32,32" Spacing="14" HorizontalAlignment="Stretch">
 
       <StackPanel Margin="0,0,0,8">
         <TextBlock Classes="page-title" Text="Settings"/>

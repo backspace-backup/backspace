@@ -29,6 +29,7 @@ public partial class BackupEditorWindow : Window
         else                      _vm.HeaderTitle = "Let's add a new backup.";
         DataContext = _vm;
         InitializeComponent();
+        WindowPlacement.Attach(this);
 
         // Escape closes without saving — matches OS dialog convention.
         // Enter is intentionally NOT bound to Save here: the editor

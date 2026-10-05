@@ -19,6 +19,7 @@ public partial class SourceTreePickerWindow : Window
         _vm = new SourceTreePickerViewModel(initiallyChecked);
         DataContext = _vm;
         InitializeComponent();
+        WindowPlacement.Attach(this);
     }
 
     private void OnCancel(object? sender, RoutedEventArgs e) => Close(null);

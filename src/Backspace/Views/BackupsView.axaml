@@ -19,12 +19,9 @@
   -->
   <Grid RowDefinitions="Auto,*"
         PointerWheelChanged="OnPagePointerWheelChanged">
-    <!-- Pinned header. Top margin matches the sidebar logo's container
-         (MainWindow brand row uses Margin="22,16,22,20") so the page
-         title sits on the same horizontal line as the Backspace
-         wordmark — was 40px, which left the page title noticeably
-         lower than the logo and read as wasted space. -->
-    <StackPanel Grid.Row="0" Margin="48,16,48,0">
+    <!-- Keep the header aligned with the other main pages. The card
+         scroller below uses the same 32px side gutters. -->
+    <StackPanel Grid.Row="0" Margin="32,24,32,0">
 
       <!-- Page header. Subtitle wraps NATURALLY at the available
            page width — the previous `MaxWidth="720"` forced an early
@@ -177,7 +174,8 @@
     <ScrollViewer Grid.Row="1"
                   x:Name="CardsScroller"
                   IsVisible="{Binding !IsEmpty}"
-                  Padding="48,0,48,0"
+                  Margin="32,0,32,0"
+                  HorizontalScrollBarVisibility="Disabled"
                   VerticalScrollBarVisibility="Visible">
       <!-- Grid.IsSharedSizeScope lets every BackupCard's name column
            share a SharedSizeGroup so all cards' status columns line up
@@ -186,6 +184,7 @@
            backup name (and start px should be the same for all
            backups for visual consistency)." -->
       <ItemsControl ItemsSource="{Binding Cards}"
+                    Width="{Binding #CardsScroller.Viewport.Width}"
                     Margin="0,0,0,10"
                     Grid.IsSharedSizeScope="True">
         <ItemsControl.ItemsPanel>
@@ -209,7 +208,7 @@
     <Border Grid.Row="1"
             IsVisible="{Binding IsEmpty}"
             Classes="empty-state"
-            Margin="48,28,48,48"
+            Margin="32,20,32,32"
             VerticalAlignment="Top">
       <Grid ColumnDefinitions="Auto,20,*">
         <Border Grid.Column="0" Classes="empty-state-glyph">

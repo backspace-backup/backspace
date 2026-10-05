@@ -372,15 +372,25 @@ public class WebsiteScreenshotTests
     {
         var store = ServiceLocator.Logs;
         var now = DateTime.UtcNow;
-        // RunRecords are append-only via the orchestrator at runtime;
-        // for the screenshot we write directly to history.json via the
-        // store's append API. We tolerate the dependency on the store's
-        // exact append surface by guarding with reflection-free best-
-        // effort: if the API isn't available, the Logs panel still
-        // renders its empty state, which is also a fine shot.
-        try
+        // Seed real transcript files as well as history records: selecting
+        // a completed sample run should never produce a blank console.
+        var transcriptDir = Path.Combine(Path.GetTempPath(), "backspace-website-fixtures", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(transcriptDir);
+        void AppendSample(RunRecord record)
         {
-            store.AppendRun(new RunRecord
+            record.BackupId = ServiceLocator.Config.Current.Backups.Single(b => b.Name == record.BackupName).Id;
+            record.LogPath = Path.Combine(transcriptDir, record.Id + ".log");
+            File.WriteAllText(record.LogPath,
+                $"Sample backup transcript — {record.BackupName}\n" +
+                "Connecting to backup destination…\n" +
+                "Reading source files and comparing the previous snapshot…\n" +
+                $"{record.Summary}\n" +
+                (record.Status == BackupRunStatus.Warning
+                    ? "Two locked files were skipped; the remaining files were saved.\n"
+                    : "Snapshot saved. Backup completed successfully.\n"));
+            store.AppendRun(record);
+        }
+            AppendSample(new RunRecord
             {
                 BackupName = "documents",
                 Status = BackupRunStatus.Success,
@@ -389,7 +399,7 @@ public class WebsiteScreenshotTests
                 Summary  = "12,408 files · 8.7 GB · 6m 53s",
                 Kind     = RunKind.Backup,
             });
-            store.AppendRun(new RunRecord
+            AppendSample(new RunRecord
             {
                 BackupName = "code-and-projects",
                 Status = BackupRunStatus.Success,
@@ -398,7 +408,7 @@ public class WebsiteScreenshotTests
                 Summary  = "284,510 files · 142.1 GB · 21m 09s",
                 Kind     = RunKind.Backup,
             });
-            store.AppendRun(new RunRecord
+            AppendSample(new RunRecord
             {
                 BackupName = "music-library",
                 Status = BackupRunStatus.Warning,
@@ -407,7 +417,7 @@ public class WebsiteScreenshotTests
                 Summary  = "2 warnings (skipped: locked)",
                 Kind     = RunKind.Backup,
             });
-            store.AppendRun(new RunRecord
+            AppendSample(new RunRecord
             {
                 BackupName = "documents",
                 Status = BackupRunStatus.Success,
@@ -416,7 +426,7 @@ public class WebsiteScreenshotTests
                 Summary  = "12,402 files · 8.7 GB · 5m 41s",
                 Kind     = RunKind.Backup,
             });
-            store.AppendRun(new RunRecord
+            AppendSample(new RunRecord
             {
                 BackupName = "code-and-projects",
                 Status = BackupRunStatus.Success,
@@ -425,14 +435,6 @@ public class WebsiteScreenshotTests
                 Summary  = "284,201 files · 141.9 GB · 19m 47s",
                 Kind     = RunKind.Backup,
             });
-        }
-        catch
-        {
-            // Best-effort: log seeding is a "nice to have" for the
-            // screenshot; if the store's append contract changes we'd
-            // rather not block the build, just render an empty Logs
-            // page.
-        }
     }
 
     /// <summary>
@@ -469,14 +471,14 @@ public class WebsiteScreenshotTests
             rvm.AllFiles.Add(row);
             rvm.FilteredFiles.Add(row);
         }
-        // Pre-select a couple so the bottom-bar counter shows something
-        // other than "0 selected" — communicates that selection is real.
+        // Keep every selected sample in the first visible rows so a person
+        // can verify the count directly without guessing at offscreen rows.
         rvm.AllFiles[0].IsSelected      = true;
-        rvm.AllFiles[8].IsSelected      = true;
-        rvm.AllFiles[10].IsSelected     = true;
+        rvm.AllFiles[1].IsSelected      = true;
+        rvm.AllFiles[2].IsSelected      = true;
         rvm.TotalFiles                  = samples.Length;
-        rvm.SelectedFilesCount          = 3;
-        rvm.SelectedFilesBytes          = samples[0].SizeBytes + samples[8].SizeBytes + samples[10].SizeBytes;
+        Assert.Equal(3, rvm.SelectedFilesCount);
+        Assert.Equal(samples[0].SizeBytes + samples[1].SizeBytes + samples[2].SizeBytes, rvm.SelectedFilesBytes);
     }
 
     // ─── rendering plumbing ──────────────────────────────────────────
@@ -526,6 +528,18 @@ public class WebsiteScreenshotTests
             window.UpdateLayout();
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             ScreenshotDiffTests.SettleInitialTransitions(window);
+
+            if (window.DataContext is MainWindowViewModel { SelectedNav: NavItem.Logs } main)
+            {
+                var deadline = DateTime.UtcNow.AddSeconds(4);
+                while (!main.Logs.DisplayText.Contains("Sample backup transcript") && DateTime.UtcNow < deadline)
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                    System.Threading.Thread.Sleep(10);
+                }
+                Assert.Contains("Sample backup transcript", main.Logs.DisplayText);
+                window.UpdateLayout();
+            }
 
             Directory.CreateDirectory(OutputDir);
             var path = Path.Combine(OutputDir, $"{name}.png");

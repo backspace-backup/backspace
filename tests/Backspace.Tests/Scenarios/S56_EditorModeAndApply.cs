@@ -151,7 +151,15 @@ public sealed class S56_EditorModeAndApply : ScenarioBase
             var button = window.GetVisualDescendants().OfType<Button>().Single(b =>
                 b.IsEffectivelyVisible && b.Content?.ToString() == label && b.IsHitTestVisible);
             button.BringIntoView(); ctx.Driver.Pump(); window.UpdateLayout();
+            // A tab switch or scroll changes layout before the headless
+            // renderer updates its pointer hit-test scene. Render those
+            // changes before clicking; keep using the real input path.
+            Screenshots.ScreenshotDiffTests.SettleInitialTransitions(window);
             var at = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+            var hit = window.InputHitTest(at);
+            Assert.True(ReferenceEquals(hit, button) || hit is Visual visual && visual.GetVisualAncestors().Contains(button),
+                $"The pointer at {at} for '{label}' would hit {hit?.GetType().Name ?? "nothing"}, not the requested button.");
+            Assert.True(button.IsEffectivelyEnabled, $"'{label}' must be enabled before the click.");
             window.MouseDown(at, MouseButton.Left); window.MouseUp(at, MouseButton.Left);
             ctx.Driver.Pump();
         }

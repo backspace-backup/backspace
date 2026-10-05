@@ -6,26 +6,39 @@
              x:DataType="vm:LogsViewModel"
              Background="{DynamicResource BS.Brush.BgBase}">
 
-  <Grid Margin="48,40,48,48" RowDefinitions="Auto,Auto,*">
+  <UserControl.Styles>
+    <!-- The console stays dark in either app theme. Theme-wide ghost
+         hover colors can be pale, so keep these actions on the console
+         palette instead of washing out their light labels. -->
+    <Style Selector="Button.console-action:pointerover /template/ Border#RootBorder">
+      <Setter Property="Background" Value="#303C4B"/>
+    </Style>
+    <Style Selector="Button.console-action:pressed /template/ Border#RootBorder">
+      <Setter Property="Background" Value="#3A4859"/>
+      <Setter Property="BorderBrush" Value="#6B7C92"/>
+    </Style>
+  </UserControl.Styles>
+
+  <Grid Margin="32,24,32,32" RowDefinitions="Auto,Auto,*">
 
     <StackPanel Grid.Row="0" Margin="0,0,0,24">
       <TextBlock Classes="page-title" Text="Logs &amp; runs"/>
       <TextBlock Classes="page-subtitle" MaxWidth="720"
-                 Text="Live output from the current run, and the history of past runs per backup."/>
+                 Text="Follow current activity or revisit a past run."/>
     </StackPanel>
 
     <Grid Grid.Row="1" ColumnDefinitions="*,16,*" Margin="0,0,0,14"
           IsVisible="{Binding !HasNoBackups}">
       <StackPanel Grid.Column="0" Spacing="6">
         <TextBlock Classes="label-caps" Text="BACKUP"/>
-        <ComboBox ItemsSource="{Binding BackupNames}"
+        <ComboBox x:Name="BackupPicker" ItemsSource="{Binding BackupNames}"
                   SelectedItem="{Binding SelectedBackup}"
                   HorizontalAlignment="Stretch"
                   PlaceholderText="Pick a backup"/>
       </StackPanel>
       <StackPanel Grid.Column="2" Spacing="6">
         <TextBlock Classes="label-caps" Text="RUN"/>
-        <ComboBox ItemsSource="{Binding History}"
+        <ComboBox x:Name="RunPicker" ItemsSource="{Binding History}"
                   SelectedItem="{Binding SelectedRun}"
                   HorizontalAlignment="Stretch"
                   PlaceholderText="Pick a run">
@@ -38,7 +51,8 @@
                    with the same word duplicated. The converter folds
                    that case (Summary mirrors Status) into a single
                    "12:34 · Running…" line. -->
-              <TextBlock Text="{Binding ., Converter={x:Static vm:RunRecordRowText.To}}"/>
+              <TextBlock Text="{Binding ., Converter={x:Static vm:RunRecordRowText.To}}"
+                         TextTrimming="CharacterEllipsis"/>
             </DataTemplate>
           </ComboBox.ItemTemplate>
         </ComboBox>
@@ -69,16 +83,9 @@
       </Grid>
     </Border>
 
-    <!-- Single full-width log pane styled as a terminal: dark
-         background, soft phosphor-green text, traffic-light row in
-         the title bar, monospace body with subtle line height. Gives
-         the user a "you're looking at real shell output" cue rather
-         than the cream-document feel the rest of the app has — a
-         backup run IS shell output, and putting it in a terminal
-         frame makes that legible at a glance. The wrapping Border
-         hosts both the chrome and the buffer so the rounded corners
-         and dark background apply uniformly even when scrollbars
-         appear. -->
+    <!-- A quiet, full-width console keeps output distinct from the
+         controls. Header space is reserved for state, context and
+         actions; there are no decorative window buttons. -->
     <Border Grid.Row="2"
             IsVisible="{Binding !HasNoBackups}"
             Background="#0E1116"
@@ -87,45 +94,34 @@
             CornerRadius="10"
             ClipToBounds="True">
       <DockPanel LastChildFill="True">
-        <!-- Title bar: macOS-style traffic-light dots on the left, run
-             label centred-left, action buttons on the right. The dots
-             are decorative — they're a universal "this is a terminal
-             pane" signal, not interactive. -->
+        <!-- State appears once. The adjacent label identifies the
+             backup or historical run, rather than repeating LIVE. -->
         <Border DockPanel.Dock="Top"
                 Background="#161B22"
                 BorderBrush="#1F2630"
                 BorderThickness="0,0,0,1"
-                Padding="14,9">
-          <Grid ColumnDefinitions="Auto,14,*,Auto,8,Auto" VerticalAlignment="Center">
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-              <Ellipse Width="11" Height="11" Fill="#FF5F56"/>
-              <Ellipse Width="11" Height="11" Fill="#FFBD2E"/>
-              <Ellipse Width="11" Height="11" Fill="#27C93F"/>
-            </StackPanel>
+                Padding="14,8">
+          <Grid x:Name="ConsoleHeader" ColumnDefinitions="*,Auto,8,Auto" VerticalAlignment="Center">
             <!-- Grid so a long backup name ellipsizes before running
                  under the Copy/Clear buttons (horizontal StackPanels
                  give the label infinite measure width). -->
-            <Grid Grid.Column="2" ColumnDefinitions="Auto,10,*" VerticalAlignment="Center">
-              <Border Grid.Column="0" Background="#3FB950"
-                      CornerRadius="999"
-                      Padding="10,3"
-                      IsVisible="{Binding IsShowingLive}">
+            <Grid Grid.Column="0" ColumnDefinitions="Auto,*" VerticalAlignment="Center" Margin="0,0,14,0">
+              <Grid Grid.Column="0" IsVisible="{Binding !HasNoHistoryForSelected}">
+              <Border x:Name="LiveBadge" Background="#163D2B"
+                      CornerRadius="5"
+                      Padding="8,4" Margin="0,0,10,0"
+                      IsVisible="{Binding IsShowingLive}" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <Ellipse Width="6" Height="6" Fill="White">
-                    <Ellipse.Transitions>
-                      <Transitions>
-                        <DoubleTransition Property="Opacity" Duration="0:0:1"/>
-                      </Transitions>
-                    </Ellipse.Transitions>
-                  </Ellipse>
+                  <Ellipse Width="5" Height="5" Fill="#86E7AB"/>
                   <TextBlock Text="LIVE"
-                             Foreground="White"
+                             Foreground="#86E7AB"
                              FontWeight="700" FontSize="11"
                              LetterSpacing="0.6"/>
                 </StackPanel>
               </Border>
-              <TextBlock Grid.Column="2" Text="{Binding DisplayLabel}"
-                         FontFamily="{DynamicResource BS.Font.Mono}"
+              </Grid>
+              <TextBlock x:Name="ConsoleContext" Grid.Column="1" Text="{Binding DisplayLabel}"
+                         FontFamily="{DynamicResource BS.Font.Body}"
                          FontSize="12"
                          FontWeight="SemiBold"
                          Foreground="#C9D1D9"
@@ -134,9 +130,9 @@
                          ToolTip.Tip="{Binding DisplayLabel}"
                          VerticalAlignment="Center"/>
             </Grid>
-            <Button Grid.Column="3"
-                    Classes="ghost"
-                    Padding="10,5"
+            <Button x:Name="CopyLog" Grid.Column="1"
+                    Classes="ghost console-action"
+                    Padding="10,7" MinHeight="36"
                     Background="#1F2630"
                     BorderBrush="#2A3340"
                     Foreground="#C9D1D9"
@@ -148,30 +144,19 @@
                 <TextBlock Text="Copy" VerticalAlignment="Center" Foreground="#C9D1D9" FontSize="12"/>
               </StackPanel>
             </Button>
-            <Button Grid.Column="5"
-                    Classes="ghost" Content="Clear"
-                    Padding="10,5"
+            <Button x:Name="ClearLog" Grid.Column="3"
+                    Classes="ghost console-action" Content="Clear view"
+                    Padding="10,7" MinHeight="36"
                     Background="#1F2630"
                     BorderBrush="#2A3340"
                     Foreground="#C9D1D9"
                     FontSize="12"
                     Command="{Binding ClearLiveCommand}"
+                    ToolTip.Tip="Clear the live display. Saved run history is kept."
                     IsVisible="{Binding IsShowingLive}"/>
           </Grid>
         </Border>
 
-        <!-- Log buffer: phosphor-green-tinted neutral on near-black so
-             timestamps + status hits read distinctly without competing
-             with the cream-document chrome elsewhere in the app.
-             TextBox (read-only) so the user can select + copy lines.
-
-             Inline styles below kill the FluentTheme's blue focus
-             ring and pointer-over border-deepen — the user reported a
-             "flicker" effect: every time the bound DisplayText
-             changed (~7×/second during a verbose run), the TextBox
-             briefly redrew the focused-state border, producing a
-             pulsing blue outline. With BorderThickness=0 across all
-             template states, the redraw is invisible. -->
         <!-- Explicit ScrollViewer + SelectableTextBlock. The earlier
              TextBox approach put its OWN ScrollViewer inside the
              FluentTheme template; that inner viewer sized its
@@ -211,10 +196,10 @@
                   Background="#0E1116"
                   HorizontalAlignment="Stretch"
                   VerticalAlignment="Stretch">
-            <StackPanel HorizontalAlignment="Center"
+            <StackPanel HorizontalAlignment="Center" Margin="24"
                         VerticalAlignment="Center"
                         Spacing="10"
-                        MaxWidth="460">
+                        MaxWidth="380">
               <TextBlock Text="No runs yet for this backup"
                          HorizontalAlignment="Center"
                          FontSize="14"
@@ -225,7 +210,7 @@
                          TextAlignment="Center"
                          TextWrapping="Wrap"
                          FontSize="12"
-                         Foreground="#7D8590"/>
+                         Foreground="#A8B3C1"/>
             </StackPanel>
           </Border>
         </Grid>

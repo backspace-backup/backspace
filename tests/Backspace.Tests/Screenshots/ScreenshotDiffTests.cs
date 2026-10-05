@@ -30,6 +30,11 @@ namespace Backspace.Tests.Screenshots;
 /// </summary>
 public class ScreenshotDiffTests
 {
+    // The directory-wide check can run alongside a screenshot generator.
+    // Serialize file publication and comparison so they never write the same
+    // diff PNG at once or compare a file while another test replaces it.
+    private static readonly object ImageFilesLock = new();
+
     /// <summary>Allow real initial transitions to finish before capturing a
     /// resting screenshot. Layout pumping alone does not advance animation
     /// time and can record a half-rotated caret or light-to-dark brush.</summary>
@@ -48,6 +53,11 @@ public class ScreenshotDiffTests
     // memory-map the previous file; truncating that mapped file fails on Windows.
     internal static void SaveAndVerify(Avalonia.Media.Imaging.Bitmap bitmap, string currentPath)
     {
+        lock (ImageFilesLock) SaveAndVerifyCore(bitmap, currentPath);
+    }
+
+    private static void SaveAndVerifyCore(Avalonia.Media.Imaging.Bitmap bitmap, string currentPath)
+    {
         var staging = currentPath + "." + Guid.NewGuid().ToString("N") + ".png";
         try
         {
@@ -64,6 +74,11 @@ public class ScreenshotDiffTests
     /// <summary>Called immediately after each generator saves its PNG. This
     /// ties a regression to this render, regardless of xUnit class ordering.</summary>
     internal static void AssertCurrentMatchesBaseline(string currentPath)
+    {
+        lock (ImageFilesLock) AssertCurrentMatchesBaselineCore(currentPath);
+    }
+
+    private static void AssertCurrentMatchesBaselineCore(string currentPath)
     {
         var name = Path.GetFileName(currentPath);
         var baselineDir = Path.Combine(Paths.ArtifactsRoot, "baseline");
@@ -98,6 +113,11 @@ public class ScreenshotDiffTests
 
     [Fact]
     public void AllScreenshots_MatchBaselineWithinTolerance()
+    {
+        lock (ImageFilesLock) CheckAllScreenshots();
+    }
+
+    private static void CheckAllScreenshots()
     {
         var currentDir  = Path.Combine(Paths.ArtifactsRoot, "screenshots");
         var baselineDir = Path.Combine(Paths.ArtifactsRoot, "baseline");
