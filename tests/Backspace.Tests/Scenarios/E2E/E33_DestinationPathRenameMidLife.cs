@@ -3,8 +3,12 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.VisualTree;
 using Backspace.Models;
 using Backspace.Services;
 using Backspace.Tests.TestHelpers;
@@ -115,7 +119,38 @@ public sealed class E33_DestinationPathRenameMidLife : BackupE2EBase
             System.Text.Json.JsonSerializer.Serialize(liveDest))!;
         using (var editorVm = new DestinationEditorViewModel(clone, isNew: false))
         {
-            editorVm.PathOrSubpath = folderNew;
+            var editor = ctx.Driver.Show(new DestinationEditorWindow { DataContext = editorVm, Width = 820, Height = 820 });
+            ctx.Snapshot(editor, "locate-moved-repository-entry", "The existing local destination offers Locate moved repository independently of its backup history.");
+
+            var cancelled = editorVm.LocateRepositoryAtPathAsync(editor, folderNew);
+            var dialog = await WaitForDialog(ctx, editor, cancelled);
+            ctx.Snapshot(dialog, "repository-confirmation", "The real Restic check succeeded. The confirmation describes password access without claiming this proves repository identity.");
+            Click(dialog, "Cancel"); await cancelled;
+            Assert.Equal(folderOld, editorVm.PathOrSubpath);
+            Assert.Equal(folderOld, ServiceLocator.Config.Current.Destinations.Single(d => d.Id == dest.Id).PathOrSubpath);
+
+            var savedPasswordRef = clone.StoragePasswordRef;
+            clone.StoragePasswordRef = ServiceLocator.Secrets.PutNew("e33-wrong", "deliberately-wrong-password");
+            var rejected = editorVm.LocateRepositoryAtPathAsync(editor, folderNew);
+            dialog = await WaitForDialog(ctx, editor, rejected);
+            ctx.Snapshot(dialog, "wrong-password-refused", "A real repository with the wrong saved password is refused. The old destination path remains unchanged.");
+            Click(dialog, "OK"); await rejected;
+            Assert.Equal(folderOld, editorVm.PathOrSubpath);
+            clone.StoragePasswordRef = savedPasswordRef;
+
+            var empty = ctx.MakeLocalDestination("empty-location");
+            var startFresh = editorVm.LocateRepositoryAtPathAsync(editor, empty);
+            dialog = await WaitForDialog(ctx, editor, startFresh);
+            ctx.Snapshot(dialog, "empty-folder-needs-explicit-choice", "An empty folder asks whether to start a new repository; it is not presented as the moved backup.");
+            Click(dialog, "Cancel"); await startFresh;
+            Assert.Equal(folderOld, editorVm.PathOrSubpath);
+
+            var accepted = editorVm.LocateRepositoryAtPathAsync(editor, folderNew);
+            dialog = await WaitForDialog(ctx, editor, accepted);
+            Click(dialog, "Use this repository"); await accepted;
+            Assert.Equal(folderNew, editorVm.PathOrSubpath);
+            Assert.Equal(folderOld, ServiceLocator.Config.Current.Destinations.Single(d => d.Id == dest.Id).PathOrSubpath);
+            ctx.Snapshot(editor, "new-path-ready-to-save", "The chosen new path is in the editor. The saved destination is still unchanged until Save.");
             var saved = editorVm.Save();
             Assert.NotNull(saved);
             Assert.Equal(folderNew, saved!.PathOrSubpath);
@@ -124,6 +159,7 @@ public sealed class E33_DestinationPathRenameMidLife : BackupE2EBase
                 var idx = cfg.Destinations.FindIndex(x => x.Id == saved.Id);
                 if (idx >= 0) cfg.Destinations[idx] = saved;
             });
+            editor.Close();
         }
         ctx.Driver.Pump();
         ctx.Snapshot(host, "after rename",
@@ -156,5 +192,27 @@ public sealed class E33_DestinationPathRenameMidLife : BackupE2EBase
             refreshed, source, refreshedDest, "default", restoreDir, CancellationToken.None);
         Assert.Equal(0, outcome.FailedCount);
         AssertBytesEqual(source, restoreDir, ctx);
+        ctx.Report.RecordNote("Scope", "A real encrypted repository was moved, checked with Restic, and reused for another backup and byte-for-byte restore. The production confirmation buttons received pointer clicks. The native folder picker was replaced by supplying its chosen path; Save used the production view-model method. Native picker and OS-window behavior remain separate checks.");
+    }
+
+    private static async Task<DestructiveConfirmWindow> WaitForDialog(ScenarioContext ctx, Window owner, Task operation)
+    {
+        for (var attempt = 0; attempt < 300; attempt++)
+        {
+            var dialog = owner.OwnedWindows.OfType<DestructiveConfirmWindow>().FirstOrDefault(w => w.IsVisible);
+            if (dialog is not null) { await ctx.Driver.PumpAsync(100); return dialog; }
+            if (operation.IsCompleted) { await operation; throw new InvalidOperationException("The expected repository dialog did not open."); }
+            await ctx.Driver.PumpAsync(50);
+        }
+        throw new TimeoutException("The repository check did not show its result dialog.");
+    }
+
+    private static void Click(Window window, string label)
+    {
+        window.UpdateLayout();
+        Screenshots.ScreenshotDiffTests.SettleInitialTransitions(window);
+        var button = window.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && b.Content?.ToString() == label);
+        var point = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+        window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
     }
 }

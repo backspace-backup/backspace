@@ -56,26 +56,19 @@ public class UiThreadDebouncerTests
         Assert.Equal(0, calls);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public async Task Schedule_OffUiThread_CoalescesIntoOneRun()
     {
-        // The whole point of debouncing: many off-UI-thread schedules
-        // collapse into ONE action invocation. Off-UI-thread scheduling
-        // requires an Avalonia application; we use the dispatcher's
-        // synchronous bootstrap via InvokeAsync.
-        await Task.Run(() => { /* warm thread pool */ });
-        // This test runs without [AvaloniaFact] because Avalonia.Headless
-        // owns the UI thread inside [AvaloniaFact] and Task.Run from
-        // inside the AvaloniaFact host doesn't always reach a usable
-        // dispatcher. Instead, exercise the coalescing logic by letting
-        // the debouncer run on the test's own SynchronizationContext.
-        // Since we can't depend on a Dispatcher here, we just verify
-        // that SCHEDULE doesn't throw when called from a thread pool
-        // worker — the real coalescing is exercised in a UI integration
-        // run.
-        var d = new UiThreadDebouncer(() => { });
-        await Task.Run(() => d.Schedule());
+        int calls = 0;
+        using var d = new UiThreadDebouncer(() => calls++, debounceMs: 100);
+        await Task.Run(() => { for (var i = 0; i < 20; i++) d.Schedule(); });
+        for (var i = 0; i < 100 && calls == 0; i++) await Task.Delay(20);
+        Assert.Equal(1, calls);
+        await Task.Delay(200);
+        Assert.Equal(1, calls); // No delayed duplicate from the burst.
         d.Dispose();
-        // Pass-through: no exception is the assertion.
+        await Task.Run(() => d.Schedule());
+        await Task.Delay(200);
+        Assert.Equal(1, calls); // A disposed instance cannot schedule work.
     }
 }

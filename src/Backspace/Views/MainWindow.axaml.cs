@@ -308,6 +308,7 @@ public partial class MainWindow : Window
 
     private bool _explicitQuit;
     private bool _quitInProgress;
+    private bool _forceQuitInProgress;
 
     /// <summary>Tray Quit and window close share the same operation checks.</summary>
     public void RequestQuit()
@@ -320,13 +321,45 @@ public partial class MainWindow : Window
 
     private IDisposable? _shutdownAdmission;
 
+    internal async System.Threading.Tasks.Task RequestForceQuitAsync()
+    {
+        // Force quit must remain available while an ordinary quit is
+        // waiting for an operation that has not stopped.
+        if (_forceQuitInProgress || App.QuitRequested) return;
+        Show(); Activate();
+        _forceQuitInProgress = true;
+        try
+        {
+            if (!await DestructiveConfirmWindow.ShowConfirmAsync(this,
+                "Force quit Backspace?",
+                "Active backups, restores and maintenance will be interrupted immediately. " +
+                "An unfinished restore may contain incomplete files. Mounted drives may need reopening. " +
+                "Scheduled backups stay enabled in Windows.",
+                "Force quit now", "Keep running")) return;
+            if (_shutdownAdmission is null)
+                ServiceLocator.Maintenance.TryBeginShutdown(out _shutdownAdmission);
+            CancelEverything();
+            // Stop only this instance's engine. A stalled engine cannot hold
+            // the UI open indefinitely; Windows also owns its process job.
+            if (ServiceLocator.BackrestSidecar is { } sidecar)
+            {
+                try { await sidecar.StopAsync(TimeSpan.Zero).WaitAsync(TimeSpan.FromSeconds(2)); }
+                catch (Exception ex) { AppLogger.For<MainWindow>().Warning(ex, "Forced engine shutdown will fall back to process-exit cleanup"); }
+            }
+            App.ForceQuitRequested = true;
+            App.QuitRequested = true;
+            Close();
+        }
+        finally { _forceQuitInProgress = false; }
+    }
+
     private async void OnClosingAsync(object? sender, WindowClosingEventArgs e)
     {
         if (App.QuitRequested) return;
-        if (_quitInProgress) { e.Cancel = true; return; }
+        if (_quitInProgress || _forceQuitInProgress) { e.Cancel = true; return; }
         var hadWork = HasAnyRunningOperation();
         var prefs = ServiceLocator.Config.Current.Preferences;
-        if (!hadWork && !_explicitQuit && prefs.MinimizeToTrayOnClose && prefs.ShowTrayIcon)
+        if (!_explicitQuit && prefs.MinimizeToTrayOnClose && prefs.ShowTrayIcon)
         {
             e.Cancel = true;
             Hide();

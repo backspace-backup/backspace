@@ -18,6 +18,7 @@
             <NativeMenuItem Header="Show Backspace" Click="OnTrayShow"/>
             <NativeMenuItemSeparator/>
             <NativeMenuItem Header="Quit Backspace" Click="OnTrayQuit"/>
+            <NativeMenuItem Header="Force quit…" Click="OnTrayForceQuit"/>
           </NativeMenu>
         </TrayIcon.Menu>
       </TrayIcon>

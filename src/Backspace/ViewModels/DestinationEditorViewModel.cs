@@ -571,9 +571,9 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     /// and now needs to tell Backspace where it landed. Flow:
     ///   1. Open a folder picker pointing at the current path.
     ///   2. Inspect the chosen folder with <see cref="ResticRepoLayout.Inspect"/>:
-    ///      • ValidRestic       → swap silently (the user knows what they're doing).
+    ///      • ValidRestic       → confirm access succeeded and ask before changing the path.
     ///      • EmptyOrUnrelated  → confirm "Start fresh? old backup may still linger at the previous URI".
-    ///      • Partial / Missing → refuse with info dialog (probably the wrong folder).
+    ///      • Partial / Missing / failed verification → refuse with an explanation.
     ///   3. On accept, update <see cref="PathOrSubpath"/>; the engine's
     ///      Uri drift detection (EnsurePlanAndRepoCoreAsync) does the
     ///      rest on the next backup.
@@ -600,18 +600,22 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         var newPath = picks[0].TryGetLocalPath();
         if (string.IsNullOrEmpty(newPath)) return;
 
+        await LocateRepositoryAtPathAsync(owner, newPath);
+    }
+
+    // Shared by the native picker and the real-repository scenario. The
+    // scenario supplies the chosen path; validation and dialogs are unchanged.
+    internal async Task LocateRepositoryAtPathAsync(Avalonia.Controls.Window owner, string newPath)
+    {
+        if (!ShowLocateMovedRepository || string.IsNullOrWhiteSpace(newPath)) return;
+
         // No-op fast path: user picked the path that's already
         // configured. Save them a confirmation round-trip.
         if (string.Equals(newPath, PathOrSubpath?.Trim(), System.StringComparison.OrdinalIgnoreCase))
             return;
 
-        // Deep probe: file-presence first, then a `restic cat config`
-        // decryption attempt. Distinguishes our own repo from a
-        // Duplicacy/Kopia/older-restic dir that happens to share the
-        // layout — the shallow probe used to return ValidRestic for
-        // any folder with `config + data + keys + snapshots + index`,
-        // letting the user accidentally re-point at a different repo
-        // and burn snapshot history.
+        // Ask Restic to verify access. A matching password alone cannot
+        // identify the previous repository, so the dialog says that explicitly.
         var password = string.IsNullOrEmpty(Working.StoragePasswordRef)
             ? ""
             : (ServiceLocator.Secrets.TryGet(Working.StoragePasswordRef!, out var p) ? p : "");
@@ -632,11 +636,11 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                     owner,
                     title: "Use this repository?",
                     subtitle:
-                        $"Found YOUR restic repository at:\n\n{newPath}\n\n" +
-                        "Backspace just confirmed it can open the repo with this " +
-                        "destination's stored password. The path will move; " +
-                        "destination kind, encryption, password, and snapshot " +
-                        "history are all preserved.",
+                        $"Backspace can open the repository at:\n\n{newPath}\n\n" +
+                        "The saved password works. This does not prove it is the same " +
+                        "repository you used before; check that you selected the folder you moved.\n\n" +
+                        "Only this destination's folder path will change when you save. " +
+                        "Existing backups in either location will not be changed by this selection.",
                     confirmLabel: "Use this repository",
                     cancelLabel: "Cancel");
                 if (ok) PathOrSubpath = newPath;
@@ -659,6 +663,16 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                 return;
             }
 
+            case ResticRepoLayout.Verdict.VerificationUnavailable:
+            {
+                await Views.DestructiveConfirmWindow.ShowInfoAsync(owner,
+                    title: "Couldn't verify this repository",
+                    subtitle: "Restic could not open and check this folder. It may be unavailable, " +
+                        "the check may have timed out, or the bundled engine may not be working. " +
+                        "The destination has not changed. Check the folder is accessible and try again.");
+                return;
+            }
+
             case ResticRepoLayout.Verdict.EmptyOrUnrelated:
             {
                 var ok = await Views.DestructiveConfirmWindow.ShowConfirmAsync(
@@ -669,7 +683,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                         "Backspace will initialise a new repository here on the next run. " +
                         "If your old backup is still sitting at " +
                         $"\"{PathOrSubpath}\" or somewhere else on disk, " +
-                        "delete it manually; Backspace won't touch the old location.",
+                        "it will remain there. Keep it until you have checked that the new backup contains everything you need.",
                     confirmLabel: "Start fresh",
                     cancelLabel: "Cancel");
                 if (ok) PathOrSubpath = newPath;
@@ -684,8 +698,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                     subtitle:
                         $"The folder at {newPath} has SOME restic files but is " +
                         "missing others. This might be a partial copy or a different " +
-                        "kind of folder. Pick a different folder, or delete the partial " +
-                        "files manually first.");
+                        "kind of folder. Pick the complete repository folder. The destination has not changed.");
                 return;
             }
 

@@ -33,6 +33,8 @@ public abstract class ScenarioBase
 
     protected async Task Run()
     {
+        var previousQuit = Backspace.App.QuitRequested;
+        var previousForceQuit = Backspace.App.ForceQuitRequested;
         using var ctx = new ScenarioContext(ScenarioName, _secrets);
         try
         {
@@ -56,6 +58,13 @@ public abstract class ScenarioBase
         {
             ctx.Report.MarkFailed(ex.Message);
             throw;
+        }
+        finally
+        {
+            // Closing-window scenarios temporarily change process-wide flags.
+            // Never let their exit state change how the next test closes a window.
+            Backspace.App.QuitRequested = previousQuit;
+            Backspace.App.ForceQuitRequested = previousForceQuit;
         }
     }
 

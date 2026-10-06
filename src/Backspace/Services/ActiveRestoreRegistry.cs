@@ -99,10 +99,11 @@ public sealed class ActiveRestoreSession : INotifyPropertyChanged
     internal TaskCompletionSource CompletionSource { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public Task Completion => CompletionSource.Task;
     public bool IsComplete => !IsRunning;
+    public string OpenActionLabel => IsRunning ? "View progress →" : "View results →";
     public bool IsProgressIndeterminate => IsRunning && TotalBytes == 0 && RestoredCount == 0;
     public double PercentComplete => TotalBytes > 0 ? Math.Clamp((double)BytesRestored / TotalBytes, 0, 1)
         : TotalFiles == 0 ? 0 : Math.Clamp((double)RestoredCount / TotalFiles, 0, 1);
-    public string ProgressLabel => TotalFiles == 0 ? "Preparing restore…" : IsProgressIndeterminate
+    public string ProgressLabel => TotalFiles == 0 ? (IsRunning ? "Preparing restore…" : $"{RestoredCount} files recovered") : IsProgressIndeterminate
         ? $"Restoring {TotalFiles} files · final counts pending" : $"{RestoredCount} of {TotalFiles} files";
     public string StatusLabel => IsProgressIndeterminate ? "Restoring…" : IsRunning ? $"Restoring {(int)(PercentComplete * 100)}%" : Status switch
     {

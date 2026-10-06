@@ -36,7 +36,18 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     partial void OnHealthchecksEnabledChanged(bool value)     => ScheduleAutoSave();
     partial void OnHealthchecksApiKeyChanged(string value)    => ScheduleAutoSave();
     partial void OnHealthchecksBaseUrlChanged(string value)   => ScheduleAutoSave();
-    partial void OnMinimizeToTrayOnCloseChanged(bool value)   => ScheduleAutoSave();
+    partial void OnMinimizeToTrayOnCloseChanged(bool value)
+    {
+        if (_suspendAutoSave) return;
+        // Closing immediately after the click must see the new preference.
+        // Keep other in-progress settings edits pending through the Changed event.
+        ScheduleAutoSave();
+        ServiceLocator.Config.Update(c =>
+        {
+            c.Preferences.MinimizeToTrayOnClose = value;
+            if (value) c.Preferences.ShowTrayIcon = true;
+        });
+    }
     partial void OnMailFromChanged(string value)              { RecomputeEmailGate(); ScheduleAutoSave(); }
     // Per-event notification matrix. Each OnEmail* additionally
     // re-derives the AnyEmailEnabled aggregate that gates the nested

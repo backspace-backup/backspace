@@ -193,10 +193,10 @@ schedule — that's left as a user choice for now.
 ## Portability
 
 Everything Backspace creates on disk lives in **one folder** next to the
-executable: `Backspace.config/`. That folder holds `config.json`, the
-bundled engine binaries (restic / Backrest / rclone), Backrest's
+executable: `Backspace.config/`. That folder holds `config.json`, Backrest's
 state directory, run logs, per-backup snapshot ids, and an encrypted
-`secrets.bin`.
+`secrets.bin`. The bundled engine binaries (restic / Backrest / rclone)
+sit beside the application executable.
 
 **Backing up that folder = backing up your whole setup.** Drop the binary
 and the `Backspace.config/` folder on a new machine, re-enter your
@@ -206,6 +206,10 @@ doesn't travel), and you're back in business. Your backup definitions —
 names, sources, destinations, filters, schedules — travel losslessly.
 
 ## Building from source
+
+Before publishing a release, follow [the release checklist](docs/RELEASING.md).
+It covers the large real-engine test and human review of current documentation
+and screenshots. The prepared checking workflow does not yet enforce publishing approval.
 
 Requires .NET 10 SDK. The project multi-targets `net10.0-windows10.0.19041.0`
 (full Win32 stack) and `net10.0` (cross-platform fallback used on macOS / Linux).

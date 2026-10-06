@@ -203,7 +203,7 @@ public sealed class NotificationService
         return tcs.Task;
     }
 
-    private static Window? BuildAlertWindow(string title, string detail, NotificationSeverity s, bool topmost, TimeSpan? autoDismissAfter, Action? onClick)
+    internal static Window? BuildAlertWindow(string title, string detail, NotificationSeverity s, bool topmost, TimeSpan? autoDismissAfter, Action? onClick)
     {
         var accent = s switch
         {
@@ -216,8 +216,11 @@ public sealed class NotificationService
         var titleBlock = new TextBlock
         {
             Text = title,
-            FontFamily = new FontFamily("Fraunces, Cambria, Georgia, serif"),
+            FontFamily = new FontFamily("avares://Backspace/Assets/Fonts#Manrope"),
             FontSize = 18,
+            FontWeight = FontWeight.Bold,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 340,
             Foreground = new SolidColorBrush(Color.Parse("#E8E6DF")),
             Margin = new Thickness(0, 0, 0, 6),
         };
@@ -225,10 +228,10 @@ public sealed class NotificationService
         var detailBlock = new TextBlock
         {
             Text = detail,
-            FontFamily = new FontFamily("Geist, Segoe UI, system-ui, sans-serif"),
-            FontSize = 13,
-            LineHeight = 20,
-            Foreground = new SolidColorBrush(Color.Parse("#9A9890")),
+            FontFamily = FontFamily.Default,
+            FontSize = 14,
+            LineHeight = 22,
+            Foreground = new SolidColorBrush(Color.Parse("#C8CDC7")),
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 360,
         };
@@ -330,6 +333,19 @@ public sealed class NotificationService
         // outer `window` since the button was created before the window.
         dismissBtn.Click += (_, __) => { try { window.Close(); } catch { } };
 
+        Button? openButton = null;
+        if (onClick is not null)
+        {
+            openButton = new Button { Content = "Open run details", Margin = new Thickness(0, 8, 0, 0) };
+            openButton.Classes.Add("primary");
+            openButton.Click += (_, args) =>
+            {
+                args.Handled = true;
+                try { onClick(); } finally { window.Close(); }
+            };
+            stack.Children.Add(openButton);
+        }
+
         // Click-to-action: when onClick is provided, the toast body
         // becomes a clickable target. Used by the orchestrator to wire
         // failure toasts → "open Activity & logs with this run picked".
@@ -346,7 +362,7 @@ public sealed class NotificationService
                     // Walk up from the source — if the user clicked the
                     // dismiss button, it'll handle close itself.
                     for (var node = c; node is not null; node = node.Parent as Control)
-                        if (node == dismissBtn) return;
+                        if (node == dismissBtn || node == openButton) return;
                 }
                 try { onClick(); } catch { }
                 try { window.Close(); } catch { }

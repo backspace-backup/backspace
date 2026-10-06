@@ -1,0 +1,52 @@
+name: Release checks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-release-checks:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run unit and interface checks
+        shell: pwsh
+        run: |
+          dotnet test tests/Backspace.Tests -m:1 -p:SkipStubBuild=true --filter "FullyQualifiedName!~E2E" --logger "trx;LogFileName=interface.trx" --results-directory release-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Back up and restore 20,000 files and 2 GiB with the real engine
+        shell: pwsh
+        env:
+          BACKSPACE_E2E_SCALE: huge
+        run: |
+          dotnet test tests/Backspace.Tests --no-build --filter "FullyQualifiedName~E34_RestoreLongIncludeList" --logger "trx;LogFileName=large-round-trip.trx" --results-directory release-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [xml]$result = [System.IO.File]::ReadAllText((Join-Path $PWD 'release-evidence/large-round-trip.trx'), [System.Text.UTF8Encoding]::new($false))
+          $counts = $result.TestRun.ResultSummary.Counters
+          if ([int]$counts.passed -ne 1 -or [int]$counts.total -ne 1) { throw 'The large round-trip test must run and pass; an empty or skipped run is not sufficient.' }
+          # Scenario-level skips can be successful xUnit returns. Require the
+          # scenario report and the actual 20,000-file comparison as well.
+          $summary = [System.IO.File]::ReadAllText((Join-Path $PWD 'tests/Backspace.Tests/artifacts/scenarios/SUMMARY.md'), [System.Text.UTF8Encoding]::new($false))
+          if ($summary -notmatch '(?m)^### E34-restore-long-include-list — ✓ STEPS COMPLETED ') { throw 'The real-engine scenario did not complete its steps.' }
+          $validation = [System.IO.File]::ReadAllText((Join-Path $PWD 'tests/Backspace.Tests/artifacts/scenarios/E34-restore-long-include-list/restore-validation.md'), [System.Text.UTF8Encoding]::new($false))
+          if ($validation -notmatch 'Full SHA-256 comparison of 20000 files: all match\.') { throw 'The large run did not verify all 20,000 restored files.' }
+      - name: Record the exact revision for the human documentation review
+        shell: pwsh
+        run: |
+          git rev-parse HEAD | Out-File release-evidence/commit.txt -Encoding utf8
+          Copy-Item docs/RELEASING.md release-evidence/RELEASING.md
+      - name: Save results and freshly rendered screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: |
+            release-evidence/
+            tests/Backspace.Tests/artifacts/scenarios/
+          if-no-files-found: error

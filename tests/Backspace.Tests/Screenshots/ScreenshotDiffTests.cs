@@ -62,13 +62,66 @@ public class ScreenshotDiffTests
         try
         {
             bitmap.Save(staging);
-            File.Move(staging, currentPath, overwrite: true);
+            PublishScreenshot(staging, currentPath);
         }
         finally
         {
             if (File.Exists(staging)) File.Delete(staging);
         }
         AssertCurrentMatchesBaseline(currentPath);
+    }
+
+    internal static void PublishScreenshot(string staging, string currentPath)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try { File.Move(staging, currentPath, overwrite: true); return; }
+            catch (Exception ex) when (attempt < 7 && (ex is IOException || ex is UnauthorizedAccessException))
+            {
+                System.Threading.Thread.Sleep(40 * (attempt + 1));
+            }
+        }
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Screenshot_publication_waits_for_a_brief_Windows_file_lock()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var directory = Path.Combine(Path.GetTempPath(), "backspace-image-lock-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var current = Path.Combine(directory, "current.png");
+        var staging = Path.Combine(directory, "replacement.png");
+        File.WriteAllText(current, "previous complete image");
+        File.WriteAllText(staging, "new complete image");
+        var held = new FileStream(current, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var release = System.Threading.Tasks.Task.Run(async () =>
+        {
+            await System.Threading.Tasks.Task.Delay(200);
+            held.Dispose();
+        });
+        try
+        {
+            PublishScreenshot(staging, current);
+            Assert.Equal("new complete image", File.ReadAllText(current));
+        }
+        finally { await release; held.Dispose(); }
+    }
+
+    [Fact]
+    public void Screenshot_publication_fails_without_replacing_a_persistently_locked_image()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var directory = Path.Combine(Path.GetTempPath(), "backspace-image-lock-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var current = Path.Combine(directory, "current.png");
+        var staging = Path.Combine(directory, "replacement.png");
+        File.WriteAllText(current, "previous complete image");
+        File.WriteAllText(staging, "new complete image");
+        using var held = new FileStream(current, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var failure = Record.Exception(() => PublishScreenshot(staging, current));
+        Assert.True(failure is IOException or UnauthorizedAccessException);
+        Assert.Equal("previous complete image", File.ReadAllText(current));
+        Assert.Equal("new complete image", File.ReadAllText(staging));
     }
 
     /// <summary>Called immediately after each generator saves its PNG. This

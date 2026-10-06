@@ -5,7 +5,12 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.VisualTree;
 using Backspace.Models;
 using Backspace.Services;
 using Backspace.Services.OAuth;
@@ -39,16 +44,26 @@ public sealed class S50_ExactFailureNotification : ScenarioBase
         ServiceLocator.Logs.AppendRun(failure); ServiceLocator.Logs.AppendRun(success);
         using var vm = new MainWindowViewModel();
         var window = ctx.Driver.Show(new MainWindow { DataContext = vm });
-        var clicked = new TaskCompletionSource<Action>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clicked = new TaskCompletionSource<(string title, string detail, Action click)>(TaskCreationOptions.RunContinuationsAsynchronously);
         var notify = new NotificationService(ServiceLocator.Config)
         {
-            NotificationObserved = (_, _, severity, click, _) => { if (severity == NotificationSeverity.Failure && click is not null) clicked.TrySetResult(click); }
+            NotificationObserved = (title, detail, severity, click, _) => { if (severity == NotificationSeverity.Failure && click is not null) clicked.TrySetResult((title, detail, click)); }
         };
         var orchestrator = new BackupOrchestrator(ServiceLocator.Config, ServiceLocator.Secrets, ServiceLocator.Engine,
             ServiceLocator.Logs, ServiceLocator.Healthcheck, ServiceLocator.Mail, notify, ServiceLocator.Progress);
         await orchestrator.SendAlertsAsync(backup, failure);
-        var callback = await clicked.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        callback(); await ctx.Driver.PumpAsync(150);
+        var alert = await clicked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var popup = NotificationService.BuildAlertWindow(alert.title, alert.detail,
+            NotificationSeverity.Failure, false, null, alert.click)!;
+        ctx.Driver.Show(popup);
+        await ctx.Driver.PumpAsync(150);
+        ctx.Snapshot(popup, "failure-popup-before-click", "The production popup names the failed backup and offers an explicit Open run details button.");
+        Screenshots.ScreenshotDiffTests.SettleInitialTransitions(popup);
+        var open = popup.GetVisualDescendants().OfType<Button>().Single(b => b.Content?.ToString() == "Open run details");
+        var point = open.TranslatePoint(new Point(open.Bounds.Width / 2, open.Bounds.Height / 2), popup)!.Value;
+        popup.MouseDown(point, MouseButton.Left); popup.MouseUp(point, MouseButton.Left);
+        await ctx.Driver.PumpAsync(150);
+        Assert.False(popup.IsVisible);
         Assert.Equal(NavItem.Logs, vm.SelectedNav);
         Assert.Equal(failure.Id, vm.Logs.SelectedRun?.Id);
         Assert.Equal(2, vm.Logs.History.Count);
@@ -56,7 +71,26 @@ public sealed class S50_ExactFailureNotification : ScenarioBase
         ctx.Snapshot(window, "alert-selects-earlier-failed-run", "The actual failure-alert callback opens Activity & logs and selects the earlier failure, although a newer successful run exists.");
         vm.Logs.SelectRunById(backup.Id, "no-longer-in-history");
         Assert.Null(vm.Logs.SelectedRun); // Never substitute a different run.
-        ctx.Report.RecordNote("scope of proof", "Invoked the action emitted by the real SendAlertsAsync notification path. Navigation and rendered log selection are exercised; the operating-system popup and a physical toast click are not captured in this headless test.");
+        ServiceLocator.Config.Update(c =>
+        {
+            c.Backups.Single(b => b.Id == backup.Id).SkipNotificationGraceDays = 0;
+            c.Notifications.OnSkipped = new NotificationChannels { Toast = true, Sound = false, Email = false };
+        });
+        var warned = new TaskCompletionSource<(string title, string detail, Action? click)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        notify.NotificationObserved = (title, detail, severity, click, _) =>
+        {
+            Assert.Equal(NotificationSeverity.Warning, severity);
+            warned.TrySetResult((title, detail, click));
+        };
+        await orchestrator.SendAlertsAsync(backup, new RunRecord { BackupId = backup.Id, BackupName = backup.Name,
+            Status = BackupRunStatus.Skipped, Summary = "Archive drive is disconnected. No new backup was made.", StartedUtc = DateTime.UtcNow, EndedUtc = DateTime.UtcNow });
+        var warning = await warned.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Contains("skipped", warning.title); Assert.DoesNotContain("FAILED", warning.title);
+        var warningPopup = NotificationService.BuildAlertWindow(warning.title, warning.detail, NotificationSeverity.Warning, false, null, warning.click)!;
+        ctx.Driver.Show(warningPopup); await ctx.Driver.PumpAsync(100);
+        ctx.Snapshot(warningPopup, "skipped-warning-is-not-a-failure", "The same notification path renders a skipped run in amber with the word skipped, rather than the red FAILED notification. The test disables the grace period so the warning is due.");
+        warningPopup.Close();
+        ctx.Report.RecordNote("scope of proof", "Clicked the real popup's Open run details button using the callback from SendAlertsAsync. The earlier failed run is selected despite a newer success; a missing run never selects another one. Backspace uses its own Avalonia popup. Headless rendering does not prove Windows popup placement or focus behavior.");
         Backspace.App.QuitRequested = true; window.Close(); Backspace.App.QuitRequested = false;
     }
 }

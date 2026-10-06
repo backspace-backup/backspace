@@ -171,6 +171,12 @@ direction.
 
 ## Working conventions
 
+Before publishing any GitHub release, follow [docs/RELEASING.md](docs/RELEASING.md).
+Run the large real-engine round trip for the exact release revision, and
+attach current screenshots and documentation for human review. Do not
+claim the GitHub approval gate is enforced until its repository settings
+and the publishing workflow have actually been configured and exercised.
+
 These rules exist because they were learned the hard way during prior
 sessions. Read them once and treat them as load-bearing.
 

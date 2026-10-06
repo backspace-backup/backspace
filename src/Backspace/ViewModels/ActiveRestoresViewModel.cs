@@ -11,10 +11,8 @@ namespace Backspace.ViewModels;
 /// Backs the "Restores" left-nav cards view. One card per
 /// in-flight restore session in
 /// <see cref="ServiceLocator.ActiveRestores"/>; click a card →
-/// jumps to the Restore wizard scope-targeted at that session
-/// (today: open the wizard's progress screen; multi-restore
-/// per-session VM state is a follow-up ROADMAP item once a real
-/// parallel-restore case justifies the bookkeeping).
+/// returns to that session's existing wizard, or its dedicated
+/// result panel when the wizard contains multiple source restores.
 /// </summary>
 public sealed partial class ActiveRestoresViewModel : ViewModelBase, IDisposable
 {
@@ -37,6 +35,9 @@ public sealed partial class ActiveRestoresViewModel : ViewModelBase, IDisposable
     public bool HasSelectedSession => SelectedSession is not null;
     partial void OnSelectedSessionChanged(ActiveRestoreSession? value) => OnPropertyChanged(nameof(HasSelectedSession));
 
+    [RelayCommand]
+    private void BackToList() => SelectedSession = null;
+
     private void OnRegistryChanged()
     {
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -49,10 +50,6 @@ public sealed partial class ActiveRestoresViewModel : ViewModelBase, IDisposable
     private void OpenSession(ActiveRestoreSession? session)
     {
         if (session is null) return;
-        // Today's single-RestoreViewModel architecture surfaces the
-        // most recent restore on the Restore tab. Routing back there
-        // gives the user the live progress view they navigated away
-        // from. Multi-restore distinct VM scoping is the next layer.
         ServiceLocator.ActiveRestores.Open(session);
     }
 

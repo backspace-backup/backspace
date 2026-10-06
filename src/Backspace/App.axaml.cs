@@ -62,6 +62,7 @@ public partial class App : Application
         // Z:\ drive until reboot.
         AppDomain.CurrentDomain.ProcessExit += (_, __) =>
         {
+            if (ForceQuitRequested) return;
             try { ServiceLocator.SnapshotMounts?.DisposeAllAsync().GetAwaiter().GetResult(); }
             catch { /* dying process — best-effort */ }
             try { ServiceLocator.BackrestSidecar?.DisposeAsync().GetAwaiter().GetResult(); }
@@ -86,6 +87,7 @@ public partial class App : Application
         {
             ApplyAccentFromConfig();
             ApplyThemeFromConfig();
+            ApplyTrayVisibility();
             // Defer via Dispatcher.UIThread.Post: Config.Changed fires
             // synchronously from the call site that mutated config, which
             // is typically a binding setter on the Settings combobox.
@@ -102,6 +104,7 @@ public partial class App : Application
                 catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Accent re-apply failed"); }
                 try { ApplyThemeFromConfig(); }
                 catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Theme re-apply failed"); }
+                ApplyTrayVisibility();
             });
 
             desktop.MainWindow = new MainWindow { DataContext = new MainWindowViewModel() };
@@ -162,6 +165,7 @@ public partial class App : Application
             };
             desktop.Exit += (_, __) =>
             {
+                if (ForceQuitRequested) return;
                 try { ServiceLocator.SnapshotMounts?.DisposeAllAsync().GetAwaiter().GetResult(); }
                 catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Unmount-on-shutdown threw"); }
                 try
@@ -218,6 +222,13 @@ public partial class App : Application
     /// Avalonia routes both left and right click here; the right-click
     /// also pops the context menu via the NativeMenu wiring in App.axaml,
     /// so RestoreMainWindow is harmless either way.</summary>
+    internal void ApplyTrayVisibility()
+    {
+        var icons = TrayIcon.GetIcons(this);
+        if (icons is null) return;
+        foreach (var icon in icons) icon.IsVisible = ServiceLocator.Config.Current.Preferences.ShowTrayIcon;
+    }
+
     private void OnTrayIconClicked(object? sender, EventArgs e) => RestoreMainWindow();
 
     /// <summary>Tray Quit uses the same safe operation drain as window
@@ -236,6 +247,13 @@ public partial class App : Application
     /// reads this in its Closing handler to know whether to honour
     /// the MinimizeToTrayOnClose preference or just shut down.</summary>
     public static bool QuitRequested { get; set; }
+    internal static bool ForceQuitRequested { get; set; }
+
+    private async void OnTrayForceQuit(object? sender, EventArgs e)
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: MainWindow window })
+            await window.RequestForceQuitAsync();
+    }
 
     private void RestoreMainWindow()
     {

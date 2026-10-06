@@ -1,4 +1,6 @@
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Backspace.Services;
 using Xunit;
 
@@ -7,7 +9,7 @@ namespace Backspace.Tests.Services;
 /// <summary>
 /// Pins the on-disk layout shape the "Locate moved repository" flow
 /// uses to decide between three outcomes:
-///   • ValidRestic    → swap the destination URI silently
+///   • ValidRestic    → the UI asks before changing the destination URI
 ///   • EmptyOrUnrelated → confirm "Start fresh?" with the user
 ///   • Partial / PathMissing → refuse the swap
 /// Each row creates a fresh temp tree so collisions across tests
@@ -42,7 +44,7 @@ public class ResticRepoLayoutTests
     public void Inspect_FullyPopulatedResticRepo_ReturnsValidRestic()
     {
         var p = CreateTemp();
-        // Mirror what restic init writes: an unencrypted config FILE
+        // Mirror the layout restic init writes: a config FILE
         // plus four directories. We don't need to populate the
         // contents — Inspect only checks the entries exist.
         File.WriteAllText(Path.Combine(p, "config"), "{}");
@@ -73,5 +75,24 @@ public class ResticRepoLayoutTests
         var path = Path.Combine(Path.GetTempPath(), $"restic-layout-test-{System.Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Engine_that_cannot_run_never_confirms_repository_access(bool invalidExecutable)
+    {
+        var root = CreateTemp();
+        var repo = Path.Combine(root, "repository");
+        Directory.CreateDirectory(repo);
+        File.WriteAllText(Path.Combine(repo, "config"), "{}");
+        foreach (var entry in ResticRepoLayout.RequiredEntries)
+            if (entry != "config") Directory.CreateDirectory(Path.Combine(repo, entry));
+        var engine = Path.Combine(root, "unavailable-restic.exe");
+        if (invalidExecutable) File.WriteAllText(engine, "This is not an executable.");
+
+        Assert.Equal(ResticRepoLayout.Verdict.ValidRestic, ResticRepoLayout.Inspect(repo));
+        Assert.Equal(ResticRepoLayout.Verdict.VerificationUnavailable,
+            await ResticRepoLayout.InspectWithDecryptionAsync(repo, "password", engine, CancellationToken.None));
     }
 }

@@ -204,7 +204,7 @@ older scenario comments that describe broader coverage.
 | Add destination (each kind) | `S08_DestinationEditorVariants` renders preconfigured variants; does not authenticate/save every kind | 🟡 |
 | Edit destination | `S41_DestinationAndBackupCrud` | ✅ |
 | Delete destination | `S41` | ✅ |
-| Change destination path mid-life | `E33_DestinationPathRenameMidLife` | ✅ |
+| Locate a moved repository and keep earlier snapshots | `E33_DestinationPathRenameMidLife` moves a real encrypted repository, clicks Cancel / Use this repository, rejects a wrong password, then backs up and restores through the new path. The native picker is replaced by its chosen path; Save uses the view-model method. | 🟡 native picker remains |
 | Change storage password | `E19_ChangeStoragePassword`, `S09_PasswordDialogs` | ✅ |
 | Erase a destination's data | `E20_EraseStorageWipesDataPreservesForeign`, `S10_DestructiveConfirmDialog` | ✅ |
 | Destination pill click → edit dialog | `InteractionDestinationClickTests` | ✅ |
@@ -237,11 +237,14 @@ older scenario comments that describe broader coverage.
 
 | Action | Scenario(s) | Status |
 |---|---|---|
-| Toast on Success / Skipped / Failure | `S48_NotificationsWiring` only asserts no-throw dispatch under a headless lifetime; S50 exercises actual failure callback selection, not an OS popup | 🟡 |
+| Toast on Success / Skipped / Failure | `S50_ExactFailureNotification` renders the production failure and skipped-warning popups and clicks Open run details. Run history is prepared; native Windows placement and focus remain untested. `S48_NotificationsWiring` only checks no-throw dispatch. | 🟡 |
 | Healthchecks.io ping on each run terminal | `CloudNotificationRepairTests` fake HTTP proves independence from daily human-alert cap and email delay; live endpoint remains | 🟡 |
 | Email on Failure | `CloudNotificationRepairTests` fake HTTP proves bounded retries and visible errors; actual inbox delivery remains | 🟡 |
 | Sound alert on Failure | `S48` returns without a desktop sound assertion; audible output remains | 🟡 |
-| Failure alert opens the exact failed run | `S50_ExactFailureNotification` invokes the callback emitted by real alert handling and checks the historical failed row even with a newer success | ✅ |
+| Failure alert opens the exact failed run | `S50_ExactFailureNotification` pointer-clicks the real popup button and checks the earlier failed row even with a newer success; a missing run ID must not select an unrelated run | ✅ headless interaction |
+| Close-to-tray preference takes effect immediately | `S60_ReviewFeedback` starts with the tray hidden, clicks the actual checkbox, immediately closes, and reopens the same window | ✅ headless interaction |
+| Force quit remains available while ordinary Quit waits | `S60_ReviewFeedback` keeps an operation lease open, starts ordinary Quit, opens Force quit, then cancels it. Native menu interaction and actual forced process exit remain untested. | 🟡 |
+| Restore list opens one result without a duplicate card | `S60_ReviewFeedback` clicks View results and All restores on the real views using prepared session history | ✅ headless interaction |
 | External scheduled results appear when returning to the app | `S53_ExternalScheduledRefresh` uses separate config/history writers and real navigation/activation; no periodic watcher | ✅ |
 | Health banner state matrix | `S13_HealthBannerStateMatrix` | ✅ |
 
@@ -302,8 +305,8 @@ broader run), don't stop at "tests passed/failed":
    `tests/Backspace.Tests/Scenarios/VisualAuditor.cs`.
 4. For `⊘ SKIP` rows whose reason is a missing secret: do nothing.
    Those are user-supplied; mention them once in the turn summary.
-5. After any fix, re-run and confirm the affected rows flipped to
-   `✅ PASS`.
+5. After any fix, rerun and require both completed scenario steps and
+   a passing test-runner result. `STEPS COMPLETED` alone is insufficient.
 
 A single fix-and-rerun pulse, not an unbounded loop. Stop and report if
 real issues remain after two passes.
@@ -313,6 +316,14 @@ the same test call. The directory-wide diff test is only an additional check;
 its execution order can no longer silently substitute previous-run images for
 fresh render verification. Inspect an intentional visual change before updating
 its baseline. The local audit dashboard retains before/after images separately.
+
+Screenshot publishing retries brief Windows file locks. A persistent lock still
+fails the test and preserves the previous image; dedicated checks exercise both
+outcomes using actual file locks. Scenario cleanup restores the process-wide quit
+flags, and shutdown scenarios must release any test-owned shutdown admission
+before another scenario starts. Dispatcher-dependent tests use `AvaloniaFact`
+so they cannot accidentally initialize a fallback dispatcher before the headless
+application starts.
 
 The general window screenshot generators advance real render frames for a short
 settling interval before capture, so initial caret rotations and theme brushes

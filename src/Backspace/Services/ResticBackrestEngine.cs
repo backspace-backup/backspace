@@ -257,6 +257,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     {
                         await DrainFollowUpOperationsAsync(client, repoGuid, previousIds, ct).ConfigureAwait(false);
                         acknowledged = true;
+                        await CaptureOperationDiagnosticsAsync(client, owned, lineSink).ConfigureAwait(false);
                         return owned;
                     }
                     if (ct.IsCancellationRequested)
@@ -266,6 +267,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                         var terminal = await WaitForOperationTerminalAsync(client, owned.Id, acknowledgement.Token, lineSink).ConfigureAwait(false);
                         await DrainFollowUpOperationsAsync(client, repoGuid, previousIds, ct).ConfigureAwait(false);
                         acknowledged = true;
+                        await CaptureOperationDiagnosticsAsync(client, terminal, lineSink).ConfigureAwait(false);
                         return terminal;
                     }
                 }
@@ -1040,6 +1042,49 @@ public sealed class ResticBackrestEngine : IBackupEngine
             if (ownershipDeadline is not null && DateTime.UtcNow >= ownershipDeadline.Value)
                 throw new IOException("The backup engine could not confirm ownership of the restore operation.");
             await Task.Delay(100).ConfigureAwait(false);
+        }
+    }
+
+    internal async Task CaptureOperationDiagnosticsAsync(BackrestClient client, BackrestOperation operation,
+        Action<string>? lineSink)
+    {
+        void Emit(string line) { RaiseLineWritten(line); lineSink?.Invoke(line); }
+        // Backrest retains the original Restic errors as structured records.
+        // Keep these even when fetching the longer operation log fails.
+        if (operation.OperationBackup is { ValueKind: System.Text.Json.JsonValueKind.Object } backup
+            && backup.TryGetProperty("errors", out var errors)
+            && errors.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            foreach (var error in errors.EnumerateArray()) Emit("[restic] " + error.GetRawText());
+        }
+        if (string.IsNullOrWhiteSpace(operation.Logref)) return;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            var decoder = System.Text.Encoding.UTF8.GetDecoder();
+            var pending = new System.Text.StringBuilder();
+            long bytes = 0;
+            await foreach (var chunk in client.StreamAsync<GetLogsRequest, RestoreLogChunk>(
+                "/v1.Backrest/GetLogs", new GetLogsRequest { Ref = operation.Logref }, timeout.Token).ConfigureAwait(false))
+            {
+                bytes += chunk.Value.Length;
+                if (bytes > 8 * 1024 * 1024) { Emit("[backrest] Operation log exceeds 8 MiB; the full log remains in Backrest."); break; }
+                var chars = new char[System.Text.Encoding.UTF8.GetMaxCharCount(chunk.Value.Length)];
+                var count = decoder.GetChars(chunk.Value, 0, chunk.Value.Length, chars, 0, false);
+                pending.Append(chars, 0, count);
+                var text = pending.ToString();
+                var end = text.LastIndexOf('\n');
+                if (end < 0) continue;
+                foreach (var line in text[..(end + 1)].Split('\n', StringSplitOptions.RemoveEmptyEntries)) Emit(line.TrimEnd('\r'));
+                pending.Clear(); pending.Append(text[(end + 1)..]);
+            }
+            if (pending.Length > 0) Emit(pending.ToString());
+        }
+        catch (Exception ex)
+        {
+            // Log availability must not turn a completed backup into a retry.
+            _log.Warning(ex, "Could not read Backrest operation log {Id}", operation.Id);
+            Emit("[backrest] The full operation log could not be retrieved. Structured file errors above are retained.");
         }
     }
 

@@ -378,6 +378,7 @@ internal sealed class BackrestOperation
     /// "STATUS_WARNING", "STATUS_ERROR", "STATUS_USER_CANCELLED" — see proto.</summary>
     [JsonPropertyName("status")] public string Status { get; set; } = "";
     [JsonPropertyName("displayMessage")] public string DisplayMessage { get; set; } = "";
+    [JsonPropertyName("logref")] public string Logref { get; set; } = "";
     [JsonPropertyName("unixTimeStartMs")] public long UnixTimeStartMs { get; set; }
     [JsonPropertyName("unixTimeEndMs")] public long UnixTimeEndMs { get; set; }
     /// <summary>Present on RunCommand-shaped operations (Backrest's

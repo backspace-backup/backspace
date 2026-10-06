@@ -8,11 +8,13 @@
     <Grid RowDefinitions="Auto,Auto,Auto,*">
       <TextBlock Grid.Row="0" Classes="page-title" Text="Restores"/>
       <TextBlock Grid.Row="1" Classes="dim" Margin="0,4,0,18"
-                 Text="Your restore progress and results. Open a card to return to that restore; completed results stay until you dismiss them."/>
+                 TextWrapping="Wrap" Text="Track each restore and open its results. Results stay here until you dismiss them."/>
 
       <!-- Empty state -->
       <Border Grid.Row="2" IsVisible="{Binding HasSelectedSession}"
               Background="{DynamicResource BS.Brush.BgSurface}" CornerRadius="12" Padding="18" Margin="0,0,0,18">
+        <StackPanel Spacing="12">
+        <Button Content="← All restores" Classes="ghost" Command="{Binding BackToListCommand}"/>
         <StackPanel DataContext="{Binding SelectedSession}" x:DataType="svc:ActiveRestoreSession" Spacing="8">
           <TextBlock Text="{Binding BackupName}" Classes="section-title"/>
           <TextBlock Text="{Binding SourcePath}" TextWrapping="Wrap" Classes="body"/>
@@ -22,6 +24,7 @@
           <TextBlock Text="{Binding StatusLabel}" Classes="body"/>
           <TextBlock Text="{Binding ProgressLabel}" Classes="dim"/>
           <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Classes="dim"/>
+        </StackPanel>
         </StackPanel>
       </Border>
       <Border Grid.Row="3"
@@ -38,7 +41,7 @@
 
       <!-- Cards list -->
       <ScrollViewer Grid.Row="3"
-                    IsVisible="{Binding !HasNone}"
+                    IsVisible="{Binding !HasSelectedSession}"
                     HorizontalScrollBarVisibility="Disabled">
         <ItemsControl ItemsSource="{Binding Sessions}">
           <ItemsControl.ItemTemplate>
@@ -55,15 +58,16 @@
                   <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
                     <TextBlock Classes="body" FontWeight="SemiBold"
                                Text="{Binding BackupName}"/>
-                    <TextBlock Classes="dim" FontSize="12"
-                               TextTrimming="CharacterEllipsis"
-                               Text="{Binding TargetPath}"/>
+                    <TextBlock Classes="dim" TextTrimming="CharacterEllipsis" Text="{Binding SourcePath, StringFormat='From {0}'}"/>
+                    <TextBlock Classes="dim" TextTrimming="CharacterEllipsis" Text="{Binding TargetPath, StringFormat='Into {0}'}"/>
                   </StackPanel>
-                  <TextBlock Grid.Row="0" Grid.Column="1"
-                             Classes="dim" FontSize="12"
+                  <StackPanel Grid.Row="0" Grid.Column="1" Spacing="8" Margin="16,0,0,0">
+                  <TextBlock Classes="dim"
                              MaxWidth="220" TextTrimming="CharacterEllipsis"
                              VerticalAlignment="Top"
                              Text="{Binding DestinationName}"/>
+                  <TextBlock Text="{Binding OpenActionLabel}" FontWeight="SemiBold" Foreground="{DynamicResource BS.Brush.Accent}"/>
+                  </StackPanel>
                   <ProgressBar Grid.Row="1" Grid.ColumnSpan="2"
                                Margin="0,12,0,6"
                                Minimum="0" Maximum="1"

@@ -5,42 +5,14 @@ using System.Runtime.Versioning;
 namespace Backspace.Services;
 
 /// <summary>
-/// Inspection helpers + documented answer to the question "what
-/// happens when restic backs up a OneDrive / Dropbox / iCloud
-/// online-only placeholder file?"
-///
-/// Empirically-established behavior (Windows; tested against restic
-/// 0.18, OneDrive Files-On-Demand, and Dropbox Smart Sync):
-///
-/// 1. The cloud provider's filter driver marks online-only files
-///    with <c>FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS</c> (0x00400000).
-///    The file appears in the directory with its full size and
-///    metadata; the bytes live in the cloud.
-/// 2. <b>With <c>--exclude-cloud-files</c></b> (Backspace's default):
-///    restic checks the attribute, skips the file, and emits it in
-///    the snapshot with a "cloud-only" marker. Restoring later does
-///    NOT round-trip the content — there was nothing to back up.
-///    This is the right default for a local-drive backup.
-/// 3. <b>Without <c>--exclude-cloud-files</c></b>: restic opens the
-///    file and reads it. The filter driver intercepts the read and
-///    pulls the bytes from the cloud, which materialises the file
-///    on local disk. <b>That state persists</b> — the cloud client
-///    does not re-virtualise the file after the read completes.
-///    A backup that touched 200 GB of online-only OneDrive files
-///    means the user now has 200 GB of newly-materialised local
-///    files until they manually right-click → "Free up space" on
-///    each one.
-///
-/// Consequence for the "mirror my Dropbox to a different destination
-/// without cluttering local disk" workflow: <c>--exclude-cloud-files=false</c>
-/// is NOT the right tool. The correct shape is either (a) point
-/// Backspace at an rclone remote so the bytes flow cloud→restic
-/// without ever touching the local disk, or (b) accept the local
-/// materialisation and use the cloud provider's API to set the
-/// affected files back to "online-only" after the run. Backspace
-/// doesn't currently automate (b); the rclone-remote path (a) lands
-/// once the destination editor supports cloud-source backups
-/// (separate feature).
+/// Windows placeholder inspection. This does not read file contents.
+/// Restic's --exclude-cloud-files asks the engine to omit supported
+/// online-only files; omitted content cannot be restored from that backup.
+/// Without that flag, opening a supported placeholder can download it.
+/// Provider behavior varies: a real Dropbox placeholder tested with the
+/// bundled Restic 0.18.1 was rejected as an unsupported irregular file,
+/// with no content saved and no local download, with either flag setting.
+/// Do not promise hydration or automatic removal of downloaded content.
 /// </summary>
 public static class CloudFileBehavior
 {
@@ -66,7 +38,7 @@ public static class CloudFileBehavior
         try
         {
             var attrs = File.GetAttributes(path);
-            return (attrs & RecallOnDataAccess) != 0;
+            return (attrs & RecallOnDataAccess) != 0 || (attrs & (FileAttributes.Offline | FileAttributes.ReparsePoint)) == (FileAttributes.Offline | FileAttributes.ReparsePoint);
         }
         catch (OperationCanceledException)
         {
@@ -87,6 +59,6 @@ public static class CloudFileBehavior
     /// docs. Wraps the answer above in one sentence each side of the
     /// flag so users see what they're signing up for.</summary>
     public static string ExplainBackupBehavior(bool excludeCloudFiles) => excludeCloudFiles
-        ? "Cloud-only files (OneDrive / Dropbox / iCloud) are skipped. Restoring later won't re-create them, but your backups stay small and your local disk stays free."
-        : "Cloud-only files are downloaded on the fly during backup. The cloud provider keeps the local copy after the read, so your local disk fills up with whatever you backed up. You'll need to manually free space afterward.";
+        ? "Supported cloud-only files are skipped and cannot be recovered from this backup. Some providers use placeholders Restic cannot read; check the run for warnings."
+        : "Cloud-only files may download during backup and use local disk space afterward. Some placeholders cannot be read by Restic and will not be backed up. Check warnings; Backspace does not automatically free downloaded files.";
 }
