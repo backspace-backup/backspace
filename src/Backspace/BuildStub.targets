@@ -58,4 +58,18 @@
              Text="Stub publish didn't produce $(StubAssetPath); main app will build without it. Set -p:SkipStubBuild=true to silence this warning." />
   </Target>
 
+  <!-- The project-wide Assets glob is evaluated before PublishStub creates
+       the file on a clean checkout. Add it again after publishing, removing
+       an existing item first so incremental builds do not embed it twice. -->
+  <Target Name="IncludePublishedStub" BeforeTargets="GenerateAvaloniaResources"
+          DependsOnTargets="PublishStub">
+    <ItemGroup>
+      <AvaloniaResource Remove="Assets\Backspace-stub.exe" />
+      <AvaloniaResource Include="Assets\Backspace-stub.exe"
+                        Condition="Exists('$(StubAssetPath)')" />
+    </ItemGroup>
+    <Error Condition="'$(SkipStubBuild)' != 'true' and !Exists('$(StubAssetPath)')"
+           Text="The fallback stub is missing after publish. Use SkipStubBuild=true only for development builds that intentionally omit it." />
+  </Target>
+
 </Project>

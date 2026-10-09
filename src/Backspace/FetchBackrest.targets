@@ -12,9 +12,8 @@
       • Linux    → Assets/backrest,     Assets/restic,     Assets/rclone
 
     Source repos:
-      • backrest  https://github.com/garethgeorge/backrest/releases/latest
-      • restic    https://github.com/restic/restic/releases/latest
-      • rclone    https://downloads.rclone.org/rclone-current-<os>-<arch>.zip
+      Versions are selected in engine-versions.json. Both fetch scripts
+      use those exact release tags rather than moving latest aliases.
 
     Cross-host fetch:
       • Windows builds invoke fetch-backrest.ps1 (PowerShell 5.1+).
@@ -43,11 +42,10 @@
 
   <!--
     Idempotent fetch: only re-runs when one of the assets is missing.
-    The fetch scripts pull the LATEST release of each upstream (no
-    pin file), so a build doesn't track upstream-version drift
-    automatically. To force a refresh of the bundled binaries
-    against the current upstream "latest" tag, delete the relevant
-    Assets/<binary> file(s) and re-build:
+    The fetch scripts use engine-versions.json. To upgrade, change the
+    selected version deliberately, preserve the existing binaries outside
+    Assets, and rebuild. Run release checks before accepting the upgrade.
+    The commands below remove the current copies; preserve them first:
 
       del src\Backspace\Assets\backrest.exe ^
           src\Backspace\Assets\restic.exe ^
@@ -59,11 +57,10 @@
       rm -f src/Backspace/Assets/{backrest,restic,rclone}
       dotnet build src/Backspace
 
-    The next build then re-runs the fetch script and stamps fresh
-    binaries into Assets/. This is the supported "upgrade the
-    bundled sidecar" workflow. Backlog: pin exact upstream versions
-    in a manifest with SHA-256 checksums so a build that grabs an
-    unintended (or tampered) upstream release doesn't ship silently.
+    The next build downloads the selected versions into Assets/.
+    Version pinning prevents silent protocol upgrades; it does not
+    itself verify archive authenticity. A reviewed cross-platform
+    SHA-256 manifest remains separate work.
   -->
   <Target Name="EnsureBackrestBinaries"
           BeforeTargets="GenerateAvaloniaResources;PrepareResources;BeforeBuild"
@@ -88,11 +85,11 @@
           ContinueOnError="false"/>
 
     <Error Condition="!Exists('$(BackrestAssetPath)')"
-           Text="Failed to fetch backrest$(BackrestAssetExt). Either set -p:SkipBackrestDownload=true, or manually download the matching backrest_(Windows|Darwin|Linux)_(x86_64|arm64).(zip|tar.gz) from https://github.com/garethgeorge/backrest/releases/latest, extract its backrest binary, and save it to $(BackrestAssetPath)."/>
+           Text="Failed to fetch backrest$(BackrestAssetExt). Use the Backrest release selected in engine-versions.json, extract the matching OS/architecture binary, and save it to $(BackrestAssetPath). SkipBackrestDownload=true is available for offline development."/>
     <Error Condition="!Exists('$(ResticAssetPath)')"
-           Text="Failed to fetch restic$(BackrestAssetExt). Either set -p:SkipBackrestDownload=true, or manually download the matching restic_(windows|darwin|linux)_(amd64|arm64).(zip|bz2) from https://github.com/restic/restic/releases/latest, extract its restic binary, and save it to $(ResticAssetPath)."/>
+           Text="Failed to fetch restic$(BackrestAssetExt). Use the Restic release selected in engine-versions.json, extract the matching OS/architecture binary, and save it to $(ResticAssetPath). SkipBackrestDownload=true is available for offline development."/>
     <Error Condition="!Exists('$(RcloneAssetPath)')"
-           Text="Failed to fetch rclone$(BackrestAssetExt). Either set -p:SkipBackrestDownload=true, or manually download rclone-current-(windows|osx|linux)-(amd64|arm64).zip from https://downloads.rclone.org/, extract its rclone binary, and save it to $(RcloneAssetPath)."/>
+           Text="Failed to fetch rclone$(BackrestAssetExt). Use the rclone release selected in engine-versions.json, extract the matching OS/architecture binary, and save it to $(RcloneAssetPath). SkipBackrestDownload=true is available for offline development."/>
   </Target>
 
 </Project>

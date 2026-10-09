@@ -44,8 +44,10 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Run unit and interface checks
         shell: pwsh
+        env:
+          BACKSPACE_REQUIRE_STUB: '1'
         run: |
-          dotnet test tests/Backspace.Tests -m:1 -p:SkipStubBuild=true --filter "FullyQualifiedName!~E2E" --logger "trx;LogFileName=interface.trx" --results-directory release-evidence
+          dotnet test tests/Backspace.Tests -m:1 --filter "FullyQualifiedName!~E2E" --logger "trx;LogFileName=interface.trx" --results-directory release-evidence
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Back up and restore 20,000 files and 2 GiB with the real engine
         shell: pwsh

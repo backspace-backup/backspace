@@ -39,6 +39,19 @@ public class CanonicalInstallerTests : IDisposable
     }
 
     [Fact]
+    public void Release_check_contains_the_embedded_fallback_executable()
+    {
+        // Developer builds may explicitly skip the stub. The release workflow
+        // requires this assertion on its first build of a fresh checkout.
+        if (Environment.GetEnvironmentVariable("BACKSPACE_REQUIRE_STUB") != "1") return;
+        using var stream = new Avalonia.Platform.StandardAssetLoader().Open(
+            new Uri("avares://Backspace/Assets/Backspace-stub.exe"));
+        Assert.True(stream.Length > 100_000, "The actual fallback executable must be embedded.");
+        Assert.Equal('M', stream.ReadByte());
+        Assert.Equal('Z', stream.ReadByte());
+    }
+
+    [Fact]
     public void SentinelPath_isUnderLocalAppDataBackspace()
     {
         var p = CanonicalInstaller.SentinelPath;

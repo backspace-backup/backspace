@@ -15,6 +15,8 @@ S33 now exercises persisted ownership records with injected process inspection/t
 
 The test host supplies a quiet network-cost probe so a hosted runner's metered or background-restricted connection does not cancel unrelated scenarios. The runtime-guard tests override that per instance and explicitly trigger cancellation. Neither proves a physical Windows network transition. Clock-format tests cover both 12-hour and 24-hour cultures. Engine files are selected for copying after the download target has completed, including on a clean checkout's first build.
 
+Release checks also build the missing-executable fallback and set `BACKSPACE_REQUIRE_STUB=1`. The corresponding test opens the embedded executable and checks its size and Windows executable header. This catches a first-build resource glob that would otherwise miss the newly generated file. Developer runs that explicitly skip the stub do not establish this packaging check.
+
 ### Production scale
 
 Set `BACKSPACE_E2E_SCALE=huge` to lift the shared E2E source builders and manual E11/E30/E31/E34/E35 fixtures to production-sized input. The standard huge fixture has at least 20,000 files and approximately 2 GiB; exact edge fixtures retain their special files in addition to the scale payload. Multi-source or multi-backup tests can create multiple such payloads, and backup/restore copies need additional free space. The default remains small. This switch increases local I/O and, for explicitly enabled cloud scenarios, upload/download traffic.

@@ -23,6 +23,7 @@ $env:PSModulePath = (Join-Path $PSHOME 'Modules') + [IO.Path]::PathSeparator + $
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $headers = @{ 'User-Agent' = 'Backspace-build' }
+$versions = Get-Content (Join-Path $PSScriptRoot 'engine-versions.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 
 # Detect arch. On Windows we support x86_64 + arm64. Default to x86_64
 # if anything else (32-bit hosts can't run the .NET 10 build anyway).
@@ -38,19 +39,20 @@ function Ensure-Dir([string] $path) {
 function Fetch-FromGitHubRelease {
     param(
         [string] $RepoSlug,         # e.g. 'garethgeorge/backrest'
+        [string] $ReleaseTag,
         [string] $AssetPattern,     # regex matching the asset filename
         [string] $InnerBinaryName,  # filename inside the archive to extract
         [string] $OutPath
     )
 
-    Write-Host "[fetch-backrest] Querying GitHub for $RepoSlug latest release..."
+    Write-Host "[fetch-backrest] Querying GitHub for $RepoSlug $ReleaseTag..."
     $release = Invoke-RestMethod `
-        -Uri "https://api.github.com/repos/$RepoSlug/releases/latest" `
+        -Uri "https://api.github.com/repos/$RepoSlug/releases/tags/$ReleaseTag" `
         -Headers $headers -TimeoutSec 30
 
     $asset = $release.assets | Where-Object { $_.name -match $AssetPattern } | Select-Object -First 1
     if (-not $asset) {
-        throw "Could not find an asset matching '$AssetPattern' in $RepoSlug latest release."
+        throw "Could not find an asset matching '$AssetPattern' in $RepoSlug $ReleaseTag."
     }
 
     Write-Host ("[fetch-backrest] Downloading {0} ({1:N1} MB)" -f $asset.name, ($asset.size / 1MB))
@@ -86,11 +88,9 @@ function Fetch-FromGitHubRelease {
                 } else {
                     Write-Host "[fetch-backrest]   WARN: no manifest entry for $RepoSlug/$($asset.name); add the hash above to fetch-manifest.json to pin"
                 }
-            } catch [System.Management.Automation.MethodInvocationException] {
-                # Re-throw genuine integrity failures so the build dies.
-                throw
             } catch {
-                Write-Host "[fetch-backrest]   WARN: couldn't read fetch-manifest.json ($($_.Exception.Message)); continuing without pinning"
+                # A mismatch or malformed manifest must not become a warning.
+                throw
             }
         } else {
             Write-Host "[fetch-backrest]   note: no fetch-manifest.json present; copy the sha256 above into one to enable pinning"
@@ -115,11 +115,10 @@ function Fetch-FromGitHubRelease {
 function Fetch-Rclone {
     param([string] $Arch, [string] $OutPath)
 
-    # rclone publishes a stable "current" alias per OS+arch at
-    # downloads.rclone.org. The archive contains rclone(.exe) inside
-    # a versioned folder like rclone-v1.66.0-windows-amd64/.
+    # Use the reviewed version, never the moving "current" alias.
     $rcloneArch = if ($Arch -eq 'arm64') { 'arm64' } else { 'amd64' }
-    $url = "https://downloads.rclone.org/rclone-current-windows-$rcloneArch.zip"
+    $version = $versions.rclone
+    $url = "https://downloads.rclone.org/$version/rclone-$version-windows-$rcloneArch.zip"
 
     Write-Host "[fetch-backrest] Downloading rclone from $url"
 
@@ -143,6 +142,7 @@ function Fetch-Rclone {
 if (-not (Test-Path $BackrestOutPath)) {
     Fetch-FromGitHubRelease `
         -RepoSlug 'garethgeorge/backrest' `
+        -ReleaseTag $versions.backrest `
         -AssetPattern "^backrest_Windows_$arch\.zip$" `
         -InnerBinaryName 'backrest.exe' `
         -OutPath $BackrestOutPath
@@ -154,6 +154,7 @@ if (-not (Test-Path $ResticOutPath)) {
     $resticArch = if ($arch -eq 'arm64') { 'arm64' } else { 'amd64' }
     Fetch-FromGitHubRelease `
         -RepoSlug 'restic/restic' `
+        -ReleaseTag $versions.restic `
         -AssetPattern "^restic_[0-9.]+_windows_$resticArch\.zip$" `
         -InnerBinaryName 'restic_*.exe' `
         -OutPath $ResticOutPath

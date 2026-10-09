@@ -243,6 +243,10 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Clean-run findings — 2026-10-09:** The second hosted run reached the suite and found 14 failures caused by missing first-build engine copies, a 24-hour-only assertion and the runner’s metered-network signal cancelling unrelated tests. The fixes preserve production network detection and the dedicated cancellation tests. Both failed runs correctly skipped publication; rerun before calling the approval path proven.
 
+- **Packaging follow-up — 2026-10-09:** The fallback warning executable had the same first-build resource-list problem. Include it after it is generated, fail ordinary builds if generation produces no file, and make the release suite verify the actual embedded executable. Development builds can still explicitly skip it.
+
+- **Engine-version finding — 2026-10-09:** The third hosted run passed the interface suite but failed restore with newly downloaded Backrest 1.14.1. Its request formats differ from the tested 1.13.0 engine. Both downloaders now read explicit version selections: Backrest 1.13.0, Restic 0.18.1 and rclone 1.74.1. Existing local binaries stay untouched. This prevents an unreviewed automatic upgrade; it does not claim compatibility with Backrest 1.14.1 or cryptographic verification of every download.
+
 - **Follow-up — 2026-10-09:** Complete all release-gate implementation and available repository configuration without waiting for the user. Identify a concrete access or approval blocker before leaving work open.
 - **I need from you:** N011: No action yet; the agent still needs to complete the remaining work.
 
@@ -1270,7 +1274,7 @@ for the workflow rules an agent must follow before touching this file.
   > mark this as still needs testing. In our chat session, tell me what i need to do step by step to complete testing which needs me.
 
 - **Follow-up — 2026-10-09:** Show this explicitly as a pending user test in the dashboard, with complete sign-in, backup, reopen, restore and file-comparison instructions.
-- **I need from you:** B034: Choose a provider, sign in through the real destination editor, run a small backup, restart the app, run again without signing in, then restore and compare the files. The report and chat give the steps.
+- **I need from you:** B034: Choose a provider, sign in through the real destination editor, run a small backup, restart the app, run again without signing in, then restore and compare the files. The highlighted pending-test panel in [B034](http://127.0.0.1:4317/#B034) gives all the steps and explains what to report back.
 
 ### P2: Measure cloud-file hydration after backup
 
@@ -1296,6 +1300,7 @@ for the workflow rules an agent must follow before touching this file.
   > exclude-cloud-files => Is it an option we have currently? Is it a legacy one from Duplicacy we had in duplimate? If so, how does Restic handles this?
 
 - **Follow-up — 2026-10-09:** Investigate backing up online-only Dropbox, Google Drive and OneDrive files without changing the user’s local availability choice. Check provider metadata for changes, download changed content into a separate temporary location, check free space before downloading, and warn clearly when a file cannot be included. The requested default is to ignore online-only files; including them must explain that local placeholders stay online-only. Research existing products and the Restic/Backrest integration before proposing implementation.
+- **Research result — 2026-10-09:** Cloudstic documents direct Google Drive and OneDrive source reads with change tracking; Arq documents changed-file checks but hydrates the original Windows files. Restic users also report backups from rclone-mounted sources. These are useful precedents, not proof of the exact requested workflow. The linked report separates documented behavior from implementation and testing still needed in Backspace.
 - **I need from you:** Nothing for the research. A later live prototype will need your sign-in and a disposable source folder; the current checkbox must not yet promise to leave included files online-only.
 
 ### P2: Check layout with ten sources and destinations

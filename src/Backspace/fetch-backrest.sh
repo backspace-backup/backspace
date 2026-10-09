@@ -50,17 +50,22 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-fetch_github_asset() {
-    # $1=repo_slug $2=asset_pattern (extended-grep) $3=out_archive_path
-    local repo="$1"; local pattern="$2"; local out_archive="$3"
+versions="$(dirname "$0")/engine-versions.json"
+BACKREST_VERSION="$(jq -er '.backrest' "$versions")"
+RESTIC_VERSION="$(jq -er '.restic' "$versions")"
+RCLONE_VERSION="$(jq -er '.rclone' "$versions")"
 
-    echo "[fetch-backrest] Querying GitHub for $repo latest release..."
+fetch_github_asset() {
+    # $1=repo_slug $2=asset_pattern $3=out_archive_path $4=release_tag
+    local repo="$1"; local pattern="$2"; local out_archive="$3"; local version="$4"
+
+    echo "[fetch-backrest] Querying GitHub for $repo $version..."
     local release_json
     release_json="$(curl -fsSL \
         -H 'User-Agent: Backspace-build' \
         -H 'Accept: application/vnd.github+json' \
         --connect-timeout 30 --max-time 60 \
-        "https://api.github.com/repos/$repo/releases/latest")"
+        "https://api.github.com/repos/$repo/releases/tags/$version")"
 
     local asset_url asset_name asset_size
     asset_url="$(echo "$release_json" | jq -r --arg p "$pattern" '.assets[] | select(.name | test($p)) | .browser_download_url' | head -n1)"
@@ -68,7 +73,7 @@ fetch_github_asset() {
     asset_size="$(echo "$release_json" | jq -r --arg p "$pattern" '.assets[] | select(.name | test($p)) | .size' | head -n1)"
 
     if [[ -z "${asset_url:-}" || "$asset_url" == "null" ]]; then
-        echo "[fetch-backrest] No asset matching '$pattern' in $repo latest release." >&2
+        echo "[fetch-backrest] No asset matching '$pattern' in $repo $version." >&2
         echo "[fetch-backrest] Available assets:" >&2
         echo "$release_json" | jq -r '.assets[].name' >&2
         return 1
@@ -118,7 +123,7 @@ if [[ ! -f "$BACKREST_OUT" ]]; then
     archive="$tmpdir/backrest.tar.gz"
     fetch_github_asset "garethgeorge/backrest" \
         "^backrest_${OS_BACKREST}_${ARCH_BACKREST}\\.tar\\.gz\$" \
-        "$archive"
+        "$archive" "$BACKREST_VERSION"
     tar -xzf "$archive" -C "$tmpdir"
     inner="$(find "$tmpdir" -name backrest -type f -perm -u+x | head -n1)"
     if [[ -z "$inner" ]]; then
@@ -141,7 +146,7 @@ if [[ ! -f "$RESTIC_OUT" ]]; then
     archive="$tmpdir/restic.bz2"
     fetch_github_asset "restic/restic" \
         "^restic_[0-9.]+_${OS_RESTIC}_${ARCH_RESTIC}\\.bz2\$" \
-        "$archive"
+        "$archive" "$RESTIC_VERSION"
     bunzip2 -c "$archive" > "$RESTIC_OUT"
     chmod 0755 "$RESTIC_OUT"
     echo "[fetch-backrest] Wrote $RESTIC_OUT"
@@ -150,13 +155,13 @@ else
     echo "[fetch-backrest] $RESTIC_OUT already present, skipping."
 fi
 
-# Rclone: stable "current" alias per OS+arch on downloads.rclone.org.
+# Rclone: the reviewed version, not the moving "current" alias.
 if [[ ! -f "$RCLONE_OUT" ]]; then
     mkdir -p "$(dirname "$RCLONE_OUT")"
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
 
-    url="https://downloads.rclone.org/rclone-current-${OS_RCLONE}-${ARCH_RCLONE}.zip"
+    url="https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-${OS_RCLONE}-${ARCH_RCLONE}.zip"
     archive="$tmpdir/rclone.zip"
     echo "[fetch-backrest] Downloading rclone from $url"
     curl -fsSL --connect-timeout 30 --max-time 600 -o "$archive" "$url"
