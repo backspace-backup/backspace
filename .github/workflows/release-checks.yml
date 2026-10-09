@@ -70,6 +70,9 @@ jobs:
           Copy-Item docs/RELEASING.md release-evidence/RELEASING.md
           Copy-Item README.md, DESIGN.md release-evidence/
           Copy-Item docs release-evidence/docs -Recurse
+          & src/Backspace/Assets/restic.exe version | Out-File release-evidence/engine-versions.txt -Encoding utf8
+          & src/Backspace/Assets/backrest.exe --version | Add-Content release-evidence/engine-versions.txt
+          & src/Backspace/Assets/rclone.exe version | Add-Content release-evidence/engine-versions.txt
           "## Release review`nReview the test records, screenshots and documentation in release-evidence-${{ github.sha }} before approving. Revision: ${{ github.sha }}. Publish requested: ${{ inputs.publish }}." | Add-Content $env:GITHUB_STEP_SUMMARY
       - name: Build the Windows release candidate
         shell: pwsh
@@ -86,6 +89,7 @@ jobs:
           path: |
             release-evidence/
             tests/Backspace.Tests/artifacts/scenarios/
+            tests/Backspace.Tests/artifacts/screenshots/
           if-no-files-found: error
 
   approve-and-publish:
