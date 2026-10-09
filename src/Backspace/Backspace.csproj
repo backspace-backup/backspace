@@ -167,8 +167,12 @@
                       Exclude="Assets\backrest;Assets\backrest.exe;Assets\restic;Assets\restic.exe;Assets\rclone;Assets\rclone.exe"/>
   </ItemGroup>
 
+  <Target Name="IncludeNativeEngineContent" BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="EnsureBackrestBinaries">
   <ItemGroup>
-    <!-- Native engine binaries (backrest / restic / rclone). They
+    <!-- Evaluate after fetching, so the FIRST build includes newly downloaded
+         binaries rather than requiring a second build of a clean checkout.
+         Native engine binaries (backrest / restic / rclone). They
          live under Assets/ after FetchBackrest.targets runs (or after
          you drop them in manually for an offline build); we copy
          them into the build/publish output directory next to
@@ -214,6 +218,7 @@
              CopyToPublishDirectory="PreserveNewest"
              ExcludeFromSingleFile="true"/>
   </ItemGroup>
+  </Target>
 
   <!-- WinFSP runtime MSI. Windows-only; downloaded by
        FetchWinFsp.targets and shipped next to Backspace.exe so the
@@ -225,11 +230,14 @@
        across launches). This keeps the dist a single portable exe —
        you ship Backspace.exe and nothing else. The user does NOT
        need to copy DLLs next to it. -->
-  <ItemGroup Condition="'$(IsWindowsBuild)' == 'true'">
+  <Target Name="IncludeWinFspInstaller" BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="EnsureWinFspMsi" Condition="'$(IsWindowsBuild)' == 'true'">
+  <ItemGroup>
     <EmbeddedResource Include="Assets\winfsp.msi"
                       Condition="Exists('Assets\winfsp.msi')"
                       LogicalName="winfsp.msi"/>
   </ItemGroup>
+  </Target>
 
   <!-- Add winfsp-msil.dll (WinFsp.Net's managed wrapper) as an
        embedded resource pulled from the NuGet package cache. -->

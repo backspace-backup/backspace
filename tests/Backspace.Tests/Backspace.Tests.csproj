@@ -58,24 +58,29 @@
     app's single-file Release publish; Debug + test runs use loose
     files.
 
+    Evaluate after Build, when the referenced app has fetched its engines.
     Each entry is Condition'd on the file existing so a build with
     `-p:SkipBackrestDownload=true` (or a checkout that hasn't run
     FetchBackrest.targets yet) doesn't fail; the RealEngineFixture's
-    BinariesPresent check will simply skip any real-engine scenarios.
+    BinariesPresent check reports missing engines. Release checks must
+    reject that condition instead of treating an omitted scenario as proof.
   -->
+  <Target Name="CopyEngineBinariesForTests" AfterTargets="Build">
   <ItemGroup>
-    <Content Include="..\..\src\Backspace\Assets\backrest.exe"
+    <TestEngineBinary Include="..\..\src\Backspace\Assets\backrest.exe"
              Condition="Exists('..\..\src\Backspace\Assets\backrest.exe')"
              Link="backrest.exe"
              CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\src\Backspace\Assets\restic.exe"
+    <TestEngineBinary Include="..\..\src\Backspace\Assets\restic.exe"
              Condition="Exists('..\..\src\Backspace\Assets\restic.exe')"
              Link="restic.exe"
              CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\src\Backspace\Assets\rclone.exe"
+    <TestEngineBinary Include="..\..\src\Backspace\Assets\rclone.exe"
              Condition="Exists('..\..\src\Backspace\Assets\rclone.exe')"
              Link="rclone.exe"
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <Copy SourceFiles="@(TestEngineBinary)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

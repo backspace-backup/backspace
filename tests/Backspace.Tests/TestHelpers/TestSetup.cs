@@ -77,6 +77,10 @@ internal static class TestSetup
         // so the locator picks it up; production callers can't see
         // this property (internal + InternalsVisibleTo).
         ServiceLocator.EngineOverride ??= _ => new InMemoryBackupEngine();
+        // The test runner's network cost must not cancel unrelated backup/UI
+        // scenarios. RuntimeGuardCoverageTests inject actual metered events
+        // through the per-instance probe, which takes precedence over this.
+        MeteredNetworkWatchdog.PlatformProbeOverride = (_, _) => System.Threading.Tasks.Task.CompletedTask;
 
         // Idempotent — fine to call again when the Avalonia test app boots.
         ServiceLocator.InitializeCore();

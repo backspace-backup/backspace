@@ -28,6 +28,8 @@ public sealed class MeteredNetworkWatchdog
 {
     private static ILogger _log => AppLogger.For<MeteredNetworkWatchdog>();
     private readonly Func<MeteredNetworkWatchdog, CancellationToken, Task>? _probe;
+    // Test-host boundary only: normal runs always use the operating system.
+    internal static Func<MeteredNetworkWatchdog, CancellationToken, Task>? PlatformProbeOverride { get; set; }
 
     public MeteredNetworkWatchdog() { }
     // Isolated platform signal injection; production keeps the actual OS probe.
@@ -65,6 +67,7 @@ public sealed class MeteredNetworkWatchdog
     public Task RunAsync(CancellationToken ct)
     {
         if (_probe is not null) return _probe(this, ct);
+        if (PlatformProbeOverride is { } testProbe) return testProbe(this, ct);
 #if WINDOWS
         if (PlatformInfo.IsWindows) return Platform.Windows.WindowsMeteredNetworkProbe.RunAsync(this, ct);
 #endif

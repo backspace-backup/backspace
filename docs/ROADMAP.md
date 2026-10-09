@@ -241,6 +241,8 @@ for the workflow rules an agent must follow before touching this file.
   - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
 - **Limitations / adversarial review:** The first failed GitHub check prevented publishing, as required. The successful-check approval path is still being exercised. The environment protects this workflow; repository administrators and existing write permissions can still publish manually through another route.
 
+- **Clean-run findings — 2026-10-09:** The second hosted run reached the suite and found 14 failures caused by missing first-build engine copies, a 24-hour-only assertion and the runner’s metered-network signal cancelling unrelated tests. The fixes preserve production network detection and the dedicated cancellation tests. Both failed runs correctly skipped publication; rerun before calling the approval path proven.
+
 - **Follow-up — 2026-10-09:** Complete all release-gate implementation and available repository configuration without waiting for the user. Identify a concrete access or approval blocker before leaving work open.
 - **I need from you:** N011: No action yet; the agent still needs to complete the remaining work.
 
