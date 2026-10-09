@@ -125,21 +125,24 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Raised:** 2026-06-11
 - **Type:** bug (regression from snap:subfolder refactor)
-- **Status:** In progress
+- **Status:** Awaiting validation
 - **Context:** B021: Regarding the include-file issue, make sure to increase the FixtureSize to match what I tested in prod. MAybe you could add a global flag for ALL the E2E tests, that'd make it possible to artificially make the repos much larger and bigger (up to 2GB and tens of thousands of files). We could enable it only before pushing a commit to Github to make sure all the tests also work at scale. For common iterations, we'd not need to test them (the goal is that this test would be unlikely to fail if the smaller ones passed).
-- **Current result:** The large test passed locally with 20,000 files and about 2 GiB. A new manual GitHub workflow runs the interface suite and this real-engine round trip, saves screenshots and records the tested revision.
-- **Remaining:** Connect these checks to the publishing workflow and configure and exercise a required human approval before publishing. The local files alone cannot enforce this on GitHub.
+- **Current result:** The GitHub rehearsal passed the full suite and the real-engine backup/restore of 20,000 files, approximately 2 GiB. Every restored file matched its original SHA-256. Publishing then stopped at the required human approval. The rehearsal was deliberately cancelled there; no tag or release was created.
+- **Remaining:** Review the recorded results. Actual releases must repeat these checks for their exact revision after the implementation branch is approved and merged.
 - **Proof — open and look:**
   - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
   - [20,000 restored files, each compared with its original](../audit-dashboard/evidence/huge-scale/report.html) — See the source and restored file counts, the 2 GiB total, the full SHA-256 comparison result, and the limits on metadata preservation.
   - 🖼️ [The app after the 20,000-file restore](../audit-dashboard/evidence/huge-scale/E34-restore-long-include-list/screenshots/03-after-restore.png) — Backspace remains open after the real restore. Use the report for the file counts and content comparisons; the card alone cannot prove file integrity.
   - [Recorded test results and remaining gaps](../audit-dashboard/evidence/repair-verification.html) — Read the pass and fail results, open the original test records if needed, and see what each run did and did not test.
-- **Limitations / adversarial review:** The proposed GitHub workflow has not run on GitHub. No protected release environment or publishing restriction has been configured.
+- **Release proof — open and look:**
+  - 🖼️ [Successful checks waiting for human approval](../audit-dashboard/evidence/remaining-work-20261009/release-approval-waiting.png) — The Windows checks are green and the publishing job is waiting, with no publishing steps started.
+  - [Release rehearsal results](../audit-dashboard/evidence/remaining-work-20261009/release-gate.html) — Exact revision, test counts, full file comparison, approval settings and deliberate cancellation.
+- **Limitations / adversarial review:** Failed rehearsals blocked publication; the successful rehearsal reached approval and was not approved. The environment protects this publishing workflow, not manual releases made through other routes by trusted users with write access. This local-repository test does not establish live-cloud or reboot behavior.
 
 - **Review comments received 2026-10-05 (B021):**
   > How can we best force ourselves to run this large test before pushing a release on github?
 
-- **I need from you:** B021: No action yet; the agent still needs to complete the remaining work.
+- **I need from you:** B021: Review the release rehearsal report and confirm whether the large-test requirement is satisfied.
 
 ### P0: Mount fails for the user's basic dist-folder backup
 
@@ -181,8 +184,9 @@ for the workflow rules an agent must follow before touching this file.
   - 🖼️ **[Skipped update in dark mode](../audit-dashboard/evidence/remaining-work-20261009/update-dark.png)** — Skipping the notification leaves manual installation available.
   - [Windows updater evidence](../audit-dashboard/evidence/remaining-work-20261009/windows-updates.html) — Safety checks and a real portable bundle test, with exact limits and native acceptance steps.
 - **Limitations / adversarial review:** Tests reject unsafe paths, altered downloads and staging files, refuse installation while another real process holds a lease, preserve active operations, and roll back failures after each replacement step. The real bundle was installed in a disposable Unicode path, launched with its native version command, and restored byte-for-byte. GitHub HTTP was simulated; full GUI restart, Windows security prompts and a physically full disk remain unverified. A successful process launch alone does not establish a healthy new GUI.
-- **Remaining:** Finish the current full regression run and GitHub release rehearsal, then perform the native acceptance checks listed in the report. No public release has been created.
-- **I need from you:** Nothing while the automated checks continue. The report records the later native Windows checks so they are not mistaken for completed tests.
+- **Automated result:** Both the local and hosted full suites passed 1,059 tests, with two credential-dependent skips. The hosted candidate also passed its actual Windows bundle installation and rollback test. The release rehearsal stopped at human approval as required; see the release report below.
+- **Remaining:** Perform the native acceptance checks listed in the report once approved packaged versions are available. No public release has been created.
+- **I need from you:** U001: Use the pending Windows test instructions in the Review desk to check GUI restart, recovery, active scheduled work and Windows prompts. These remain unverified; automated command-line launch is not GUI acceptance.
 
 ### P1: Recover review comments after a temporary file lock
 
@@ -247,23 +251,24 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Raised:** 2026-10-05
 - **Type:** coverage
-- **Status:** In progress
+- **Status:** Awaiting validation
 - **Context:** The user wants a systematic check of screenshots, README and documentation before each GitHub release, and asks whether AGENTS.md is sufficient. Add a review issue and recommend enforceable release checks with a clear distinction between automated checks and human visual/content review.
-- **Current result:** The publishing workflow and protected release environment are installed on GitHub. The environment requires the maintainer’s approval and disables administrator bypass. A rehearsal runs without creating a tag or release. The first real run caught a clean-machine PowerShell module problem before tests started; the downloader has been repaired and a fresh local download of all three engines passed.
-- **Remaining:** Complete the GitHub rehearsal and verify that successful checks stop at the required human approval. No release will be published by the rehearsal.
+- **Current result:** The protected environment requires the maintainer’s approval and disables administrator bypass. On 9 October, run 37926997445 at revision d344e0485d3db3931624cbd9d7aebaf3d813b3c9 passed 1,059 suite tests, the 20,000-file restore and the actual Windows updater bundle test. It then waited for human approval. The rehearsal was cancelled without approval, a tag or a release. Its temporary branch exception was removed; only main remains allowed.
+- **Remaining:** Review the proof. Before an actual release, approve and merge the implementation branch, rerun the workflow on that exact main revision, and review its current documentation and screenshots.
 - **Proof — open and look:**
-  - [First GitHub rehearsal: publishing blocked by a build failure](https://github.com/backspace-backup/backspace/actions/runs/37919089797) — The Windows build failed before tests, and the publishing job was skipped. The missing standard PowerShell command was then repaired.
+  - 🖼️ [Successful checks waiting for human approval](../audit-dashboard/evidence/remaining-work-20261009/release-approval-waiting.png) — Green Windows checks lead to a waiting human-review job; publishing has not started.
+  - [Release rehearsal results](../audit-dashboard/evidence/remaining-work-20261009/release-gate.html) — Test records, full file comparison, saved settings and the reason the overall run now says cancelled.
   - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** The first failed GitHub check prevented publishing, as required. The successful-check approval path is still being exercised. The environment protects this workflow; repository administrators and existing write permissions can still publish manually through another route.
+- **Limitations / adversarial review:** Earlier failing checks blocked publication. Successful checks then reached required approval, proving both paths. Human review of image and prose accuracy remains necessary. No publication was attempted. The environment protects this workflow; repository administrators and existing write permissions can still publish manually through another route.
 
-- **Clean-run findings — 2026-10-09:** The second hosted run reached the suite and found 14 failures caused by missing first-build engine copies, a 24-hour-only assertion and the runner’s metered-network signal cancelling unrelated tests. The fixes preserve production network detection and the dedicated cancellation tests. Both failed runs correctly skipped publication; rerun before calling the approval path proven.
+- **Clean-run findings — 2026-10-09:** Earlier hosted runs exposed missing first-build engine copies, a 24-hour-only assertion, a hosted metered-network signal cancelling unrelated tests, and a version query that left Backrest's Windows tray running. These were repaired before the successful rehearsal. Production network detection and its dedicated cancellation tests remain enabled.
 
 - **Packaging follow-up — 2026-10-09:** The fallback warning executable had the same first-build resource-list problem. Include it after it is generated, fail ordinary builds if generation produces no file, and make the release suite verify the actual embedded executable. Development builds can still explicitly skip it.
 
 - **Engine-version finding — 2026-10-09:** The third hosted run passed the interface suite but failed restore with newly downloaded Backrest 1.14.1. Its request formats differ from the tested 1.13.0 engine. Both downloaders now read explicit version selections: Backrest 1.13.0, Restic 0.18.1 and rclone 1.74.1. Existing local binaries stay untouched. This prevents an unreviewed automatic upgrade; it does not claim compatibility with Backrest 1.14.1 or cryptographic verification of every download.
 
 - **Follow-up — 2026-10-09:** Complete all release-gate implementation and available repository configuration without waiting for the user. Identify a concrete access or approval blocker before leaving work open.
-- **I need from you:** N011: No action yet; the agent still needs to complete the remaining work.
+- **I need from you:** N011: Review the waiting-approval screenshot and report, then confirm whether this release process meets your requirement. This does not ask you to publish a release now.
 
 ### P1: Show live output when a backup starts its first run
 
@@ -1496,13 +1501,13 @@ for the workflow rules an agent must follow before touching this file.
 - **Type:** infrastructure
 - **Status:** In progress
 - **Context:** R018: The production update checker now attaches a callback that opens the matching official release page. Injected HTTP exercises the actual checker, including rejection of the current version, prereleases and an unsafe file URL.
-- **Current result:** The production update checker now attaches a callback that opens the matching official release page. Injected HTTP exercises the actual checker, including rejection of the current version, prereleases and an unsafe file URL.
-- **Remaining:** Review the update behavior; the lightweight check and manual release choice remain the intended scope.
+- **Current result:** The later Windows request is implemented under U001: periodic checks, release notes, skipping a version, verified bundle installation and recovery. Other platforms retain the lightweight release-page notification. The original notification tests and the new updater tests passed; native Windows acceptance is still pending.
+- **Remaining:** The later Windows updater request expands this original scope. Windows now supports verified bundle installation and recovery; finish the native acceptance checks under U001. Other platforms retain the lightweight notification.
 - **Proof — open and look:**
   - [R018 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — All four production-checker cases passed: only a newer stable HTTPS release supplies a click action; invoking it opens precisely that release URL.
   - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
 - **Limitations / adversarial review:** The four test cases use deterministic GitHub-style responses and an observed open-release action. No live public release request, native popup, download, installation or packaged startup is claimed.
-- **I need from you:** R018: Review the update behavior; the lightweight check and manual release choice remain the intended scope.
+- **I need from you:** R018: Review the Windows update evidence under U001 and its pending native checks. This earlier request remains open until you validate it.
 
 ### P3: Local issue review dashboard with persistent discussions
 
