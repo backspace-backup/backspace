@@ -1,4 +1,4 @@
-# Regenerates the 12 screenshots used on the project website (docs/index.html)
+# Regenerates the 13 screenshots used on the project website (docs/index.html)
 # and in README.md from the WebsiteScreenshotTests Avalonia headless harness.
 #
 # Usage:  pwsh scripts/regenerate-website-screenshots.ps1
@@ -6,7 +6,7 @@
 #
 # What it does:
 #   1. Runs `dotnet test` against WebsiteScreenshotTests only.
-#   2. Copies the 12 PNGs from tests/Backspace.Tests/artifacts/screenshots/
+#   2. Copies the 13 PNGs from tests/Backspace.Tests/artifacts/screenshots/
 #      to docs/screenshots/ (where the website references them).
 #
 # Why headless renders, not a real run:
@@ -19,10 +19,10 @@
 #   WebsiteScreenshotTests.Shot_01_Backups_Running for the seed.
 #
 # Future maintainer notes:
-#   - To change which 12 shots end up on the website, edit $WebsiteShots
+#   - To change which 13 shots end up on the website, edit $WebsiteShots
 #     below and add/rename the matching [AvaloniaFact] in
 #     WebsiteScreenshotTests.cs.
-#   - All 12 shots are full-window captures (MainWindow with sidebar)
+#   - All 13 shots are full-window captures (MainWindow with sidebar)
 #     except the modal dialogs (Onboarding, editors), which ARE the whole
 #     interface while open.
 
@@ -47,7 +47,7 @@ try {
     Pop-Location
 }
 
-# 2. Copy the 12 PNGs over. Source filenames already use the website's
+# 2. Copy the 13 PNGs over. Source filenames already use the website's
 #    numeric ordering (01-..12-), so the names match 1:1 and we just
 #    enumerate from the source dir.
 $src = Join-Path $repo 'tests/Backspace.Tests/artifacts/screenshots'

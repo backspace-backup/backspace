@@ -321,6 +321,31 @@ public partial class MainWindow : Window
 
     private IDisposable? _shutdownAdmission;
 
+    /// <summary>Updates never cancel active work. Seal admission, recheck the
+    /// actual operation leases, and keep the seal until the process exits.</summary>
+    internal bool TryQuitForUpdate(Action prepare)
+    {
+        if (_quitInProgress || _forceQuitInProgress || App.QuitRequested
+            || HasAnyRunningOperation() || ServiceLocator.Maintenance.IsBlocked) return false;
+        if (!ServiceLocator.Maintenance.TryBeginShutdown(out _shutdownAdmission)) return false;
+        try
+        {
+            if (HasAnyRunningOperation()) { _shutdownAdmission?.Dispose(); _shutdownAdmission = null; return false; }
+            prepare();
+            App.QuitRequested = true;
+            _explicitQuit = true;
+            Close();
+            return true;
+        }
+        catch
+        {
+            WindowsUpdateRuntime.Pending = null;
+            App.QuitRequested = false;
+            _shutdownAdmission?.Dispose(); _shutdownAdmission = null;
+            throw;
+        }
+    }
+
     internal async System.Threading.Tasks.Task RequestForceQuitAsync()
     {
         // Force quit must remain available while an ordinary quit is

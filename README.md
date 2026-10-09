@@ -29,9 +29,7 @@ mileage to call itself stable yet; broader use will surface the rough edges
 that one developer's machine never hits. Help us shake those out by trying it
 and reporting anything that surprises you.
 
-- **Tested on Windows 11.** The full feature set works on the author's
-  setup and against the standard cloud providers. It may well run on
-  Windows 10 too — no one has tried.
+- **Tested on Windows 11.** Automated checks cover the interface and real local backup/restore operations. Current live-cloud, reboot and native updater acceptance checks are still pending; see the active roadmap. Windows 10 has not been exercised.
 - **No testing on macOS or Linux yet.** The code targets both via Avalonia
   and there's no architectural reason it shouldn't run — but no one has
   actually launched it there. If you do, please file an issue with what
@@ -80,6 +78,8 @@ snapshot like any other folder. Backspace cleans up the mount when you
 unmount or close the app.
 
 ## What it does
+
+- **Windows updates**: Settings → App updates checks GitHub for stable releases. Checks are monthly by default; choose daily, weekly, or never, or check manually. Read the release notes, skip a version, or download and restart when ready. Installation waits for active work, verifies the complete Windows bundle, and preserves the portable configuration folder. A recovery launcher and the previous application files remain available if the new version will not start. Development builds and folders without write access offer a manual download instead. The packaged update/restart flow still needs native Windows acceptance testing; see the active roadmap.
 
 - **Destinations**: local folder, external drive (with volume-name matching —
   backups skip gracefully when the drive isn't plugged in, not fail), SMB /

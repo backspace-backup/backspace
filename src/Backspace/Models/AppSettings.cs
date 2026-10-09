@@ -116,6 +116,10 @@ public sealed class RestoreSettings
 
 public sealed class AppPreferences
 {
+    public string UpdateCheckFrequency { get; set; } = "Monthly";
+    public DateTime LastUpdateCheckUtc { get; set; }
+    public string SkippedUpdateVersion { get; set; } = "";
+
     /// <summary>Default: follow the OS appearance setting. Matches what
     /// every modern desktop app does — most users have already picked
     /// dark vs light at the OS level and expect apps to honor it.</summary>

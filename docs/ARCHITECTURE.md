@@ -34,6 +34,14 @@ GUI loaded — no `App.Current` references, no Avalonia dispatcher
 assumptions. `ServiceLocator.InitializeCore` brings up only the services
 a backup needs.
 
+## Windows release updates
+
+`WindowsUpdateViewModel` owns the Settings update controls and a one-shot timer for the chosen check frequency. Checks use GitHub's latest stable release endpoint; downloads and restarts require a click. `WindowsUpdatePackage` verifies the official asset URL, exact size, GitHub SHA-256 digest, safe archive entries and application version before preparing a complete bundle under `.backspace-updates` beside the executable.
+
+`WindowsUpdateRuntime` shares a process-lifetime file lease with GUI, scheduled and helper runs. Replacement requires its exclusive lease after the GUI closes and owned engines stop. The application operation gate also prevents new work during a requested restart. Replacement journals the old and new program files and rolls back failures; configuration is outside that file list. A recovery launcher can restore the previous bundle. A successful process start is not proof of a healthy new GUI: native launch/crash behavior remains an acceptance-test requirement. The immediately preceding bundle is retained. Older completed update records can be removed after the next successful replacement; unknown or unfinished records are preserved.
+
+Only portable Windows x64 single-file builds in writable, non-linked folders support installation. Other builds keep the manual release-page action. The internal `--recover-update` path runs before engine/configuration initialization.
+
 ## File layout
 
 ```

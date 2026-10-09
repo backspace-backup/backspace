@@ -105,6 +105,44 @@
         </Expander>
       </Border>
 
+      <Border x:Name="AppUpdatesCard" Classes="settings-card" Padding="20" IsVisible="{Binding Updates.Supported}">
+        <StackPanel Spacing="16" DataContext="{Binding Updates}" x:DataType="vm:WindowsUpdateViewModel">
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="4">
+              <TextBlock Classes="section-title" Text="App updates" Margin="0"/>
+              <TextBlock Classes="helper" Text="{Binding CurrentVersionText}"/>
+            </StackPanel>
+            <Button Grid.Column="1" Classes="ghost" Content="Check now" Command="{Binding CheckNowCommand}" VerticalAlignment="Center"/>
+          </Grid>
+          <Grid ColumnDefinitions="*,18,180">
+            <StackPanel Spacing="5" VerticalAlignment="Center">
+              <TextBlock Classes="body" FontWeight="SemiBold" Text="Check automatically"/>
+              <TextBlock Classes="helper" TextWrapping="Wrap" Text="We’ll let you know when a stable release is available. You choose when to download and restart."/>
+            </StackPanel>
+            <ComboBox Grid.Column="2" ItemsSource="{Binding Frequencies}" SelectedItem="{Binding Frequency}" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+          </Grid>
+          <Border CornerRadius="8" Padding="14" Background="{DynamicResource BS.Brush.BgBase}">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="body" Text="{Binding Status}" TextWrapping="Wrap"/>
+              <ProgressBar IsVisible="{Binding IsDownloading}" Value="{Binding Progress}" Minimum="0" Maximum="100" Height="6"/>
+              <Button IsVisible="{Binding IsBusy}" Content="Cancel" Command="{Binding CancelCommand}" Classes="ghost" HorizontalAlignment="Left"/>
+            </StackPanel>
+          </Border>
+          <StackPanel IsVisible="{Binding HasUpdate}" Spacing="12">
+            <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding AvailableVersion}"/>
+            <Expander Header="What changed" IsExpanded="False">
+              <TextBlock Classes="body" Text="{Binding Notes}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+            </Expander>
+            <TextBlock Classes="helper" Text="{Binding InstallExplanation}" TextWrapping="Wrap"/>
+            <WrapPanel Orientation="Horizontal">
+              <Button Classes="primary" Content="Download and restart" Command="{Binding DownloadAndRestartCommand}" Margin="0,0,10,8"/>
+              <Button Classes="ghost" Content="Skip this version" Command="{Binding SkipVersionCommand}" Margin="0,0,10,8"/>
+            </WrapPanel>
+          </StackPanel>
+          <Button Classes="ghost" Content="Open release page" Command="{Binding OpenReleaseNotesCommand}" HorizontalAlignment="Left"/>
+        </StackPanel>
+      </Border>
+
       <!-- Logs & diagnostics — collapsed by default. -->
       <Border Classes="settings-card">
         <Expander Classes="settings" IsExpanded="False">

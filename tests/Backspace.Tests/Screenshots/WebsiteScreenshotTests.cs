@@ -15,7 +15,7 @@ using Xunit;
 namespace Backspace.Tests.Screenshots;
 
 /// <summary>
-/// Renders the 12 PNGs used on the project website + README.
+/// Renders the 13 PNGs used on the project website + README.
 ///
 /// Conventions enforced here:
 ///   • Every shot of a navigable page (Backups / Destinations / Restore /
@@ -38,7 +38,7 @@ namespace Backspace.Tests.Screenshots;
 ///
 /// Output: tests/Backspace.Tests/artifacts/screenshots/<NN>-<slug>.png.
 /// The accompanying `scripts/regenerate-website-screenshots.ps1` copies
-/// these 12 into `docs/screenshots/` for the website.
+/// these 13 into `docs/screenshots/` for the website.
 /// </summary>
 public class WebsiteScreenshotTests
 {
@@ -64,11 +64,12 @@ public class WebsiteScreenshotTests
         // picks the new values up on UpdateLayout below.
         CaptureMainWindow("01-backups-running", NavItem.Backups, vm =>
         {
-            var card = vm.Backups.Cards.FirstOrDefault(c => c.Name == "documents");
+            var card = vm.Backups.Cards.FirstOrDefault(c => c.Name == "code-and-projects");
             if (card is not null)
             {
                 card.SetRunning();
                 card.OverallPercent = 43;
+                foreach (var source in card.Sources) source.PercentComplete = 43;
                 card.CurrentPhaseLabel = "Uploading chunks";
             }
         });

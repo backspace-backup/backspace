@@ -30,7 +30,18 @@ sign-in. Shared-config compatibility writes merge unrelated remote sections
 under a cross-process lock. No real cloud refresh/restart test has been
 performed with the current registrations.
 
-## Backrest 1.13.0+ `SetConfig` guid contract
+## Engine upgrades require a compatibility check
+
+Build downloads use the versions in `src/Backspace/engine-versions.json`.
+Do not replace those tags with `latest`: the release rehearsal on 9 October
+2026 found that Backrest 1.14.1 changes the snapshot-file request from
+`repo_guid` to `repo_id`, along with cancellation and command-response
+formats. A backup succeeded, but restore browsing failed. The selected
+Backrest version remains 1.13.0 until an intentional upgrade passes the
+real backup, restore, cancellation and maintenance checks. Existing local
+binaries are not overwritten by the downloader.
+
+## Backrest 1.13.0 `SetConfig` guid contract
 
 Guids must be 64-char hex; `auto_initialize=true` is rejected when a
 guid is set; the validator reruns over the entire on-disk config on

@@ -16,6 +16,7 @@ namespace Backspace.ViewModels;
 public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
 {
     private static Serilog.ILogger _log => AppLogger.For<SettingsViewModel>();
+    public WindowsUpdateViewModel Updates { get; }
 
     // System first so the default sits at the top of the dropdown.
     public AppTheme[] AvailableThemes { get; } = new[] { AppTheme.System, AppTheme.Light, AppTheme.Dark };
@@ -459,8 +460,11 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     /// first hydration would schedule a redundant save round-trip.</summary>
     private bool _suspendAutoSave;
 
-    public SettingsViewModel()
+    public SettingsViewModel() : this(null) { }
+
+    internal SettingsViewModel(WindowsUpdateViewModel? updates)
     {
+        Updates = updates ?? ServiceLocator.Updates;
         // Auto-save runs the persist logic SILENTLY — without flipping
         // SaveStatus to "Saved." each time. Otherwise typing into a
         // text field with 800ms debounce would re-render "Saved."

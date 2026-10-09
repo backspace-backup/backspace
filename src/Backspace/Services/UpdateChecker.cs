@@ -9,13 +9,9 @@ using Serilog;
 namespace Backspace.Services;
 
 /// <summary>
-/// Lightest-possible update channel: on startup, query GitHub
-/// Releases for the latest tag; if it's newer than the running
-/// version, surface a non-blocking notification with a link to the
-/// release page. No auto-download, no relaunch — manual update keeps
-/// the trust boundary clean (user sees what version they're running
-/// + decides when to switch). Squirrel / Sparkle / etc. can land
-/// later if user volume justifies the operational cost.
+/// Windows startup delegates to the portable updater and its saved cadence.
+/// Other platforms retain a notification linking to the official release
+/// page. Checks never block startup or automatically restart the application.
 ///
 /// Failure-isolated: the whole check runs in a fire-and-forget task,
 /// catches everything, and never blocks app startup. No network on
@@ -63,6 +59,7 @@ public sealed class UpdateChecker
         // live GitHub GET (plus a possible update toast) per window
         // injects network-timed work at unpredictable points mid-run.
         if (Environment.GetEnvironmentVariable("BACKSPACE_NO_UPDATE_CHECK") == "1") return;
+        if (OperatingSystem.IsWindows()) { ServiceLocator.Updates.Begin(); return; }
 
         _ = Task.Run(async () =>
         {

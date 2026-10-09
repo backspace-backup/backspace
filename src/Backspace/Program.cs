@@ -21,8 +21,17 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        IDisposable? updateRuntimeLease = null;
         try
         {
+            if (OperatingSystem.IsWindows() && args.Length == 2 && args[0] == "--recover-update")
+                return WindowsUpdateRuntime.Recover(args[1]);
+            var initialMode = ParseMode(args).Mode;
+            if (OperatingSystem.IsWindows() && initialMode is not (RunMode.Version or RunMode.Help or RunMode.UsageError))
+            {
+                if (WindowsUpdateRuntime.RecoverInterruptedBeforeStartup(AppContext.BaseDirectory, args)) return 0;
+                updateRuntimeLease = WindowsUpdateRuntime.AcquireShared(AppContext.BaseDirectory, TimeSpan.FromSeconds(30));
+            }
             // WinFSP DLL resolver: WinFSP's installer doesn't add
             // its bin folder to PATH, so the first reference to a
             // Fsp.* type otherwise throws on the type initializer.
@@ -97,6 +106,7 @@ internal static class Program
         }
         finally
         {
+            var enginesStopped = true;
             if (ServiceLocator.Initialized)
             {
                 try
@@ -104,9 +114,12 @@ internal static class Program
                     ServiceLocator.BackrestSidecar.DisposeAsync().AsTask().GetAwaiter().GetResult();
                     ServiceLocator.Maintenance.ReleaseEngineOwnershipAfterStop();
                 }
-                catch (Exception ex) { AppLogger.For("Program").Warning(ex, "Engine teardown failed"); }
+                catch (Exception ex) { enginesStopped = false; AppLogger.For("Program").Warning(ex, "Engine teardown failed"); }
+                ServiceLocator.Updates?.Dispose();
             }
             AppLogger.Shutdown();
+            updateRuntimeLease?.Dispose();
+            WindowsUpdateRuntime.ApplyPendingAfterExit(enginesStopped);
         }
     }
 

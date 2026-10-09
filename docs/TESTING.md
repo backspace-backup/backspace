@@ -17,6 +17,12 @@ The test host supplies a quiet network-cost probe so a hosted runner's metered o
 
 Release checks also build the missing-executable fallback and set `BACKSPACE_REQUIRE_STUB=1`. The corresponding test opens the embedded executable and checks its size and Windows executable header. This catches a first-build resource glob that would otherwise miss the newly generated file. Developer runs that explicitly skip the stub do not establish this packaging check.
 
+### Windows updates
+
+`WindowsUpdateTests` covers release selection, URL/checksum rejection, archive path safety, complete replacement and rollback after each move, modified staging files, preserved configuration, and a real child process holding the update lease. `S62_WindowsUpdates` clicks actual Settings controls with simulated GitHub HTTP and captures light/dark screenshots. Neither establishes a public release download, a native GUI restart, SmartScreen behavior or a real low-disk-space condition. Keep the update issue marked as needing testing until the packaged flow is exercised.
+
+`E2E_WindowsUpdateBundle` requires `BACKSPACE_UPDATE_CANDIDATE` to point to a published self-contained Windows folder. It verifies that real bundle through a file-backed HTTP response, replaces a disposable installation, launches its native executable with `--version`, then rolls back and compares every original file. This verifies packaging, file replacement and native CLI launch, not a running GUI upgrade or live GitHub download. The release workflow runs it against its candidate. Prerelease candidates instead must be rejected by the stable installer without changing installed files.
+
 ### Production scale
 
 Set `BACKSPACE_E2E_SCALE=huge` to lift the shared E2E source builders and manual E11/E30/E31/E34/E35 fixtures to production-sized input. The standard huge fixture has at least 20,000 files and approximately 2 GiB; exact edge fixtures retain their special files in addition to the scale payload. Multi-source or multi-backup tests can create multiple such payloads, and backup/restore copies need additional free space. The default remains small. This switch increases local I/O and, for explicitly enabled cloud scenarios, upload/download traffic.
@@ -32,7 +38,7 @@ dotnet test tests/Backspace.Tests \
 
 # Local restic round-trip tests (boots the Backrest sidecar + runs real
 # restic against a temp local repo)
-dotnet test tests/Backspace.Tests --filter "FullyQualifiedName~E2E&FullyQualifiedName!~E07_DropboxRoundTrip&FullyQualifiedName!~E08_OneDriveRoundTrip&FullyQualifiedName!~E09_GoogleDriveRoundTrip&FullyQualifiedName!~E10_TwoConcurrentMultiCloud"
+dotnet test tests/Backspace.Tests --filter "FullyQualifiedName~E2E&FullyQualifiedName!~E2E_WindowsUpdateBundle&FullyQualifiedName!~E07_DropboxRoundTrip&FullyQualifiedName!~E08_OneDriveRoundTrip&FullyQualifiedName!~E09_GoogleDriveRoundTrip&FullyQualifiedName!~E10_TwoConcurrentMultiCloud"
 
 # Cloud tests (interactive — requires live OAuth tokens via secrets file
 # or env var, gated by BACKSPACE_TEST_INTERACTIVE=1)

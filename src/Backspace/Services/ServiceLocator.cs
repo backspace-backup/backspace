@@ -32,6 +32,7 @@ public static class ServiceLocator
     public static RestoreEngine Restore { get; private set; } = default!;
     public static ActiveRestoreRegistry ActiveRestores { get; private set; } = default!;
     public static UpdateChecker UpdateCheck { get; private set; } = default!;
+    public static Backspace.ViewModels.WindowsUpdateViewModel Updates { get; private set; } = default!;
     public static RevisionBrowser Revisions { get; private set; } = default!;
     public static DropboxAuthProbe DropboxProbe { get; private set; } = default!;
     public static DestinationProbe DestProbe { get; private set; } = default!;
@@ -131,6 +132,8 @@ public static class ServiceLocator
         Savings = new SavingsEstimator();
         Verifier = new BackupVerifier(Config, Restore, Revisions, Engine);
         UpdateCheck = new UpdateChecker();
+        Updates?.Dispose();
+        Updates = new Backspace.ViewModels.WindowsUpdateViewModel();
         // One-shot housekeeping: prior verify drills can leave scratch
         // dirs under ConfigRoot/verify/ if AV / another process held a
         // handle on a restored file when the recursive cleanup ran.

@@ -67,22 +67,35 @@ jobs:
           if ($validation -notmatch 'Full SHA-256 comparison of 20000 files: all match\.') { throw 'The large run did not verify all 20,000 restored files.' }
       - name: Record the exact revision for the human documentation review
         shell: pwsh
+        timeout-minutes: 3
         run: |
+          Write-Host 'Saving revision and documentation'
           git rev-parse HEAD | Out-File release-evidence/commit.txt -Encoding utf8
           Copy-Item docs/RELEASING.md release-evidence/RELEASING.md
           Copy-Item README.md, DESIGN.md release-evidence/
           Copy-Item docs release-evidence/docs -Recurse
-          & src/Backspace/Assets/restic.exe version | Out-File release-evidence/engine-versions.txt -Encoding utf8
-          & src/Backspace/Assets/backrest.exe --version | Add-Content release-evidence/engine-versions.txt
-          & src/Backspace/Assets/rclone.exe version | Add-Content release-evidence/engine-versions.txt
+          ./scripts/record-engine-versions.ps1 -SourceDirectory src/Backspace/Assets -ResultFile release-evidence/engine-versions.txt
           "## Release review`nReview the test records, screenshots and documentation in release-evidence-${{ github.sha }} before approving. Revision: ${{ github.sha }}. Publish requested: ${{ inputs.publish }}." | Add-Content $env:GITHUB_STEP_SUMMARY
       - name: Build the Windows release candidate
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          dotnet publish src/Backspace -c Release -f net10.0-windows10.0.19041.0 -r win-x64 --self-contained true -m:1 -o release-candidate
+          $versionArgs = @()
+          if ($env:RELEASE_TAG) { $versionArgs = @('-p:Version=' + $env:RELEASE_TAG.TrimStart('v')) }
+          dotnet publish src/Backspace -c Release -f net10.0-windows10.0.19041.0 -r win-x64 --self-contained true -m:1 -o release-candidate @versionArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Compress-Archive -Path release-candidate/* -DestinationPath release-evidence/Backspace-windows-x64.zip
           Get-FileHash release-evidence/Backspace-windows-x64.zip -Algorithm SHA256 | Format-List | Out-File release-evidence/SHA256.txt -Encoding utf8
+      - name: Verify the actual Windows update bundle and rollback
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $env:BACKSPACE_UPDATE_CANDIDATE = (Resolve-Path release-candidate).Path
+          dotnet test tests/Backspace.Tests --no-build --filter "FullyQualifiedName~E2E_WindowsUpdateBundle" --logger "trx;LogFileName=update-bundle.trx" --results-directory release-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [xml]$result = [IO.File]::ReadAllText((Join-Path $PWD 'release-evidence/update-bundle.trx'))
+          if ([int]$result.TestRun.ResultSummary.Counters.passed -ne 1 -or [int]$result.TestRun.ResultSummary.Counters.total -ne 1) { throw 'The native update bundle check must run and pass.' }
       - name: Save results and freshly rendered screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -124,4 +137,6 @@ jobs:
           # Atomic creation rejects an existing tag, including one created
           # concurrently. Never reuse a tag pointing to an unreviewed revision.
           gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$RELEASE_SHA"
-          gh release create "$RELEASE_TAG" reviewed-evidence/release-evidence/Backspace-windows-x64.zip reviewed-evidence/release-evidence/SHA256.txt --verify-tag --title "Backspace $RELEASE_TAG" --generate-notes
+          prerelease_args=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease_args=(--prerelease); fi
+          gh release create "$RELEASE_TAG" reviewed-evidence/release-evidence/Backspace-windows-x64.zip reviewed-evidence/release-evidence/SHA256.txt --verify-tag --title "Backspace $RELEASE_TAG" --generate-notes "${prerelease_args[@]}"

@@ -7,7 +7,7 @@ for the workflow rules an agent must follow before touching this file.
 
 ## Actively working
 
-**Review queue — 6 October 2026:** Open [the local review desk](http://127.0.0.1:4317/) using the root BAT launcher. There are 94 active issues: 60 ready to review, 27 still needing production testing, 3 with work remaining, and 4 needing a decision or missing information. The agent has replied on all 16 commented issues. Your eight explicitly accepted issues have been removed from this active list; their records remain in the desk. [Your original notes](http://127.0.0.1:4317/notes) remain unchanged and link to all 42 derived issues.
+**Review queue — 9 October 2026:** Open [the local review desk](http://127.0.0.1:4317/) using the root BAT launcher. Its filters show the current review and testing queues. New Windows-update evidence and online-only file research are attached to their issues. Reboot and live-cloud instructions remain prominently marked as pending tests from you. Your accepted issues and comments remain preserved. [Your original notes](http://127.0.0.1:4317/notes) link to all 42 derived issues.
 
 **I need from you:** Review the new replies and screenshots. Live cloud checks need account consent and provider configuration; email and Healthchecks checks need a chosen test destination. The prepared Windows checks need an administrator session and, for B040, a real reboot. The referenced Word document and the existing restore-architecture and historical-plan decisions remain outstanding. No restart or outgoing email has been performed.
 
@@ -168,6 +168,21 @@ for the workflow rules an agent must follow before touching this file.
   - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
 - **Limitations / adversarial review:** This ran against local disposable repositories and the installed WinFSP runtime. It does not exercise cloud fetching, a machine without WinFSP, or native Explorer UI.
 - **I need from you:** R016: Inspect the native mount assertions. The original packaged-app acceptance remains separately tracked as R009.
+
+### P1: Add graceful Windows updates from GitHub releases
+
+- **Raised:** 2026-10-09
+- **Type:** feature
+- **Status:** In progress
+- **Context:** Windows updates should be as easy to use as Perfect-Bluetooth-MIDI-For-Windows. Preserve portable settings and credentials, avoid interrupting backups or restores, and provide recovery if an update fails.
+- **Current result:** Settings offers monthly, weekly, daily or manual-only checks, release notes, skipping a version, and an explicit download-and-restart action. The complete Windows bundle is checked before installation. Active work and other Backspace processes prevent replacement. Failed replacements roll back; the previous version and a recovery launcher remain available. Older completed recovery bundles are cleaned up after the next successful replacement.
+- **Proof — open and look:**
+  - 🖼️ **[Update available in Settings](../audit-dashboard/evidence/remaining-work-20261009/update-light.png)** — Current version, check frequency, release notes and explicit install/skip choices; the displayed release is simulated.
+  - 🖼️ **[Skipped update in dark mode](../audit-dashboard/evidence/remaining-work-20261009/update-dark.png)** — Skipping the notification leaves manual installation available.
+  - [Windows updater evidence](../audit-dashboard/evidence/remaining-work-20261009/windows-updates.html) — Safety checks and a real portable bundle test, with exact limits and native acceptance steps.
+- **Limitations / adversarial review:** Tests reject unsafe paths, altered downloads and staging files, refuse installation while another real process holds a lease, preserve active operations, and roll back failures after each replacement step. The real bundle was installed in a disposable Unicode path, launched with its native version command, and restored byte-for-byte. GitHub HTTP was simulated; full GUI restart, Windows security prompts and a physically full disk remain unverified. A successful process launch alone does not establish a healthy new GUI.
+- **Remaining:** Finish the current full regression run and GitHub release rehearsal, then perform the native acceptance checks listed in the report. No public release has been created.
+- **I need from you:** Nothing while the automated checks continue. The report records the later native Windows checks so they are not mistaken for completed tests.
 
 ### P1: Recover review comments after a temporary file lock
 
