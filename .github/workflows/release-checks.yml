@@ -115,8 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(tr -d '\r\n\357\273\277' < reviewed-evidence/release-evidence/commit.txt)" = "$RELEASE_SHA"
-          # Existing tags/releases must never be silently retargeted or replaced.
-          if gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-            echo 'Tag already exists; choose a new release version.' >&2; exit 1
-          fi
-          gh release create "$RELEASE_TAG" reviewed-evidence/release-evidence/Backspace-windows-x64.zip reviewed-evidence/release-evidence/SHA256.txt --target "$RELEASE_SHA" --title "Backspace $RELEASE_TAG" --generate-notes
+          # Atomic creation rejects an existing tag, including one created
+          # concurrently. Never reuse a tag pointing to an unreviewed revision.
+          gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$RELEASE_SHA"
+          gh release create "$RELEASE_TAG" reviewed-evidence/release-evidence/Backspace-windows-x64.zip reviewed-evidence/release-evidence/SHA256.txt --verify-tag --title "Backspace $RELEASE_TAG" --generate-notes
