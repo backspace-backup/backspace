@@ -76,6 +76,66 @@ public sealed class WindowsTaskScheduler : IScheduler
         // may have toggled the cadence off in Settings).
         ReconcileOptionalEntry(ts, folder, backup, exePath, ScheduledTaskKind.Prune, backup.PruneSchedule);
         ReconcileOptionalEntry(ts, folder, backup, exePath, ScheduledTaskKind.Check, backup.CheckSchedule);
+        TaskSchedulerService.NotifyChanged();
+    }
+
+    public ScheduleCheck InspectBackup(Backup backup, string exePath)
+    {
+        using var ts = new TaskService();
+        using var task = ts.GetTask(FolderPath + "\\" + TaskNameFor(backup));
+        if (task is null) return new(ScheduleReadiness.Attention, "The Windows scheduled task is missing. Save this backup to register it again.");
+        using var definition = task.Definition;
+        if (!task.Enabled || task.State is not (TaskState.Ready or TaskState.Running))
+            return new(ScheduleReadiness.Attention, "The Windows task is disabled or unavailable.");
+        using var expected = BuildTaskDefinition(ts, backup, exePath, ScheduledTaskKind.Backup, backup.Schedule);
+        if (!MatchesBackupDefinition(definition, expected))
+            return new(ScheduleReadiness.Attention, "The Windows task differs from this backup. Save the backup to refresh it.");
+        if (!File.Exists(exePath)) return new(ScheduleReadiness.Attention, "The Backspace executable is missing.");
+        if (task.NextRunTime == DateTime.MinValue)
+            return new(ScheduleReadiness.Attention, "Windows has no future run scheduled for this backup.");
+        return new(ScheduleReadiness.Ready, "Windows task enabled and its action and schedule match this backup.");
+    }
+
+    internal static bool MatchesBackupDefinition(TaskDefinition actual, TaskDefinition expected)
+    {
+        if (actual.Actions.Count != 1 || actual.Actions[0] is not ExecAction action || expected.Actions[0] is not ExecAction wanted
+            || !string.Equals(action.Path, wanted.Path, StringComparison.OrdinalIgnoreCase)
+            || action.Arguments != wanted.Arguments
+            || !string.Equals(action.WorkingDirectory, wanted.WorkingDirectory, StringComparison.OrdinalIgnoreCase)) return false;
+        if (actual.Triggers.Count != 1 || !actual.Triggers[0].Enabled) return false;
+        var trigger = actual.Triggers[0]; var reference = expected.Triggers[0];
+        if (trigger.EndBoundary != DateTime.MaxValue || trigger.StartBoundary > DateTime.Now.AddDays(1)
+            || trigger.Repetition.Interval != reference.Repetition.Interval
+            || trigger.Repetition.Duration != reference.Repetition.Duration
+            || trigger.StartBoundary.TimeOfDay != reference.StartBoundary.TimeOfDay) return false;
+        var timing = (trigger, reference) switch
+        {
+            (DailyTrigger a, DailyTrigger b) => a.DaysInterval == b.DaysInterval,
+            (WeeklyTrigger a, WeeklyTrigger b) => a.WeeksInterval == b.WeeksInterval && a.DaysOfWeek == b.DaysOfWeek,
+            (MonthlyTrigger a, MonthlyTrigger b) => a.MonthsOfYear == b.MonthsOfYear && a.DaysOfMonth.SequenceEqual(b.DaysOfMonth) && !a.RunOnLastDayOfMonth,
+            (TimeTrigger a, TimeTrigger b) => a.Repetition.Interval == b.Repetition.Interval && a.Repetition.Duration == b.Repetition.Duration,
+            _ => false
+        };
+        return timing && actual.Principal.LogonType == expected.Principal.LogonType
+            && SameWindowsUser(actual.Principal.UserId, expected.Principal.UserId)
+            && actual.Principal.RunLevel == expected.Principal.RunLevel
+            && actual.Settings.ExecutionTimeLimit == expected.Settings.ExecutionTimeLimit
+            && actual.Settings.MultipleInstances == expected.Settings.MultipleInstances
+            && actual.Settings.RunOnlyIfIdle == expected.Settings.RunOnlyIfIdle
+            && actual.Settings.StartWhenAvailable == expected.Settings.StartWhenAvailable
+            && actual.Settings.DisallowStartIfOnBatteries == expected.Settings.DisallowStartIfOnBatteries
+            && actual.Settings.StopIfGoingOnBatteries == expected.Settings.StopIfGoingOnBatteries
+            && actual.Settings.RunOnlyIfNetworkAvailable == expected.Settings.RunOnlyIfNetworkAvailable;
+    }
+
+    private static bool SameWindowsUser(string actual, string expected)
+    {
+        // Windows can return the account as either a name or a SID.
+        static string Sid(string value) => value.StartsWith("S-1-", StringComparison.OrdinalIgnoreCase)
+            ? value : new System.Security.Principal.NTAccount(value)
+                .Translate(typeof(System.Security.Principal.SecurityIdentifier)).Value;
+        try { return string.Equals(Sid(actual), Sid(expected), StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
     }
 
     /// <summary>Add (or update) the per-kind entry when its schedule
@@ -194,6 +254,7 @@ public sealed class WindowsTaskScheduler : IScheduler
             catch (Exception ex) { _log.Debug(ex, "DeleteTask({Kind}) threw (likely already gone)", kind); }
         }
         _log.Information("Removed {Count} scheduled task entry(ies) for {TaskName}", deleted, TaskNameFor(backup));
+        TaskSchedulerService.NotifyChanged();
     }
 
     /// <summary>

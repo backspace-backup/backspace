@@ -19,6 +19,8 @@ namespace Backspace.Services;
 /// </summary>
 public static class TaskSchedulerService
 {
+    public static event System.Action? Changed;
+    internal static void NotifyChanged() => Changed?.Invoke();
     private static ILogger _log => AppLogger.For(nameof(TaskSchedulerService));
 
     public static IScheduler Create()

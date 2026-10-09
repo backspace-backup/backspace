@@ -110,6 +110,13 @@ test harness to give each test its own isolated config dir.
    The wrapper waits for the app, reports its exit code, and launches the
    fallback stub if the app was moved; no profile or execution-policy override
    is used. Free-form backup names are passed as native argument data.
+   The tray's schedule badge reads Windows Task Scheduler rather than inferring
+   readiness from saved settings. It checks enabled backup tasks, their account,
+   action, timing and execution settings. Paused, off, attention and unverified
+   states remain distinct. Checks run on startup, focus, menu opening, task or
+   configuration changes, and once when a snooze expires; there is no recurring
+   polling timer. A ready badge records the check time. It does not guarantee
+   that drives, networks or cloud credentials will be available at the next run.
 4. **Single executable.** `backrest`, `restic`, and `rclone` are bundled
    in `Assets/` at build time and extracted to the portable config dir
    on first run. No separate install step.

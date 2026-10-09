@@ -33,6 +33,10 @@ public enum ScheduledTaskKind
 /// </summary>
 public interface IScheduler
 {
+    /// <summary>Read-only check of the registered backup task. Unsupported
+    /// platforms report Unknown rather than implying a schedule is armed.</summary>
+    ScheduleCheck InspectBackup(Backup backup, string exePath) =>
+        new(ScheduleReadiness.Unknown, "Schedule verification is unavailable on this platform.");
     /// <summary>
     /// Register or update the OS-scheduler entries for the backup.
     /// Always registers the main Backup entry; additionally registers

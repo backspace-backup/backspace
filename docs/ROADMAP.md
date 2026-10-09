@@ -240,6 +240,7 @@ for the workflow rules an agent must follow before touching this file.
   - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
 - **Limitations / adversarial review:** No workflow run or GitHub settings change has been performed. A checklist alone cannot block a release.
 
+- **Follow-up — 2026-10-09:** Complete all release-gate implementation and available repository configuration without waiting for the user. Identify a concrete access or approval blocker before leaving work open.
 - **I need from you:** N011: No action yet; the agent still needs to complete the remaining work.
 
 ### P1: Show live output when a backup starts its first run
@@ -768,9 +769,11 @@ for the workflow rules an agent must follow before touching this file.
 - **Type:** coverage
 - **Status:** In progress
 - **Context:** B023: Also it is misleading to say "Backspace keeps running in the background so scheduled backups still fire"! App doesn't need to run in the background for this! User should be reassured about this. Only useful to keep to reopen fast. How are things handled if a backup or any other operation is running and user wants to quit? I think we should still push to keep app running in the systray if you can confirm CPU impact will be zero when no operation is running. This can be reassuring for people to see Backspace if there. But we should reassure them even if Backspace is quit, it'll stop existing operations but scheduled operations will be triggered as usual. Find the best way to frame this.
-- **Current result:** Enabling close-to-tray now immediately saves the preference and makes the tray icon visible. Closing the window keeps active work running in the tray. The menu has Open, Quit and a separate Force quit confirmation, which remains reachable while normal Quit waits for work to stop.
-- **Remaining:** Verify the native Windows tray menu and forced process exit with a running engine. An “armed” indication must reflect actual schedule availability before it can be presented as protection.
+- **Current result:** Close-to-tray saves immediately. The tray now shows whether actual Windows scheduled tasks match the enabled backups, with separate paused, off, attention and unverified states. Checks refresh after configuration or task changes, when the app or menu opens, and when a snooze expires. The check time is shown; drives and sign-in are checked when a backup runs. Existing Quit and Force quit behavior is retained.
+- **Remaining:** The schedule indicator is implemented. Native Windows tray interaction and forced exit with a live engine still require a desktop check; native computer control is unavailable in this session.
 - **Proof — open and look:**
+  - 🖼️ [Actual tray badge artwork](../audit-dashboard/evidence/remaining-work-20261009/tray-status-icons.png) — Ready, paused, off, attention and unverified use distinct labels and meaningful badge shapes. Production renderer, shown in a headless gallery rather than the Windows notification area.
+  - [Tray checks and pending-test panels](../audit-dashboard/evidence/remaining-work-20261009/report.html) — Full suite: 1,023 passed, two credential skips, no failures. Negative cases reject altered task accounts, triggers, times and actions; native tray behavior remains unverified.
   - 🖼️ [The tray preference survives an immediate close](../audit-dashboard/evidence/review-feedback/01-tray-setting-saved-immediately.png) — The test enabled close-to-tray, immediately closed the window and reopened the same window without exiting.
   - 🖼️ [Force quit explains the consequences](../audit-dashboard/evidence/review-feedback/02-force-quit-warning.png) — The confirmation explains interrupted work and offers Keep running. The test clicks Keep running.
   - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
@@ -789,6 +792,7 @@ for the workflow rules an agent must follow before touching this file.
 
   > Having systray icon reflect whether app is "armed" or not seems standard practice for this kind of app, isn't it?
 
+- **Follow-up — 2026-10-09:** Implement the proposed truthful tray scheduling indication and complete all available native checks autonomously. Do not leave implementable work for the user.
 - **I need from you:** B023: No action yet; the agent still needs to complete the remaining work.
 
 ### P1: Tolerable destination outages are skipped
@@ -1262,6 +1266,7 @@ for the workflow rules an agent must follow before touching this file.
 - **Review comments received 2026-10-05 (B034):**
   > mark this as still needs testing. In our chat session, tell me what i need to do step by step to complete testing which needs me.
 
+- **Follow-up — 2026-10-09:** Show this explicitly as a pending user test in the dashboard, with complete sign-in, backup, reopen, restore and file-comparison instructions.
 - **I need from you:** B034: Choose a provider, sign in through the real destination editor, run a small backup, restart the app, run again without signing in, then restore and compare the files. The report and chat give the steps.
 
 ### P2: Measure cloud-file hydration after backup
@@ -1271,8 +1276,9 @@ for the workflow rules an agent must follow before touching this file.
 - **Status:** In progress
 - **Context:** B035: - Test if --exclude-cloud-files is OFF, whether it'll cause the files to be downloaded permanently, or only temporarily (useful to backup dropbox to another destination without cluttering the local drive)/
 - **Current result:** The actual Dropbox file you supplied stayed online-only, with zero allocated bytes throughout the checks. Neither backup contained its contents. Bundled Restic 0.18.1 rejected this placeholder as an unsupported irregular file. The run returned Warning, and the app log now preserves the specific filename and error.
-- **Remaining:** Review the measured Dropbox result. Testing download behavior still needs a placeholder the bundled engine can read, or an agreed follow-up with the file made available locally. Other providers remain untested.
+- **Remaining:** Prototype a separate cloud source, starting with Dropbox. Prove that unchanged files remain in each snapshot without being downloaded again, changed revisions are not missed, temporary space is bounded, and original placeholder states never change. This is agent implementation work; source-account authorization will be needed for a live provider trial.
 - **Proof — open and look:**
+  - [Online-only source research and proposed approach](../audit-dashboard/evidence/remaining-work-20261009/cloud-source-research.html) — Compares verified competitor behavior, explains the Restic constraint, and lists the acceptance checks. Research, not a claim of working implementation.
   - [Actual Dropbox test: no download and no backed-up contents](../audit-dashboard/evidence/cloud-placeholder-20261005/report.html) — See the file measurements, snapshot checks and original engine error. The supplied file remained online-only.
   - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
   - [Recorded test results and remaining gaps](../audit-dashboard/evidence/repair-verification.html) — Read the pass and fail results, open the original test records if needed, and see what each run did and did not test.
@@ -1286,7 +1292,8 @@ for the workflow rules an agent must follow before touching this file.
 
   > exclude-cloud-files => Is it an option we have currently? Is it a legacy one from Duplicacy we had in duplimate? If so, how does Restic handles this?
 
-- **I need from you:** B035: Review the measured Dropbox result. Testing download behavior still needs a placeholder the bundled engine can read, or an agreed follow-up with the file made available locally. Other providers remain untested.
+- **Follow-up — 2026-10-09:** Investigate backing up online-only Dropbox, Google Drive and OneDrive files without changing the user’s local availability choice. Check provider metadata for changes, download changed content into a separate temporary location, check free space before downloading, and warn clearly when a file cannot be included. The requested default is to ignore online-only files; including them must explain that local placeholders stay online-only. Research existing products and the Restic/Backrest integration before proposing implementation.
+- **I need from you:** Nothing for the research. A later live prototype will need your sign-in and a disposable source folder; the current checkbox must not yet promise to leave included files online-only.
 
 ### P2: Check layout with ten sources and destinations
 
@@ -1336,6 +1343,7 @@ for the workflow rules an agent must follow before touching this file.
 - **Review comments received 2026-10-05 (B040):**
   > What do i need to do exactly? Did you create a powershell script to test this? Why is this issue not marked as Still needs testing?
 
+- **Follow-up — 2026-10-09:** The dashboard must explicitly show this as a pending test for the user, with Setup, reboot timing and Check instructions inside the issue.
 - **I need from you:** B040: Use Setup in an administrator PowerShell window, restart before the displayed due time, leave Windows at the sign-in screen until two minutes after that time, then use Check. The script never restarts the machine itself.
 
 ### P2: Restore the first snapshot to a different folder

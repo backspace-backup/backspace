@@ -14,7 +14,11 @@
                 ToolTipText="Backspace"
                 Clicked="OnTrayIconClicked">
         <TrayIcon.Menu>
-          <NativeMenu>
+          <NativeMenu Opening="OnTrayMenuOpening">
+            <NativeMenuItem Header="Checking schedules…" IsEnabled="False"/>
+            <NativeMenuItem Header="" IsEnabled="False"/>
+            <NativeMenuItem Header="Refresh schedule status" Click="OnTrayRefresh"/>
+            <NativeMenuItemSeparator/>
             <NativeMenuItem Header="Show Backspace" Click="OnTrayShow"/>
             <NativeMenuItemSeparator/>
             <NativeMenuItem Header="Quit Backspace" Click="OnTrayQuit"/>

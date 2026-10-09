@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -31,6 +32,11 @@ public partial class App : Application
     /// </summary>
     private AccentColor? _lastAppliedAccent;
     private AppTheme? _lastAppliedTheme;
+    private readonly TrayStatusPresenter _trayPresenter = new();
+    private TrayScheduleStatus _trayStatus = new(ScheduleReadiness.Unknown, "Checking schedules…", "");
+    private bool _trayRefreshRunning;
+    private int _trayRefreshVersion;
+    private DispatcherTimer? _trayPauseTimer;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -105,9 +111,14 @@ public partial class App : Application
                 try { ApplyThemeFromConfig(); }
                 catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Theme re-apply failed"); }
                 ApplyTrayVisibility();
+                RefreshTrayStatus();
             });
 
             desktop.MainWindow = new MainWindow { DataContext = new MainWindowViewModel() };
+            desktop.MainWindow.Activated += (_, _) => RefreshTrayStatus();
+            AppStatus.Changed += _ => Dispatcher.UIThread.Post(ApplyTrayStatus);
+            TaskSchedulerService.Changed += () => Dispatcher.UIThread.Post(RefreshTrayStatus);
+            RefreshTrayStatus();
             desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
 
             // Wire the WinFSP install-consent prompt: shown the first
@@ -227,6 +238,71 @@ public partial class App : Application
         var icons = TrayIcon.GetIcons(this);
         if (icons is null) return;
         foreach (var icon in icons) icon.IsVisible = ServiceLocator.Config.Current.Preferences.ShowTrayIcon;
+    }
+
+    private void OnTrayMenuOpening(object? sender, EventArgs e) => RefreshTrayStatus();
+    private void OnTrayRefresh(object? sender, EventArgs e) => RefreshTrayStatus();
+
+    private void ApplyTrayStatus()
+    {
+        var icons = TrayIcon.GetIcons(this);
+        if (icons is null) return;
+        foreach (var icon in icons)
+            _trayPresenter.Apply(icon, _trayStatus, ServiceLocator.Config.Current.Preferences.Accent,
+                AppStatus.Current == AppActivity.Syncing);
+    }
+
+    internal async void RefreshTrayStatus()
+    {
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime || QuitRequested) return;
+        _trayRefreshVersion++;
+        if (_trayRefreshRunning) return;
+        _trayRefreshRunning = true;
+        try
+        {
+            int version;
+            do
+            {
+                version = _trayRefreshVersion;
+                _trayStatus = new(ScheduleReadiness.Unknown, "Checking schedules…", "");
+                ApplyTrayStatus();
+                // Freeze this configuration before querying COM off the UI thread.
+                var backups = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.List<Backup>>(
+                    System.Text.Json.JsonSerializer.Serialize(ServiceLocator.Config.Current.Backups))!;
+                _trayPauseTimer?.Stop();
+                // One wake-up when a snooze expires; no recurring idle polling.
+                var nextResume = backups.Where(b => b.Enabled)
+                    .Select(b => b.Schedule.PausedUntilUtc)
+                    .Where(t => t > DateTime.UtcNow).OrderBy(t => t).FirstOrDefault();
+                if (nextResume is { } resume)
+                {
+                    _trayPauseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Max(100, (resume - DateTime.UtcNow).TotalMilliseconds)) };
+                    _trayPauseTimer.Tick += (_, _) => { _trayPauseTimer.Stop(); RefreshTrayStatus(); };
+                    _trayPauseTimer.Start();
+                }
+                var scheduler = ServiceLocator.Scheduler;
+                var executable = Environment.ProcessPath ?? "";
+                var query = System.Threading.Tasks.Task.Run(() =>
+                    TrayScheduleStatus.Inspect(backups, scheduler, executable, DateTime.UtcNow));
+                try { _trayStatus = await query.WaitAsync(TimeSpan.FromSeconds(5)); }
+                catch (TimeoutException)
+                {
+                    _trayStatus = new(ScheduleReadiness.Unknown, "Schedules not verified", "Windows did not answer in time.");
+                    ApplyTrayStatus();
+                    // Keep only one outstanding OS query, even if menus reopen.
+                    try { await query; } catch { }
+                    continue;
+                }
+                if (version == _trayRefreshVersion) ApplyTrayStatus();
+            } while (version != _trayRefreshVersion && !QuitRequested);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.For<App>().Warning(ex, "Tray schedule check failed");
+            _trayStatus = new(ScheduleReadiness.Unknown, "Schedules not verified", "Could not read the current schedules.");
+            ApplyTrayStatus();
+        }
+        finally { _trayRefreshRunning = false; }
     }
 
     private void OnTrayIconClicked(object? sender, EventArgs e) => RestoreMainWindow();
