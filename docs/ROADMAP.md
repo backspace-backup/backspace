@@ -234,11 +234,12 @@ for the workflow rules an agent must follow before touching this file.
 - **Type:** coverage
 - **Status:** In progress
 - **Context:** The user wants a systematic check of screenshots, README and documentation before each GitHub release, and asks whether AGENTS.md is sufficient. Add a review issue and recommend enforceable release checks with a clear distinction between automated checks and human visual/content review.
-- **Current result:** AGENTS.md now points to a release checklist, and a new manual GitHub workflow prepares interface screenshots and runs the large real-engine round trip. Enforcement still requires the publishing job and repository approval settings.
-- **Remaining:** Configure and exercise the release approval gate on GitHub, including restrictions that prevent manual publishing from bypassing it.
+- **Current result:** The publishing workflow and protected release environment are installed on GitHub. The environment requires the maintainer’s approval and disables administrator bypass. A rehearsal runs without creating a tag or release. The first real run caught a clean-machine PowerShell module problem before tests started; the downloader has been repaired and a fresh local download of all three engines passed.
+- **Remaining:** Complete the GitHub rehearsal and verify that successful checks stop at the required human approval. No release will be published by the rehearsal.
 - **Proof — open and look:**
+  - [First GitHub rehearsal: publishing blocked by a build failure](https://github.com/backspace-backup/backspace/actions/runs/37919089797) — The Windows build failed before tests, and the publishing job was skipped. The missing standard PowerShell command was then repaired.
   - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** No workflow run or GitHub settings change has been performed. A checklist alone cannot block a release.
+- **Limitations / adversarial review:** The first failed GitHub check prevented publishing, as required. The successful-check approval path is still being exercised. The environment protects this workflow; repository administrators and existing write permissions can still publish manually through another route.
 
 - **Follow-up — 2026-10-09:** Complete all release-gate implementation and available repository configuration without waiting for the user. Identify a concrete access or approval blocker before leaving work open.
 - **I need from you:** N011: No action yet; the agent still needs to complete the remaining work.
