@@ -172,6 +172,19 @@ for the workflow rules an agent must follow before touching this file.
 - **Limitations / adversarial review:** This ran against local disposable repositories and the installed WinFSP runtime. It does not exercise cloud fetching, a machine without WinFSP, or native Explorer UI.
 - **I need from you:** R016: Inspect the native mount assertions. The original packaged-app acceptance remains separately tracked as R009.
 
+### P1: Combine review status and reply-turn filters without clearing either
+
+- **Raised:** 2026-10-09
+- **Type:** bug
+- **Status:** Awaiting validation
+- **Context:** Choosing Needs your input and then Your review cleared the status filter and showed every issue awaiting the user. Status and whose turn it is must work together. Show both breakdowns so the user can find issues needing their decision while excluding issues already sent back to the agent.
+- **Root cause + fix:** The status and turn click handlers reset each other's selection, category and search. Each now changes only its own filter. Counts reflect the other active filters, and removable tags show the complete combination. Empty matches stay empty.
+- **Proof — open and look:**
+  - 🖼️ [Needs your input and Your review selected together](../audit-dashboard/evidence/filter-combinations-20261009/laptop-1366.png) — Both filters remain selected on a 1366 × 768 viewport, showing three matching issues; the unanswered decision issue belongs to With Agent instead.
+  - [Browser checks and filter behavior](../audit-dashboard/evidence/filter-combinations-20261009/report.html) — Exact click sequence, reverse order, search and category retention, empty intersections, closed issues and automated test results.
+- **Limitations / adversarial review:** Actual Chrome interactions reproduced the user's starting sequence. The unanswered-comment case was explicitly excluded, and a zero-match combination did not broaden itself. Four filter regressions and the existing server persistence/discussion regression passed. Screenshot counts reflect the data at test time and will change as discussions progress. Existing user comments and decisions were preserved.
+- **I need from you:** N013: Try Needs your input followed by Your review, and confirm whether the combined filters and counts match how you want to browse.
+
 ### P1: Add graceful Windows updates from GitHub releases
 
 - **Raised:** 2026-10-09
