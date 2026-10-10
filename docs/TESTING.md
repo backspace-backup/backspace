@@ -203,8 +203,8 @@ older scenario comments that describe broader coverage.
 | Standalone prune (cadence) | `RuntimeGuardCoverageTests` verifies actual unregistered weekly trigger/action and real orchestration cancellation/opt-out; `S39` covers fake-engine invocation. OS due-time firing unexercised | ⛔ OS acceptance |
 | Check after backup (inline) | `E15_CheckAfterBackupRealEngine` | ✅ |
 | Standalone check (cadence) | Actual unregistered monthly trigger/action and real orchestration cancellation/opt-out; `S39` covers fake-engine invocation. OS due-time firing unexercised | ⛔ OS acceptance |
-| Test-restore drill | `E16_TestRestoreVerifyDrill` | ✅ |
-| Drill skips mid-flight-edited files | E16 covers an ordinary real drill, not a concurrent source edit. `BackupVerifierMidFlightDirtyTests` covers record state and retry replacement only. | 🟡 |
+| Test-restore drill | `E16_TestRestoreVerifyDrill`: actual button pointer clicks in headless Avalonia; real Backrest/restic, two sources, an empty file, all file counts, persisted runs, and a second-source same-size mismatch that must fail. Screenshots show the result beside the button. | ✅ |
+| Drill skips mid-flight-edited files | E16 deliberately retains the source modification time to test byte mismatch detection; it does not simulate a concurrent edit. `BackupVerifierMidFlightDirtyTests` covers record state and retry replacement only. | 🟡 |
 | Maintenance policy cards rendered | `S26_MaintenancePolicyCards` | ✅ |
 
 ### Destinations

@@ -1,9 +1,14 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.VisualTree;
 using Backspace.Models;
 using Backspace.Services;
 using Backspace.Tests.TestHelpers;
@@ -16,16 +21,10 @@ namespace Backspace.Tests.Scenarios.E2E;
 
 /// <summary>
 /// Test-restore (verify drill) end-to-end against the real engine.
-/// The drill samples files from the latest revision, restores them
-/// to a scratch dir, and byte-compares against the source. This is
-/// the action behind the BackupCard's "Test restore" button — its
-/// failure shape (e.g. "all 7 sampled files matched" vs "3/7
-/// mismatched") is what tells the user whether their backup is
-/// actually intact, separate from "did restic say it was fine."
-///
-/// The drill bypasses the orchestrator's per-cell loop and uses
-/// <see cref="BackupVerifier.VerifyAsync"/> directly — same path
-/// <see cref="BackupsViewModel.TestRestoreCommand"/> triggers.
+/// Clicks the actual Test restore control through headless pointer input.
+/// Real Backrest/restic restores both sources, including an empty file,
+/// then compares them with the originals. A second click must detect a
+/// same-length source mismatch with its original modification time retained.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
@@ -39,6 +38,13 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
     protected override async Task RunE2EAsync(ScenarioContext ctx, RealEngineFixture fixture)
     {
         var source   = ctx.MakeSource("docs", seed: 161, targetBytes: 700_000);
+        var secondSource = ctx.MakeSource("photos", seed: 162, targetBytes: 100_000);
+        for (var n = 0; n < 12; n++) File.WriteAllText(Path.Combine(source, $"extra-{n}.txt"), $"Original file {n}");
+        File.WriteAllBytes(Path.Combine(secondSource, "empty.txt"), Array.Empty<byte>());
+        var changedPath = Path.Combine(secondSource, "compare-me.txt");
+        File.WriteAllText(changedPath, "original bytes");
+        var originalStamp = File.GetLastWriteTimeUtc(changedPath);
+        var expectedFiles = new[] { source, secondSource }.Sum(p => Directory.GetFiles(p, "*", SearchOption.AllDirectories).Length);
         var destPath = ctx.MakeLocalDestination("verify-local");
 
         var dest = new Destination
@@ -52,7 +58,7 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
         var backup = new Backup
         {
             Name = "Docs (E16)",
-            SourcePaths = { source },
+            SourcePaths = { source, secondSource },
             UseVss = false,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
@@ -74,19 +80,64 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
         Assert.True(record.Status is BackupRunStatus.Success or BackupRunStatus.Warning,
             $"Backup ended {record.Status}; errors={string.Join(" | ", record.Errors)}.");
 
-        // Now drive the verify drill — the exact path the "Test restore"
-        // button kicks off. Source hasn't changed since the backup, so
-        // every sampled file must byte-compare clean.
-        var verify = await ServiceLocator.Verifier.VerifyAsync(backup, CancellationToken.None);
-        ctx.Snapshot(host, $"after verify {(verify.OverallPass ? "pass" : "fail")}",
-            $"Verify drill — {verify.FilesOk}/{verify.FilesPicked} ok, " +
-            $"summary={verify.Summary}");
+        var vm = (BackupsViewModel)view.DataContext!;
+        var card = vm.Cards.Single(c => c.Id == backup.Id);
+        Assert.Contains("all snapshot files", card.TestRestoreTooltip);
+        Assert.DoesNotContain("10 random", card.TestRestoreTooltip);
+        ctx.Snapshot(host, "before-test-restore-click", "Two source folders backed up; the Test restore button is available.");
+        async Task ClickTestRestore()
+        {
+            ctx.Driver.Pump();
+            var button = view.GetVisualDescendants().OfType<Button>().Single(b =>
+                b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Test restore"));
+            Assert.True(button.IsEnabled);
+            button.BringIntoView();
+            ctx.Driver.Pump();
+            var point = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), host);
+            Assert.NotNull(point);
+            var previous = vm.TestRestoreCommand.ExecutionTask;
+            host.MouseDown(point.Value, MouseButton.Left);
+            host.MouseUp(point.Value, MouseButton.Left);
+            ctx.Driver.Pump();
+            var task = vm.TestRestoreCommand.ExecutionTask;
+            Assert.NotNull(task);
+            Assert.NotSame(previous, task);
+            await task.WaitAsync(TimeSpan.FromMinutes(2));
+            ctx.Driver.Pump();
+        }
 
-        Assert.True(verify.OverallPass,
-            $"Verify drill returned {verify.Summary}; per-file: " +
-            string.Join(" | ", verify.Files.Select(f => $"{f.Path}:{f.Status}{(f.Detail is null ? "" : "/" + f.Detail)}")));
-        Assert.True(verify.FilesPicked > 0,
-            "Verifier picked zero files — the drill is supposed to sample at least one.");
-        Assert.Equal(0, verify.FilesFailed);
+        await ClickTestRestore();
+        var verified = ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id);
+        Assert.True(verified.LastVerifyPass, verified.LastVerifySummary);
+        Assert.Contains($"{expectedFiles} files restored, {expectedFiles} byte-identical", verified.LastVerifySummary);
+        Assert.DoesNotContain("size-matched only", verified.LastVerifySummary);
+        Assert.Contains(verified.LastVerifySummary!, card.VerifyDetails);
+        // Leave the result's real tooltip visible in the proof so the file count can be read.
+        async Task HoverResult()
+        {
+            var label = view.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == card.VerifyLabel);
+            var at = label.TranslatePoint(new Point(label.Bounds.Width / 2, label.Bounds.Height / 2), host)!.Value;
+            host.MouseMove(at);
+            await Task.Delay(600);
+            ctx.Driver.Pump();
+        }
+        await HoverResult();
+        ctx.Snapshot(host, "test-restore-button-success", $"Actual Test restore click: all {expectedFiles} files from two sources, including an empty file, restored and compared using real Backrest/restic.");
+
+        // Negative control: equal size and unchanged mtime must not conceal changed bytes.
+        File.WriteAllText(changedPath, "modified bytes");
+        File.SetLastWriteTimeUtc(changedPath, originalStamp);
+        await ClickTestRestore();
+        var failed = ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id);
+        Assert.False(failed.LastVerifyPass, "Changed bytes in the second source must fail the drill.");
+        Assert.Contains("FAILED verification", failed.LastVerifySummary);
+        Assert.Contains(failed.LastVerifySummary!, card.VerifyDetails);
+        var runs = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Where(r => r.Kind == RunKind.TestRestore).ToList();
+        Assert.Equal(2, runs.Count);
+        Assert.Contains(runs, r => r.Status == BackupRunStatus.Success);
+        Assert.Contains(runs, r => r.Status == BackupRunStatus.Failed);
+        Assert.All(runs, r => Assert.True(File.Exists(r.LogPath)));
+        await HoverResult();
+        ctx.Snapshot(host, "test-restore-button-detects-mismatch", "A second click reports FAILED after bytes in the second source changed without changing its length or modification time. It cannot silently report success.");
     }
 }

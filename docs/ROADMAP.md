@@ -7,6 +7,7 @@ for the workflow rules an agent must follow before touching this file.
 
 ## Actively working
 
+
 **Review queue — 9 October 2026:** Open [the local review desk](http://127.0.0.1:4317/) using the root BAT launcher. Its filters show the current review and testing queues. New Windows-update evidence and online-only file research are attached to their issues. Reboot and live-cloud instructions remain prominently marked as pending tests from you. Your accepted issues and comments remain preserved. [Your original notes](http://127.0.0.1:4317/notes) link to all 42 derived issues.
 
 **I need from you:** Review the new replies and screenshots. Live cloud checks need account consent and provider configuration; email and Healthchecks checks need a chosen test destination. The prepared Windows checks need an administrator session and, for B040, a real reboot. The referenced Word document and the existing restore-architecture and historical-plan decisions remain outstanding. No restart or outgoing email has been performed.
@@ -171,6 +172,19 @@ for the workflow rules an agent must follow before touching this file.
   - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
 - **Limitations / adversarial review:** This ran against local disposable repositories and the installed WinFSP runtime. It does not exercise cloud fetching, a machine without WinFSP, or native Explorer UI.
 - **I need from you:** R016: Inspect the native mount assertions. The original packaged-app acceptance remains separately tracked as R009.
+
+### P1: Keep review comments attached to their original issue context
+
+- **Raised:** 2026-10-10
+- **Type:** bug
+- **Status:** Awaiting validation
+- **Context:** In B006 and another issue, the user quoted wording that no longer appeared in the issue. Investigate misplaced replies versus rewritten issue bodies, and preserve discussion context.
+- **Current result:** Three saved review copies show no moved, missing or changed comments. B006's quoted sentence remains in its linked restore report, but the issue summary had drifted into general restore testing. Corrected that scope. Recovered 127 earlier bodies across 81 issues. Future imports save before/after wording; new comments retain the issue text they were posted against. Both are expandable in the discussion and persisted in JSON.
+- **Proof — open and look:**
+  - 🖼️ [B006 comment and recovered wording](../audit-dashboard/evidence/issue-context-20261010/recovered-wording.png) — The original comment remains beside a dated, expandable earlier issue body.
+  - [Investigation, browser checks and saved-copy evidence](../audit-dashboard/evidence/issue-context-20261010/report.html) — The exact quoted sentence and its source, plus 10 passing dashboard tests. Actual Chrome checks switched between separate drafts, posted both, changed an issue body, reversed storage order and reloaded; each comment retained its original issue and context.
+- **Limitations / adversarial review:** The archives do not prove every historical browser interaction or reconstruct every intermediate edit. Recovered dates are copy dates, labelled as such. Future body history includes proof descriptions and paths, not frozen report file contents; agents must publish revised reports at new paths. The tests also reject stale writes and prevent imports from erasing history. No real comment or completion was changed for testing.
+- **I need from you:** Reload B006 and inspect its discussion. Confirm that the earlier wording and explanation make your comment understandable. N016 tracks this dashboard change.
 
 ### P1: Sort review issues by recent activity and show their age
 
@@ -790,14 +804,14 @@ for the workflow rules an agent must follow before touching this file.
 - **Type:** coverage
 - **Status:** Awaiting validation
 - **Context:** B006: - Test restore feature that actually compares restored files with known local files to see if bytes match (unless you think this is useless, if there is already some hashing happening, integrity can always be reliably verified right? Is it realistic to expect any kind of other data corruption or missing files from the backup compared to the local files?).
-- **Current result:** The restore tests check both sides of safety: every selected file must be recovered correctly, and files you did not select must remain unchanged. The large real-engine run restored 20,000 files and compared the contents of every file.
-- **Remaining:** Open the report and check the examples of selected files being restored while unrelated existing files stay intact.
+- **Clarification received 2026-10-10:** This concerns the app's Test restore button, not only automated tests of ordinary restores. Trace that exact action, check its underlying restore and comparison behavior, and correct the review summary and proof to cover the feature itself.
+- **Current result:** The Test restore button uses the same RestoreEngine as ordinary restores. It restores all snapshot files from every source and destination in batches, compares unchanged originals and reports failures or files it cannot compare. Corrected its stale “10 random files” tooltip. Hovering over the result now shows restored/compared counts or the failure summary.
+- **Remaining:** Review the actual button-flow screenshots and the feature's stated limits.
 - **Proof — open and look:**
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-  - [Restore safety and file checks](../audit-dashboard/evidence/restore-repairs/report.html) — See which files were recovered, which existing files were protected, and how failures, cancellation and password changes were checked.
-  - 🖼️ [Five restored files match their originals](../audit-dashboard/evidence/restore-repairs/screenshots/real-test-restore-five-files.png) — The real-engine test restores all five files and reports that their contents match. Separate checks cover empty files, all sources and failure handling.
-  - [Recorded test results and remaining gaps](../audit-dashboard/evidence/repair-verification.html) — Read the pass and fail results, open the original test records if needed, and see what each run did and did not test.
-- **Limitations / adversarial review:** These checks prove ordinary file contents. Windows metadata, permissions and cloud-provider behavior have their own limits in the linked report.
+  - 🖼️ [Test restore succeeds and reports all 31 matches](../audit-dashboard/evidence/issue-context-20261010/test-restore-success.png) — Actual control click in headless Avalonia with real Backrest/restic, two source folders and an empty file. The tooltip shows 31 restored and 31 byte-identical.
+  - 🖼️ [A same-size mismatch makes the button report failure](../audit-dashboard/evidence/issue-context-20261010/test-restore-mismatch.png) — A second click detects changed bytes in the second source even though size and modification time were preserved; the tooltip reports one of 31 failed.
+  - [Test restore feature, results and limits](../audit-dashboard/evidence/issue-context-20261010/test-restore.html) — All 17 focused checks passed, no skips. The button saves separate successful and failed Test restore runs with logs.
+- **Limitations / adversarial review:** The button scenario uses real engine processes and disposable encrypted local storage; the 16 boundary checks use controlled inputs or the in-memory engine. This does not establish native Windows interactions, live cloud, metadata/permissions recovery, or historical bytes of originals that changed or disappeared. The negative case changes a disposable original while retaining its size/date; it does not corrupt repository packs. Linked reports distinguish the feature from ordinary restore testing.
 
 - **Review comments received 2026-10-05 (B006):**
   > - Restoring a selected file whose name contains brackets leaves an unrelated existing file unchanged. It also leaves a similarly named file unchanged when a wildcard would otherwise match it.
@@ -805,7 +819,7 @@ for the workflow rules an agent must follow before touching this file.
   >
   > - In /proof/restore-repairs/report.html, the lsit of failures includes S3 read timed out and connection reset which sounds like retryable errors. What is the retry strategy?
 
-- **I need from you:** B006: Open the report and check the examples of selected files being restored while unrelated existing files stay intact.
+- **I need from you:** B006: Review the two Test restore button screenshots and confirm that the feature and its explanation address your original request.
 
 ### P1: Healthchecks start, failure and completion pings
 

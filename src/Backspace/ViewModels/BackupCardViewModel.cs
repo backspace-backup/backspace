@@ -46,6 +46,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _nextRunLabel = "";
     [ObservableProperty] private string _verifyLabel = "Never verified";
     [ObservableProperty] private string _verifyClass = "never";
+    [ObservableProperty] private string _verifyDetails = "Run Test restore to check this backup.";
     /// <summary>
     /// Tone class for the NEXT-row badge. "scheduled" when the backup
     /// has auto-run enabled (accent blue clock); "manual" when only
@@ -158,7 +159,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     public bool TestRestoreEnabled => !IsRunning && !IsVerifying;
     public string TestRestoreTooltip => IsRunning
         ? "This backup is currently running. Stop it first to run a test restore."
-        : "Restores 10 random files to a temp folder and checks they match the originals. Recommended monthly.";
+        : "Restores all snapshot files from every source and destination in temporary batches. Compares them with unchanged originals. Large or cloud backups can take time and download data.";
 
     /// <summary>Positive-named negation of <see cref="IsRunning"/>. The
     /// per-source SourceLine bindings inside an ItemsControl can't use
@@ -409,6 +410,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     public void ApplyVerifyState(Backup b)
     {
+        VerifyDetails = string.IsNullOrWhiteSpace(b.LastVerifySummary)
+            ? "Run Test restore to check this backup."
+            : b.LastVerifySummary + "\nOpen Logs & runs for individual file results.";
         if (b.LastVerifyUtc is not DateTime when || b.LastVerifyPass is null)
         {
             // New verify-row layout puts the Test-restore button at the

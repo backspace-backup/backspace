@@ -411,7 +411,7 @@
                      VerticalAlignment="Center"
                      HorizontalAlignment="Left"
                      TextTrimming="CharacterEllipsis"
-                     ToolTip.Tip="{Binding VerifyLabel}"
+                     ToolTip.Tip="{Binding VerifyDetails}"
                      Classes.fail="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
                      Classes.stale="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stale}"
                      Classes.never="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=never}"/>

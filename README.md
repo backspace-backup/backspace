@@ -118,8 +118,9 @@ unmount or close the app.
   time, tick the files you want, pick where they land, go. Parallel restore
   with per-file retry cascade.
 - **Test-restore drill**: one-click "is this backup actually restorable?"
-  — picks ten random files from the latest snapshot, restores them to a
-  temp dir, and byte-compares against the live source. Complements (not
+  — restores every file from each source's latest snapshot at every
+  destination, in temporary batches, and compares bytes with unchanged
+  local originals. Complements (not
   replaces) restic's built-in `check` — that one verifies the repository's
   internal integrity, this one verifies the round-trip: *what we backed
   up is what's actually on disk right now*. See
@@ -174,7 +175,7 @@ What it does, end-to-end:
 1. Lists every file in the latest snapshot of **each source at each destination**, including empty files. It also checks whether an unchanged, included local file is missing from the snapshot.
 2. Restores files in batches of 128 to a private temporary directory. This limits temporary disk usage, although a single large file still needs enough free space for its full size. Testing a cloud destination downloads the restored data and uses the destination's bandwidth limits.
 3. Checks each restored file's size against the snapshot and compares its bytes with the local original when that original is still unchanged. Files edited or removed since the backup are reported as restored but not byte-compared, rather than counted as verified matches.
-4. Shows per-source and per-destination results and records each file's result in Activity & logs. Missing files, mismatches and restore failures remain visible. Cancel stops the engine operation before its temporary files are cleaned up.
+4. Shows a result beside the button. Hover over it for the restored and compared file counts; open Logs & runs for each file's result. Missing files, mismatches and restore failures remain visible. Cancellation stops the engine operation before its temporary files are cleaned up.
 
 The drill is a full recovery check, so large backups can take time. It is started on demand from **Test restore**; it does not silently download your cloud backups on a schedule.
 
