@@ -210,7 +210,8 @@ names, sources, destinations, filters, schedules — travel losslessly.
 
 Before publishing a release, follow [the release checklist](docs/RELEASING.md).
 It covers the large real-engine test and human review of current documentation
-and screenshots. The prepared checking workflow does not yet enforce publishing approval.
+and screenshots. The release workflow requires human approval after those checks;
+the successful approval-gate rehearsal and its limits are recorded in that guide.
 
 Requires .NET 10 SDK. The project multi-targets `net10.0-windows10.0.19041.0`
 (full Win32 stack) and `net10.0` (cross-platform fallback used on macOS / Linux).

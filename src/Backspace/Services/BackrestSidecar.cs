@@ -280,10 +280,12 @@ public sealed class BackrestSidecar : IAsyncDisposable
                 BaseAddress = new Uri($"http://127.0.0.1:{_port}/"),
                 Timeout = System.Threading.Timeout.InfiniteTimeSpan,
             };
-            _client = new BackrestClient(_http);
-
-            await WaitForReadyAsync(_client, ct).ConfigureAwait(false);
-            await EnsureAuthAsync(_client, ct).ConfigureAwait(false);
+            var client = new BackrestClient(_http);
+            await WaitForReadyAsync(client, ct).ConfigureAwait(false);
+            await EnsureAuthAsync(client, ct).ConfigureAwait(false);
+            // IsRunning must not expose the unauthenticated bootstrap window
+            // to another caller while this startup still holds the gate.
+            _client = client;
         }
         catch
         {
@@ -334,7 +336,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
     /// the user's browser can no longer drive the daemon by XHR'ing
     /// the loopback port (which was the open hole the localhost-only
     /// bind alone didn't close).</summary>
-    private async Task EnsureAuthAsync(BackrestClient client, CancellationToken ct)
+    internal async Task EnsureAuthAsync(BackrestClient client, CancellationToken ct)
     {
         var configPath = Path.Combine(DataDir, "config.json");
         var alreadyConfigured = ConfigHasAuthUsers(configPath);
@@ -373,8 +375,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                _log.Warning(ex, "Backrest HashPassword failed; leaving auth disabled and falling back to localhost-only protection");
-                return;
+                throw new IOException("The backup engine could not enable local authentication. Startup was stopped.", ex);
             }
 
             BackrestConfig cfg;
@@ -385,8 +386,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                _log.Warning(ex, "GetConfig failed during auth bootstrap; leaving auth disabled");
-                return;
+                throw new IOException("The backup engine authentication settings could not be read. Startup was stopped.", ex);
             }
 
             cfg.Auth ??= new BackrestAuth();
@@ -404,8 +404,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                _log.Warning(ex, "SetConfig failed during auth bootstrap; leaving auth disabled");
-                return;
+                throw new IOException("The backup engine could not save its authentication settings. Startup was stopped.", ex);
             }
 
             try { WriteAuthFile(password); }
@@ -430,7 +429,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
                     "launch). The backup data at the destination is encrypted with " +
                     "a different password and is unaffected.",
                     configPath, AuthFilePath, configPath);
-                return;
+                throw new IOException("The backup engine's local sign-in password is unavailable. Startup was stopped.");
             }
         }
 
@@ -441,9 +440,10 @@ public sealed class BackrestSidecar : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _log.Warning(ex, "Backrest Login failed; subsequent RPCs will hit 401. Reset by deleting {Dir}.", DataDir);
-            return;
+            throw new IOException("Backspace could not sign in to its backup engine. Startup was stopped.", ex);
         }
+        if (string.IsNullOrWhiteSpace(jwt))
+            throw new IOException("The backup engine returned an empty sign-in token. Startup was stopped.");
         client.SetBearerToken(jwt);
     }
 
@@ -802,7 +802,9 @@ public sealed class BackrestSidecar : IAsyncDisposable
 
     private static async Task WaitForReadyAsync(BackrestClient client, CancellationToken ct)
     {
-        // Poll GetConfig — the cheapest unary RPC — until it succeeds.
+        // A saved configuration already requires authentication. HTTP 401
+        // proves that the server is ready for the login step, not that startup
+        // should keep waiting for an anonymous GetConfig to succeed.
         // Backrest binds the listener early but the RPC handlers come
         // up after sqlite/oplog/logstore initialization, so the first
         // few tries can hit "connection refused." Try for up to 30s.
@@ -814,6 +816,10 @@ public sealed class BackrestSidecar : IAsyncDisposable
             try
             {
                 _ = await client.CallAsync<EmptyRequest, BackrestConfig>("/v1.Backrest/GetConfig", new EmptyRequest(), ct).ConfigureAwait(false);
+                return;
+            }
+            catch (BackrestRpcException ex) when (ex.HttpStatus == 401)
+            {
                 return;
             }
             catch (Exception ex)

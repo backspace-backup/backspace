@@ -75,7 +75,19 @@ jobs:
           Copy-Item README.md, DESIGN.md release-evidence/
           Copy-Item docs release-evidence/docs -Recurse
           ./scripts/record-engine-versions.ps1 -SourceDirectory src/Backspace/Assets -ResultFile release-evidence/engine-versions.txt
-          "## Release review`nReview the test records, screenshots and documentation in release-evidence-${{ github.sha }} before approving. Revision: ${{ github.sha }}. Publish requested: ${{ inputs.publish }}." | Add-Content $env:GITHUB_STEP_SUMMARY
+          @"
+          ## Human review required
+          Revision: ${{ github.sha }}. Publish requested: ${{ inputs.publish }}.
+          Open release-evidence-${{ github.sha }} and follow its RELEASING.md checklist before approving.
+
+          - Compare README and guides with the candidate, including the documented commands.
+          - Compare website images and captions with the fresh screenshots and current behavior.
+          - Record corrections, reviewed images, and remaining Windows or live-account limitations.
+          - Include this exact revision and the evidence link in the approval comment.
+
+          Passing tests and newly generated images do not prove that the documentation is accurate.
+          Any correction to the candidate requires a new run and review.
+          "@ | Add-Content $env:GITHUB_STEP_SUMMARY
       - name: Build the Windows release candidate
         shell: pwsh
         env:

@@ -8,6 +8,21 @@ A passing build cannot tell whether a README explanation or a screenshot is stil
 4. A human reviewer confirms that the screenshots and documentation match the build, then approves the waiting `release` environment job. Do not treat generated images, their timestamps, or an agent's claim as that confirmation. An agent must not approve on the reviewer's behalf.
 5. The approved job publishes the Windows candidate already built by this run. It checks the recorded revision and creates a new tag atomically; an existing tag is rejected rather than reused or retargeted. If publication fails after tag creation, investigate before retrying; do not automatically delete the tag.
 
+## What the reviewer must actually check
+
+Automation prepares the evidence and prevents this publishing job from running without approval. It cannot judge whether the explanations are accurate or the screenshots are useful. An agent can perform that comparison and propose corrections, but a human must approve the result. Adding a reminder to AGENTS.md alone cannot enforce that pause.
+
+Before approving, record the following in the GitHub approval comment, using the full revision from the evidence artifact:
+
+- **Revision reviewed:** the exact commit, with a link to this run's evidence.
+- **README and guides:** compare the installation, first backup, restore, scheduling, tray/quit and update instructions with the candidate. Run the documented commands. Name any corrections, or say that no corrections were needed.
+- **Screenshots and website:** open the published images alongside the newly rendered screens. Check labels, navigation, layout and the behavior described by captions. A recently generated screenshot can still depict the wrong state. Name the images replaced or checked.
+- **Limitations:** record unfinished native Windows or live-account checks and whether they block this release.
+
+An example approval comment is: “Reviewed revision <full commit> and its linked evidence. Checked README and guides against the candidate, compared website images with the current screens, and reviewed the recorded limitations. Approved for release.” Add specific findings rather than copying this statement without doing the review. If a correction changes the release revision, start a new run and review the new candidate.
+
+The approval comment is an audit record, not a machine-checked claim of correctness. The enforced boundary is the required human approval. An LLM review could assist later, but would not remove the need for judgment or prove that every statement is correct.
+
 ## Windows update package contract
 
 The workflow embeds the requested tag's version in the executable and publishes `Backspace-windows-x64.zip`. Stable tags use three numeric components; prerelease tags are marked as prereleases and are not offered by the stable updater. Keep the bundle flat, with Backspace, Backrest, Restic and rclone executables together. The updater requires GitHub's SHA-256 asset digest and checks the executable's product version against the release tag. A missing digest or mismatched bundle must fail closed and offer the manual release page.

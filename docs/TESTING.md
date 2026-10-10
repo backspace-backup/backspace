@@ -25,6 +25,17 @@ Release checks also build the missing-executable fallback and set `BACKSPACE_REQ
 
 ### Production scale
 
+`E40_BracketFolderRestore` uses a real encrypted local repository. It restores
+2,397 files from a folder containing brackets through one folder pattern,
+compares every file's bytes, rejects a similarly named wildcard match, and
+preserves an existing destination file. A second restore selects only two
+files and verifies that a third does not appear. This tests the production
+selection and restore services; it does not click the wizard's folder checkbox.
+
+`BackrestAuthenticationTests` injects failures at each authentication step and
+rejects an empty token. `InfrastructureLifecycleE2ETests` separately starts
+the real bundled daemon and checks that an unauthenticated request is rejected.
+
 Set `BACKSPACE_E2E_SCALE=huge` to lift the shared E2E source builders and manual E11/E30/E31/E34/E35 fixtures to production-sized input. The standard huge fixture has at least 20,000 files and approximately 2 GiB; exact edge fixtures retain their special files in addition to the scale payload. Multi-source or multi-backup tests can create multiple such payloads, and backup/restore copies need additional free space. The default remains small. This switch increases local I/O and, for explicitly enabled cloud scenarios, upload/download traffic.
 
 `FixtureFactory.Generate` resolves the override centrally; `ScenarioContext.MakeSource` honors it too. E34 keeps its include-file regression at 1,500 files normally and exercises 20,000 files/2 GiB under the override. Exact generation asserts file count and byte budget, rather than relying on a random tree reaching its target.

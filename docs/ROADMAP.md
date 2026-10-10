@@ -7,78 +7,11 @@ for the workflow rules an agent must follow before touching this file.
 
 ## Actively working
 
+**Review queue — 10 October 2026:** Your latest comments have replies and new evidence in [the review desk](http://127.0.0.1:4317/). [Review summary](../audit-dashboard/evidence/feedback-20261010/report.html). The accepted entries have been removed from this active list, with the original records preserved in the desk and reconciliation report. Your redesign approval is recorded. The Word document has been reviewed.
 
-**Review queue — 9 October 2026:** Open [the local review desk](http://127.0.0.1:4317/) using the root BAT launcher. Its filters show the current review and testing queues. New Windows-update evidence and online-only file research are attached to their issues. Reboot and live-cloud instructions remain prominently marked as pending tests from you. Your accepted issues and comments remain preserved. [Your original notes](http://127.0.0.1:4317/notes) link to all 42 derived issues.
+**I need from you:** Review the new answers where the next turn is yours. Live cloud checks need account consent and provider configuration; email and Healthchecks checks need a test destination. The prepared Windows checks need an administrator session and B040 needs a real reboot. No input is needed for the agent’s restore-progress, idle-CPU or cloud-source implementation work. The historical port plan remains until the condition on your deletion permission is met.
 
-**I need from you:** Review the new replies and screenshots. Live cloud checks need account consent and provider configuration; email and Healthchecks checks need a chosen test destination. The prepared Windows checks need an administrator session and, for B040, a real reboot. The referenced Word document and the existing restore-architecture and historical-plan decisions remain outstanding. No restart or outgoing email has been performed.
-
-**Older items need attention:** The June and July items still marked Awaiting validation are more than a week old. Please accept their proof or explain what is still missing; they have not been silently removed.
-
-### P0: Development launchers terminate unrelated processes and replace configuration
-
-- **Raised:** 2026-10-03
-- **Type:** bug
-- **Status:** In progress
-- **Context:** A024: All four development launchers preserve portable configuration and unrelated output files, avoid terminating app/engine processes, and never seed test settings. --build-only supports rebuilds without starting the app. Build failure or missing output is an error and does not launch a stale executable; file-lock errors direct the user to Quit normally and retry.
-- **Current result:** All four development launchers preserve portable configuration and unrelated output files, avoid terminating app/engine processes, and never seed test settings. --build-only supports rebuilds without starting the app. Build failure or missing output is an error and does not launch a stale executable; file-lock errors direct the user to Quit normally and retry.
-- **Remaining:** Review the 24-case launcher safety report and confirm the item.
-- **Proof — open and look:**
-  - [24 launcher safety checks](../audit-dashboard/evidence/launcher-safety.html) — Expand each result to see the command output: preserved settings and files, no stale launch on failure or missing output, no process termination, and safe paths containing spaces, & and !.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Copied launchers ran through actual Windows cmd and Git Bash against fake dotnet/app tools in disposable folders, including spaces and shell metacharacters. Configuration/secret bytes and unrelated files were preserved; four disposable same-name processes stayed alive. This proves launcher behavior, not a real build or native macOS/Linux app launch.
-- **I need from you:** A024: Review the 24-case launcher safety report and confirm the item.
-
-### P0: rclone orphan-safe kill
-
-- **Raised:** 2026-06-12 (audit of BACKSPACE_PORT_DESIGN.md § 6.3)
-- **Type:** reliability
-- **Status:** Awaiting validation
-- **Context:** B005: - When invoking rclone, keep track of PIDs so they can be reliably killed orphan processes (but never kill other rclone which may have been started by other unrelated processes)
-- **Current result:** Backspace records the identity of each child process it starts. On a later launch, it stops a leftover child only if its PID, start time and executable still match. This prevents an old PID from identifying an unrelated process after Windows reuses that number.
-- **Remaining:** Review the ownership tests. They include an unrelated process that must stay alive and an old PID whose identity no longer matches.
-- **Proof — open and look:**
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-  - [Background-process and settings safety checks](../audit-dashboard/evidence/infrastructure-tests/final-report.html) — All 50 focused checks passed. An earlier broad run recorded 933 passes, no failures and 2 skips that required credentials.
-  - [Earlier background-service repair results](../audit-dashboard/evidence/infrastructure-tests/report.html) — All 86 checks passed, with no failures or skips. The report records the settings, credentials and process behavior covered by that run.
-  - [Recorded test results and remaining gaps](../audit-dashboard/evidence/repair-verification.html) — Read the pass and fail results, open the original test records if needed, and see what each run did and did not test.
-- **Limitations / adversarial review:** If Windows will not let Backspace inspect a process, it leaves that process alone. This can leave an orphan running, but avoids killing another program.
-
-- **I need from you:** B005: Review the ownership tests. They include an unrelated process that must stay alive and an old PID whose identity no longer matches.
-
-### P0: Bracket-name restore cleanup deletes unrelated pre-existing target files
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A008: Restores use unique staging on the destination volume and promote only selected output. Wildcard overmatches and unrelated existing files are preserved.
-- **Current result:** The restore now writes to a separate temporary folder first, then copies only the files you selected into the destination. Files already there are left alone unless they are the selected files you asked to restore.
-- **Remaining:** Open the restore safety report. Check the examples where unrelated files and an existing original file survive the restore.
-- **Proof — open and look:**
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-  - [Restore safety and file checks](../audit-dashboard/evidence/restore-repairs/report.html) — See which files were recovered, which existing files were protected, and how failures, cancellation and password changes were checked.
-  - [Recorded test results and remaining gaps](../audit-dashboard/evidence/repair-verification.html) — Read the pass and fail results, open the original test records if needed, and see what each run did and did not test.
-- **Limitations / adversarial review:** The tests include names with brackets, extra files matched by a wildcard, and a restore that fails after writing only part of a file.
-
-- **Review comments received 2026-10-05 (A008):**
-  > - B005  When invoking rclone, keep track of PIDs so they can be reliably killed orphan processes (but never kill other rclone which may have been started by other unrelated processes)
-  > => Why would you even need to check start times? Didn't you do what I suggested? If you kept track of the PID of launched child processes, how could ownership possibly be uncertain?
-
-- **I need from you:** A008: Open the restore safety report. Check the examples where unrelated files and an existing original file survive the restore.
-
-### P0: Restore wizard doesn't offer a revision picker (regression vs Duplimate) — Awaiting validation
-
-- **Raised:** 2026-06-12
-- **Type:** bug (feature regression vs Duplimate)
-- **Status:** In progress
-- **Context:** R005: The populated picker is present. S14 renders five dated revisions with the newest selected and Next enabled. S44 asserts a dynamically loaded nonempty list and older selection; E22 separately restores and byte-compares the older real snapshot.
-- **Current result:** The populated picker is present. S14 renders five dated revisions with the newest selected and Next enabled. S44 asserts a dynamically loaded nonempty list and older selection; E22 separately restores and byte-compares the older real snapshot.
-- **Remaining:** Open the populated picker image; confirm that the revision-selection step meets your expectation.
-- **Proof — open and look:**
-  - 🖼️ [Five revisions and an enabled Next button](../audit-dashboard/evidence/carryovers/revision-picker-populated.png) — Five dated rows (#5 to #1) appear; #5 is highlighted and Next: pick files to restore is enabled.
-  - [R005 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — The separate real E22 test compares every restored regular file against the saved older source copy, not the newer source.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** S14 uses synthetic list entries. S44 uses the in-memory engine and does not click Next. E22 supplies real-engine old-revision byte proof through the restore service, not the exact GUI selection-to-restore click sequence.
-- **I need from you:** R005: Open the populated picker image; confirm that the revision-selection step meets your expectation.
+**Older items need attention:** Any remaining June/July entry awaiting validation is older than a week; accept its evidence or describe the remaining problem. These entries have not been silently removed.
 
 ### P0: E2E revamp pass — all actionable coverage-matrix rows covered — Awaiting validation
 
@@ -98,15 +31,20 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Raised:** 2026-06-12 (user feedback on the folder-collapse review)
 - **Type:** architecture review
-- **Status:** Open
+- **Status:** In progress
 - **Context:** R007: Restore still uses Backrest RunCommand with a raw restic restore command for snapshot subfolder targeting and selected-file recovery. The unsafe target sweep, false terminal success and unacknowledged cancellation were repaired; those fixes do not decide the architectural tradeoff.
-- **Current result:** Restore still uses Backrest RunCommand with a raw restic restore command for snapshot subfolder targeting and selected-file recovery. The unsafe target sweep, false terminal success and unacknowledged cancellation were repaired; those fixes do not decide the architectural tradeoff.
-- **Remaining:** Decide whether to retain the guarded raw-command restore path, or commission a native Backrest Restore-RPC parity investigation covering bracket/subfolder semantics, overwrite safety, cancellation and retry behavior.
+- **Current result:** Backspace still uses Backrest to run restores, but supplies a restic command through its general command API. This supports several selected files or folders in one operation and keeps the output in a temporary folder until it is safe to move. Backrest’s dedicated Restore API already supports subfolders and structured progress; our earlier explanation understated what it can do.
+- **Remaining:** Agent work: compare the dedicated Restore API with our existing path using real bracket names, multiple selections, output layout, cancellation and existing destination files. Keep the current protections until those checks pass. Solve live progress under A011 as part of this work; no architecture choice is needed from you yet.
 - **Proof — open and look:**
+
+  - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/restore-architecture.html) — Backspace still uses Backrest to run restores, but supplies a restic command through its general command API. This supports several selected files or folders in one operation and keeps the output in a temporary folder until it is safe to move. Backrest’s dedicated Restore API already supports subfolders and structured progress; our earlier explanation understated what it can do.
   - [R007 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — The report lists the passing overmatch/partial-error/cancellation negative controls and the unresolved architecture choice.
   - [Detailed restore safety report](../audit-dashboard/evidence/restore-repairs/report.html) — Open restore staging, terminal truth and cancellation evidence with its integration limits.
-- **Limitations / adversarial review:** Raw-command restores retain extra ownership and staging code in Backspace. Progress is intentionally indeterminate until authoritative output arrives. The regression suite uses controlled daemon responses for cancellation boundaries; it does not prove every network interruption.
-- **I need from you:** R007: Decide whether to retain the guarded raw-command restore path, or commission a native Backrest Restore-RPC parity investigation covering bracket/subfolder semantics, overwrite safety, cancellation and retry behavior.
+- **Limitations / adversarial review:** The API comparison is based on the bundled Backrest version and its source. It is not a completed replacement or a claim that native Restore already passes our safety cases.
+- **Follow-up received 2026-10-10:**
+  > Please be clearer about the current status of things (what are we missing from backrest, upsides/downsides of current implementation) and what you suggest would be best.
+
+- **I need from you:** No action for this work now; the agent retains the next step.
 
 ### P0: Restore enumerates every leaf when a folder is selected
 
@@ -114,116 +52,37 @@ for the workflow rules an agent must follow before touching this file.
 - **Type:** bug + design
 - **Status:** Awaiting validation
 - **Context:** R008: Fully selected subtrees collapse to a minimal include cover. S47 checks whole-folder collapse and the negative partial-selection case; E35 sends collapsed patterns through the real restore engine and verifies bytes. E34 separately uses an include file for large selections.
-- **Current result:** Fully selected subtrees collapse to a minimal include cover. S47 checks whole-folder collapse and the negative partial-selection case; E35 sends collapsed patterns through the real restore engine and verifies bytes. E34 separately uses an include file for large selections.
-- **Remaining:** Inspect the folder-selection and real-restore evidence; accept if that addresses the 2,397-argument report.
+- **Current result:** A new real-engine test restored 2,397 files from Photos [2026] using one folder pattern. Every file matched its original contents. A similarly named folder was excluded and an existing destination file was preserved. A second restore selected two files and recovered exactly those two.
+- **Remaining:** Open the new folder-restore report. The result to review is simple: 2,397 requested files recovered correctly, zero unwanted files, and the existing destination file unchanged. The report also explains why the individual filename safety list is still retained.
 - **Proof — open and look:**
+
+  - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/folder-restore.html) — A new real-engine test restored 2,397 files from Photos [2026] using one folder pattern. Every file matched its original contents. A similarly named folder was excluded and an existing destination file was preserved. A second restore selected two files and recovered exactly those two.
   - [R008 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — S47 proves full folders collapse and partial leaves stay explicit; E35 and E34 passed with real local backup/restore and full regular-file byte verification.
   - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** S47 exercises the selection projection, not a pointer click on a large tree. E35 exercises the request-to-engine path with the minimized set. The normal run uses smaller default data; huge-scale evidence is recorded separately.
-- **I need from you:** R008: Inspect the folder-selection and real-restore evidence; accept if that addresses the 2,397-argument report.
+- **Limitations / adversarial review:** Real bundled Backrest and restic, encrypted local repository and actual disk output. The test exercises the production selection and restore services; it does not click the restore wizard’s folder checkbox.
+- **Follow-up received 2026-10-10:**
+  > Are you sure there wasn't a good reason for listing files separately (like the issue with brackets)?
+  > 
+  > What needs to happen next
+  > Open the folder-selection test results and check that they address your example with 2,397 separate file arguments.
+  > => This isn't clear, what am I supposed to do? The page http://127.0.0.1:4317/proof/repair-verification.html doesn't show a proof of what you did.
 
-### P0: Restore crashes with "filename or extension is too long" on large file sets
+- **I need from you:** Open the new folder-restore report. The result to review is simple: 2,397 requested files recovered correctly, zero unwanted files, and the existing destination file unchanged. The report also explains why the individual filename safety list is still retained.
 
-- **Raised:** 2026-06-11
-- **Type:** bug (regression from snap:subfolder refactor)
-- **Status:** Awaiting validation
-- **Context:** B021: Regarding the include-file issue, make sure to increase the FixtureSize to match what I tested in prod. MAybe you could add a global flag for ALL the E2E tests, that'd make it possible to artificially make the repos much larger and bigger (up to 2GB and tens of thousands of files). We could enable it only before pushing a commit to Github to make sure all the tests also work at scale. For common iterations, we'd not need to test them (the goal is that this test would be unlikely to fail if the smaller ones passed).
-- **Current result:** The GitHub rehearsal passed the full suite and the real-engine backup/restore of 20,000 files, approximately 2 GiB. Every restored file matched its original SHA-256. Publishing then stopped at the required human approval. The rehearsal was deliberately cancelled there; no tag or release was created.
-- **Remaining:** Review the recorded results. Actual releases must repeat these checks for their exact revision after the implementation branch is approved and merged.
-- **Proof — open and look:**
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-  - [20,000 restored files, each compared with its original](../audit-dashboard/evidence/huge-scale/report.html) — See the source and restored file counts, the 2 GiB total, the full SHA-256 comparison result, and the limits on metadata preservation.
-  - 🖼️ [The app after the 20,000-file restore](../audit-dashboard/evidence/huge-scale/E34-restore-long-include-list/screenshots/03-after-restore.png) — Backspace remains open after the real restore. Use the report for the file counts and content comparisons; the card alone cannot prove file integrity.
-  - [Recorded test results and remaining gaps](../audit-dashboard/evidence/repair-verification.html) — Read the pass and fail results, open the original test records if needed, and see what each run did and did not test.
-- **Release proof — open and look:**
-  - 🖼️ [Successful checks waiting for human approval](../audit-dashboard/evidence/remaining-work-20261009/release-approval-waiting.png) — The Windows checks are green and the publishing job is waiting, with no publishing steps started.
-  - [Release rehearsal results](../audit-dashboard/evidence/remaining-work-20261009/release-gate.html) — Exact revision, test counts, full file comparison, approval settings and deliberate cancellation.
-- **Limitations / adversarial review:** Failed rehearsals blocked publication; the successful rehearsal reached approval and was not approved. The environment protects this publishing workflow, not manual releases made through other routes by trusted users with write access. This local-repository test does not establish live-cloud or reboot behavior.
-
-- **Review comments received 2026-10-05 (B021):**
-  > How can we best force ourselves to run this large test before pushing a release on github?
-
-- **I need from you:** B021: Review the release rehearsal report and confirm whether the large-test requirement is satisfied.
-
-### P0: Mount fails for the user's basic dist-folder backup
-
-- **Raised:** 2026-06-11
-- **Type:** bug + architectural decision needed
-- **Status:** Open
-- **Context:** R009: The real E04 mount now hard-fails on runtime errors and passes two-volume byte/read/unmount checks. The published application also passed its actual WinFSP loader check. The unavailable original user dist configuration is the remaining reproduction boundary.
-- **Current result:** The real E04 mount now hard-fails on runtime errors and passes two-volume byte/read/unmount checks. The published application also passed its actual WinFSP loader check. The unavailable original user dist configuration is the remaining reproduction boundary.
-- **Remaining:** If Mount still fails with your original dist-folder configuration, provide that reproduction context and its app log. Otherwise inspect the packaged-loader and real-mount evidence and decide whether to accept.
-- **Proof — open and look:**
-  - [Published command-line and native-loader checks](../audit-dashboard/evidence/packaged-vault-final/loader/report.html) — Nine final-executable CLI and native-loader checks passed, with expected exits, no configuration creation and PID-matched loader traces. Installed WinFSP and existing app extraction cache reused. Does not claim fresh-cache extraction, a GUI Mount click, or the user original repository.
-  - [R009 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — Earlier carryover report: E04 proves native mount behavior on disposable data. The later packaged-loader report closes the dependency-discovery gap; the original user repository and a physical Explorer click remain unexercised.
-- **Limitations / adversarial review:** Published loader proof establishes dependency discovery and native DLL loading; E04 separately establishes real readable-volume behavior. These complementary tests do not recreate the user's unavailable original config or a physical Explorer click.
-- **I need from you:** R009: If Mount still fails with your original dist-folder configuration, provide that reproduction context and its app log. Otherwise inspect the packaged-loader and real-mount evidence and decide whether to accept.
-
-### P0: Mount feature actually working (WinFSP-backed) — Awaiting validation
-
-- **Raised:** 2026-06-12 (split from the original Mount investigation)
-- **Type:** feature / architecture
-- **Status:** Awaiting validation
-- **Context:** R016: The native WinFSP E04 test passes: two different drive letters mount concurrently, the first volume's complete file list and bytes match its source, then unmounting it leaves the second drive readable.
-- **Current result:** The native WinFSP E04 test passes: two different drive letters mount concurrently, the first volume's complete file list and bytes match its source, then unmounting it leaves the second drive readable.
-- **Remaining:** Inspect the native mount assertions. The original packaged-app acceptance remains separately tracked as R009.
-- **Proof — open and look:**
-  - [R016 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — The actual native test result and assertions prove readable Windows volumes and independent mount lifetimes; no backup-card screenshot is presented as drive-content proof.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** This ran against local disposable repositories and the installed WinFSP runtime. It does not exercise cloud fetching, a machine without WinFSP, or native Explorer UI.
-- **I need from you:** R016: Inspect the native mount assertions. The original packaged-app acceptance remains separately tracked as R009.
-
-### P1: Keep review comments attached to their original issue context
+### P1: Stop engine startup if local authentication cannot be enabled
 
 - **Raised:** 2026-10-10
 - **Type:** bug
 - **Status:** Awaiting validation
-- **Context:** In B006 and another issue, the user quoted wording that no longer appeared in the issue. Investigate misplaced replies versus rewritten issue bodies, and preserve discussion context.
-- **Current result:** Three saved review copies show no moved, missing or changed comments. B006's quoted sentence remains in its linked restore report, but the issue summary had drifted into general restore testing. Corrected that scope. Recovered 127 earlier bodies across 81 issues. Future imports save before/after wording; new comments retain the issue text they were posted against. Both are expandable in the discussion and persisted in JSON.
-- **Proof — open and look:**
-  - 🖼️ [B006 comment and recovered wording](../audit-dashboard/evidence/issue-context-20261010/recovered-wording.png) — The original comment remains beside a dated, expandable earlier issue body.
-  - [Investigation, browser checks and saved-copy evidence](../audit-dashboard/evidence/issue-context-20261010/report.html) — The exact quoted sentence and its source, plus 10 passing dashboard tests. Actual Chrome checks switched between separate drafts, posted both, changed an issue body, reversed storage order and reloaded; each comment retained its original issue and context.
-- **Limitations / adversarial review:** The archives do not prove every historical browser interaction or reconstruct every intermediate edit. Recovered dates are copy dates, labelled as such. Future body history includes proof descriptions and paths, not frozen report file contents; agents must publish revised reports at new paths. The tests also reject stale writes and prevent imports from erasing history. No real comment or completion was changed for testing.
-- **I need from you:** Reload B006 and inspect its discussion. Confirm that the earlier wording and explanation make your comment understandable. N016 tracks this dashboard change.
+- **Context:** While comparing the supplied Word document with the implementation, the audit found that failed initial authentication could leave the bundled Backrest server running without authentication. A concurrent caller could also see the engine as ready before authentication completed.
+- **Remaining:** Open the authentication report. It shows the real daemon rejecting anonymous access, shutting down after a deliberately wrong saved password, preserving its configuration, and starting successfully after the test password is corrected.
+- **Current result:** The document review uncovered two startup defects. Authentication setup errors could be ignored, and an already configured engine could time out because the readiness check expected anonymous access. Startup now requires a successful login, treats a sign-in challenge as readiness, and only then makes the engine available to other operations.
 
-### P1: Sort review issues by recent activity and show their age
+- **Limitations / adversarial review:** The real test uses disposable local engine state. Controlled HTTP failures separately cover the first-time hash, configuration and login steps. It does not claim that the brief initial authentication setup window has been eliminated or that every local security boundary has been audited.
 
-- **Raised:** 2026-10-10
-- **Type:** feature
-- **Status:** Awaiting validation
-- **Context:** The issue list had no clear sorting order or visible activity timestamp. The user wants to find the last issue they edited and see relative ages such as seconds ago.
-- **Current result:** Latest activity is the default. Your latest activity orders by the user's comments and decisions; Oldest activity and Priority are also available. Each row names the action and shows its age, updating while the page is visible. Hover reveals the exact date and time. Sorting preserves the combined filters.
-- **Proof — open and look:**
-  - 🖼️ [Recent personal activity, including completed issues](../audit-dashboard/evidence/activity-sorting-20261010/latest-activity.png) — Your latest activity is selected, with A017's reopening above A016's recent completion and visible ages beside both.
-  - [Sorting checks and usage](../audit-dashboard/evidence/activity-sorting-20261010/report.html) — Actual Chrome ordering checks and 10 passing dashboard tests. A live browser check also observed the newest reply advance from 9s ago to 19s ago without reloading.
-- **Limitations / adversarial review:** Checked every dated row in both personal newest-first and overall oldest-first views. A newer agent reply cannot displace the user's latest action in personal sorting. Completed issues stay hidden unless explicitly included. Unknown dates are labelled and placed after dated issues in activity sorts; old unrecorded edits cannot be reconstructed. Full browser reload resets to Latest activity. No real decisions were changed for testing.
-- **I need from you:** Reload the Review desk, choose Your latest activity and enable Show completed or discarded. Confirm that your recent edits and checkmarks are easy to find. Proof is also attached to N015.
+- **Proof — open and look:** [Authentication results](../audit-dashboard/evidence/feedback-20261010/authentication.html) — The real engine rejects anonymous access, stops on failed login and restarts after correction.
 
-### P1: Undo accidental completion in the Review desk
-
-- **Raised:** 2026-10-10
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** The user accidentally marked an issue completed and asked to undo the latest completion. Add a brief Undo action after a completion change so the issue can be recovered without searching the closed list.
-- **Current result:** A017 was the latest completion and was reopened through the normal save API. New completions each show a named Undo notice for 15 seconds. Hover or keyboard focus pauses dismissal. Undo targets the saved issue even after selection advances, and refuses to overwrite a newer decision.
-- **Proof — open and look:**
-  - 🖼️ [Separate Undo notices after two completions](../audit-dashboard/evidence/completion-undo-20261010/undo-after-two-completions.png) — The first disposable issue is reopened while the second retains its own Undo button.
-  - [Actual browser checks and remaining limits](../audit-dashboard/evidence/completion-undo-20261010/report.html) — Multiple completions, targeted Undo, reload persistence, expiry, keyboard focus and stale-request rejection were checked against real JSON writes.
-- **Limitations / adversarial review:** Tests used disposable issues on a separate local server running the production dashboard. A later discarded decision survived an old Undo attempt. Existing filter and persistence tests also passed. Temporary notices do not survive a page reload; the closed-issue list and completion checkbox remain the fallback. Only the requested A017 reopening changed an existing real decision.
-- **I need from you:** N014: Reload the dashboard and confirm whether the named Undo notice makes accidental completion easy to recover from.
-
-### P1: Combine review status and reply-turn filters without clearing either
-
-- **Raised:** 2026-10-09
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** Choosing Needs your input and then Your review cleared the status filter and showed every issue awaiting the user. Status and whose turn it is must work together. Show both breakdowns so the user can find issues needing their decision while excluding issues already sent back to the agent.
-- **Root cause + fix:** The status and turn click handlers reset each other's selection, category and search. Each now changes only its own filter. Counts reflect the other active filters, and removable tags show the complete combination. Empty matches stay empty.
-- **Proof — open and look:**
-  - 🖼️ [Needs your input and Your review selected together](../audit-dashboard/evidence/filter-combinations-20261009/laptop-1366.png) — Both filters remain selected on a 1366 × 768 viewport, showing three matching issues; the unanswered decision issue belongs to With Agent instead.
-  - [Browser checks and filter behavior](../audit-dashboard/evidence/filter-combinations-20261009/report.html) — Exact click sequence, reverse order, search and category retention, empty intersections, closed issues and automated test results.
-- **Limitations / adversarial review:** Actual Chrome interactions reproduced the user's starting sequence. The unanswered-comment case was explicitly excluded, and a zero-match combination did not broaden itself. Four filter regressions and the existing server persistence/discussion regression passed. Screenshot counts reflect the data at test time and will change as discussions progress. Existing user comments and decisions were preserved.
-- **I need from you:** N013: Try Needs your input followed by Your review, and confirm whether the combined filters and counts match how you want to browse.
+- **I need from you:** Open the authentication report. It shows the real daemon rejecting anonymous access, shutting down after a deliberately wrong saved password, preserving its configuration, and starting successfully after the test password is corrected.
 
 ### P1: Add graceful Windows updates from GitHub releases
 
@@ -241,64 +100,25 @@ for the workflow rules an agent must follow before touching this file.
 - **Remaining:** Perform the native acceptance checks listed in the report once approved packaged versions are available. No public release has been created.
 - **I need from you:** U001: Use the pending Windows test instructions in the Review desk to check GUI restart, recovery, active scheduled work and Windows prompts. These remain unverified; automated command-line launch is not GUI acceptance.
 
-### P1: Recover review comments after a temporary file lock
-
-- **Raised:** 2026-10-05
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A browser check found that Dropbox briefly locked the review JSON while it was being replaced. The save failed, and the comment button stayed disabled even though the draft was still visible.
-- **Current result:** A temporary Windows file lock could prevent a JSON save and leave the Post comment button disabled. Saves now retry brief file locks, and the form recovers after either success or failure.
-- **Remaining:** Review the browser and persistence checks, then use the desk normally.
-- **Proof — open and look:**
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** The server test holds a real Windows file lock while a save is pending. Permanent failures still report an error and preserve the existing file.
-
-- **I need from you:** A029: Review the browser and persistence checks, then use the desk normally.
-
-### P1: Show the engine's file errors in backup logs
-
-- **Raised:** 2026-10-05
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A real backup of the user's Dropbox placeholder returned a warning and no file content, but Backspace's saved log only said that some files might not have been read. Restic reported the concrete error: unsupported file type “irregular”. Preserve the engine's actual diagnostics so the user can tell which files were not backed up and why.
-- **Current result:** Backspace now copies the engine’s original operation diagnostics into its saved run log. In the actual Dropbox test, the log now names the omitted file and includes Restic’s unsupported-file error instead of only saying that some files could not be read.
-- **Remaining:** Open the real Dropbox run log. It identifies the file Restic could not back up and preserves the original engine error.
-- **Proof — open and look:**
-  - [Actual Dropbox test: no download and no backed-up contents](../audit-dashboard/evidence/cloud-placeholder-20261005/report.html) — See the file measurements, snapshot checks and original engine error. The supplied file remained online-only.
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** Tested with a real Dropbox placeholder, plus protocol tests for split text and failed log retrieval.
-
-- **I need from you:** A027: Open the real Dropbox run log. It identifies the file Restic could not back up and preserves the original engine error.
-
 ### P1: Explain unsupported Dropbox placeholders without claiming they were backed up
 
 - **Raised:** 2026-10-05
 - **Type:** bug
 - **Status:** Awaiting validation
 - **Context:** The supplied 124,333,386-byte Dropbox file uses an Offline reparse point that bundled Restic 0.18.1 reports as an unsupported irregular file. Backups with cloud-file exclusion both on and off omitted it and returned Warning. The file remained online-only with zero allocated bytes. Earlier source documentation asserted tested download behavior and a snapshot marker without evidence; correct that claim and expose the limitation plainly.
-- **Current result:** The actual Dropbox file you supplied stayed online-only, with zero allocated bytes throughout the checks. Neither backup contained its contents. Bundled Restic 0.18.1 rejected this placeholder as an unsupported irregular file. The run returned Warning, and the app log now preserves the specific filename and error.
-- **Remaining:** Review the corrected result. This issue records the warning and removes the false download claim; it does not claim support for that placeholder.
+- **Current result:** The tested Dropbox placeholder stayed online-only, but its contents were absent from the backup. The app now reports the unsupported file and warning honestly. The separate feature for backing up cloud contents without changing local availability remains active under B035.
+- **Remaining:** Review the warning fix here. The requested online-only backup feature is tracked separately under B035, including separate temporary downloads, metadata checks, a space limit and ignore-by-default behavior.
 - **Proof — open and look:**
+
+  - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/cloud-source.html) — The tested Dropbox placeholder stayed online-only, but its contents were absent from the backup. The app now reports the unsupported file and warning honestly. The separate feature for backing up cloud contents without changing local availability remains active under B035.
   - [Actual Dropbox test: no download and no backed-up contents](../audit-dashboard/evidence/cloud-placeholder-20261005/report.html) — See the file measurements, snapshot checks and original engine error. The supplied file remained online-only.
   - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
 - **Limitations / adversarial review:** Actual backup support for this online-only file remains unresolved. B035 retains the broader testing work.
 
-- **I need from you:** A028: Review the corrected result. This issue records the warning and removes the false download claim; it does not claim support for that placeholder.
+- **Follow-up received 2026-10-10:**
+  > Make sure this is documented in our roadmap (per the other discussion we had about adding support for such online only files without causing them to be downloaded more than momentarily)
 
-### P1: Show incomplete production checks as still needing testing
-
-- **Raised:** 2026-10-05
-- **Type:** coverage
-- **Status:** Awaiting validation
-- **Context:** The review desk labels issues ready even when the proof describes incomplete testing. Review each issue against its actual evidence. Mock-only interfaces must remain marked as still needing testing, and the filter must find them.
-- **Current result:** Issues with missing production checks are now listed under Still needs testing. Proof text distinguishes actual engine runs, actual interface tests with prepared data, and simulated external responses. Passing a mock test no longer makes the complete provider or Windows journey ready.
-- **Remaining:** Use Still needs testing to see the outstanding checks. Each issue names what its proof covers and what remains.
-- **Proof — open and look:**
-  - 🖼️ [Outstanding production tests remain visible](../audit-dashboard/evidence/review-feedback/queues.png) — The Still needs testing list contains the missing production checks.
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** This is a correction of review status, not a claim that the outstanding tests have been completed.
-
-- **I need from you:** N010: Use Still needs testing to see the outstanding checks. Each issue names what its proof covers and what remains.
+- **I need from you:** Review the warning fix here. The requested online-only backup feature is tracked separately under B035, including separate temporary downloads, metadata checks, a space limit and ignore-by-default behavior.
 
 ### P1: Require current screenshots and documentation before a GitHub release
 
@@ -306,13 +126,15 @@ for the workflow rules an agent must follow before touching this file.
 - **Type:** coverage
 - **Status:** Awaiting validation
 - **Context:** The user wants a systematic check of screenshots, README and documentation before each GitHub release, and asks whether AGENTS.md is sufficient. Add a review issue and recommend enforceable release checks with a clear distinction between automated checks and human visual/content review.
-- **Current result:** The protected environment requires the maintainer’s approval and disables administrator bypass. On 9 October, run 37926997445 at revision d344e0485d3db3931624cbd9d7aebaf3d813b3c9 passed 1,059 suite tests, the 20,000-file restore and the actual Windows updater bundle test. It then waited for human approval. The rehearsal was cancelled without approval, a tag or a release. Its temporary branch exception was removed; only main remains allowed.
-- **Remaining:** Review the proof. Before an actual release, approve and merge the implementation branch, rerun the workflow on that exact main revision, and review its current documentation and screenshots.
+- **Current result:** Release approval is a human judgment supported by automated evidence. The workflow produces tests, current screenshots and the exact candidate, then waits for a required reviewer. The release guide and GitHub summary now explicitly ask the reviewer to compare README, guides, website images and captions with that candidate and record the reviewed revision.
+- **Remaining:** Review the clarified process. The agent prepares and corrects the documentation; the human makes the final accuracy judgment before publishing. The existing gate rehearsal is evidence that publishing waits, not proof that a person read every document.
 - **Proof — open and look:**
+
+  - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/release-review.html) — Release approval is a human judgment supported by automated evidence. The workflow produces tests, current screenshots and the exact candidate, then waits for a required reviewer. The release guide and GitHub summary now explicitly ask the reviewer to compare README, guides, website images and captions with that candidate and record the reviewed revision.
   - 🖼️ [Successful checks waiting for human approval](../audit-dashboard/evidence/remaining-work-20261009/release-approval-waiting.png) — Green Windows checks lead to a waiting human-review job; publishing has not started.
   - [Release rehearsal results](../audit-dashboard/evidence/remaining-work-20261009/release-gate.html) — Test records, full file comparison, saved settings and the reason the overall run now says cancelled.
   - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** Earlier failing checks blocked publication. Successful checks then reached required approval, proving both paths. Human review of image and prose accuracy remains necessary. No publication was attempted. The environment protects this workflow; repository administrators and existing write permissions can still publish manually through another route.
+- **Limitations / adversarial review:** The approval gate was exercised in the earlier GitHub rehearsal. The new checklist wording has been checked locally, not by publishing another release. Repository administrators can still change permissions or publish through other routes.
 
 - **Clean-run findings — 2026-10-09:** Earlier hosted runs exposed missing first-build engine copies, a 24-hour-only assertion, a hosted metered-network signal cancelling unrelated tests, and a version query that left Backrest's Windows tray running. These were repaired before the successful rehearsal. Production network detection and its dedicated cancellation tests remain enabled.
 
@@ -321,167 +143,11 @@ for the workflow rules an agent must follow before touching this file.
 - **Engine-version finding — 2026-10-09:** The third hosted run passed the interface suite but failed restore with newly downloaded Backrest 1.14.1. Its request formats differ from the tested 1.13.0 engine. Both downloaders now read explicit version selections: Backrest 1.13.0, Restic 0.18.1 and rclone 1.74.1. Existing local binaries stay untouched. This prevents an unreviewed automatic upgrade; it does not claim compatibility with Backrest 1.14.1 or cryptographic verification of every download.
 
 - **Follow-up — 2026-10-09:** Complete all release-gate implementation and available repository configuration without waiting for the user. Identify a concrete access or approval blocker before leaving work open.
-- **I need from you:** N011: Review the waiting-approval screenshot and report, then confirm whether this release process meets your requirement. This does not ask you to publish a release now.
+- **Follow-up received 2026-10-10:**
+  > I don't think you answered my question: We need to systematically verify screenshots and the docs and readme are still up to date before pushing a new release on github. What's the best way to enforce this? Just updating agents.md accordingly?
+  > AFAIK this can't be done with a suite test (no LLM call) as it require semantic understanding.
 
-### P1: Show live output when a backup starts its first run
-
-- **Raised:** 2026-10-04
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** If you opened a backup’s logs before it had ever run, starting its first operation could leave the empty message on screen. The LIVE badge could remain hidden too.
-- **Root cause + fix (short):** The view now updates as soon as the first activity appears. It replaces the empty message with current output and one LIVE badge. When the operation is saved as history, the console shows that saved result without the LIVE badge.
-- **Proof — open and look:**
-  - 🖼️ **[The first run appears immediately](../audit-dashboard/evidence/revision-after/logs/07-first-activity-replaces-the-empty-hint.png)** — The empty message is gone, the first operation is selected, and one LIVE badge is visible.
-  - 🖼️ **[The first saved result](../audit-dashboard/evidence/revision-after/logs/09-first-saved-result-replaces-the-empty-hint.png)** — The successful result remains available as history, with no LIVE badge.
-  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
-- **Adversarial checks and limitations:** The test stays on the same backup throughout the transition. It also removes an unfinished sample activity without saving it and checks that the empty message returns. The activity is a test fixture rather than a real cloud backup.
-- **I need from you:** Open the two screenshots to compare the first live run with its saved result.
-
-### P1: Make review explanations understandable on first reading
-
-- **Raised:** 2026-10-03
-- **Type:** refactor
-- **Status:** Awaiting validation
-- **Context:** resume, and also I want you to rewrite ALL the text you wrote in the review desk (but don't touch my verbatim quotes) so it is much clearer to understand for a normal human. I am not a machine who can read super compressed sentences full of jargon (even if I am a veteran software engineer).
-- **Root cause + fix (short):** All 86 existing issue titles, explanations, next steps and proof captions have been rewritten in clear sentences. The 21 supporting reports were rewritten too. New issues use the same style. Your original notes and follow-up quotes remain unchanged; raw test names and logs are still available when you want the technical details.
-- **Proof — open and look:**
-  - 🖼️ **[An issue in plain language](../audit-dashboard/evidence/review-assets/readable-issue.png)** — Your original quote appears first. Below it, the explanation describes what changed and what you can check.
-  - **[Review text and saved-data checks](../audit-dashboard/evidence/review-assets/review-checks.html)** — Shows the quote comparison, report-link checks, browser reading sizes and persistence-test result.
-- **Adversarial checks and limitations:** The complete notes page was compared with the original attachment and matches exactly. The report rewrite preserved all 308 existing links and 1,992 raw evidence blocks. Historical test names and diagnostic output remain verbatim so the results can still be checked.
-- **I need from you:** Read any issue, including the three examples you mentioned. If a sentence still takes effort to understand, leave a comment on that issue.
-
-### P1: Make dropdown controls visibly distinguishable from text fields
-
-- **Raised:** 2026-10-03
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** Some dropdowns looked like ordinary text fields because their arrows were almost invisible. It was hard to tell that you could open a list of choices.
-- **Root cause + fix (short):** The dropdown arrow now has its own small, visible shape. The control keeps its normal popup, keyboard navigation and saved selection behavior.
-- **Proof — open and look:**
-  - 🖼️ **[Visible dropdown arrows](../audit-dashboard/evidence/dropdown-repair/after-light.png)** — The Theme and Accent color controls now have clear arrows at their right edge.
-  - **[Dropdown comparison and interaction checks](../audit-dashboard/evidence/dropdown-repair/report.html)** — Compare the old and revised controls at the same size, then inspect the open list and keyboard-selection evidence.
-  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
-- **Adversarial checks and limitations:** The tests inspect the rendered arrow and use real Avalonia dropdown controls. They cover pointer opening and selection, keyboard navigation, Escape, disabled controls and saved choices in both themes.
-- **I need from you:** Open the before-and-after comparison. Check that dropdowns now visibly offer a list of choices in both themes.
-
-### P1: Fit consumer laptop work areas and Windows scaling
-
-- **Raised:** 2026-10-03
-- **Type:** coverage
-- **Status:** Awaiting validation
-- **Context:** What's the benefit of Before 1024 × 768; proposal 1240 × 820? Wasn't it supposed to be a minimum width? I just want to make sure the app will open fine on 99.9% of consumer laptops.
-- **Root cause + fix (short):** The different screenshot sizes offered no benefit; they came from a change in the screenshot tool. Separately, the app required at least 1180 × 720 logical pixels and did not fit itself to the available screen. The main window now allows 920 × 540 and starts at 1180 × 760 when there is room. It shrinks to the monitor’s usable area when Windows scaling or the taskbar leaves less space. The editors also fit themselves to that area.
-- **Proof — open and look:**
-  - 🖼️ **[Small window, before scrolling](../audit-dashboard/evidence/revision-after/laptop/01-minimum-920x540-initial-overview.png)** — 920 × 540 logical pixels. This is the initial view of the backup card.
-  - 🖼️ **[Small window, after scrolling](../audit-dashboard/evidence/revision-after/laptop/03-minimum-920x540-backups.png)** — The action buttons are reachable and stay within the card.
-  - 🖼️ **[Space available on a scaled laptop](../audit-dashboard/evidence/revision-after/laptop/04-1366x768-at125-percent-initial-overview.png)** — 1076 × 558 logical pixels, representing a 1366 × 768 display at 125% scaling with taskbar space reserved.
-  - 🖼️ **[Actions on that scaled layout](../audit-dashboard/evidence/revision-after/laptop/06-1366x768-at125-percent-backups.png)** — The same card after scrolling, with every action inside the page margins.
-  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
-- **Adversarial checks and limitations:** The tests cover 920 × 540, 1076 × 558 and 1264 × 672 logical-pixel layouts, short editor windows, and several scaling calculations. They also simulate moving between monitors and restoring a maximized window. They do not establish a percentage of all laptops or replace a check on a physical multi-monitor setup. The review caught and fixed clipped card actions, inconsistent gutters, and an early window event that could overwrite the requested startup size. Tests now cover these failures as well as the intended layouts.
-- **I need from you:** Open the small-window screenshots and try the safe preview on your laptop. Tell me if a control is hard to reach at your usual Windows scaling setting.
-
-### P1: Generated scheduled action silently skips backups
-
-- **Raised:** 2026-10-03
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A021: The former exact scheduled task action silently exited0 without launching a backup. Replaced malformed cmd quoting with an absolute stock Windows PowerShell encoded literal-data action, correct native argv quoting, stable system working directory, missing-main fallback, child wait and exact exit-code propagation. Task identities/policies unchanged.
-- **Current result:** The former exact scheduled task action silently exited0 without launching a backup. Replaced malformed cmd quoting with an absolute stock Windows PowerShell encoded literal-data action, correct native argv quoting, stable system working directory, missing-main fallback, child wait and exact exit-code propagation. Task identities/policies unchanged.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - [Scheduler, guard and parser regression results](../audit-dashboard/evidence/infrastructure-tests/runtime-coverage-report.html) — 57 passed, 0 failed, 0 skipped: 44 guard/parser plus13 action regressions
-  - [Actual generated scheduled-action execution](../audit-dashboard/evidence/packaged-task-action-final/report.html) — 25 actual processes, 46 assertions, all passed; generated action invokes the final packaged executable Compiled production action builder launches actual published binary plus harmless WinExe fixtures; no OS task registration.
-- **Limitations / adversarial review:** Original failure retained. 13 focused action/native-parser tests and actual25process/46assertion proof passed; real published backup adds exactly1snapshot with bothfileSHA256 matches. Delayed WinExe, hostile names, exit23, missing-main17, missing-both1 and published missing-backup2 are asserted.
-- **I need from you:** A021: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P1: Unattended runs bypass unreadable-vault validation
-
-- **Raised:** 2026-10-03
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A022: Unattended backup, prune and check now validate saved credentials before operations. Corrupt-vault reads keep the encrypted bytes in place so later launches repeat the warning; an explicit credential save preserves a separate recovery copy before replacement. GUI startup shows the current preserved-file warning.
-- **Current result:** Unattended backup, prune and check now validate saved credentials before operations. Corrupt-vault reads keep the encrypted bytes in place so later launches repeat the warning; an explicit credential save preserves a separate recovery copy before replacement. GUI startup shows the current preserved-file warning.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - 🖼️ [Unreadable credentials remain explained on later launches](../audit-dashboard/evidence/final-persistence/unreadable-vault-warning.png) — The actual warning names the original secrets.bin as preserved; OK closes it without changing ciphertext. A fresh store also raises the same warning.
-  - [Final packaged app: saved-credential validation](../audit-dashboard/evidence/packaged-vault-final/report.html) — 12 public CLI launches and 145 assertions passed, plus nine loader/argument checks. Each backup, prune and check entry point rejects the same unreadable ciphertext on two launches without changing its bytes or starting an operation. Real current-user DPAPI empty-map and absent-vault negatives proceed to normal missing-backup handling. Synthetic disposable vaults; no personal credential recovery, live cloud account, registered task or reboot is claimed.
-  - [Final credential and transcript safety proof](../audit-dashboard/evidence/final-persistence/report.html) — 38 passing checks: actual unattended entry points, repeat-launch preservation, locked vault, complete distinct transcripts, and selective retention.
-- **Limitations / adversarial review:** Tests invoke the actual production unattended entry points in-process; separately launched packaged-process coverage remains distinct. Re-entering credentials uses the existing recovery flow and does not recover foreign-account DPAPI contents.
-- **I need from you:** A022: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P1: Parallel operations can collide on the same transcript filename
-
-- **Raised:** 2026-10-03
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A023: Backup-cell, restore and verification transcripts now receive unique filename identities. Fast same-basename cells retain separate complete logs and correct history links; concurrent writers at an identical timestamp cannot overwrite one another.
-- **Current result:** Backup-cell, restore and verification transcripts now receive unique filename identities. Fast same-basename cells retain separate complete logs and correct history links; concurrent writers at an identical timestamp cannot overwrite one another.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - [Final credential and transcript safety proof](../audit-dashboard/evidence/final-persistence/report.html) — 38 passing checks: actual unattended entry points, repeat-launch preservation, locked vault, complete distinct transcripts, and selective retention.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Cells inside one backup run sequentially. The integration test follows that policy; a separate test runs 100 simultaneous writers per label at the same timestamp. Earlier incorrect parallel-cell fixture failure is retained in the report.
-- **I need from you:** A023: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P1: Switching editor modes can change a backup even after Cancel
-
-- **Raised:** 2026-10-03
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A020: The backup editor now owns a deep draft, so switching Easy/Advanced cannot alter the live configuration before Save. Easy mode preserves existing storage names, multiple storages on one destination and per-target thread overrides instead of silently deriving replacement targets.
-- **Current result:** The backup editor now owns a deep draft, so switching Easy/Advanced cannot alter the live configuration before Save. Easy mode preserves existing storage names, multiple storages on one destination and per-target thread overrides instead of silently deriving replacement targets.
-- **Remaining:** Inspect the preserved custom rules and passing Cancel/Save/storage-identity checks, then confirm the behavior.
-- **Proof — open and look:**
-  - 🖼️ [The mode round trip preserves the editable draft](../audit-dashboard/evidence/carryovers/editor-mode-round-trip.png) — The user-edited name and custom rule remain after real Easy/Advanced toggle clicks. Tests additionally assert Cancel leaves the original live record untouched.
-  - [Current interaction and carryover evidence](../audit-dashboard/evidence/carryovers/report.html) — Exact passing test results, actual pointer/animation behavior and negative controls are documented alongside remaining integration boundaries.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** S56 uses real windows and pointer clicks but deliberately avoids OS task registration. The normal SaveBackupEdit boundary is invoked after the actual Save button returns the draft, matching the caller's persistence step; the test then loads a fresh ConfigStore. The real E05/E06/E23 backup/restore scenarios passed in the same 36-case subset. They use isolated disposable local repositories, not the user's existing repositories.
-- **I need from you:** A020: Inspect the preserved custom rules and passing Cancel/Save/storage-identity checks, then confirm the behavior.
-
-### P1: Integrity Check invoked snapshot indexing instead of repository checking
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A018: The integrity-check enum now sends wire value3; the old value1 requested only snapshot indexing. E15 now requires a real OperationCheck terminal success, and E14 requires real successful forget operations and exactly one retained revision.
-- **Current result:** The integrity-check enum now sends wire value3; the old value1 requested only snapshot indexing. E15 now requires a real OperationCheck terminal success, and E14 requires real successful forget operations and exactly one retained revision.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - 🖼️ [App after an actual integrity check](../audit-dashboard/evidence/restore-repairs/screenshots/real-integrity-check.png) — The final E15 run reports success. Its recorded OperationCheck #4 reached STATUS_SUCCESS; snapshot indexing cannot satisfy that assertion. Open the rendered report for the operation proof.
-  - 🖼️ [App after real retention enforcement](../audit-dashboard/evidence/restore-repairs/screenshots/real-retention-one-revision.png) — Three backups with keep-last 1 produced six successful Forget operations and exactly one retained revision. The final retained snapshot was restored and fully compared.
-  - [Restore safety evidence](../audit-dashboard/evidence/restore-repairs/report.html) — Open exact safety assertions, real E11 counts and session screenshots.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Tests use disposable data. Review the linked report scope before accepting the item.
-- **I need from you:** A018: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P1: Concurrent GUI and scheduled runs can lose or hide activity history
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A017: Cross-process run history updates retain both writers. Opening Backups or Activity and returning focus refreshes external configuration/history without polling; unsaved editor drafts remain separate.
-- **Current result:** Cross-process run history updates retain both writers. Opening Backups or Activity and returning focus refreshes external configuration/history without polling; unsaved editor drafts remain separate.
-- **Remaining:** Review the external-run navigation proof and confirm the resulting history display.
-- **Proof — open and look:**
-  - 🖼️ [Returning to Backups shows the external scheduled failure](../audit-dashboard/evidence/cloud-repairs/external-scheduled-backup-card.png) — The real main window's card and health banner show the failure written through an independent config/history instance while this GUI was already open.
-  - 🖼️ [The exact external run and saved log are available](../audit-dashboard/evidence/cloud-repairs/external-scheduled-history.png) — After navigating to Activity & logs, the failed external run is selected and its saved two-line failure output is visible.
-  - [Final infrastructure checks](../audit-dashboard/evidence/infrastructure-tests/final-report.html) — 50 selected tests passed; broad run933passed2credentialskips0failed
-  - [Infrastructure repair evidence](../audit-dashboard/evidence/infrastructure-tests/report.html) — 86 passed, 0 failed, 0 skipped
-- **Limitations / adversarial review:** The external writer is a second ConfigStore/LogStore instance against disposable data; real scheduled process execution across reboot remains B040.
-- **I need from you:** A017: Review the external-run navigation proof and confirm the resulting history display.
-
-### P1: Headless test session degrades ~70s into combined suite runs
-
-- **Raised:** 2026-07-05 (found while validating the hover refinements)
-- **Type:** bug (test infrastructure + two real product leaks)
-- **Status:** Awaiting validation
-- **Context:** A014: Scenario cleanup is part of the recorded outcome. Reports say STEPS COMPLETED, and the actual test-runner result remains authoritative. Every screenshot is compared immediately after it is rendered, so stale previous-run images cannot silently satisfy visual checks. The UI driver now invokes registered dialog Click handlers instead of silently accepting a missing reflection shim, and refuses disabled actions.
-- **Current result:** Scenario cleanup is part of the recorded outcome. Reports say STEPS COMPLETED, and the actual test-runner result remains authoritative. Every screenshot is compared immediately after it is rendered, so stale previous-run images cannot silently satisfy visual checks. The UI driver now invokes registered dialog Click handlers instead of silently accepting a missing reflection shim, and refuses disabled actions.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** A scenario page alone is never evidence that the entire suite passed. Open the final test-runner report too.
-- **I need from you:** A014: Review the linked evidence and accept the item, or describe what still needs adjustment.
+- **I need from you:** Review the clarified process. The agent prepares and corrects the documentation; the human makes the final accuracy judgment before publishing. The existing gate rehearsal is evidence that publishing waits, not proof that a person read every document.
 
 ### P1: Restore target radios ping-pong forever (test-suite hang)
 
@@ -497,84 +163,6 @@ for the workflow rules an agent must follow before touching this file.
   - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
 - **Limitations / adversarial review:** S23 renders seeded states; the separate interaction test supplies the actual pointer-click evidence. This is headless Avalonia, not a packaged-process test.
 - **I need from you:** R001: Inspect the two target states and accept if the interaction is now correct.
-
-### P1: Filters > Advanced > Simulate fails with exit status 1
-
-- **Raised:** 2026-07-03
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** R002: Simulate now walks local source files using the filter evaluator. S40 opens Filters > Advanced, invokes the Simulate button, checks included and excluded paths, checks that excluded directories are not descended, and rejects the former error output.
-- **Current result:** Simulate now walks local source files using the filter evaluator. S40 opens Filters > Advanced, invokes the Simulate button, checks included and excluded paths, checks that excluded directories are not descended, and rejects the former error output.
-- **Remaining:** Inspect the populated simulation output.
-- **Proof — open and look:**
-  - 🖼️ [Simulate produces include/exclude rows](../audit-dashboard/evidence/carryovers/filter-simulation.png) — The real Advanced filter editor shows *.tmp and cache/ on the left, with one included row and two excluded rows on the right.
-  - [R002 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — Assertions cover a narrow fixture, no filters, specific filters and a nonexistent source; the button path runs without the old RunCommand error.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** This deliberately previews the local filesystem and filter rules; it is not a restic dry-run or a cloud connection check. Long paths scroll horizontally in the shown output pane.
-- **I need from you:** R002: Inspect the populated simulation output.
-
-### P1: Status text next to "Apply recommended exclusions" is cropped
-
-- **Raised:** 2026-07-03
-- **Type:** bug (visual)
-- **Status:** Awaiting validation
-- **Context:** R003: The reported recommended-savings message wraps beside Apply at 980 × 820. S50 asserts at least two lines and a finite measured width; the screenshot shows the full sentence within the card.
-- **Current result:** The reported recommended-savings message wraps beside Apply at 980 × 820. S50 asserts at least two lines and a finite measured width; the screenshot shows the full sentence within the card.
-- **Remaining:** Inspect the demonstrated savings-row fix and confirm the layout. Finite display-size and dynamic-string limits remain disclosed rather than being treated as an unfinishable acceptance condition.
-- **Proof — open and look:**
-  - 🖼️ [Savings message wraps beside Apply](../audit-dashboard/evidence/carryovers/savings-wrap-current.png) — The complete blue zero-match message occupies two lines and stays inside the card; the corrected rule-order prose above says custom rules precede recommended rules.
-  - [R003 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — Bounds and multi-line assertions passed; this is not a blanket no-clipping claim.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** No finite screenshot set proves every dynamic string, localization or display scale. The final screenshot includes the subsequently corrected two-sentence rule-order copy.
-- **I need from you:** R003: Inspect the demonstrated savings-row fix and confirm the layout. Finite display-size and dynamic-string limits remain disclosed rather than being treated as an unfinishable acceptance condition.
-
-### P1: Estimated savings next to "Apply recommended exclusions" shows 0 B
-
-- **Raised:** 2026-06-11
-- **Type:** UX bug (the math was right, the message was wrong)
-- **Status:** Awaiting validation
-- **Context:** R010: The savings label distinguishes no matching exclusions, unreadable/empty input, and positive estimated savings. S34 uses real filesystem fixtures and asserts all three model labels; the zero-match message is rendered in S50.
-- **Current result:** The savings label distinguishes no matching exclusions, unreadable/empty input, and positive estimated savings. S34 uses real filesystem fixtures and asserts all three model labels; the zero-match message is rendered in S50.
-- **Remaining:** Inspect the zero-match explanation and decide whether it communicates the result clearly.
-- **Proof — open and look:**
-  - 🖼️ [Zero matches have an explanation](../audit-dashboard/evidence/carryovers/savings-wrap-current.png) — The blue message explains that no files matched and that this is normal for narrow sources, instead of showing Estimated savings: 0 B.
-  - [R010 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — Narrow, empty and cache-heavy real filesystem fixtures produce different expected label states.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** S34 does not render all three label states. Positive savings and unreadable/empty wording are model assertions; the screenshot covers only the originally confusing zero-match state.
-- **I need from you:** R010: Inspect the zero-match explanation and decide whether it communicates the result clearly.
-
-### P1: Skipped-run alerts block visibility logic
-
-- **Raised:** 2026-06-11 (user asked 2026-07-03 to confirm the Easy-mode
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** B027: In the backup settings (Easy Mode), there should be a grace period number of days selector setting to ignore skipped backups. During this grace period, no notifications should be sent if skipped; also add a button to restart the grace period (useful if user is offline for 2 weeks and grace period is 7 days). After grace period, skipped with warning notifications would be fired as normal. These are not as bad as real failure so should clearly be indicated as such (if we fired Failed just because we're offline, user would be unrightly worried, but of course after some time it is important user decides if it is normal backups are always skipped).  B028: In the backup settings (Easy Mode), there should be a grace period number of days selector setting to ignore skipped backups. During this grace period, no notifications should be sent if skipped; also add a button to restart the grace period (useful if user is offline for 2 weeks and grace period is 7 days). After grace period, skipped with warning notifications would be fired as normal. These are not as bad as real failure so should clearly be indicated as such (if we fired Failed just because we're offline, user would be unrightly worried, but of course after some time it is important user decides if it is normal backups are always skipped).
-- **Current result:** Skip grace suppresses human alerts; expiration emits warning severity without promoting the stored run to Failed. Reset suppresses subsequent skip alerts. Share access probes preserve permission/missing-path failures and distinguish known outages. Relocation guidance is conditional, requires previous success and a local destination, and excludes deliberate cancellation/metered stops. Easy mode now always exposes the selector and Reset on its schedule step, including before any skipped run and after expiry. Its old Failed-escalation wording is corrected. The real wizard Save/reopen scenario confirms the 14-day choice/reset persist without faking a successful run. Skip grace suppresses human alerts; expiration emits warning severity without promoting the stored run to Failed. Reset suppresses subsequent skip alerts. Share access probes preserve permission/missing-path failures and distinguish known outages. Relocation guidance is conditional, requires previous success and a local destination, and excludes deliberate cancellation/metered stops. Easy mode now always exposes the selector and Reset on its schedule step, including before any skipped run and after expiry. Its old Failed-escalation wording is corrected. The real wizard Save/reopen scenario confirms the 14-day choice/reset persist without faking a successful run.
-- **Remaining:** Review the report and listed limitations; accept the issue if this proof matches your requirement. No credentials or external messages were used.
-- **Proof — open and look:**
-  - 🖼️ [Easy grace controls before a holiday](../audit-dashboard/evidence/cloud-repairs/easy-grace-before-holiday.png) — Healthy backup shows 14-day selector, Reset and warning-only explanatory copy before any skipped run.
-  - 🖼️ [Grace values survive Save and reopening](../audit-dashboard/evidence/cloud-repairs/easy-grace-reopened.png) — The real wizard Save handler persisted the selected 14 days and manual reset, which remain visible when reopened.
-  - [Grace, reset and real orchestration checks](../audit-dashboard/evidence/cloud-repairs/report.html) — Expired-grace absent drive remains Skipped on disk; a nonexistent share fails during grace, while warning notification/reset behavior is exercised through SendAlertsAsync.
-  - [Fresh Easy UI, notification and cleanup checks](../audit-dashboard/evidence/cloud-repairs/followup-report.html) — 36 matching passing followup results are listed, with the complete broad-run failures disclosed separately.
-- **Limitations / adversarial review:** Actual VPN/router/disconnected-NAS behavior is represented by known error codes and local fixtures; no physical network outage was induced.
-- **I need from you:** B027: Review the report and listed limitations; accept the issue if this proof matches your requirement. No credentials or external messages were used. B028: Review the report and listed limitations; accept the issue if this proof matches your requirement. No credentials or external messages were used.
-
-### P1: Collapsible-section hover styling has weird stripe
-
-- **Raised:** 2026-06-11. **Re-opened 2026-07-03:** user reports the
-- **Type:** bug (visual regression)
-- **Status:** Awaiting validation
-- **Context:** R011: S55 moves the real headless pointer over Settings headers with the production transition enabled in both light and dark themes. It asserts intermediate alpha frames retain the theme's neutral RGB, reaches the final rounded wash, extends left of the icon and returns to transparent after the pointer leaves.
-- **Current result:** S55 moves the real headless pointer over Settings headers with the production transition enabled in both light and dark themes. It asserts intermediate alpha frames retain the theme's neutral RGB, reaches the final rounded wash, extends left of the icon and returns to transparent after the pointer leaves.
-- **Remaining:** Inspect the dark intermediate and settled frames, then confirm the hover appearance.
-- **Proof — open and look:**
-  - 🖼️ [Dark hover during the live transition](../audit-dashboard/evidence/carryovers/dark-hover-during-transition.png) — At the sampled intermediate frame, the wash is a dark neutral hue rather than a white flash; the test recorded alpha 155/255.
-  - 🖼️ [Dark hover settles without a stripe](../audit-dashboard/evidence/carryovers/dark-hover-settled.png) — The final rounded wash extends left of Window behavior's icon; the chevron has no independent dark block.
-  - 🖼️ [Light hover during the same enabled transition](../audit-dashboard/evidence/carryovers/light-hover-during-transition.png) — The sampled light-theme wash has alpha 137/255; both themes assert neutral RGB throughout sampled frames.
-  - [Current interaction and carryover evidence](../audit-dashboard/evidence/carryovers/report.html) — Exact passing test results, actual pointer/animation behavior and negative controls are documented alongside remaining integration boundaries.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Frames are sampled in headless Avalonia with the real transition and pointer events. This is substantially stronger than the old transition-disabled still, but native display scaling and compositor timing can still differ.
-- **I need from you:** R011: Inspect the dark intermediate and settled frames, then confirm the hover appearance.
 
 ### P1: Adding a cloud destination erases other destinations from shared rclone.conf
 
@@ -605,81 +193,6 @@ for the workflow rules an agent must follow before touching this file.
 - **Limitations / adversarial review:** Default personal/business drive only; no SharePoint-site or multi-drive selector. Real browser consent, account permissions and official app registration are unverified. Legacy expired tokens may require signing in again before drive discovery.
 - **I need from you:** A002: Supply or register the official OneDrive app ID and authorize a disposable Microsoft account for actual sign-in, drive discovery, refresh and backup/restore acceptance.
 
-### P1: A scheduled run can overwrite newer GUI configuration edits
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A004: ConfigStore serializes file transactions across processes, reloads latest state inside every write and rejects unloaded/stale write paths. Editor drafts merge current runtime and notification results before saving.
-- **Current result:** ConfigStore serializes file transactions across processes, reloads latest state inside every write and rejects unloaded/stale write paths. Editor drafts merge current runtime and notification results before saving.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - [Final infrastructure checks](../audit-dashboard/evidence/infrastructure-tests/final-report.html) — 50 selected tests passed; broad run933passed2credentialskips0failed
-  - [Infrastructure repair evidence](../audit-dashboard/evidence/infrastructure-tests/report.html) — 86 passed, 0 failed, 0 skipped
-- **Limitations / adversarial review:** Independent and concurrent stale instances retain disjoint edits; stale Save preserves newer state; failed writes roll back memory; stale editor retains new background completion.
-- **I need from you:** A004: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P1: Independent cached secret writers can drop newly saved keys
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A005: SecretsStore rereads the latest vault under a shared file transaction; transient access/IO failures propagate without renaming the vault or treating it as empty. Real corruption is preserved before replacement. Startup explicitly validates the lazy vault off the UI thread before warning; temporary access failures receive a distinct retry message.
-- **Current result:** SecretsStore rereads the latest vault under a shared file transaction; transient access/IO failures propagate without renaming the vault or treating it as empty. Real corruption is preserved before replacement. Startup explicitly validates the lazy vault off the UI thread before warning; temporary access failures receive a distinct retry message.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - [Final infrastructure checks](../audit-dashboard/evidence/infrastructure-tests/final-report.html) — 50 selected tests passed; broad run933passed2credentialskips0failed
-  - [Infrastructure repair evidence](../audit-dashboard/evidence/infrastructure-tests/report.html) — 86 passed, 0 failed, 0 skipped
-- **Limitations / adversarial review:** Final passing tests cover real exclusive file locks with intact bytes and retry, concurrent writers, corrupt-vault preservation before any prior read, and actual warning-dialog acknowledgement with unchanged preserved ciphertext.
-- **I need from you:** A005: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P1: Temporary secrets-file lock can cause a later save to discard existing credentials
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A006: Unattended backup, prune and check now validate saved credentials before operations. Corrupt-vault reads keep the encrypted bytes in place so later launches repeat the warning; an explicit credential save preserves a separate recovery copy before replacement. GUI startup shows the current preserved-file warning.
-- **Current result:** Unattended backup, prune and check now validate saved credentials before operations. Corrupt-vault reads keep the encrypted bytes in place so later launches repeat the warning; an explicit credential save preserves a separate recovery copy before replacement. GUI startup shows the current preserved-file warning.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - 🖼️ [Unreadable credentials are explained at startup](../audit-dashboard/evidence/infrastructure-tests/secrets-startup-warning.png) — The real warning names the preserved encrypted file; OK closes it without modifying the preserved bytes.
-  - 🖼️ [Unreadable credentials remain explained on later launches](../audit-dashboard/evidence/final-persistence/unreadable-vault-warning.png) — The actual warning names the original secrets.bin as preserved; OK closes it without changing ciphertext. A fresh store also raises the same warning.
-  - [Final packaged app: saved-credential validation](../audit-dashboard/evidence/packaged-vault-final/report.html) — 12 public CLI launches and 145 assertions passed, plus nine loader/argument checks. Each backup, prune and check entry point rejects the same unreadable ciphertext on two launches without changing its bytes or starting an operation. Real current-user DPAPI empty-map and absent-vault negatives proceed to normal missing-backup handling. Synthetic disposable vaults; no personal credential recovery, live cloud account, registered task or reboot is claimed.
-  - [Final infrastructure checks](../audit-dashboard/evidence/infrastructure-tests/final-report.html) — 50 selected tests passed; broad run933passed2credentialskips0failed
-- **Limitations / adversarial review:** Tests invoke the actual production unattended entry points in-process; separately launched packaged-process coverage remains distinct. Re-entering credentials uses the existing recovery flow and does not recover foreign-account DPAPI contents.
-- **I need from you:** A006: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P1: Starting another sidecar can terminate a live Backspace session engine
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A007: Backrest data directories use exclusive lifetime leases. Startup does not kill daemons by executable path. Process cleanup requires persisted owner and child PID/start-time/binary identities, confirmed dead/reused owner, and exact live child. Unknown/legacy identity is left alone. Headless and elevated runs get separate data directories. Child job objects no longer allow silent breakaway.
-- **Current result:** Backrest data directories use exclusive lifetime leases. Startup does not kill daemons by executable path. Process cleanup requires persisted owner and child PID/start-time/binary identities, confirmed dead/reused owner, and exact live child. Unknown/legacy identity is left alone. Headless and elevated runs get separate data directories. Child job objects no longer allow silent breakaway.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - [Final infrastructure checks](../audit-dashboard/evidence/infrastructure-tests/final-report.html) — 50 selected tests passed; broad run933passed2credentialskips0failed
-  - [Infrastructure repair evidence](../audit-dashboard/evidence/infrastructure-tests/report.html) — 86 passed, 0 failed, 0 skipped
-- **Limitations / adversarial review:** Exact identity negative matrices passed; a real two-daemon run passed and same-directory launch was rejected without stopping the first daemon. Unknown engine outcomes now retain their real OS repository gate through logical drain until confirmed owned-engine disposal; both reader and writer negatives passed.
-- **I need from you:** A007: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P1: Failed or cancelled backend restores can be reported as successful
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A009: Backend terminal errors and cancellations remain truthful. Recovered files are counted from this operation’s staged output; raw restic directory counts cannot inflate leaf totals. E11 recovers 8 regular entries and reports its one unsupported junction as a warning.
-- **Current result:** Backend terminal errors and cancellations remain truthful. Recovered files are counted from this operation’s staged output; raw restic directory counts cannot inflate leaf totals. E11 recovers 8 regular entries and reports its one unsupported junction as a warning.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - 🖼️ [Success and warning remain distinct](../audit-dashboard/evidence/restore-repairs/screenshots/sessions-results-retained.png) — Two retained results show 50/50 complete and 79/80 needing attention; warning is not labelled success. The real E11 accounting result is documented in the report.
-  - 🖼️ [Warning summary shows actual counts](../audit-dashboard/evidence/restore-repairs/screenshots/summary-needs-attention.png) — The latest S16 screenshot shows Restore needs attention, 1234 total, 1228 restored, 6 failed, and all six recorded reasons. The same test asserts Error and Cancelled never display Restore complete.
-  - 🖼️ [Successful summary remains distinct](../audit-dashboard/evidence/restore-repairs/screenshots/summary-success.png) — The latest S16 success screenshot shows Restore complete, all 1234 restored and zero failures, using the production outcome-to-summary mapping.
-  - [Restore safety evidence](../audit-dashboard/evidence/restore-repairs/report.html) — Open exact safety assertions, real E11 counts and session screenshots.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Tests use disposable data. Review the linked report scope before accepting the item.
-- **I need from you:** A009: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
 ### P1: Restore cancellation does not cancel the queued daemon operation
 
 - **Raised:** 2026-10-02
@@ -698,91 +211,20 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Raised:** 2026-10-02
 - **Type:** bug
-- **Status:** Awaiting validation
+- **Status:** In progress
 - **Context:** A011: Synchronous Backrest requests are monitored while pending; cancellation explicitly stops the owned daemon operation and awaits terminal acknowledgement. No five-minute operation deadline remains. Quiet JSON removes duration-based log growth; progress is indeterminate until authoritative counts arrive.
-- **Current result:** Synchronous Backrest requests are monitored while pending; cancellation explicitly stops the owned daemon operation and awaits terminal acknowledgement. No five-minute operation deadline remains. Quiet JSON removes duration-based log growth; progress is indeterminate until authoritative counts arrive.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
+- **Current result:** The five-minute cutoff is removed, but a live percentage is still missing from the production restore path. The interface can display a percentage when it receives progress; the current command suppresses those updates to avoid overflowing Backrest’s command log during long restores. It usually shows an indeterminate bar until the final result.
+- **Remaining:** Agent work: provide live files/bytes progress through a channel that cannot grow until a long restore fails. Exercise an actual rate-limited restore and capture an intermediate percentage, cancellation and the final result. Knowing the total alone is not enough to measure how much has finished.
 - **Proof — open and look:**
+
+  - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/restore-architecture.html) — The five-minute cutoff is removed, but a live percentage is still missing from the production restore path. The interface can display a percentage when it receives progress; the current command suppresses those updates to avoid overflowing Backrest’s command log during long restores. It usually shows an indeterminate bar until the final result.
   - [Restore safety evidence](../audit-dashboard/evidence/restore-repairs/report.html) — Open exact safety assertions, real E11 counts and session screenshots.
   - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Tests use disposable data. Review the linked report scope before accepting the item.
-- **I need from you:** A011: Review the linked evidence and accept the item, or describe what still needs adjustment.
+- **Limitations / adversarial review:** Earlier progress tests injected messages. They prove that the display and parser understand progress, but do not prove that the production command sends it. This issue is therefore Work remaining, not ready for acceptance.
+- **Follow-up received 2026-10-10:**
+  > But we need to show a percentage (we know total number of files or size and progress so we can compute a ratio, no?), don't we show anything?
 
-### P1: Password rotation force-removes repository locks without exclusive ownership
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A012: Password rotation holds an exclusive maintenance lease, never force-unlocks repositories, retains encrypted recovery material until the new credential is durably saved, and prevents closing the dialog during mutation.
-- **Current result:** Password rotation holds an exclusive maintenance lease, never force-unlocks repositories, retains encrypted recovery material until the new credential is durably saved, and prevents closing the dialog during mutation.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - 🖼️ [Real repository after password rotation](../audit-dashboard/evidence/restore-repairs/screenshots/real-password-rotation.png) — The app remains usable after rotation. Open the evidence report for the actual old-password rejection, new-password acceptance, and six-file pre-rotation snapshot byte checks; the screen alone does not prove encryption.
-  - 🖼️ [Closing waits for safe password persistence](../audit-dashboard/evidence/restore-repairs/screenshots/password-close-waits-for-save.png) — The latest S52 scenario actually requests window close during a gated password mutation. The dialog stays open, disables both actions and explains it will finish saving first; only the completed mutation permits closing.
-  - [Restore safety evidence](../audit-dashboard/evidence/restore-repairs/report.html) — Open exact safety assertions, real E11 counts and session screenshots.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Tests use disposable data. Review the linked report scope before accepting the item.
-- **I need from you:** A012: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P1: Destructive maintenance does not wait for active restores or verification
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A013: Backups, restores, verification and mount reads hold shared operation leases; destructive maintenance requires exclusivity. Unknown daemon completion retains the cross-process operating-system lock until owned-engine shutdown is confirmed.
-- **Current result:** Backups, restores, verification and mount reads hold shared operation leases; destructive maintenance requires exclusivity. Unknown daemon completion retains the cross-process operating-system lock until owned-engine shutdown is confirmed.
-- **Remaining:** Review reader/writer, cancellation, shutdown and unknown-engine negative checks.
-- **Proof — open and look:**
-  - 🖼️ [Real Windows snapshot mounted](../audit-dashboard/evidence/restore-repairs/screenshots/real-two-mounts-first-drive.png) — The app shows a real snapshot mounted at Z:. The rendered report records two-drive independence and byte checks that cannot be established from the screenshot alone.
-  - [Restore safety evidence](../audit-dashboard/evidence/restore-repairs/report.html) — Open exact safety assertions, real E11 counts and session screenshots.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** An unresponsive engine fails closed rather than permitting maintenance. The separate real elevated VSS acceptance remains B004.
-- **I need from you:** A013: Review reader/writer, cancellation, shutdown and unknown-engine negative checks.
-
-### P1: Scenario summary can show PASS while xUnit fails the same scenario
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A014: Scenario cleanup is part of the recorded outcome. Reports say STEPS COMPLETED, and the actual test-runner result remains authoritative. Every screenshot is compared immediately after it is rendered, so stale previous-run images cannot silently satisfy visual checks. The UI driver now invokes registered dialog Click handlers instead of silently accepting a missing reflection shim, and refuses disabled actions.
-- **Current result:** Scenario reports identify completed steps separately from the final test result. The latest full suite passed 1,016 checks with two credential skips. Shutdown scenarios now restore their shared state, and the off-thread UI test starts the actual headless UI before scheduling work.
-- **Remaining:** Review the test-report checks and the final test-runner results together.
-- **Proof — open and look:**
-  - [Latest suite and retained earlier failures](../audit-dashboard/evidence/review-feedback/report.html) — 1,016 passed, 2 credential skips, 0 failed; earlier failed runs remain visible with their causes.
-  - [Recorded test results and remaining gaps](../audit-dashboard/evidence/repair-verification.html) — Read the pass and fail results, open the original test records if needed, and see what each run did and did not test.
-- **Limitations / adversarial review:** The earlier headless startup failure happened before the scenario body. The focused initialization and shutdown checks and the subsequent full suite passed, but a single passing run is not proof that every possible test-order race has been eliminated.
-
-- **I need from you:** A014: Review the test-report checks and the final test-runner results together.
-
-### P1: Edge-case restore reports zero restored files despite materializing every regular file
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A015: Backend terminal errors and cancellations remain truthful. Recovered files are counted from this operation’s staged output; raw restic directory counts cannot inflate leaf totals. E11 recovers 8 regular entries and reports its one unsupported junction as a warning.
-- **Current result:** Backend terminal errors and cancellations remain truthful. Recovered files are counted from this operation’s staged output; raw restic directory counts cannot inflate leaf totals. E11 recovers 8 regular entries and reports its one unsupported junction as a warning.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - 🖼️ [Success and warning remain distinct](../audit-dashboard/evidence/restore-repairs/screenshots/sessions-results-retained.png) — Two retained results show 50/50 complete and 79/80 needing attention; warning is not labelled success. The real E11 accounting result is documented in the report.
-  - 🖼️ [Warning summary shows actual counts](../audit-dashboard/evidence/restore-repairs/screenshots/summary-needs-attention.png) — The latest S16 screenshot shows Restore needs attention, 1234 total, 1228 restored, 6 failed, and all six recorded reasons. The same test asserts Error and Cancelled never display Restore complete.
-  - 🖼️ [Successful summary remains distinct](../audit-dashboard/evidence/restore-repairs/screenshots/summary-success.png) — The latest S16 success screenshot shows Restore complete, all 1234 restored and zero failures, using the production outcome-to-summary mapping.
-  - [Restore safety evidence](../audit-dashboard/evidence/restore-repairs/report.html) — Open exact safety assertions, real E11 counts and session screenshots.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Tests use disposable data. Review the linked report scope before accepting the item.
-- **I need from you:** A015: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P1: Synced fixture attributes can change during validation
-
-- **Raised:** 2026-10-02
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A016: Disposable test data now lives outside the Dropbox repository folder. Edge-case validation distinguishes supported regular-file content from unsupported filesystem metadata.
-- **Current result:** Disposable test data now lives outside the Dropbox repository folder. Edge-case validation distinguishes supported regular-file content from unsupported filesystem metadata.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** This removes sync-client interference from fixtures. It does not claim restic preserves every Windows attribute or ACL.
-- **I need from you:** A016: Review the linked evidence and accept the item, or describe what still needs adjustment.
+- **I need from you:** No action for this work now; the agent retains the next step.
 
 ### P1: VSS and elevation on Windows
 
@@ -991,215 +433,6 @@ for the workflow rules an agent must follow before touching this file.
 
 - **I need from you:** B036: Open the before-click popup and after-click log screenshots. Windows desktop placement and focus still need a native check.
 
-### P1: Exercise storage password rotation
-
-- **Raised:** 2026-10-02 (original note reintroduced for audit)
-- **Type:** coverage
-- **Status:** Awaiting validation
-- **Context:** B037: - Test password rotation
-- **Current result:** The real password-change test confirms that the old password is rejected, the new password works, and the earlier snapshot still restores to the original file contents. The dialog waits for the credential save to finish before allowing itself to close.
-- **Remaining:** Open the password-change report and the screenshot showing the dialog waiting to finish saving.
-- **Proof — open and look:**
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-  - [Restore safety and file checks](../audit-dashboard/evidence/restore-repairs/report.html) — See which files were recovered, which existing files were protected, and how failures, cancellation and password changes were checked.
-  - 🖼️ [The app remains usable after a real password change](../audit-dashboard/evidence/restore-repairs/screenshots/real-password-rotation.png) — The screenshot shows the app after the operation. The report proves the old password was rejected, the new one worked and all six original files could still be restored.
-  - 🖼️ [The password dialog waits until saving is safe](../audit-dashboard/evidence/restore-repairs/screenshots/password-close-waits-for-save.png) — A close request during the password change leaves the dialog open. Both actions are disabled and the message explains that saving must finish first.
-- **Limitations / adversarial review:** The test uses a disposable local repository. A screenshot of the open app is not, by itself, proof that the encryption key changed.
-
-- **Review comments received 2026-10-05 (B037):**
-  > So do you use Restic's builtin functionality for this?
-
-- **I need from you:** B037: Open the password-change report and the screenshot showing the dialog waiting to finish saving.
-
-### P2: Retry briefly when Windows temporarily locks a generated screenshot
-
-- **Raised:** 2026-10-05
-- **Type:** coverage
-- **Status:** Awaiting validation
-- **Context:** The combined suite reproduced an access-denied error while replacing a generated PNG in the synced checkout. The application checks had passed, but a brief external file lock prevented publishing their screenshot. Retry a bounded number of times; a persistent lock must still fail visibly without damaging the preceding image.
-- **Current result:** A temporary Windows file lock could interrupt a test while it saved its screenshot. Screenshot publishing now waits briefly and retries. If the file stays locked, the test fails visibly and preserves the previous screenshot.
-- **Remaining:** Review the recorded checks for both a temporary lock and a lock that remains in place.
-- **Proof — open and look:**
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** Both tests use actual Windows file locks. A persistent lock is deliberately reported as a failure, not hidden.
-
-- **I need from you:** A030: Review the recorded checks for both a temporary lock and a lock that remains in place.
-
-### P2: Filter review issues by whose turn it is
-
-- **Raised:** 2026-10-05
-- **Type:** feature
-- **Status:** Awaiting validation
-- **Context:** The user needs a clear view of issues awaiting their review after an assistant update or reply, and issues where the assistant must address their latest comment. Replies must update issue explanations and evidence where needed. Use “With Agent”, not “With Codex”, so the same desk also works with Claude; individual replies should retain their author.
-- **Current result:** Use Your review for issues awaiting your assessment and With Agent for issues awaiting work or a reply. A new comment or issue goes to the agent. An agent reply returns it to you unless the agent records more work still due. Both Codex and Claude replies are recognized.
-- **Remaining:** Try the two queue buttons and confirm that they match how you want to review. The queue is named With Agent throughout.
-- **Proof — open and look:**
-  - 🖼️ [Your review and With Agent](../audit-dashboard/evidence/review-feedback/queues.png) — The two queues show whose next action is due.
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** Queue behavior is covered by persistence and browser checks. No automatic notification service was added.
-
-- **I need from you:** N007: Try the two queue buttons and confirm that they match how you want to review. The queue is named With Agent throughout.
-
-### P2: Edit or delete a review comment until it receives a response
-
-- **Raised:** 2026-10-05
-- **Type:** feature
-- **Status:** Awaiting validation
-- **Context:** Let the user edit or delete their unanswered comments, persist the change, and distinguish user and assistant messages clearly in threaded discussions. Answered comments must retain their context.
-- **Current result:** Your comments and agent replies have distinct colors, author labels and readable paragraphs. Replies identify the comment they answer. Edit and Delete are available until a comment receives a response; deletion asks for a second click, and previous text is retained in the JSON history.
-- **Remaining:** Review the discussion layout. Try editing or deleting an unanswered comment.
-- **Proof — open and look:**
-  - 🖼️ [Readable comments and replies](../audit-dashboard/evidence/review-feedback/conversation.png) — The original user comment and agent reply have distinct author labels and colors, readable paragraphs, and an explicit reply link.
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** Server checks enforce the unanswered rule even if an old browser tab still shows the buttons. Browser checks include repeated posting, editing, deletion and reload persistence.
-
-- **I need from you:** N008: Review the discussion layout. Try editing or deleting an unanswered comment.
-
-### P2: Make review counts useful as filters
-
-- **Raised:** 2026-10-05
-- **Type:** feature
-- **Status:** Awaiting validation
-- **Context:** Clicking a summary count should select its corresponding filter. Remove the total issue count card and replace All review stages with a clear label for active stages. Keep counts and visible issues consistent with completed and discarded items.
-- **Current result:** Each of the four summary counts is now a filter button. Clicking one selects the matching stage below and clears other filters that could hide the results. The total-issues card is gone, and the dropdown starts with All active stages.
-- **Remaining:** Click a summary count, then check that the stage dropdown and visible issues match.
-- **Proof — open and look:**
-  - 🖼️ [A summary count selects its filter](../audit-dashboard/evidence/review-feedback/queues.png) — Still needs testing is selected in both the count and the dropdown, and the list shows the matching 27 issues.
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** Closed issues are excluded from these active counts. Show completed or discarded remains available to find your earlier decisions.
-
-- **I need from you:** N009: Click a summary count, then check that the stage dropdown and visible issues match.
-
-### P2: Improve review desk legibility and information density
-
-- **Raised:** 2026-10-03
-- **Type:** feature
-- **Status:** Awaiting validation
-- **Context:** Also improve the legibility of the Review desk UX. It's not because it's tiny with plenty of padding that it is more professional. Just do better, be smarter than the frontend-design skill alone!
-- **Root cause + fix (short):** Important text was only 9–13 pixels tall. Explanations now use 17-pixel text, original quotes use 16 pixels, and proof captions use 15 pixels. The margins are smaller, the issue list stays available while you read, and the background information at the top can be expanded when needed.
-- **Proof — open and look:**
-  - 🖼️ **[The revised issue layout](../audit-dashboard/evidence/review-assets/readable-issue.png)** — Larger text, tighter margins and a visible issue list while you read.
-  - 🖼️ **[Your notes and their related issues](../audit-dashboard/evidence/review-assets/readable-notes.png)** — The original text uses larger type, with readable issue links beside each section.
-  - **[Browser and persistence checks](../audit-dashboard/evidence/review-assets/review-checks.html)** — Includes the small-width layout checks and confirmation that comments and decisions still save.
-- **Adversarial checks and limitations:** This changes presentation and wording. Posted comments, completion decisions and discussion threads still use the existing saved review data.
-- **I need from you:** Read a few issues and open the original-notes page. Confirm that the text is comfortable at your usual browser zoom, or tell me what still feels cramped.
-
-### P2: Remove redundant LIVE Live labeling in the log console
-
-- **Raised:** 2026-10-03
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** Why Logs & runs have LIVE Live in the console, not redundant?
-- **Root cause + fix (short):** The two labels meant the same thing. The console now uses one LIVE badge and a separate description of the operation, such as Restore · Documents. Saved runs do not show the LIVE badge.
-- **Proof — open and look:**
-  - 🖼️ **[The console with one LIVE label](../audit-dashboard/evidence/revision-after/logs/04-unselected-output-has-one-live-indicator.png)** — The single LIVE badge sits beside Current output. The same test checks saved runs and confirms that clearing the display leaves saved logs intact.
-  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
-- **Adversarial checks and limitations:** The screenshots use sample activity. The tests also check that clearing the display leaves saved log files and history intact.
-- **I need from you:** Open the console screenshots. Check that current output has one LIVE label and saved runs have none.
-
-### P2: Unknown command-line arguments launch the desktop app
-
-- **Raised:** 2026-10-03
-- **Type:** bug
-- **Status:** Awaiting validation
-- **Context:** A019: Unknown command-line inputs previously launched the GUI, while mixed or trailing arguments were ignored. Ordinary modes now require exact arity and a value, before integration startup; helper payload validation remains dedicated.
-- **Current result:** Unknown command-line inputs previously launched the GUI, while mixed or trailing arguments were ignored. Ordinary modes now require exact arity and a value, before integration startup; helper payload validation remains dedicated.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - [Scheduler, guard and parser regression results](../audit-dashboard/evidence/infrastructure-tests/runtime-coverage-report.html) — 57 passed, 0 failed, 0 skipped: 44 guard/parser plus13 action regressions
-  - [Published command-line and native-loader checks](../audit-dashboard/evidence/packaged-vault-final/loader/report.html) — Nine final-executable CLI and native-loader checks passed, with expected exits, no configuration creation and PID-matched loader traces. Installed WinFSP and existing app extraction cache reused. Does not claim fresh-cache extraction, a GUI Mount click, or the user original repository.
-- **Limitations / adversarial review:** 32 parser cases passed; malformed/mixed/trailing/missing inputs return UsageError without changing restore state. Existing option-shaped backup names remain valid. Nine actual published help/version and invalid-input commands passed expected exits and did not create configuration; actual --run -h also created the expected snapshot.
-- **I need from you:** A019: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
-### P2: Exact original notes page with complete issue cross-links
-
-- **Raised:** 2026-10-02
-- **Type:** feature
-- **Status:** Awaiting validation
-- **Context:** N001: Can you add a page with the exact text i shared with you originally in this chat, that hyperlinks each section to the corresponding issue? And make sure the issue includes at the very top the originating verbatim extract (if there was any). So I can make sure ALL my original notes were taken into account.
-- **Current result:** The Original notes page preserves all 62 lines exactly and links all 42 derived issues beside the matching sections. Each originating quote appears at the top of its issue.
-- **Remaining:** Open the notes page and follow any section to check that the issue reflects your intent.
-- **Proof — open and look:**
-  - 🖼️ [Original notes and issue links](../audit-dashboard/evidence/notes-page.png) — Unchanged source text at left, all corresponding issue links at right.
-  - [Coverage verification](../audit-dashboard/evidence/notes-coverage.html) — 62 lines, 42 linked issues, zero unmapped requirements; exact browser-text comparison passed.
-- **Limitations / adversarial review:** Coverage has been checked line by line and the displayed source compared to the attachment. Issue closure remains your decision.
-- **I need from you:** N001: Open the notes page and follow any section to check that the issue reflects your intent.
-
-### P2: Reversible visual redesign after functional remediation
-
-- **Raised:** 2026-10-02
-- **Type:** feature
-- **Status:** Awaiting validation
-- **Context:** Feel free to improve the overall app design as well so it looks stunning if you see it is lacking in any area (without compromising the ease of use, legibility, and philosophy). The user rejected Georgia for the wordmark and page titles and requested a full interface audit. The first design proposal was not accepted.
-- **Root cause + fix (short):** The revised app uses bundled Manrope for the Backspace name and page titles. Page margins and navigation are consistent, Settings sections use less space, dropdown arrows are visible, and the console shows one LIVE label. Windows fit the available laptop work area, and backup-card actions remain reachable when the window narrows.
-- **Proof — open and look:**
-  - 🖼️ **[The revised Backups page](../audit-dashboard/evidence/revision-after/full/02-backups-overview.png)** — Manrope headings, aligned content and a clear navigation selection.
-  - **[Compare the previous and revised designs](../audit-dashboard/evidence/design-review.html)** — Every before-and-after pair has matching dimensions. Smaller laptop layouts and the preview instructions are included.
-  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
-- **Adversarial checks and limitations:** The gallery uses the same-sized windows for each comparison. Small-laptop screenshots are shown separately. Tests use disposable local data; your aesthetic approval is still needed, and no completion box is checked on your behalf.
-- **I need from you:** Open the matching-size comparison and try Launch-Design-Preview.bat. Approve the appearance or leave specific changes on this issue. The design remains separately reversible from the earlier backup and restore repairs.
-
-### P2: UI copy overuses em dashes
-
-- **Raised:** 2026-07-03
-- **Type:** polish (copy)
-- **Status:** Awaiting validation
-- **Context:** R004: Current XAML labels and view-model prose use ordinary punctuation in the inspected copy. Representative restore, settings and filter screens show the result. Em-dash placeholders, log formatting, code comments and explicit filter fences remain where they have a distinct purpose.
-- **Current result:** Current XAML labels and view-model prose use ordinary punctuation in the inspected copy. Representative restore, settings and filter screens show the result. Em-dash placeholders, log formatting, code comments and explicit filter fences remain where they have a distinct purpose.
-- **Remaining:** Review the representative wording and confirm that its tone matches your preference.
-- **Proof — open and look:**
-  - 🖼️ [Restore instructions with ordinary punctuation](../audit-dashboard/evidence/carryovers/restore-target-other-folder.png) — The heading, introduction, overwrite warning and target labels use ordinary sentence punctuation.
-  - [R004 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — The report distinguishes inspected product prose from placeholders, logs and filter-marker syntax.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** This verdict includes source inspection and representative visual inspection, not a whole-app string or all-error-dialog proof. User-entered names and paths can contain arbitrary punctuation.
-- **I need from you:** R004: Review the representative wording and confirm that its tone matches your preference.
-
-### P2: Folder-picker rows should toggle expand on click anywhere left of the checkbox
-
-- **Raised:** 2026-06-11
-- **Type:** bug (UX)
-- **Status:** Awaiting validation
-- **Context:** R012: S29 sends actual headless pointer events to the row text and checkbox. Text clicks expand; after resetting collapsed state, the checkbox click leaves expansion unchanged.
-- **Current result:** S29 sends actual headless pointer events to the row text and checkbox. Text clicks expand; after resetting collapsed state, the checkbox click leaves expansion unchanged.
-- **Remaining:** Inspect the picker state and accept if row/checkbox gestures behave as intended.
-- **Proof — open and look:**
-  - 🖼️ [Checkbox selection leaves the row collapsed](../audit-dashboard/evidence/carryovers/picker-checkbox-without-expansion.png) — The fixture's C: row is checked while its chevron remains collapsed. The companion test first clicks its text and asserts expansion.
-  - [R012 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — The test uses pointer-down/up events and asserts both positive row expansion and the checkbox non-expansion negative control.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** The fixture checks row text and checkbox centers, not every pixel of a row or native Explorer. The final screenshot shows the collapsed selected row; the earlier expansion is established by the assertion.
-- **I need from you:** R012: Inspect the picker state and accept if row/checkbox gestures behave as intended.
-
-### P2: Filter editor wording + recommended-exclusion polish
-
-- **Raised:** 2026-06-11
-- **Type:** bug + cleanup
-- **Status:** Awaiting validation
-- **Context:** R013: Advanced help describes bare globs and platform-default case sensitivity. Recommended exclusions use one ntuser.dat* rule, and translator tests cover insensitive Windows routing plus the case-sensitive alternative.
-- **Current result:** Advanced help describes bare globs and platform-default case sensitivity. Recommended exclusions use one ntuser.dat* rule, and translator tests cover insensitive Windows routing plus the case-sensitive alternative.
-- **Remaining:** Review the help text and recommended rule simplification.
-- **Proof — open and look:**
-  - 🖼️ [Help explains the rules users actually type](../audit-dashboard/evidence/carryovers/filter-simulation.png) — The Advanced pane says one bare glob per line, gives *.tmp and cache/ examples, and explains Windows-insensitive versus macOS/Linux-sensitive defaults.
-  - [R013 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — Passing tests assert one ntuser.dat* family pattern and both case-routing outcomes.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Windows is the exercised platform. The alternate case-sensitive route is a controlled unit test, not a macOS/Linux application run.
-- **I need from you:** R013: Review the help text and recommended rule simplification.
-
-### P2: Custom-exclusion markers should sit BEFORE Backspace-generated block
-
-- **Raised:** 2026-06-11
-- **Type:** UX
-- **Status:** Awaiting validation
-- **Context:** R014: Custom fences appear above the generated block in the real Advanced editor. S56 clicks Apply twice, checks preserved custom content and idempotence, then switches Easy/Advanced and verifies the ordering remains intact. The matching help copy is corrected.
-- **Current result:** Custom fences appear above the generated block in the real Advanced editor. S56 clicks Apply twice, checks preserved custom content and idempotence, then switches Easy/Advanced and verifies the ordering remains intact. The matching help copy is corrected.
-- **Remaining:** Inspect the actual Advanced filter text and confirm custom rules appear first.
-- **Proof — open and look:**
-  - 🖼️ [Actual editor keeps custom rules above generated rules](../audit-dashboard/evidence/carryovers/editor-mode-round-trip.png) — The visible custom block contains *.private and its comment; the recommended block starts below it after Apply and a round trip through Easy mode.
-  - 🖼️ [Custom rules are above recommended rules](../audit-dashboard/evidence/carryovers/savings-wrap-current.png) — Both the introduction and Apply explanation say custom rules stay above the recommended block and are preserved.
-  - [R014 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — Tests assert custom-start/custom-end precede recommended-start, legacy rules survive, and a second merge is identical. The final screenshot shows the corrected explanation.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** The actual editor interaction and string assertions cover the tested legacy custom rule and generated block. Arbitrary hand-edited malformed marker files are outside this screenshot's scope.
-- **I need from you:** R014: Inspect the actual Advanced filter text and confirm custom rules appear first.
-
 ### P2: E2E coverage audit — user-action ↔ scenario matrix
 
 - **Raised:** 2026-06-11
@@ -1291,42 +524,41 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Raised:** 2026-10-02 (original note reintroduced for audit)
 - **Type:** coverage
-- **Status:** Open
-- **Context:** B010: (also check Docx file to make sure all is good)
-- **Current result:** No .docx file was found in the repository, including ignored files outside generated dependencies. The only getting-started documents found outside README/site belonged to the separate upstream Backrest checkout.
-- **Remaining:** Identify or provide the specific Word document and intended getting-started guide before this review can be completed.
-- **Proof — open and look:**
-  - No completion proof claimed; the missing input is stated above.
-- **Limitations / adversarial review:** No claim is made about the missing document's correctness.
-- **I need from you:** B010: Identify or provide the specific Word document and intended getting-started guide before this review can be completed.
-
-### P2: Explain scheduling independently of the tray
-
-- **Raised:** 2026-10-02 (original note reintroduced for audit)
-- **Type:** coverage
 - **Status:** Awaiting validation
-- **Context:** B022: Also it is misleading to say "Backspace keeps running in the background so scheduled backups still fire"! App doesn't need to run in the background for this! User should be reassured about this. Only useful to keep to reopen fast. How are things handled if a backup or any other operation is running and user wants to quit? I think we should still push to keep app running in the systray if you can confirm CPU impact will be zero when no operation is running. This can be reassuring for people to see Backspace if there. But we should reassure them even if Backspace is quit, it'll stop existing operations but scheduled operations will be triggered as usual. Find the best way to frame this.
-- **Current result:** Tray copy explains that schedules run independently. Quit confirms active work, cancels owned operations and waits for acknowledgement. It keeps the app open if operations cannot safely drain, and blocks new GUI work during exit.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
+- **Context:** B010: (also check Docx file to make sure all is good)
+- **Current result:** I reviewed the supplied Backspace TODO.docx in full. Backspace now implements its Option 2: an Avalonia desktop app with a bundled Backrest daemon driving restic. The document is an earlier architecture discussion, not a list of entirely missing features. The attached comparison distinguishes implemented behavior, deliberate differences, remaining work and claims in the document that should not guide new work.
+- **Remaining:** Open the Word-document comparison. My recommendation is to keep the current architecture. Continue the existing restore/progress, cloud-source and native acceptance work; do not create a second engine rewrite or web-UI port. The review also found a local-authentication startup defect, tracked separately as N017.
 - **Proof — open and look:**
-  - 🖼️ [Quit protects active work](../audit-dashboard/evidence/review-ui/05-tray-quit-protects-running-restore.png) — The actual Quit action explains the consequence and offers Keep running; the test confirms that choice preserves the restore.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** This covers app-owned operations. A scheduled task is a separate process; a real reboot remains a separate acceptance item.
-- **I need from you:** B022: Review the linked evidence and accept the item, or describe what still needs adjustment.
+
+  - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/word-comparison.html) — I reviewed the supplied Backspace TODO.docx in full. Backspace now implements its Option 2: an Avalonia desktop app with a bundled Backrest daemon driving restic. The document is an earlier architecture discussion, not a list of entirely missing features. The attached comparison distinguishes implemented behavior, deliberate differences, remaining work and claims in the document that should not guide new work.
+  - No completion proof claimed; the missing input is stated above.
+- **Limitations / adversarial review:** The comparison combines code inspection and existing test evidence; it is not fresh live-cloud, reboot, VSS or mounting validation. The original document is preserved and its extracted text is included unchanged in the report.
+- **Follow-up received 2026-10-10:**
+  > "C:\Users\erwin\Desktop\Backspace TODO.docx" This is the file. Where do we stand compared to the options listed inside?
+  > I want to see if we may need to update our roadmap or not.
+
+- **I need from you:** Open the Word-document comparison. My recommendation is to keep the current architecture. Continue the existing restore/progress, cloud-source and native acceptance work; do not create a second engine rewrite or web-UI port. The review also found a local-authentication startup defect, tracked separately as N017.
 
 ### P2: Measure idle tray CPU use
 
 - **Raised:** 2026-10-02 (original note reintroduced for audit)
 - **Type:** coverage
-- **Status:** Awaiting validation
+- **Status:** In progress
 - **Context:** B024: Also it is misleading to say "Backspace keeps running in the background so scheduled backups still fire"! App doesn't need to run in the background for this! User should be reassured about this. Only useful to keep to reopen fast. How are things handled if a backup or any other operation is running and user wants to quit? I think we should still push to keep app running in the systray if you can confirm CPU impact will be zero when no operation is running. This can be reassuring for people to see Backspace if there. But we should reassure them even if Backspace is quit, it'll stop existing operations but scheduled operations will be triggered as usual. Find the best way to frame this.
-- **Current result:** Measured idle CPU exposed a Windows compositor loop. Using Windows redirection composition reduced the measured idle cost by over 90% in the controlled comparison; the final shared production-builder run is linked in the report.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
+- **Current result:** The new native measurements still show idle CPU use: about 0.156% of this 22-thread machine with the window hidden. Backrest itself used no measurable CPU in that interval. Teleporter uses Avalonia 12.1.3, software rendering and a fully closed window. Backspace uses Avalonia 11.2.3; copying the renderer and closing the window in isolated probes did not reach zero CPU.
+- **Remaining:** Agent work: profile the remaining idle activity and compare framework behavior before choosing a fix. A renderer switch alone did not improve CPU, so no production renderer or tray-lifecycle change was made. Keep the issue open until a native measurement demonstrates the intended reduction.
 - **Proof — open and look:**
+
+  - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/idle-cpu.html) — The new native measurements still show idle CPU use: about 0.156% of this 22-thread machine with the window hidden. Backrest itself used no measurable CPU in that interval. Teleporter uses Avalonia 12.1.3, software rendering and a fully closed window. Backspace uses Avalonia 11.2.3; copying the renderer and closing the window in isolated probes did not reach zero CPU.
   - [Idle CPU with the final design](../audit-dashboard/evidence/design-native-idle/report.html) — Two 30-second samples: 0.203% visible and 0.209% hidden of total CPU on this 22-thread host. Empty disposable configuration; no universal zero-CPU claim.
   - [Idle CPU measurements and diagnosis](../audit-dashboard/evidence/idle-cpu-comparison.html) — Compare raw visible/hidden-window samples and the shared production-builder confirmation; measurement scope and machine details are disclosed.
-- **Limitations / adversarial review:** CPU is small but not zero. These measurements describe this Windows machine and isolated window/daemon, not every device or full installed integration.
-- **I need from you:** B024: Review the linked evidence and accept the item, or describe what still needs adjustment.
+- **Limitations / adversarial review:** Empty disposable configuration, actual Windows window and owned Backrest daemon. These measurements exclude registered schedules, tray-menu interaction and personal backups. They prove the measured nonzero use, not the cause; a framework-version difference is a lead, not a diagnosis.
+- **Follow-up received 2026-10-10:**
+  > You did not address all my original comments/questions. 
+  > FYI With this project you achieved 0% CPU usage when app was in systray but not doing anything:
+  > C:\Users\erwin\Dropbox\Projects\GitHub\Teleporter
+
+- **I need from you:** No action for this work now; the agent retains the next step.
 
 ### P2: Interactive OAuth test switch and reusable tokens
 
@@ -1355,14 +587,16 @@ for the workflow rules an agent must follow before touching this file.
 - **Type:** coverage
 - **Status:** In progress
 - **Context:** B035: - Test if --exclude-cloud-files is OFF, whether it'll cause the files to be downloaded permanently, or only temporarily (useful to backup dropbox to another destination without cluttering the local drive)/
-- **Current result:** The actual Dropbox file you supplied stayed online-only, with zero allocated bytes throughout the checks. Neither backup contained its contents. Bundled Restic 0.18.1 rejected this placeholder as an unsupported irregular file. The run returned Warning, and the app log now preserves the specific filename and error.
-- **Remaining:** Prototype a separate cloud source, starting with Dropbox. Prove that unchanged files remain in each snapshot without being downloaded again, changed revisions are not missed, temporary space is bounded, and original placeholder states never change. This is agent implementation work; source-account authorization will be needed for a live provider trial.
+- **Current result:** Other projects demonstrate the important pieces. Cloudstic reads Google Drive and OneDrive directly through their APIs and tracks changes; it has its own backup engine. Arq avoids downloading unchanged files but makes the original Windows files local. A separate source layer could give Restic and Backrest the requested behavior. Backspace still needs that implementation and proof. Skipping online-only files is already the default.
+- **Remaining:** Agent work: build a separate Dropbox source that preserves a complete snapshot, detects provider revision changes, avoids repeat downloads of unchanged content, and enforces a temporary-space limit. Ignore online-only files by default. Original placeholders must remain untouched, including on failure or cancellation. Live provider acceptance will later need source-read consent.
 - **Proof — open and look:**
+
+  - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/cloud-source.html) — Other projects demonstrate the important pieces. Cloudstic reads Google Drive and OneDrive directly through their APIs and tracks changes; it has its own backup engine. Arq avoids downloading unchanged files but makes the original Windows files local. A separate source layer could give Restic and Backrest the requested behavior. Backspace still needs that implementation and proof. Skipping online-only files is already the default.
   - [Online-only source research and proposed approach](../audit-dashboard/evidence/remaining-work-20261009/cloud-source-research.html) — Compares verified competitor behavior, explains the Restic constraint, and lists the acceptance checks. Research, not a claim of working implementation.
   - [Actual Dropbox test: no download and no backed-up contents](../audit-dashboard/evidence/cloud-placeholder-20261005/report.html) — See the file measurements, snapshot checks and original engine error. The supplied file remained online-only.
   - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
   - [Recorded test results and remaining gaps](../audit-dashboard/evidence/repair-verification.html) — Read the pass and fail results, open the original test records if needed, and see what each run did and did not test.
-- **Limitations / adversarial review:** This is a real test of the exact supplied Dropbox file. It does not establish that all Dropbox, OneDrive or Google Drive placeholders behave the same way. No successful hydration was observed.
+- **Limitations / adversarial review:** This is documented research, not a working cloud-source implementation. The earlier real Dropbox test kept the file online-only but did not back up its contents. Other providers and the proposed separate-download path remain unverified.
 
 - **Review comments received 2026-10-05 (B035):**
   > mark as still needs testing and provide me step by step instruction in the chat so we can complete this test together.
@@ -1374,37 +608,7 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Follow-up — 2026-10-09:** Investigate backing up online-only Dropbox, Google Drive and OneDrive files without changing the user’s local availability choice. Check provider metadata for changes, download changed content into a separate temporary location, check free space before downloading, and warn clearly when a file cannot be included. The requested default is to ignore online-only files; including them must explain that local placeholders stay online-only. Research existing products and the Restic/Backrest integration before proposing implementation.
 - **Research result — 2026-10-09:** Cloudstic documents direct Google Drive and OneDrive source reads with change tracking; Arq documents changed-file checks but hydrates the original Windows files. Restic users also report backups from rclone-mounted sources. These are useful precedents, not proof of the exact requested workflow. The linked report separates documented behavior from implementation and testing still needed in Backspace.
-- **I need from you:** Nothing for the research. A later live prototype will need your sign-in and a disposable source folder; the current checkbox must not yet promise to leave included files online-only.
-
-### P2: Check layout with ten sources and destinations
-
-- **Raised:** 2026-10-02 (original note reintroduced for audit)
-- **Type:** coverage
-- **Status:** Awaiting validation
-- **Context:** B038: Test adding 10 sources and destinations to see how it looks (scrollbar)
-- **Current result:** A new audit-only fixture loads ten sources and ten destinations in one backup. Both lists have independent scrollbars and can display item 10; the action shelf stays visible. Editor top/bottom captures are available too.
-- **Remaining:** User visual approval of layout; optional native mouse-wheel test at high display scaling.
-- **Proof — open and look:**
-  - 🖼️ [Ten-source/destination card, top](../audit-dashboard/evidence/design-after/dense/ten-sources-destinations-top.png) — Counts read 10 SOURCES and 10 DESTINATIONS; independent list scrollbars keep actions visible.
-  - 🖼️ [Both lists scrolled to the bottom](../audit-dashboard/evidence/design-after/dense/ten-sources-destinations-bottom.png) — Source-10 and Destination 10 are visible at the bottom of their lists.
-  - 🖼️ [Ten-source editor, top](../audit-dashboard/evidence/design-after/dense/ten-sources-editor-top.png) — The source list occupies the scrollable form, with Save buttons fixed below.
-  - [Final dense-layout and pointer checks](../audit-dashboard/evidence/design-checks.html) — Five fresh UI probes pass with the proposed design, including ten sources/destinations and reachable scrolling controls.
-- **Limitations / adversarial review:** Data is seeded directly into view models; this does not prove ten repetitions of picker/add/save interactions or ten actual backup destinations.
-- **I need from you:** B038: User visual approval of layout; optional native mouse-wheel test at high display scaling.
-
-### P2: Review the sidebar grouping and label
-
-- **Raised:** 2026-10-02 (original note reintroduced for audit)
-- **Type:** coverage
-- **Status:** Awaiting validation
-- **Context:** Maybe move the down menu block right below Destinations, see what to do with label Your Backups, ask Claude for advice.
-- **Root cause + fix (short):** Backups and Destinations sit together at the top of the sidebar, followed by Settings and Activity & logs. The current page has a highlight across the full navigation row. The version and Backrest credit remain at the bottom.
-- **Proof — open and look:**
-  - 🖼️ **[The revised Backups page](../audit-dashboard/evidence/revision-after/full/02-backups-overview.png)** — Manrope headings, aligned content and a clear navigation selection.
-  - **[Compare the previous and revised designs](../audit-dashboard/evidence/design-review.html)** — Every before-and-after pair has matching dimensions. Smaller laptop layouts and the preview instructions are included.
-  - **[Tests for the revised app](../audit-dashboard/evidence/design-checks.html)** — Read the results, the behaviors that were checked, and the limits of those checks.
-- **Adversarial checks and limitations:** The gallery uses the same-sized windows for each comparison. Small-laptop screenshots are shown separately. Tests use disposable local data; your aesthetic approval is still needed, and no completion box is checked on your behalf.
-- **I need from you:** Open the matching-size comparison and try Launch-Design-Preview.bat. Approve the appearance or leave specific changes on this issue. The design remains separately reversible from the earlier backup and restore repairs.
+- **I need from you:** No action for this work now; the agent retains the next step.
 
 ### P2: Prove the schedule fires after a real reboot
 
@@ -1466,38 +670,6 @@ for the workflow rules an agent must follow before touching this file.
 - **Limitations / adversarial review:** Real-account OAuth/email, VSS, reboot, native simultaneous mounts and idle CPU remain unproven. Restore safety and persistence probes reproduce negative cases, and complete hash checks include a wrong-revision control. Historical screenshots are not promoted to fresh results.
 - **I need from you:** Review the dashboard and identify which findings or scope need revision.
 
-### P3: Create new issues directly in the review desk
-
-- **Raised:** 2026-10-05
-- **Type:** feature
-- **Status:** Awaiting validation
-- **Context:** Add an accessible new-issue form and persist user-created issues in the existing review JSON. Preserve the user's wording and place new issues in the assistant's queue.
-- **Current result:** New issue opens a simple title, description and priority form. Saving creates a permanent issue ID, preserves your description at the top and places the issue in With Agent. It survives a page reload and server restart.
-- **Remaining:** Use New issue for the next request and confirm that the form contains what you need.
-- **Proof — open and look:**
-  - 🖼️ [Create an issue from the desk](../audit-dashboard/evidence/review-feedback/new-issue.png) — The dialog asks for a title, description and priority, and sends new issues to the agent.
-  - [Replies, screenshots and remaining checks](../audit-dashboard/evidence/review-feedback/report.html) — Read the answers to your comments, inspect the actual interface screenshots, and see which checks used the real engine.
-- **Limitations / adversarial review:** The description is kept as your original wording. Later audit imports cannot overwrite it or the discussion.
-
-- **I need from you:** N012: Use New issue for the next request and confirm that the form contains what you need.
-
-### P3: "Restores" left-nav item — single-restore variant shipped
-
-- **Raised:** 2026-06-11
-- **Type:** feature
-- **Status:** Awaiting validation
-- **Context:** B016: - If user initiates a restore operation, and then go to another menu item, he cannot go back to see the status of the restore operation. Please add a Restores menu item on the left with a visual dynamic icon indicating it is restoring something (like an animation that'd express a file download), and inside this menu item it should show a list of cards with all the active restore operations with basic status. Clicking on one card should get the user back to where he was before he moved away from the restore screen. As soon as user creates the restore, it should show this menu item, highlighted in the same color as when user is in Destinations or Backup.  B017: - If user initiates a restore operation, and then go to another menu item, he cannot go back to see the status of the restore operation. Please add a Restores menu item on the left with a visual dynamic icon indicating it is restoring something (like an animation that'd express a file download), and inside this menu item it should show a list of cards with all the active restore operations with basic status. Clicking on one card should get the user back to where he was before he moved away from the restore screen. As soon as user creates the restore, it should show this menu item, highlighted in the same color as when user is in Destinations or Backup.
-- **Current result:** Sessions retain independent state and exact per-card navigation. Finished cards stay until explicitly dismissed. Long real restores show a running indeterminate phase and truthful final counts; fake numeric progress is not inferred from preallocated file sizes. Sessions retain independent state and exact per-card navigation. Finished cards stay until explicitly dismissed. Long real restores show a running indeterminate phase and truthful final counts; fake numeric progress is not inferred from preallocated file sizes.
-- **Remaining:** Review the linked evidence and accept the item, or describe what still needs adjustment.
-- **Proof — open and look:**
-  - 🖼️ [Two sessions with independent progress](../audit-dashboard/evidence/restore-repairs/screenshots/sessions-independent-progress.png) — BackupA shows 12 of 50 files while BackupB shows 60 of 80; the rendered values follow separate session updates.
-  - 🖼️ [Clicking a card returns to that session](../audit-dashboard/evidence/restore-repairs/screenshots/session-exact-return.png) — BackupB detail shows its snapshot, destination and 60/80 progress, while BackupA retains its independent 12/50 count.
-  - 🖼️ [Results stay available until dismissed](../audit-dashboard/evidence/restore-repairs/screenshots/sessions-results-retained.png) — After the former four-second expiry, both finished results remain visible with distinct success/warning states and explicit Dismiss controls.
-  - [Restore safety evidence](../audit-dashboard/evidence/restore-repairs/report.html) — Open exact safety assertions, real E11 counts and session screenshots.
-  - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Tests use disposable data. Review the linked report scope before accepting the item.
-- **I need from you:** B016: Review the linked evidence and accept the item, or describe what still needs adjustment. B017: Review the linked evidence and accept the item, or describe what still needs adjustment.
-
 ### P3: "Restores" multi-restore cards — shipped
 
 - **Raised:** 2026-06-12
@@ -1538,15 +710,20 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Raised:** 2026-06-12 (user request)
 - **Type:** docs cleanup
-- **Status:** Open
+- **Status:** In progress
 - **Context:** R017: The ignored historical BACKSPACE_PORT_DESIGN.md still exists. Its June port-gap table is stale relative to the repaired implementation; current README, architecture, gotchas and testing documents carry the maintained description.
-- **Current result:** The ignored historical BACKSPACE_PORT_DESIGN.md still exists. Its June port-gap table is stale relative to the repaired implementation; current README, architecture, gotchas and testing documents carry the maintained description.
-- **Remaining:** Confirm whether to delete or archive the historical local port plan. Real provider registration and packaged/live integration are still explicitly open elsewhere.
+- **Current result:** The old port document still names unfinished work: official OneDrive/Google app registrations and native acceptance of Windows mounting. Most other items are implemented, including process ownership, Test restore and Windows update support. It also contains obsolete statements, so it should be treated only as historical context.
+- **Remaining:** Keep the historical file until the remaining port gaps are completed or explicitly deferred, then apply your existing permission to remove it. The maintained roadmap now maps every unresolved item, so nothing depends on remembering this document. No repeat deletion approval is needed once your condition is met.
 - **Proof — open and look:**
+
+  - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/port-plan.html) — The old port document still names unfinished work: official OneDrive/Google app registrations and native acceptance of Windows mounting. Most other items are implemented, including process ownership, Test restore and Windows update support. It also contains obsolete statements, so it should be treated only as historical context.
   - [R017 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — The report records that the historical file was preserved and identifies its stale gap claims without treating them as present implementation facts.
   - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** No historical file was deleted. This is a housekeeping decision, not an executable feature test.
-- **I need from you:** R017: Confirm whether to delete or archive the historical local port plan. Real provider registration and packaged/live integration are still explicitly open elsewhere.
+- **Limitations / adversarial review:** The root document was retained because your permission was conditional on no unported useful work remaining. Implemented Windows updates still need their separately listed native acceptance checks.
+- **Follow-up received 2026-10-10:**
+  > So there is no remaining useful thing inside (or element we haven't ported yet)? If so you can delete.
+
+- **I need from you:** No action for this work now; the agent retains the next step.
 
 ### P3: Auto-update channel — light variant
 
