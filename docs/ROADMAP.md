@@ -172,6 +172,19 @@ for the workflow rules an agent must follow before touching this file.
 - **Limitations / adversarial review:** This ran against local disposable repositories and the installed WinFSP runtime. It does not exercise cloud fetching, a machine without WinFSP, or native Explorer UI.
 - **I need from you:** R016: Inspect the native mount assertions. The original packaged-app acceptance remains separately tracked as R009.
 
+### P1: Sort review issues by recent activity and show their age
+
+- **Raised:** 2026-10-10
+- **Type:** feature
+- **Status:** Awaiting validation
+- **Context:** The issue list had no clear sorting order or visible activity timestamp. The user wants to find the last issue they edited and see relative ages such as seconds ago.
+- **Current result:** Latest activity is the default. Your latest activity orders by the user's comments and decisions; Oldest activity and Priority are also available. Each row names the action and shows its age, updating while the page is visible. Hover reveals the exact date and time. Sorting preserves the combined filters.
+- **Proof — open and look:**
+  - 🖼️ [Recent personal activity, including completed issues](../audit-dashboard/evidence/activity-sorting-20261010/latest-activity.png) — Your latest activity is selected, with A017's reopening above A016's recent completion and visible ages beside both.
+  - [Sorting checks and usage](../audit-dashboard/evidence/activity-sorting-20261010/report.html) — Actual Chrome ordering checks and 10 passing dashboard tests. A live browser check also observed the newest reply advance from 9s ago to 19s ago without reloading.
+- **Limitations / adversarial review:** Checked every dated row in both personal newest-first and overall oldest-first views. A newer agent reply cannot displace the user's latest action in personal sorting. Completed issues stay hidden unless explicitly included. Unknown dates are labelled and placed after dated issues in activity sorts; old unrecorded edits cannot be reconstructed. Full browser reload resets to Latest activity. No real decisions were changed for testing.
+- **I need from you:** Reload the Review desk, choose Your latest activity and enable Show completed or discarded. Confirm that your recent edits and checkmarks are easy to find. Proof is also attached to N015.
+
 ### P1: Undo accidental completion in the Review desk
 
 - **Raised:** 2026-10-10
