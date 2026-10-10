@@ -106,8 +106,14 @@ junctions and other reparse points are rejected before publishing.
 
 The [Backrest Windows bracket fix](https://github.com/garethgeorge/backrest/pull/1254)
 was merged on June 30, 2026. It changes Backrest's native Restore RPC;
-Backspace uses RunCommand to support arbitrary include lists and exact
-staging. The proposed [restic literal include flag](https://github.com/restic/restic/pull/21872)
+Backspace uses native Restore for a single selected file or folder when no
+per-backup bandwidth limit is set. Its target must not exist and its plan ID
+must be supplied. The output is still staged and filtered before publication;
+native progress comes from the operation's structured status. Scattered
+selections and bandwidth-limited restores retain RunCommand with quiet JSON:
+this avoids Backrest's 2 MB command-output limit, but provides final counts
+rather than live percentages. Native Restore cannot accept several paths or
+a per-request bandwidth limit. The proposed [restic literal include flag](https://github.com/restic/restic/pull/21872)
 was still open when checked on October 2, 2026. Only retire our wildcard
 workaround after a bundled restic version supports literal includes and
 the occupied-target preservation tests still pass.

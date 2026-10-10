@@ -384,13 +384,31 @@ internal sealed class BackrestOperation
     /// <summary>Present on RunCommand-shaped operations (Backrest's
     /// oneof <c>op</c> picks one of operationBackup / operationRestore
     /// / operationRunCommand / ... per operation type). We only need
-    /// to read the run-command shape for now — the dry-run preview
+    /// to read the run-command and restore shapes. The dry-run preview
     /// pulls captured stdout via <see cref="OperationRunCommand.OutputLogref"/>.</summary>
     [JsonPropertyName("operationRunCommand")] public BackrestOperationRunCommand? OperationRunCommand { get; set; }
+    [JsonPropertyName("operationRestore")] public BackrestOperationRestore? OperationRestore { get; set; }
     [JsonPropertyName("operationBackup")] public System.Text.Json.JsonElement? OperationBackup { get; set; }
     [JsonPropertyName("operationForget")] public System.Text.Json.JsonElement? OperationForget { get; set; }
     [JsonPropertyName("operationPrune")] public System.Text.Json.JsonElement? OperationPrune { get; set; }
     [JsonPropertyName("operationCheck")] public System.Text.Json.JsonElement? OperationCheck { get; set; }
+}
+
+internal sealed class BackrestOperationRestore
+{
+    [JsonPropertyName("path")] public string Path { get; set; } = "";
+    [JsonPropertyName("target")] public string Target { get; set; } = "";
+    [JsonPropertyName("lastStatus")] public BackrestRestoreProgress? LastStatus { get; set; }
+}
+
+internal sealed class BackrestRestoreProgress
+{
+    [JsonPropertyName("messageType")] public string MessageType { get; set; } = "";
+    [JsonPropertyName("totalBytes")] public long TotalBytes { get; set; }
+    [JsonPropertyName("bytesRestored")] public long BytesRestored { get; set; }
+    [JsonPropertyName("totalFiles")] public long TotalFiles { get; set; }
+    [JsonPropertyName("filesRestored")] public long FilesRestored { get; set; }
+    [JsonPropertyName("percentDone")] public double PercentDone { get; set; }
 }
 
 internal sealed class BackrestOperationRunCommand

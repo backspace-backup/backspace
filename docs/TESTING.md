@@ -32,6 +32,15 @@ preserves an existing destination file. A second restore selects only two
 files and verifies that a third does not appear. This tests the production
 selection and restore services; it does not click the wizard's folder checkbox.
 
+`E41_NativeRestoreProgress` restores 128 MiB of incompressible data through
+the bundled Backrest native Restore API. A limit on its disposable repository
+makes intermediate progress observable; the screenshot records a live percentage.
+It compares the recovered contents and verifies that cancelling a second restore
+preserves an existing destination file and cleans up its staging directory.
+This tests real engine cancellation through the session action; it does not
+click the Stop restore button. Scattered selections and per-backup bandwidth
+limits still use quiet RunCommand and do not yet expose live percentages.
+
 `BackrestAuthenticationTests` injects failures at each authentication step and
 rejects an empty token. `InfrastructureLifecycleE2ETests` separately starts
 the real bundled daemon and checks that an unauthenticated request is rejected.
@@ -195,8 +204,8 @@ older scenario comments that describe broader coverage.
 | Restore long include list (CreateProcess ceiling) | `E34_RestoreLongIncludeList` | ✅ |
 | Restore over slow network (retries) | — | ⛔ deferred: needs network-shaping infra |
 | Restore with bandwidth limit applied | — | ⛔ deferred: needs network-shaping infra |
-| Cancel a running restore | `S37_RestoreCancel` uses in-memory work; `RestoreSafetyRegressionTests` fake daemon asserts cancellation acknowledgement and owned-file lifetime. A production daemon cancellation remains separate integration proof. | 🟡 |
-| Live-tail restore progress | `InteractionLiveTailTests` (interaction shape) | 🟡 |
+| Cancel a running restore | `E41_NativeRestoreProgress` cancels real native work through the session action and checks destination preservation; `RestoreSafetyRegressionTests` covers both RPC paths with a controlled daemon. The real Stop-button interaction remains separate. | 🟡 |
+| Live-tail restore progress | `E41_NativeRestoreProgress` captures real intermediate bytes and the progress UI. Scattered selections and per-backup bandwidth limits still have final counts only. | 🟡 |
 
 ### Mount/Browse snapshots
 

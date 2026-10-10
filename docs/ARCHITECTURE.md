@@ -96,7 +96,7 @@ test harness to give each test its own isolated config dir.
    config DB or operation history directly. Every read goes through
    `GetConfig` / `GetOperationEvents` / `ListSnapshots` /
    `ListSnapshotFiles`, every write through `SetConfig` / `Backup` /
-   `Forget` / `DoRepoTask` / `RunCommand`. Restic is downstream of
+   `Forget` / `DoRepoTask` / `Restore` / `RunCommand`. Restic is downstream of
    Backrest; we never shell it out directly except for one-off helper
    commands (e.g. change storage password) where Backrest has no API.
 2. **All destructive actions are type-to-confirm with the single token

@@ -58,7 +58,7 @@ public sealed class E40_BracketFolderRestore : BackupE2EBase
         var result = await ServiceLocator.Restore.RunAsync(new RestoreRequest {
             Backup = backup, SourcePath = source, Destination = dest, StorageName = "default", Revision = revision,
             Files = selected, IncludePatterns = patterns, TargetPath = target }, CancellationToken.None);
-        Assert.Equal(RestoreTerminalStatus.Success, result.TerminalStatus);
+        Assert.True(result.TerminalStatus == RestoreTerminalStatus.Success, result.ErrorMessage ?? result.TerminalStatus.ToString());
         Assert.Equal(2397, result.RestoredCount);
         foreach (var relative in selected)
             Assert.Equal(File.ReadAllBytes(Path.Combine(source, relative)), File.ReadAllBytes(Path.Combine(target, relative)));

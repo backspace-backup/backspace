@@ -810,7 +810,23 @@ public sealed class ResticBackrestEngine : IBackupEngine
         // infer success from a file that existed before this operation. Stage
         // on the target volume, then move only requested output into place.
         var staging = Path.Combine(targetPath, ".backspace-restore-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(staging);
+        // Native Restore accepts one path and no per-request bandwidth limit.
+        // Keep the single-command path for scattered selections and throttled
+        // restores: thousands of individual native operations would be costly.
+        var native = includes.Length == 1 && backup.BandwidthLimitKBps == 0 && srcPrefix.Length > 0;
+        var selectedPath = native ? "/" + srcPrefix.TrimEnd('/') + (includes[0].Length > 0 ? "/" + includes[0] : "") : "";
+        // The native handler trims the path. Preserve significant whitespace by
+        // using the existing command path in that uncommon case.
+        native &= selectedPath == selectedPath.Trim();
+        var selectionParent = native && includes[0].Contains('/') ? includes[0][..includes[0].LastIndexOf('/')] : "";
+        var outputRoot = native && includes[0].Length == 0 ? Path.Combine(staging, srcPrefix.Split('/').Last()) : staging;
+        string OutputRelative(string path)
+        {
+            var relative = Path.GetRelativePath(outputRoot, path).Replace('\\', '/');
+            return selectionParent.Length > 0 ? selectionParent + "/" + relative : relative;
+        }
+        // Native Restore refuses an already existing target, even an empty one.
+        if (!native) Directory.CreateDirectory(staging);
         var includeFile = Path.Combine(Path.GetTempPath(), $"backspace-restore-include-{Guid.NewGuid():N}.txt");
         var safeToCleanup = true;
         string? opId = null;
@@ -823,11 +839,12 @@ public sealed class ResticBackrestEngine : IBackupEngine
         using var logCts = new CancellationTokenSource();
         using var submissionCts = new CancellationTokenSource();
         Task<string>? logTask = null;
-        Task<Int64Value>? submission = null;
+        Task? submission = null;
         try
         {
-            await File.WriteAllLinesAsync(includeFile,
-                includes.Select(p => "/" + SubstituteBracketsWithQuestionMark(p)), ct).ConfigureAwait(false);
+            if (!native)
+                await File.WriteAllLinesAsync(includeFile,
+                    includes.Select(p => "/" + SubstituteBracketsWithQuestionMark(p)), ct).ConfigureAwait(false);
             var command = new System.Text.StringBuilder("restore ")
                 .Append(QuoteArg(snapshotId + ":/" + srcPrefix))
                 .Append(" --target ").Append(QuoteArg(staging))
@@ -843,15 +860,38 @@ public sealed class ResticBackrestEngine : IBackupEngine
             // Discover the operation by this unique command while the request
             // remains pending so progress and cancellation work during the run.
             safeToCleanup = false;
-            submission = client.CallAsync<RunCommandRequest, Int64Value>(
-                "/v1.Backrest/RunCommand", new RunCommandRequest { RepoId = repoId, Command = command.ToString() }, submissionCts.Token);
-            opId = await DiscoverRunCommandOperationAsync(client, repoGuid, command.ToString(), submission,
-                ct, () => safeToCleanup = true).ConfigureAwait(false);
+            if (native)
+            {
+                // Backrest 1.13 on Windows leaves brackets unescaped. Only the
+                // basename is a glob; ancestor directories remain literal.
+                var slash = selectedPath.LastIndexOf('/');
+                var nativePath = selectedPath[..(slash + 1)] + SubstituteBracketsWithQuestionMark(selectedPath[(slash + 1)..]);
+                submission = client.CallVoidAsync("/v1.Backrest/Restore", new RestoreSnapshotRequest
+                { RepoId = repoId, PlanId = MakePlanId(backup, sourcePath, destination, storageName),
+                    SnapshotId = snapshotId, Path = nativePath, Target = staging }, submissionCts.Token);
+                opId = await DiscoverRestoreOperationAsync(client, repoGuid, submission,
+                    op => op.OperationRestore?.Target == staging && op.OperationRestore.Path == nativePath,
+                    ct, () => safeToCleanup = true).ConfigureAwait(false);
+            }
+            else
+            {
+                submission = client.CallAsync<RunCommandRequest, Int64Value>(
+                    "/v1.Backrest/RunCommand", new RunCommandRequest { RepoId = repoId, Command = command.ToString() }, submissionCts.Token);
+                opId = await DiscoverRestoreOperationAsync(client, repoGuid, submission,
+                    op => op.OperationRunCommand?.Command == command.ToString(), ct, () => safeToCleanup = true).ConfigureAwait(false);
+            }
             BackrestOperation? terminal = null;
             try
             {
                 terminal = await WaitForOperationTerminalAsync(client, opId, ct, observed: op =>
                 {
+                    if (op.OperationRestore?.LastStatus is { } progress)
+                    {
+                        var directories = Directory.Exists(outputRoot) ? CountRestoreDirectories(outputRoot) : 0;
+                        var completed = (int)Math.Clamp(progress.FilesRestored - directories, 0, exact?.Count ?? int.MaxValue);
+                        onProgress?.Invoke(new RestoreProgressUpdate(exact?.Count ?? (int)Math.Min(int.MaxValue, progress.TotalFiles),
+                            completed, progress.TotalBytes, progress.BytesRestored, Math.Clamp(progress.PercentDone, 0, 1)));
+                    }
                     var logRef = op.OperationRunCommand?.OutputLogref;
                     if (logTask is null && !string.IsNullOrEmpty(logRef))
                         logTask = CaptureRestoreLogAsync(client, logRef, onProgress, logCts.Token, exact, staging);
@@ -897,19 +937,26 @@ public sealed class ResticBackrestEngine : IBackupEngine
             }
             ParseResticRestoreSummary(captured, out var completedFiles, out var completedBytes,
                 out var reportedTotal, out totalBytes, out var errors);
+            if (terminal?.OperationRestore?.LastStatus is { MessageType: "summary" } summary)
+            {
+                completedFiles = summary.FilesRestored;
+                completedBytes = summary.BytesRestored;
+                reportedTotal = summary.TotalFiles;
+                totalBytes = summary.TotalBytes;
+            }
             totalBytes = Math.Max(0, totalBytes);
             if (exact is null && reportedTotal >= 0) total = (int)Math.Min(int.MaxValue, reportedTotal);
 
             // A success summary never overrides a backend error or cancellation.
             // Metadata warnings remain warnings even when all content recovered.
-            var leaves = safeToCleanup ? EnumerateRestoreLeaves(staging).ToArray() : Array.Empty<string>();
+            var leaves = safeToCleanup && Directory.Exists(outputRoot) ? EnumerateRestoreLeaves(outputRoot).ToArray() : Array.Empty<string>();
             // Restic summary "files" includes directories and its byte total
             // deduplicates hardlinks, so neither equals our leaf-file counts.
             // A partial recovery after ERROR requires explicit completion for
             // every produced leaf, with no error for that leaf, plus a final
             // summary. An incomplete/preallocated file never replaces originals.
             var completedLeaves = ParseCompletedRestoreLeaves(captured);
-            var stagedDirectories = CountRestoreDirectories(staging);
+            var stagedDirectories = Directory.Exists(outputRoot) ? CountRestoreDirectories(outputRoot) : 0;
             var allOutputConfirmed = completedFiles == leaves.Length + stagedDirectories &&
                 completedBytes >= 0 && completedBytes == totalBytes;
             if (status == RestoreTerminalStatus.Error && reportedTotal >= 0 && leaves.Length > 0 &&
@@ -919,14 +966,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
             {
                 var output = leaves.Where(path =>
                 {
-                    var relative = Path.GetRelativePath(staging, path).Replace('\\', '/');
+                    var relative = OutputRelative(path);
                     return exact?.Contains(relative) ?? includes.Any(p => p.Length == 0 || relative == p || relative.StartsWith(p.TrimEnd('/') + "/", StringComparison.Ordinal));
                 }).ToArray();
                 if (exact is null && total == 0) total = output.Length;
                 foreach (var path in output)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var relative = Path.GetRelativePath(staging, path);
+                    var relative = OutputRelative(path);
                     var destinationPath = SafeRestorePath(targetPath, relative);
                     Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
                     var attributes = File.GetAttributes(path);
@@ -1002,18 +1049,22 @@ public sealed class ResticBackrestEngine : IBackupEngine
         return new RestoreOpResult(total, restored, Math.Max(totalBytes, restoredBytes), restoredBytes, status, error);
     }
 
-    private async Task<string> DiscoverRunCommandOperationAsync(BackrestClient client, string repoGuid,
-        string command, Task<Int64Value> submission, CancellationToken callerToken, Action rejectedBeforeRun)
+    private async Task<string> DiscoverRestoreOperationAsync(BackrestClient client, string repoGuid,
+        Task submission, Func<BackrestOperation, bool> matches, CancellationToken callerToken, Action rejectedBeforeRun)
     {
         DateTime? ownershipDeadline = null;
         while (true)
         {
-            if (submission.IsCompletedSuccessfully && !string.IsNullOrWhiteSpace(submission.Result.Value))
-                return submission.Result.Value;
+            if (submission is Task<Int64Value> command && command.IsCompletedSuccessfully && !string.IsNullOrWhiteSpace(command.Result.Value))
+                return command.Result.Value;
             // This deadline bounds only ownership recovery after a cancellation
             // or transport failure. It is never a restore-duration timeout.
             if ((callerToken.IsCancellationRequested || submission.IsFaulted || submission.IsCanceled) && ownershipDeadline is null)
                 ownershipDeadline = DateTime.UtcNow.AddSeconds(30);
+            // Native Restore returns when queued, before work starts. Bound
+            // discovery of its identity, never the lifetime of the restore.
+            if (submission is not Task<Int64Value> && submission.IsCompletedSuccessfully)
+                ownershipDeadline ??= DateTime.UtcNow.AddSeconds(30);
             try
             {
                 using var probe = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -1022,8 +1073,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     {
                         Selector = new OpSelector { RepoGuid = repoGuid }, LastN = 256,
                     }, probe.Token).ConfigureAwait(false);
-                var owned = operations.Operations?.FirstOrDefault(op =>
-                    string.Equals(op.OperationRunCommand?.Command, command, StringComparison.Ordinal));
+                var owned = operations.Operations?.FirstOrDefault(matches);
                 if (owned is not null) return owned.Id;
                 // A completed application-level response plus a successful
                 // operation-log query proves the handler rejected this command
@@ -1031,7 +1081,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 if (submission.IsFaulted && submission.Exception?.GetBaseException() is BackrestRpcException)
                 {
                     rejectedBeforeRun();
-                    return (await submission.ConfigureAwait(false)).Value;
+                    await submission.ConfigureAwait(false);
                 }
             }
             catch (Exception ex) when (ex is not BackrestRpcException || !submission.IsFaulted)

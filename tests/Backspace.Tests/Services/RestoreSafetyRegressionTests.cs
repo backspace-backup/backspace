@@ -19,6 +19,60 @@ namespace Backspace.Tests.Services;
 
 public sealed class RestoreSafetyRegressionTests
 {
+    [Theory]
+    [InlineData("STATUS_SUCCESS", RestoreTerminalStatus.Success)]
+    [InlineData("STATUS_ERROR", RestoreTerminalStatus.Error)]
+    [InlineData("STATUS_USER_CANCELLED", RestoreTerminalStatus.Cancelled)]
+    public async Task NativeRestore_PreservesLayoutAndOriginals_AndReadsStructuredProgress(string terminal, RestoreTerminalStatus expected)
+    {
+        using var workspace = new TempWorkspace("native-restore-safety");
+        var target = workspace.Sub("target");
+        Directory.CreateDirectory(Path.Combine(target, "nested"));
+        File.WriteAllText(Path.Combine(target, "nested", "picked[1].txt"), "original");
+        File.WriteAllText(Path.Combine(target, "nested", "pickedX1Y.txt"), "unselected original");
+        using var fixture = new ProtocolFixture(terminal, stage =>
+        {
+            File.WriteAllText(Path.Combine(stage, "picked[1].txt"), "complete");
+            File.WriteAllText(Path.Combine(stage, "pickedX1Y.txt"), "overmatch");
+        });
+        fixture.Handler.ProgressPolls = 2;
+        var updates = new List<RestoreProgressUpdate>();
+        var result = await fixture.Restore(target, new[] { "nested/picked[1].txt" }, onProgress: updates.Add, native: true);
+        Assert.Equal(expected, result.Status);
+        Assert.Equal(terminal == "STATUS_SUCCESS" ? "complete" : "original", File.ReadAllText(Path.Combine(target, "nested", "picked[1].txt")));
+        Assert.Equal("unselected original", File.ReadAllText(Path.Combine(target, "nested", "pickedX1Y.txt")));
+        Assert.False(File.Exists(Path.Combine(target, "picked[1].txt")));
+        Assert.Contains(updates, p => p.TotalBytes == 8 && p.BytesRestored == 4);
+        Assert.Empty(Directory.GetDirectories(target, ".backspace-restore-*"));
+        Assert.Equal("/v1.Backrest/Restore", fixture.Handler.LastEndpoint);
+    }
+
+    [Fact]
+    public async Task NativeRestore_CancellationWaitsForDaemon_AndPreservesOriginal()
+    {
+        using var workspace = new TempWorkspace("native-restore-cancel");
+        using var cancellation = new CancellationTokenSource();
+        var target = workspace.Sub("target");
+        File.WriteAllText(Path.Combine(target, "keep.txt"), "original");
+        using var fixture = new ProtocolFixture("STATUS_INPROGRESS", stage => File.WriteAllText(Path.Combine(stage, "keep.txt"), "partial"), cancellation);
+        var result = await fixture.Restore(target, new[] { "keep.txt" }, cancellation.Token, native: true);
+        Assert.Equal(RestoreTerminalStatus.Cancelled, result.Status);
+        Assert.Equal(1, fixture.Handler.CancelRequests);
+        Assert.True(fixture.Handler.TerminalAcknowledged);
+        Assert.Equal("original", File.ReadAllText(Path.Combine(target, "keep.txt")));
+        Assert.Empty(Directory.GetDirectories(target));
+    }
+
+    [Fact]
+    public async Task NativeRestore_EmptySuccessIsAnError()
+    {
+        using var workspace = new TempWorkspace("native-restore-empty");
+        using var fixture = new ProtocolFixture("STATUS_SUCCESS");
+        var result = await fixture.Restore(workspace.Sub("target"), new[] { "missing.txt" }, native: true);
+        Assert.Equal(RestoreTerminalStatus.Error, result.Status);
+        Assert.Equal(0, result.FilesRestored);
+    }
+
     [Fact]
     public async Task BracketRestore_PromotesOnlyRequestedOutput_AndPreservesOccupiedTarget()
     {
@@ -237,8 +291,8 @@ public sealed class RestoreSafetyRegressionTests
             typeof(BackrestSidecar).GetField("_client", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(sidecar, client);
             _engine = new ResticBackrestEngine(sidecar, new SecretsStore());
         }
-        public Task<RestoreOpResult> Restore(string target, string[] paths, CancellationToken ct = default, Action<RestoreProgressUpdate>? onProgress = null) =>
-            _engine.RestoreFilesAsync(new Backup(), Path.Combine(Path.GetTempPath(), "restore-fixture-source"),
+        public Task<RestoreOpResult> Restore(string target, string[] paths, CancellationToken ct = default, Action<RestoreProgressUpdate>? onProgress = null, bool native = false) =>
+            _engine.RestoreFilesAsync(new Backup { BandwidthLimitKBps = native ? 0 : 1024 }, Path.Combine(Path.GetTempPath(), "restore-fixture-source"),
                 new Destination { Id = "restore-probe" }, "default", 1, paths, target, onProgress, ct, paths);
         public Task<BackrestOperation> Track(string endpoint, CancellationToken ct, TimeSpan? uncertaintyTimeout = null) =>
             _engine.RunTrackedRepoRpcAsync(_client, "restore-probe-default", endpoint, new BackrestSidecar.EmptyRequest(),
@@ -264,6 +318,9 @@ public sealed class RestoreSafetyRegressionTests
         public bool LogFetchedWhileRequestPending { get; private set; }
         private string? _command;
         private string? _endpoint;
+        public string? LastEndpoint => _endpoint;
+        private string? _nativeTarget;
+        private string? _nativePath;
         private int _polls;
         private int _followupPolls;
         private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -275,6 +332,18 @@ public sealed class RestoreSafetyRegressionTests
             {
                 case "/v1.Backrest/ListSnapshots": response = "{\"snapshots\":[{\"id\":\"snapshot\",\"unixTimeMs\":1}]}"; break;
                 case "/v1.Backrest/GetConfig": response = "{\"repos\":[{\"id\":\"restore-probe-default\",\"guid\":\"guid\"}]}"; break;
+                case "/v1.Backrest/Restore":
+                    using (var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)))
+                    {
+                        _nativeTarget = body.RootElement.GetProperty("target").GetString()!;
+                        _nativePath = body.RootElement.GetProperty("path").GetString()!;
+                        Assert.False(Directory.Exists(_nativeTarget));
+                        Directory.CreateDirectory(_nativeTarget);
+                        produceOutput?.Invoke(_nativeTarget);
+                        _endpoint = path;
+                    }
+                    response = "{}"; // Native Restore acknowledges scheduling immediately.
+                    break;
                 case "/v1.Backrest/RunCommand":
                     using (var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)))
                     {
@@ -318,6 +387,8 @@ public sealed class RestoreSafetyRegressionTests
                     else if (current == "STATUS_INPROGRESS") cancel?.Cancel();
                     if (current != "STATUS_INPROGRESS") _completed.TrySetResult();
                     var recorded = new List<object> { new { id = "42", status = current, displayMessage = "Fixture terminal message",
+                        operationRestore = _nativeTarget is null ? null : new { target = _nativeTarget, path = _nativePath,
+                            lastStatus = new { messageType = "status", totalBytes = "8", bytesRestored = "4", totalFiles = "1", filesRestored = "0", percentDone = 0.5 } },
                         operationRunCommand = new { command = _command, outputLogref = LogText is null ? "" : "fixture-log" },
                         operationBackup = _endpoint == "/v1.Backrest/Backup" ? new object() : null,
                         operationCheck = _endpoint == "/v1.Backrest/DoRepoTask" ? new object() : null,
