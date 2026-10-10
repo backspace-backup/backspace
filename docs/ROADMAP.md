@@ -172,6 +172,19 @@ for the workflow rules an agent must follow before touching this file.
 - **Limitations / adversarial review:** This ran against local disposable repositories and the installed WinFSP runtime. It does not exercise cloud fetching, a machine without WinFSP, or native Explorer UI.
 - **I need from you:** R016: Inspect the native mount assertions. The original packaged-app acceptance remains separately tracked as R009.
 
+### P1: Undo accidental completion in the Review desk
+
+- **Raised:** 2026-10-10
+- **Type:** bug
+- **Status:** Awaiting validation
+- **Context:** The user accidentally marked an issue completed and asked to undo the latest completion. Add a brief Undo action after a completion change so the issue can be recovered without searching the closed list.
+- **Current result:** A017 was the latest completion and was reopened through the normal save API. New completions each show a named Undo notice for 15 seconds. Hover or keyboard focus pauses dismissal. Undo targets the saved issue even after selection advances, and refuses to overwrite a newer decision.
+- **Proof — open and look:**
+  - 🖼️ [Separate Undo notices after two completions](../audit-dashboard/evidence/completion-undo-20261010/undo-after-two-completions.png) — The first disposable issue is reopened while the second retains its own Undo button.
+  - [Actual browser checks and remaining limits](../audit-dashboard/evidence/completion-undo-20261010/report.html) — Multiple completions, targeted Undo, reload persistence, expiry, keyboard focus and stale-request rejection were checked against real JSON writes.
+- **Limitations / adversarial review:** Tests used disposable issues on a separate local server running the production dashboard. A later discarded decision survived an old Undo attempt. Existing filter and persistence tests also passed. Temporary notices do not survive a page reload; the closed-issue list and completion checkbox remain the fallback. Only the requested A017 reopening changed an existing real decision.
+- **I need from you:** N014: Reload the dashboard and confirm whether the named Undo notice makes accidental completion easy to recover from.
+
 ### P1: Combine review status and reply-turn filters without clearing either
 
 - **Raised:** 2026-10-09
