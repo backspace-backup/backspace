@@ -23,7 +23,7 @@ focuses on contributor / agent concerns.
 | Code map: services, layout, storage, principles, invariants, CLI | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Visual identity: palette, type, motion, copy tone | [DESIGN.md](DESIGN.md) |
 | Test suite + scenario harness + standing instruction | [docs/TESTING.md](docs/TESTING.md) |
-| Future work, deferred features, known restore limitations | [docs/ROADMAP.md](docs/ROADMAP.md) |
+| Issues, decisions and future work (local, Git-excluded) | [Review desk](http://127.0.0.1:4317/) and [planned work](http://127.0.0.1:4317/roadmap) |
 | Sharp edges (OAuth, Backrest guid contract, WebDAV, bracket-restore) | [docs/GOTCHAS.md](docs/GOTCHAS.md) |
 | Icon build pipeline (per-accent ICOs, syncing frames) | [docs/icon.md](docs/icon.md) |
 | Scenario harness deep-dive (how to add a scenario) | [tests/Backspace.Tests/Scenarios/README.md](tests/Backspace.Tests/Scenarios/README.md) |
@@ -32,20 +32,22 @@ focuses on contributor / agent concerns.
 Build & test commands live in [README.md § Building from source](README.md#building-from-source)
 and [docs/TESTING.md](docs/TESTING.md).
 
-## The ROADMAP workflow (source of truth)
+## The Review desk workflow (single source of truth)
 
 The user requested one unified project board on 10 October 2026.
 In this checkout, the **local Review desk is the source of truth** for
 issues, planned work, comments, decisions and proof. Open
 http://127.0.0.1:4317/ for active issues or /roadmap for planned work.
-[docs/ROADMAP.md § Actively working](docs/ROADMAP.md#actively-working)
-is its portable repository mirror, not a second independent queue.
-Read both when resuming work; the latest user comment takes precedence.
+Read the desk when resuming work; the latest user comment takes precedence.
+There is no Markdown mirror. Do not create or regenerate a second tracker.
+Technical documentation describes app behavior, not issue status or queues.
 
 The dashboard and its JSON stay Git-excluded at the user's request.
-Copy them separately when moving this checkout. If the local desk is
-unavailable, log requests in this Markdown mirror and reconcile by stable
-issue ID once it is available. Never reseed or overwrite the saved JSON.
+Copy them separately when moving this checkout. Start the desk with
+`Launch-Audit-Dashboard.bat`; its local README documents recovery and the API.
+If it is unavailable, restore access to the existing desk before updating
+work records. Report any access blocker rather than inventing another queue.
+Never reseed or overwrite the saved JSON.
 Use the dashboard API with the current revision/version; it preserves
 comments, user decisions and earlier wording. Its local README documents
 the API. Record agent replies as Agent, Codex or Claude; the queue label
@@ -61,21 +63,21 @@ Answer comments on planned items without silently activating them.
 **The rules — non-negotiable:**
 
 1. **Every bug report or feature request the user raises gets logged
-   immediately as a new entry under `## Actively working`,
-   at the top, and as a record in the local desk.** Before doing
-   anything else with the request: write the entry. Title, type,
-   raised-on date, status `Open`. If the user
+   immediately as a record in the local desk.** Before doing
+   anything else with the request: record its title, type,
+   raised-on date and initial status. If the user
    raises five things in one message, that's five entries — don't
    collapse them. The point is to never silently drop or half-fix an
    item.
 
-2. **Entries are removed ONLY after the user explicitly validates
+2. **Entries leave the active queue ONLY after the user explicitly validates
    them.** Status moves `Open` → `Awaiting validation` once you've
    shipped a fix or feature AND attached proof (screenshot path, test
    name + result, log excerpt, commit hash — whatever is appropriate
    for the item). Then the user reads the proof, confirms, and you
-   delete the entry in the next commit. **Never delete an entry on
-   your own.** A user "thanks" or "great" is not validation; an
+   record that validation in the desk and preserve its discussion and proof.
+   The user's completion checkbox is also explicit validation.
+   **Never mark an entry completed on your own.** A user "thanks" or "great" is not validation; an
    explicit "remove from roadmap" / "confirmed" / "validated" is.
 
 3. **Proof must be what a reasonable human validator would actually
@@ -85,7 +87,7 @@ Answer comments on planned items without silently activating them.
    in seconds. A few hard rules:
 
    - **🖼️ A screenshot is the default proof shape.** Every
-     ROADMAP entry whose verdict is "look at the UI" must link
+     desk entry whose verdict is "look at the UI" must link
      directly to the PNG. The scenario suite writes these to
      `tests/Backspace.Tests/artifacts/scenarios/<name>/screenshots/`;
      point at the specific file, not at the index page.
@@ -108,32 +110,31 @@ Answer comments on planned items without silently activating them.
      scenario report page for the run — not the `.cs` file.
 
    Unacceptable in any form: "I checked, it works", "the code now
-   does X", "should be fine". Log proof inline in the ROADMAP entry
-   as a `**Proof — open and look:**` line as soon as it's available —
+   does X", "should be fine". Attach proof to the desk entry's evidence
+   with a plain-language description as soon as it's available —
    don't park it in a separate message.
 
-4. **`## Actively working` is ordered by priority** — P0 (production
+4. **Address active work by priority** — P0 (production
    broken) at the top, then P1 (visible bugs), P2 (polish), P3
    (features). Within a tier, order by what blocks what.
 
 5. **When the user adds context to an existing item** (clarifies,
-   redirects, raises related concern), update the ROADMAP entry in
+   redirects, raises related concern), update the desk entry in
    place — don't create a duplicate. The entry's body is allowed to
    grow as long as the title stays the same.
 
-6. **Stale ROADMAP items poison the workflow as much as stale docs.**
+6. **Stale desk items poison the workflow as much as stale docs.**
    If an item has been `Awaiting validation` for more than a week
    without user response, flag it in the next turn so the user can
    either validate or redirect.
 
-**ROADMAP self-containment.** Never write "see chat", "follow-up
+**Issue self-containment.** Never write "see chat", "follow-up
 question above", or any reference that assumes the chat history
-persists. The desk and its repository mirror are durable records — every entry
+persists. The desk is the durable record — every entry
 must read cleanly with no out-of-band context. When user input is
 needed on an entry, end it with a line that starts with **`I need
-from you:`** followed by the exact ask. The top of the "Actively
-working" section carries a TL;DR of those asks so the user can see
-their queue at a glance without reading every entry.
+from you:`** followed by the exact ask. Keep its status and whose-turn
+fields accurate so the desk's filters show the user's queue clearly.
 
 7. **Adversarial self-review before claiming `Awaiting validation`.**
    For every batch of items you mark `Awaiting validation`, do an
@@ -164,14 +165,16 @@ their queue at a glance without reading every entry.
    of "this was claimed done but isn't" compounds across the
    project's lifetime.
 
-**Entry template:**
+**Entry content guide:** Store this information in the desk's fields;
+this is not a template for a separate Markdown tracker. Use the current
+API schema in the local README for status values and mutations.
 
 ```markdown
 ### <priority>: <one-line title>
 
 - **Raised:** YYYY-MM-DD
 - **Type:** bug | feature | refactor | coverage
-- **Status:** Open | In progress | Awaiting validation | Validated (remove)
+- **Status:** Record implementation/testing status separately from whose turn it is.
 - **Context:** What the user reported, plain.
 - **Root cause + fix (short):** One paragraph max. Skip if it's
   obvious from the title.
@@ -184,8 +187,7 @@ their queue at a glance without reading every entry.
   confirm. End the entry here.
 ```
 
-The planning table below the active list mirrors the desk's roadmap
-columns. These are the **long-term backlog**, not active work. Move
+The desk's roadmap columns contain the **long-term backlog**, not active work. Move
 an active item there only on explicit user direction; do not park an
 unfinished fix merely to empty the agent queue. The 10 October migration
 preserves the previous backlog and a record of stale or superseded claims.

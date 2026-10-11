@@ -68,8 +68,8 @@ public static class VerifyButtonLabel
 /// ComboBox item template + list rows. Categorical icons today —
 /// Folder / HardDrive / Network / Cloud / Database — because shipping
 /// per-brand SVGs for Dropbox/OneDrive/GDrive means tracking 3 brand
-/// trademarks and their design rules. See ROADMAP.md if/when we want
-/// to upgrade to branded glyphs.
+/// trademarks and their design rules. Any future branded glyphs must
+/// account for those requirements.
 /// </summary>
 public static class DestinationKindIcon
 {
