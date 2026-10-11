@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -85,6 +86,24 @@ public sealed class S31_RestoresNavItem : ScenarioBase
         ctx.Snapshot(win, "one-restore-in-flight",
             "Sidebar 'Restores' item is visible; ready to navigate to the cards view.");
 
+        // Sample the actual animated visual, not just its active class.
+        var restoreIcon = restoresRadio.GetVisualDescendants().OfType<PathIcon>().Single();
+        var offsets = new List<double>();
+        for (var frame = 0; frame < 45; frame++)
+        {
+            await Task.Delay(20);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Pump(2);
+            offsets.Add(restoreIcon.RenderTransform?.Value.M32 ?? 0);
+            if (frame is 3 or 25)
+                ctx.Snapshot(win, $"restore-motion-frame-{frame}",
+                    "The real sidebar arrow at a different point in its running animation; see the report for measured vertical movement.");
+        }
+        Assert.True(offsets.Max() - offsets.Min() > 1,
+            "The rendered restore icon must actually move while a restore is running.");
+        ctx.Report.RecordNote("Restore icon motion", "Actual rendered vertical offsets in pixels: " +
+            string.Join(", ", offsets.Select(y => y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture))));
+
         // -------- Navigate to the cards view --------
         mainVm.SelectedNav = NavItem.ActiveRestores;
         Pump(8);
@@ -133,6 +152,15 @@ public sealed class S31_RestoresNavItem : ScenarioBase
         Assert.False(sessionA.IsRunning);
         Assert.False(sessionB.IsRunning);
         Assert.False(mainVm.HasRunningRestores);
+        Assert.DoesNotContain("active-restore-icon", restoreIcon.Classes);
+        for (var frame = 0; frame < 8; frame++)
+        {
+            await Task.Delay(25);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Pump(2);
+            Assert.InRange(Math.Abs(restoreIcon.RenderTransform?.Value.M32 ?? 0), 0, 0.01);
+        }
+        ctx.Report.RecordNote("Animation stops", "After both restores finish, all eight rendered samples stay at zero. The results remain available for review.");
         await Task.Delay(4500);
         Pump(8);
         Assert.Equal(2, cardsViewModel.Sessions.Count);

@@ -52,6 +52,10 @@ public sealed class S56_EditorModeAndApply : ScenarioBase
         ctx.Driver.Pump();
 
         advanced.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 2;
+        var customBlock = RecommendedFilters.CustomBlockHeader + "\n*.private\n" + RecommendedFilters.CustomBlockFooter;
+        var oldBlock = RecommendedFilters.AutoBlockHeader + "\nstale-copied-rule/\n" + RecommendedFilters.AutoBlockFooter;
+        advancedVm.FiltersText = customBlock + "\n" + oldBlock + "\n" +
+            customBlock.Replace("*.private", "*.personal") + "\n" + oldBlock;
         ctx.Driver.Pump();
         Click(advanced, "Apply recommended exclusions");
         var merged = advancedVm.FiltersText;
@@ -60,6 +64,10 @@ public sealed class S56_EditorModeAndApply : ScenarioBase
         var generated = merged.IndexOf(RecommendedFilters.AutoBlockHeader, StringComparison.Ordinal);
         Assert.True(custom >= 0 && customEnd > custom && generated > customEnd);
         Assert.Contains("*.private", merged.Substring(custom, customEnd - custom));
+        Assert.Contains("*.personal", merged.Substring(custom, customEnd - custom));
+        Assert.Equal(1, merged.Split('\n').Count(line => line.Trim() == RecommendedFilters.CustomBlockHeader));
+        Assert.Equal(1, merged.Split('\n').Count(line => line.Trim() == RecommendedFilters.AutoBlockHeader));
+        Assert.DoesNotContain("stale-copied-rule/", merged);
         Assert.Contains("ntuser.dat*", merged);
         Click(advanced, "Apply recommended exclusions");
         Assert.Equal(merged, advancedVm.FiltersText);
@@ -86,6 +94,8 @@ public sealed class S56_EditorModeAndApply : ScenarioBase
         ctx.Driver.Pump();
         ctx.Snapshot(advanced, "round-trip-retains-name-grace-and-filters",
             "After actual Easy/Advanced toggle clicks, the Advanced filter editor retains the custom block above the recommended block and the user-edited draft.");
+        ctx.Snapshot(advanced, "copied-custom-blocks-repaired",
+            "After clicking Apply twice, both *.private and *.personal remain together in one custom block. The stale copied generated rule is gone. Cancel below must still preserve the saved backup.");
         Click(advanced, "Cancel");
         Assert.Null(await flow.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(savedBefore, ServiceLocator.Config.Current.Backups.Single().FiltersText);

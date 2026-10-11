@@ -64,6 +64,19 @@ public sealed class E42_StreamingRestoreProgress : BackupE2EBase
         var run = ServiceLocator.Restore.RunAsync(Request(target), deadline.Token);
         var live = await WaitForProgress(run, target);
         Assert.False(live.IsProgressIndeterminate);
+        var restoreIcon = main.GetVisualDescendants().OfType<PathIcon>()
+            .Single(icon => icon.Classes.Contains("active-restore-icon"));
+        var offsets = new System.Collections.Generic.List<double>();
+        for (var frame = 0; frame < 40; frame++)
+        {
+            await Task.Delay(25, deadline.Token);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            ctx.Driver.Pump();
+            offsets.Add(restoreIcon.RenderTransform?.Value.M32 ?? 0);
+        }
+        Assert.True(offsets.Max() - offsets.Min() > 1, "The real restore must animate the sidebar arrow.");
+        ctx.Report.RecordNote("Actual restore icon motion", "A real, bandwidth-limited restore produced rendered vertical offsets from " +
+            offsets.Min().ToString("F2") + " to " + offsets.Max().ToString("F2") + " pixels across 40 frames.");
         ctx.Snapshot(main, "selected files restore in progress", "Two scattered files restored with the production 1 MiB/s limit. The displayed byte progress comes from real restic output.");
         ctx.Report.RecordNote("Real intermediate progress", $"Observed {live.BytesRestored:N0} of {live.TotalBytes:N0} bytes before completion.");
         var result = await run;
@@ -103,6 +116,32 @@ public sealed class E42_StreamingRestoreProgress : BackupE2EBase
         await Task.Delay(500, deadline.Token);
         ctx.Driver.Pump();
         ctx.Snapshot(main, "completed and stopped selected restores", "The first restore recovered exactly the selected contents. Clicking Stop restore cancelled the second and preserved the existing file.");
+        Assert.DoesNotContain("active-restore-icon", restoreIcon.Classes);
+        for (var frame = 0; frame < 8; frame++)
+        {
+            await Task.Delay(25, deadline.Token);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            ctx.Driver.Pump();
+            Assert.InRange(Math.Abs(restoreIcon.RenderTransform?.Value.M32 ?? 0), 0, 0.01);
+        }
+        var mainVm = (MainWindowViewModel)main.DataContext!;
+        var secondCard = main.GetVisualDescendants().OfType<Button>().Single(button =>
+            ReferenceEquals(button.DataContext, cancelling) && button.Classes.Contains("card"));
+        secondCard.BringIntoView();ctx.Driver.Pump();
+        var cardPoint = secondCard.TranslatePoint(new Point(secondCard.Bounds.Width / 2, secondCard.Bounds.Height / 2), main)!.Value;
+        main.MouseDown(cardPoint, MouseButton.Left);main.MouseUp(cardPoint, MouseButton.Left);ctx.Driver.Pump();
+        Assert.Same(cancelling, mainVm.ActiveRestores.SelectedSession);
+        Assert.NotSame(live, mainVm.ActiveRestores.SelectedSession);
+        Assert.DoesNotContain(main.GetVisualDescendants().OfType<Button>(), button =>
+            button.IsEffectivelyVisible && button.Command == mainVm.ActiveRestores.OpenSessionCommand);
+        ctx.Snapshot(main, "cancelled card opens its own result", "Clicking the second actual restore opens its cancelled result alone. The successful first restore is not selected or duplicated above it.");
+        var backToList = main.GetVisualDescendants().OfType<Button>().Single(button =>
+            button.IsEffectivelyVisible && Equals(button.Content, "← All restores"));
+        backToList.BringIntoView();ctx.Driver.Pump();
+        var backPoint = backToList.TranslatePoint(new Point(backToList.Bounds.Width / 2, backToList.Bounds.Height / 2), main)!.Value;
+        main.MouseDown(backPoint, MouseButton.Left);main.MouseUp(backPoint, MouseButton.Left);
+        ctx.Driver.Pump();Assert.Null(mainVm.ActiveRestores.SelectedSession);
+        Assert.Equal(2, mainVm.ActiveRestores.Sessions.Count);
 
         // A real restic error must not turn temporary/preallocated output into
         // recovered data. Corrupt only large content packs in this disposable

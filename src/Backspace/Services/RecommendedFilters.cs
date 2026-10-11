@@ -477,14 +477,12 @@ public static class RecommendedFilters
         //    drop it (newBlock supersedes it).
         var withoutRecommended = StripBlock(existingFilters, AutoBlockHeader, AutoBlockFooter);
 
-        // 2. Extract any existing custom-block content so we can keep it.
-        var (withoutCustom, customBody) = ExtractBlock(withoutRecommended, CustomBlockHeader, CustomBlockFooter);
-
-        // 3. The remainder is the user's free-text rules. Pull them into
-        //    the custom block as well — that's the new edit zone.
-        var looseUserContent = withoutCustom.Trim('\r', '\n');
-        var combinedCustomBody = string.Join("\n", new[] { customBody.Trim('\r', '\n'), looseUserContent }
-            .Where(s => s.Length > 0));
+        // Strip only standalone custom marker comments. Keep all rules in
+        // their original order, including copied, nested or incomplete blocks.
+        // Extracting just the first pair used to nest later pairs on reapply.
+        var combinedCustomBody = string.Join("\n", withoutRecommended.Replace("\r\n", "\n").Split('\n')
+            .Where(line => line.Trim() != CustomBlockHeader && line.Trim() != CustomBlockFooter))
+            .Trim('\r', '\n');
         if (combinedCustomBody.Length == 0)
             combinedCustomBody = "# Add your own rules here.";
 
@@ -499,42 +497,26 @@ public static class RecommendedFilters
 
     private static string StripBlock(string text, string header, string footer)
     {
-        var headerIdx = text.IndexOf(header, StringComparison.Ordinal);
-        if (headerIdx < 0) return text;
-        var footerIdx = text.IndexOf(footer, headerIdx, StringComparison.Ordinal);
-        if (footerIdx < 0) return text;
-
-        var endOfFooter = footerIdx + footer.Length;
-        if (endOfFooter < text.Length && text[endOfFooter] == '\n') endOfFooter++;
-        else if (endOfFooter + 1 < text.Length
-                 && text[endOfFooter] == '\r'
-                 && text[endOfFooter + 1] == '\n') endOfFooter += 2;
-
-        return text[..headerIdx] + text[endOfFooter..];
-    }
-
-    private static (string Remainder, string Body) ExtractBlock(string text, string header, string footer)
-    {
-        var headerIdx = text.IndexOf(header, StringComparison.Ordinal);
-        if (headerIdx < 0) return (text, "");
-        var footerIdx = text.IndexOf(footer, headerIdx, StringComparison.Ordinal);
-        if (footerIdx < 0) return (text, "");
-
-        var bodyStart = headerIdx + header.Length;
-        // Skip the newline immediately following the header.
-        if (bodyStart < text.Length && text[bodyStart] == '\n') bodyStart++;
-        else if (bodyStart + 1 < text.Length
-                 && text[bodyStart] == '\r'
-                 && text[bodyStart + 1] == '\n') bodyStart += 2;
-
-        var body = text[bodyStart..footerIdx];
-        var endOfFooter = footerIdx + footer.Length;
-        if (endOfFooter < text.Length && text[endOfFooter] == '\n') endOfFooter++;
-        else if (endOfFooter + 1 < text.Length
-                 && text[endOfFooter] == '\r'
-                 && text[endOfFooter + 1] == '\n') endOfFooter += 2;
-
-        return (text[..headerIdx] + text[endOfFooter..], body);
+        var retained = new List<string>();
+        List<string>? candidate = null;
+        foreach (var line in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            if (line.Trim() == header)
+            {
+                // An unmatched older header must not consume the next valid
+                // block's footer and erase user rules between the two blocks.
+                if (candidate is not null) retained.AddRange(candidate);
+                candidate = new List<string> { line };
+            }
+            else if (line.Trim() == footer && candidate is not null)
+                candidate = null; // Only a complete generated block is replaced.
+            else if (candidate is not null)
+                candidate.Add(line);
+            else
+                retained.Add(line);
+        }
+        if (candidate is not null) retained.AddRange(candidate);
+        return string.Join("\n", retained);
     }
 
     /// <summary>

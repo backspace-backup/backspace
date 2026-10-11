@@ -60,7 +60,22 @@ case (old contents reused), and a distinct virtual timestamp that causes only
 the changed file to be read. Every snapshot restores both complete files.
 No account or original placeholder is accessed. Provider integration, temporary
 space limits, durable revision metadata and original-date recovery remain work
-under B035. The scenario skips explicitly when WinFSP is unavailable.
+under B035, which is parked until the user gives implementation approval.
+The scenario skips explicitly when WinFSP is unavailable.
+
+`S31_RestoresNavItem` samples the actual sidebar animation while a session
+is running and checks that it stops after all sessions finish. Its sessions
+are injected. `E42_StreamingRestoreProgress` also samples that animation
+during a real local restore, clicks the cancelled run's card, checks that
+only that result opens, and returns to the two-run list through the real
+button. This is headless Avalonia with actual backup engines; native
+Windows tray, display scaling and live cloud acceptance remain separate.
+
+`S56_EditorModeAndApply` begins with two copied custom and recommended
+exclusion blocks, clicks Apply twice, and verifies that both custom rules
+survive in one block while obsolete generated rules are removed. It also
+checks Cancel, Save and reopening the stored configuration. The related
+rule tests preserve malformed custom blocks without losing user rules.
 
 `BackrestAuthenticationTests` injects failures at each authentication step and
 rejects an empty token. `InfrastructureLifecycleE2ETests` separately starts

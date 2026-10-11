@@ -34,16 +34,37 @@ and [docs/TESTING.md](docs/TESTING.md).
 
 ## The ROADMAP workflow (source of truth)
 
-[docs/ROADMAP.md § Actively working](docs/ROADMAP.md#actively-working) is
-the **single source of truth** for in-flight bugs and feature work. It
-is RAM, not archive: items live there only while they're open.
+The user requested one unified project board on 10 October 2026.
+In this checkout, the **local Review desk is the source of truth** for
+issues, planned work, comments, decisions and proof. Open
+http://127.0.0.1:4317/ for active issues or /roadmap for planned work.
+[docs/ROADMAP.md § Actively working](docs/ROADMAP.md#actively-working)
+is its portable repository mirror, not a second independent queue.
+Read both when resuming work; the latest user comment takes precedence.
+
+The dashboard and its JSON stay Git-excluded at the user's request.
+Copy them separately when moving this checkout. If the local desk is
+unavailable, log requests in this Markdown mirror and reconcile by stable
+issue ID once it is available. Never reseed or overwrite the saved JSON.
+Use the dashboard API with the current revision/version; it preserves
+comments, user decisions and earlier wording. Its local README documents
+the API. Record agent replies as Agent, Codex or Claude; the queue label
+is always **With Agent**.
+
+Planned items use the same record as active issues. Next, Soon, Later
+and Parked are planning stages, independent of testing status and whose
+turn it is to reply. **Planned does not authorize implementation.**
+Wait for the user's go-ahead or their explicit Start work action. B035
+(online-only cloud sources) is specifically parked pending that approval.
+Answer comments on planned items without silently activating them.
 
 **The rules — non-negotiable:**
 
 1. **Every bug report or feature request the user raises gets logged
    immediately as a new entry under `## Actively working`,
-   at the top.** Before doing anything else with the request: write
-   the entry. Title, type, raised-on date, status `Open`. If the user
+   at the top, and as a record in the local desk.** Before doing
+   anything else with the request: write the entry. Title, type,
+   raised-on date, status `Open`. If the user
    raises five things in one message, that's five entries — don't
    collapse them. The point is to never silently drop or half-fix an
    item.
@@ -107,7 +128,7 @@ is RAM, not archive: items live there only while they're open.
 
 **ROADMAP self-containment.** Never write "see chat", "follow-up
 question above", or any reference that assumes the chat history
-persists. The ROADMAP is the durable source of truth — every entry
+persists. The desk and its repository mirror are durable records — every entry
 must read cleanly with no out-of-band context. When user input is
 needed on an entry, end it with a line that starts with **`I need
 from you:`** followed by the exact ask. The top of the "Actively
@@ -163,11 +184,11 @@ their queue at a glance without reading every entry.
   confirm. End the entry here.
 ```
 
-The deeper roadmap sections (`Test coverage gaps`, `Features deferred`,
-`Known restore limitations`) below the active list are the **long-term
-backlog** — not actively worked on this session, not requiring per-turn
-attention. Move items down to those sections only on explicit user
-direction.
+The planning table below the active list mirrors the desk's roadmap
+columns. These are the **long-term backlog**, not active work. Move
+an active item there only on explicit user direction; do not park an
+unfinished fix merely to empty the agent queue. The 10 October migration
+preserves the previous backlog and a record of stale or superseded claims.
 
 ## Working conventions
 

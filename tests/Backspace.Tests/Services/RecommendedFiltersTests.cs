@@ -8,6 +8,43 @@ namespace Backspace.Tests.Services;
 public class RecommendedFiltersTests
 {
     [Fact]
+    public void MergeIntoFilters_preservesAllCopiedCustomRulesAndReplacesAllRecommendedBlocks()
+    {
+        var custom = RecommendedFilters.CustomBlockHeader + "\r\nfirst/\r\n" + RecommendedFilters.CustomBlockFooter;
+        var automatic = RecommendedFilters.AutoBlockHeader + "\nstale-generated/\n" + RecommendedFilters.AutoBlockFooter;
+        var existing = "loose-before/\n" + custom + "\n" + automatic + "\nloose-middle/\n" +
+            custom.Replace("first/", "second/") + "\n" + automatic + "\nloose-after/";
+        var replacement = RecommendedFilters.RenderBlock(false, false, Array.Empty<RecommendedFilters.CloudSyncFolder>());
+        var merged = RecommendedFilters.MergeIntoFilters(existing, replacement);
+        Assert.Equal(1, CountOccurrences(merged, RecommendedFilters.CustomBlockHeader));
+        Assert.Equal(1, CountOccurrences(merged, RecommendedFilters.CustomBlockFooter));
+        Assert.Equal(1, CountOccurrences(merged, RecommendedFilters.AutoBlockHeader));
+        Assert.DoesNotContain("stale-generated/", merged);
+        var ordered = new[] { "loose-before/", "first/", "loose-middle/", "second/", "loose-after/" };
+        Assert.Equal(ordered, merged.Split('\n').Select(l => l.Trim()).Where(ordered.Contains));
+        Assert.Equal(merged, RecommendedFilters.MergeIntoFilters(merged, replacement));
+    }
+
+    [Fact]
+    public void MergeIntoFilters_preservesRulesWithIncompleteOrNestedCustomMarkers()
+    {
+        var existing = RecommendedFilters.CustomBlockHeader + "\nkeep-a/\n" +
+            RecommendedFilters.CustomBlockHeader + "\nkeep-b/\n" + RecommendedFilters.CustomBlockFooter +
+            "\n# mention: " + RecommendedFilters.CustomBlockHeader + "\nkeep-c/";
+        var merged = RecommendedFilters.MergeIntoFilters(existing, "NEW-AUTO");
+        foreach (var rule in new[] { "keep-a/", "keep-b/", "keep-c/" }) Assert.Contains(rule, merged);
+        Assert.Contains("# mention: " + RecommendedFilters.CustomBlockHeader, merged);
+        Assert.Equal(1, merged.Split('\n').Count(l => l.Trim() == RecommendedFilters.CustomBlockHeader));
+        var incomplete = RecommendedFilters.AutoBlockHeader + "\nuser-rule-without-footer/";
+        Assert.Contains("user-rule-without-footer/", RecommendedFilters.MergeIntoFilters(incomplete, "NEW-AUTO"));
+        var automatic = RecommendedFilters.RenderBlock(false, false, Array.Empty<RecommendedFilters.CloudSyncFolder>());
+        var first = RecommendedFilters.MergeIntoFilters(incomplete, automatic);
+        var second = RecommendedFilters.MergeIntoFilters(first, automatic);
+        Assert.Contains("user-rule-without-footer/", second);
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
     public void RenderBlock_includesHeaderAndFooterMarkers()
     {
         var block = RecommendedFilters.RenderBlock(
