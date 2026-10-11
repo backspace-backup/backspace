@@ -52,6 +52,16 @@ synthetic progress messages and rejects oversized output lines. These checks
 do not establish live cloud behavior, a multi-day run or an OS refusing to kill
 a process. Direct restores do not enter Backrest's operation history.
 
+`E43_CloudSourceChangeDetection` is an architecture experiment, not a shipped
+cloud feature. It uses real WinFSP, Backrest and restic with simulated remote
+files. Four separately mounted rounds establish initial reads, complete
+unchanged snapshots without content reads, the negative same-size/same-date
+case (old contents reused), and a distinct virtual timestamp that causes only
+the changed file to be read. Every snapshot restores both complete files.
+No account or original placeholder is accessed. Provider integration, temporary
+space limits, durable revision metadata and original-date recovery remain work
+under B035. The scenario skips explicitly when WinFSP is unavailable.
+
 `BackrestAuthenticationTests` injects failures at each authentication step and
 rejects an empty token. `InfrastructureLifecycleE2ETests` separately starts
 the real bundled daemon and checks that an unauthenticated request is rejected.
