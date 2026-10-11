@@ -9,7 +9,7 @@ for the workflow rules an agent must follow before touching this file.
 
 **Review queue — 10 October 2026:** Your latest comments have replies and new evidence in [the review desk](http://127.0.0.1:4317/). [Review summary](../audit-dashboard/evidence/feedback-20261010/report.html). The accepted entries have been removed from this active list, with the original records preserved in the desk and reconciliation report. Your redesign approval is recorded. The Word document has been reviewed.
 
-**I need from you:** Review the new answers where the next turn is yours. Live cloud checks need account consent and provider configuration; email and Healthchecks checks need a test destination. The prepared Windows checks need an administrator session and B040 needs a real reboot. B024 now has measured CPU improvements and asks for the remaining native tray/display-scale check. No input is needed for the agent’s remaining restore-progress or cloud-source implementation work. The historical port plan remains until the condition on your deletion permission is met.
+**I need from you:** Review the new answers where the next turn is yours. Live cloud checks need account consent and provider configuration; email and Healthchecks checks need a test destination. The prepared Windows checks need an administrator session and B040 needs a real reboot. B024 now has measured CPU improvements and asks for the remaining native tray/display-scale check. R007 asks for approval of the tested restore architecture; A011 now has real progress and safety results to review. No input is needed for the agent’s remaining cloud-source implementation work. The historical port plan remains until the condition on your deletion permission is met.
 
 **Older items need attention:** Any remaining June/July entry awaiting validation is older than a week; accept its evidence or describe the remaining problem. These entries have not been silently removed.
 
@@ -32,10 +32,14 @@ for the workflow rules an agent must follow before touching this file.
 - **Raised:** 2026-06-12 (user feedback on the folder-collapse review)
 - **Type:** architecture review
 - **Status:** Awaiting validation
-- **Context:** R007: Restore still uses Backrest RunCommand with a raw restic restore command for snapshot subfolder targeting and selected-file recovery. The unsafe target sweep, false terminal success and unacknowledged cancellation were repaired; those fixes do not decide the architectural tradeoff.
-- **Current result:** Backspace now uses Backrest’s dedicated Restore API for one selected file or folder when no per-backup bandwidth limit is set. It reports live progress and still restores into a temporary folder before moving only the requested files into place. Scattered selections and bandwidth-limited restores keep the existing command path.
-- **Remaining:** Review the working hybrid approach and its proof. A011 retains the remaining progress work for scattered selections and per-backup bandwidth limits. Replacing those with one native call per file would make large selections much slower; the bundled native API has no multiple-path or per-request bandwidth option.
+- **Context:** R007: Explain why some restore requests cannot use Backrest’s dedicated Restore API, compare the alternatives with real safety checks, and present the resulting architectural tradeoff for approval.
+- **Current result:** One selected file or folder uses Backrest’s dedicated Restore API when possible. Several selections, a per-backup speed limit, or significant whitespace use one bundled restic process managed by Backspace. Both paths show progress, stage output safely, and preserve unrelated destination files. Direct restores appear in Backspace but do not appear in Backrest’s separate operation history.
+- **Remaining:** Approve the tested split between Backrest’s Restore API and a direct restic process for requests that API cannot express. My recommendation is to keep it: it provides live progress and one operation for large selections. The cost is a small process runner to maintain and no Backrest web-history entry for those direct restores.
 - **Proof — open and look:**
+  - 🖼️ [Selected files restoring with a speed limit](../audit-dashboard/evidence/agent-work-20261010/streaming-progress.png) — A real intermediate percentage before the two selected files finish.
+  - 🖼️ [Completed and cancelled results](../audit-dashboard/evidence/agent-work-20261010/streaming-complete-cancel.png) — The successful restore shows 2 of 2 files and a full bar; the cancelled restore shows zero recovered files.
+
+  - [Restore architecture: working behavior and its tradeoff](../audit-dashboard/evidence/agent-work-20261010/streaming-restore.html) — One selected file or folder uses Backrest’s dedicated Restore API when possible. Several selections, a per-backup speed limit, or significant whitespace use one bundled restic process managed by Backspace. Both paths show progress, stage output safely, and preserve unrelated destination files. Direct restores appear in Backspace but do not appear in Backrest’s separate operation history.
 
   - [Real native restore results](../audit-dashboard/evidence/agent-work-20261010/native-restore.html) — Backspace now uses Backrest’s dedicated Restore API for one selected file or folder when no per-backup bandwidth limit is set. It reports live progress and still restores into a temporary folder before moving only the requested files into place. Scattered selections and bandwidth-limited restores keep the existing command path.
   - 🖼️ [Actual restore in progress](../audit-dashboard/evidence/agent-work-20261010/01-real-restore-in-progress.png) — The Restores page shows a real intermediate percentage before the operation finishes.
@@ -43,11 +47,11 @@ for the workflow rules an agent must follow before touching this file.
   - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/restore-architecture.html) — Backspace still uses Backrest to run restores, but supplies a restic command through its general command API. This supports several selected files or folders in one operation and keeps the output in a temporary folder until it is safe to move. Backrest’s dedicated Restore API already supports subfolders and structured progress; our earlier explanation understated what it can do.
   - [R007 · Carryover evidence and test scope](../audit-dashboard/evidence/carryovers/report.html) — The report lists the passing overmatch/partial-error/cancellation negative controls and the unresolved architecture choice.
   - [Detailed restore safety report](../audit-dashboard/evidence/restore-repairs/report.html) — Open restore staging, terminal truth and cancellation evidence with its integration limits.
-- **Limitations / adversarial review:** Real local bundled engines passed bracket-name, full-source layout, exact-file, occupied-target, intermediate-progress and cancellation checks. The screenshot uses the real application in headless Avalonia. The cancellation test invokes the same session action as the Stop button, but does not click that button. No live cloud restore or multi-day run was performed.
+- **Limitations / adversarial review:** Real bundled Backrest and restic used disposable encrypted local storage. The Stop restore check clicks the real control in headless Avalonia. Live cloud restores, a multi-day run, and Windows refusing to terminate a process remain unverified. The separate buffer tests use synthetic messages; they are not a long-running restore.
 - **Follow-up received 2026-10-10:**
   > Please be clearer about the current status of things (what are we missing from backrest, upsides/downsides of current implementation) and what you suggest would be best.
 
-- **I need from you:** Review the working hybrid approach and its proof. A011 retains the remaining progress work for scattered selections and per-backup bandwidth limits. Replacing those with one native call per file would make large selections much slower; the bundled native API has no multiple-path or per-request bandwidth option.
+- **I need from you:** Approve the tested split between Backrest’s Restore API and a direct restic process for requests that API cannot express. My recommendation is to keep it: it provides live progress and one operation for large selections. The cost is a small process runner to maintain and no Backrest web-history entry for those direct restores.
 
 ### P0: Restore enumerates every leaf when a folder is selected
 
@@ -225,11 +229,15 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Raised:** 2026-10-02
 - **Type:** bug
-- **Status:** In progress
-- **Context:** A011: Synchronous Backrest requests are monitored while pending; cancellation explicitly stops the owned daemon operation and awaits terminal acknowledgement. No five-minute operation deadline remains. Quiet JSON removes duration-based log growth; progress is indeterminate until authoritative counts arrive.
-- **Current result:** The five-minute cutoff remains removed. Single-file and single-folder restores now show real live progress from Backrest’s dedicated restore API. A new test captures intermediate progress during an actual 128 MiB restore, checks all recovered bytes, and cancels a second restore without replacing an existing file.
-- **Remaining:** Agent work: provide bounded live progress for scattered selections and restores with a per-backup bandwidth limit. Those cases still use quiet RunCommand and show final counts rather than a running percentage. The bundled native API cannot express them in one request.
+- **Status:** Awaiting validation
+- **Context:** A011: Remove the hard five-minute restore cutoff, keep progress visible, and ensure cancellation cannot release repository ownership while the engine is still running.
+- **Current result:** Restores now report live progress for several selected files and for backups with a speed limit, as well as single-file and single-folder restores. Progress messages are discarded after display, so they do not fill an ever-growing log. The completed bar shows 100% even when unwanted filename matches were downloaded temporarily and then discarded.
+- **Remaining:** Review the two screenshots and the test results. The live percentage is implemented and verified with real local backup engines. Live cloud acceptance remains under B034; no multi-day restore was run.
 - **Proof — open and look:**
+  - 🖼️ [Selected files restoring with a speed limit](../audit-dashboard/evidence/agent-work-20261010/streaming-progress.png) — A real intermediate percentage before the two selected files finish.
+  - 🖼️ [Completed and cancelled results](../audit-dashboard/evidence/agent-work-20261010/streaming-complete-cancel.png) — The successful restore shows 2 of 2 files and a full bar; the cancelled restore shows zero recovered files.
+
+  - [Live restore progress, cancellation and damaged-backup results](../audit-dashboard/evidence/agent-work-20261010/streaming-restore.html) — Restores now report live progress for several selected files and for backups with a speed limit, as well as single-file and single-folder restores. Progress messages are discarded after display, so they do not fill an ever-growing log. The completed bar shows 100% even when unwanted filename matches were downloaded temporarily and then discarded.
 
   - [Real native restore results](../audit-dashboard/evidence/agent-work-20261010/native-restore.html) — The five-minute cutoff remains removed. Single-file and single-folder restores now show real live progress from Backrest’s dedicated restore API. A new test captures intermediate progress during an actual 128 MiB restore, checks all recovered bytes, and cancels a second restore without replacing an existing file.
   - 🖼️ [Actual restore in progress](../audit-dashboard/evidence/agent-work-20261010/01-real-restore-in-progress.png) — The Restores page shows a real intermediate percentage before the operation finishes.
@@ -237,11 +245,11 @@ for the workflow rules an agent must follow before touching this file.
   - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/restore-architecture.html) — The five-minute cutoff is removed, but a live percentage is still missing from the production restore path. The interface can display a percentage when it receives progress; the current command suppresses those updates to avoid overflowing Backrest’s command log during long restores. It usually shows an indeterminate bar until the final result.
   - [Restore safety evidence](../audit-dashboard/evidence/restore-repairs/report.html) — Open exact safety assertions, real E11 counts and session screenshots.
   - [Repair validation: actual test results](../audit-dashboard/evidence/repair-verification.html) — Open the named assertions, pass/fail results, raw test-runner files and explicit limits.
-- **Limitations / adversarial review:** Actual bundled Backrest and restic with disposable local data. The new test deliberately slows the disposable repository, rather than injecting progress. It is a short integration run, not a multi-day restore or live cloud trial. The remaining command-based cases are not claimed fixed.
+- **Limitations / adversarial review:** Real bundled Backrest and restic used disposable encrypted local storage. The Stop restore check clicks the real control in headless Avalonia. Live cloud restores, a multi-day run, and Windows refusing to terminate a process remain unverified. The separate buffer tests use synthetic messages; they are not a long-running restore.
 - **Follow-up received 2026-10-10:**
   > But we need to show a percentage (we know total number of files or size and progress so we can compute a ratio, no?), don't we show anything?
 
-- **I need from you:** No action now; the agent retains this implementation work.
+- **I need from you:** Review the two screenshots and the test results. The live percentage is implemented and verified with real local backup engines. Live cloud acceptance remains under B034; no multi-day restore was run.
 
 ### P1: VSS and elevation on Windows
 

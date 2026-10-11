@@ -14,11 +14,11 @@ namespace Backspace.Services;
 /// <see cref="IBackupEngine"/> implementation routing through a running
 /// <see cref="BackrestSidecar"/>. Every <see cref="IBackupEngine"/>
 /// member is wired: backup / forget / check route through Backrest's
-/// plan- and repo-task RPCs, list + per-file restore route through
-/// ListSnapshotFiles + RunCommand-driven restic, and password rotation
-/// spawns the bundled restic.exe directly (the one operation that
-/// can't go through Backrest because RunCommand has no stdin-redirect
-/// path).
+/// plan- and repo-task RPCs. Single-path restores use the native Restore
+/// RPC when it can express the request. Other restores use an owned
+/// bundled restic process with bounded progress output and Backrest's
+/// repository configuration. Password rotation and local snapshot-tree
+/// fast paths also invoke the bundled restic executable directly.
 ///
 /// Schema mapping:
 ///   Backspace's per-(backup, sourcePath, storageName) cell becomes one
@@ -811,8 +811,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
         // on the target volume, then move only requested output into place.
         var staging = Path.Combine(targetPath, ".backspace-restore-" + Guid.NewGuid().ToString("N"));
         // Native Restore accepts one path and no per-request bandwidth limit.
-        // Keep the single-command path for scattered selections and throttled
-        // restores: thousands of individual native operations would be costly.
+        // Scattered selections and per-backup limits use one owned restic
+        // process, consuming progress directly without Backrest's command-log
+        // limit. Backrest still provides repository credentials and snapshots.
         var native = includes.Length == 1 && backup.BandwidthLimitKBps == 0 && srcPrefix.Length > 0;
         var selectedPath = native ? "/" + srcPrefix.TrimEnd('/') + (includes[0].Length > 0 ? "/" + includes[0] : "") : "";
         // The native handler trims the path. Preserve significant whitespace by
@@ -836,32 +837,19 @@ public sealed class ResticBackrestEngine : IBackupEngine
         long restoredBytes = 0;
         var total = exact?.Count ?? 0;
         long totalBytes = 0;
-        using var logCts = new CancellationTokenSource();
         using var submissionCts = new CancellationTokenSource();
-        Task<string>? logTask = null;
         Task? submission = null;
+        string captured = "";
         try
         {
             if (!native)
                 await File.WriteAllLinesAsync(includeFile,
                     includes.Select(p => "/" + SubstituteBracketsWithQuestionMark(p)), ct).ConfigureAwait(false);
-            var command = new System.Text.StringBuilder("restore ")
-                .Append(QuoteArg(snapshotId + ":/" + srcPrefix))
-                .Append(" --target ").Append(QuoteArg(staging))
-                .Append(" --json --quiet --include-file ").Append(QuoteArg(includeFile));
-            // Quiet JSON retains the final summary and errors but suppresses
-            // periodic/per-file output. Thus a healthy multi-day restore cannot
-            // overflow Backrest's 2 MB command log merely because time passed.
-            if (backup.BandwidthLimitKBps > 0)
-                command.Append(" --limit-download ").Append(backup.BandwidthLimitKBps);
             ct.ThrowIfCancellationRequested();
-            // RunCommand is synchronous: its HTTP response comes only AFTER
-            // restic exits, and an error response contains no operation id.
-            // Discover the operation by this unique command while the request
-            // remains pending so progress and cancellation work during the run.
-            safeToCleanup = false;
+            BackrestOperation? terminal = null;
             if (native)
             {
+                safeToCleanup = false;
                 // Backrest 1.13 on Windows leaves brackets unescaped. Only the
                 // basename is a glob; ancestor directories remain literal.
                 var slash = selectedPath.LastIndexOf('/');
@@ -875,45 +863,71 @@ public sealed class ResticBackrestEngine : IBackupEngine
             }
             else
             {
-                submission = client.CallAsync<RunCommandRequest, Int64Value>(
-                    "/v1.Backrest/RunCommand", new RunCommandRequest { RepoId = repoId, Command = command.ToString() }, submissionCts.Token);
-                opId = await DiscoverRestoreOperationAsync(client, repoGuid, submission,
-                    op => op.OperationRunCommand?.Command == command.ToString(), ct, () => safeToCleanup = true).ConfigureAwait(false);
-            }
-            BackrestOperation? terminal = null;
-            try
-            {
-                terminal = await WaitForOperationTerminalAsync(client, opId, ct, observed: op =>
+                var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
+                    "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
+                var repo = config.Repos.SingleOrDefault(r => r.Id == repoId && r.Guid == repoGuid)
+                    ?? throw new InvalidOperationException("The restore repository changed. Reopen Restore and try again.");
+                var start = BuildStreamingRestoreStartInfo(_sidecar.ResticBinaryPath, repo,
+                    snapshotId + ":/" + srcPrefix, staging, includeFile, backup.BandwidthLimitKBps);
+                // The runner only returns/throws after the child has exited.
+                // The caller's repository lease and the staging folder therefore
+                // remain owned during cancellation, including a failed kill.
+                var result = await StreamingRestoreProcess.RunAsync(start, line =>
                 {
-                    if (op.OperationRestore?.LastStatus is { } progress)
+                    if (!TryParseRestoreProgress(line, out var update)) return;
+                    if (exact is not null)
                     {
-                        var directories = Directory.Exists(outputRoot) ? CountRestoreDirectories(outputRoot) : 0;
-                        var completed = (int)Math.Clamp(progress.FilesRestored - directories, 0, exact?.Count ?? int.MaxValue);
-                        onProgress?.Invoke(new RestoreProgressUpdate(exact?.Count ?? (int)Math.Min(int.MaxValue, progress.TotalFiles),
-                            completed, progress.TotalBytes, progress.BytesRestored, Math.Clamp(progress.PercentDone, 0, 1)));
+                        var directories = Directory.Exists(staging) ? CountRestoreDirectories(staging) : 0;
+                        update = update with { TotalFiles = exact.Count,
+                            FilesRestored = Math.Clamp(update.FilesRestored - directories, 0, exact.Count) };
                     }
-                    var logRef = op.OperationRunCommand?.OutputLogref;
-                    if (logTask is null && !string.IsNullOrEmpty(logRef))
-                        logTask = CaptureRestoreLogAsync(client, logRef, onProgress, logCts.Token, exact, staging);
-                }).ConfigureAwait(false);
-                safeToCleanup = true;
+                    onProgress?.Invoke(update);
+                }, ct).ConfigureAwait(false);
+                captured = result.Output;
+                if (!result.Cancelled && (result.ExitCode != 0 || result.HadErrors))
+                    _log.Warning("Restore process failed with exit code {ExitCode}. Last engine diagnostics: {Details}",
+                        result.ExitCode, result.Output);
+                terminal = new BackrestOperation {
+                    Status = result.Cancelled ? BackrestStatus.UserCancelled :
+                        result.ExitCode == 0 && !result.HadErrors ? BackrestStatus.Success : BackrestStatus.Error,
+                    DisplayMessage = result.Cancelled ? "Restore cancelled." :
+                        result.ExitCode == 0 && !result.HadErrors ? "" :
+                        "The backup engine could not finish this restore. Open Activity & logs for details." };
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            if (native)
             {
-                // Cancellation of the caller's HTTP wait does not cancel a
-                // queued daemon operation. Use an independent cleanup token.
-                await TrySendCancelAsync(client, opId).ConfigureAwait(false);
-                using var acknowledgement = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var nativeOperationId = opId ?? throw new InvalidOperationException("The native restore has no operation identifier.");
                 try
                 {
-                    terminal = await WaitForOperationTerminalAsync(client, opId, acknowledgement.Token).ConfigureAwait(false);
+                    terminal = await WaitForOperationTerminalAsync(client, nativeOperationId, ct, observed: op =>
+                    {
+                        if (op.OperationRestore?.LastStatus is { } progress)
+                        {
+                            var directories = Directory.Exists(outputRoot) ? CountRestoreDirectories(outputRoot) : 0;
+                            var completed = (int)Math.Clamp(progress.FilesRestored - directories, 0, exact?.Count ?? int.MaxValue);
+                            onProgress?.Invoke(new RestoreProgressUpdate(exact?.Count ?? (int)Math.Min(int.MaxValue, progress.TotalFiles),
+                                completed, progress.TotalBytes, progress.BytesRestored, Math.Clamp(progress.PercentDone, 0, 1)));
+                        }
+                    }).ConfigureAwait(false);
                     safeToCleanup = true;
                 }
-                catch (Exception ex)
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
-                    error = $"The backup engine did not confirm that restore stopped. Temporary output is kept at {staging}. Restart Backspace before running other operations.";
-                    ServiceLocator.Maintenance.BlockUntilRestart(error);
-                    _log.Warning(ex, "Restore cancellation acknowledgement failed for {Operation}", opId);
+                    // Cancellation of the caller's HTTP wait does not cancel a
+                    // queued daemon operation. Use an independent cleanup token.
+                    await TrySendCancelAsync(client, nativeOperationId).ConfigureAwait(false);
+                    using var acknowledgement = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    try
+                    {
+                        terminal = await WaitForOperationTerminalAsync(client, nativeOperationId, acknowledgement.Token).ConfigureAwait(false);
+                        safeToCleanup = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        error = $"The backup engine did not confirm that restore stopped. Temporary output is kept at {staging}. Restart Backspace before running other operations.";
+                        ServiceLocator.Maintenance.BlockUntilRestart(error);
+                        _log.Warning(ex, "Restore cancellation acknowledgement failed for {Operation}", opId);
+                    }
                 }
             }
             if (terminal is not null)
@@ -929,12 +943,6 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     string.IsNullOrWhiteSpace(terminal.DisplayMessage) ? $"Restore ended with {status}." : terminal.DisplayMessage;
             }
 
-            string captured = "";
-            if (logTask is not null && safeToCleanup)
-            {
-                try { captured = await logTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
-                catch (Exception ex) { _log.Debug(ex, "Restore log tail did not finish"); }
-            }
             ParseResticRestoreSummary(captured, out var completedFiles, out var completedBytes,
                 out var reportedTotal, out totalBytes, out var errors);
             if (terminal?.OperationRestore?.LastStatus is { MessageType: "summary" } summary)
@@ -1036,14 +1044,16 @@ public sealed class ResticBackrestEngine : IBackupEngine
             // controls cleanup. Cancelling this transport never stops restic.
             submissionCts.Cancel();
             if (submission is not null) try { await submission.ConfigureAwait(false); } catch { }
-            logCts.Cancel();
-            if (logTask is not null) try { await logTask.ConfigureAwait(false); } catch { }
             if (safeToCleanup)
             {
                 try { File.Delete(includeFile); } catch { }
                 try { DeleteRestoreStaging(staging); } catch (Exception ex) { _log.Debug(ex, "Restore staging cleanup failed"); }
             }
         }
+        // A bracket pattern can download extra siblings into staging. Once all
+        // requested files are safely promoted, those discarded bytes must not
+        // leave a successful selected-file restore showing a partial progress bar.
+        if (status == RestoreTerminalStatus.Success) totalBytes = restoredBytes;
         onProgress?.Invoke(new RestoreProgressUpdate(total, restored, Math.Max(totalBytes, restoredBytes), restoredBytes,
             total == 0 ? 0 : (double)restored / total));
         return new RestoreOpResult(total, restored, Math.Max(totalBytes, restoredBytes), restoredBytes, status, error);
@@ -1138,51 +1148,40 @@ public sealed class ResticBackrestEngine : IBackupEngine
         }
     }
 
-    private async Task<string> CaptureRestoreLogAsync(BackrestClient client, string logRef,
-        Action<RestoreProgressUpdate>? progress, CancellationToken ct, HashSet<string>? expected = null, string? staging = null)
-    {
-        var captured = new System.Text.StringBuilder();
-        var pending = new System.Text.StringBuilder();
-        var decoder = System.Text.Encoding.UTF8.GetDecoder();
-        await foreach (var chunk in client.StreamAsync<GetLogsRequest, RestoreLogChunk>(
-            "/v1.Backrest/GetLogs", new GetLogsRequest { Ref = logRef }, ct).ConfigureAwait(false))
-        {
-            // GetLogs returns protobuf BytesValue (base64 in JSON), not
-            // StringValue. Decode UTF-8 across chunk boundaries before parsing.
-            var chars = new char[System.Text.Encoding.UTF8.GetMaxCharCount(chunk.Value.Length)];
-            var count = decoder.GetChars(chunk.Value, 0, chunk.Value.Length, chars, 0, flush: false);
-            captured.Append(chars, 0, count);
-            pending.Append(chars, 0, count);
-            var text = pending.ToString();
-            var end = text.LastIndexOf('\n');
-            if (end < 0) continue;
-            foreach (var line in text[..(end + 1)].Split('\n', StringSplitOptions.RemoveEmptyEntries))
-            {
-                RaiseLineWritten(line);
-                if (TryParseRestoreProgress(line, out var update))
-                {
-                    if (expected is not null)
-                    {
-                        // Summary counts include directories. Subtract every
-                        // created ordinary directory; even if its metadata is
-                        // unfinished this remains a conservative leaf count.
-                        var directories = staging is null ? 0 : CountRestoreDirectories(staging);
-                        update = update with { TotalFiles = expected.Count,
-                            FilesRestored = Math.Clamp(update.FilesRestored - directories, 0, expected.Count) };
-                    }
-                    progress?.Invoke(update);
-                }
-            }
-            pending.Clear().Append(text[(end + 1)..]);
-        }
-        if (pending.Length > 0 && TryParseRestoreProgress(pending.ToString(), out var last)) progress?.Invoke(last);
-        return captured.ToString();
-    }
-
+    // GetLogs is a protobuf BytesValue: its JSON payload contains base64 bytes.
     private sealed class RestoreLogChunk
     {
         [System.Text.Json.Serialization.JsonPropertyName("value")]
         public byte[] Value { get; set; } = Array.Empty<byte>();
+    }
+
+    internal static ProcessStartInfo BuildStreamingRestoreStartInfo(string binary, BackrestRepo repo,
+        string snapshot, string target, string includeFile, int bandwidthLimitKBps)
+    {
+        var start = new ProcessStartInfo(binary);
+        start.ArgumentList.Add("-r");
+        start.ArgumentList.Add(repo.Uri);
+        foreach (var flag in repo.Flags) start.ArgumentList.Add(flag);
+        foreach (var value in new[] { "restore", snapshot, "--target", target, "--json", "--include-file", includeFile })
+            start.ArgumentList.Add(value);
+        if (bandwidthLimitKBps > 0)
+        {
+            start.ArgumentList.Add("--limit-download");
+            start.ArgumentList.Add(bandwidthLimitKBps.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+        start.Environment["RESTIC_PASSWORD"] = repo.Password;
+        foreach (var entry in repo.Env)
+        {
+            var equals = entry.IndexOf('=');
+            if (equals > 0) start.Environment[entry[..equals]] = entry[(equals + 1)..];
+        }
+        // Direct pipes are drained continuously; unlike Backrest's generic
+        // command log they do not retain every progress message forever.
+        start.Environment["RESTIC_PROGRESS_FPS"] = "2";
+        var directory = Path.GetDirectoryName(Path.GetFullPath(binary))!;
+        start.Environment["PATH"] = directory + Path.PathSeparator +
+            (start.Environment.TryGetValue("PATH", out var oldPath) ? oldPath : "");
+        return start;
     }
 
     internal static bool TryParseRestoreProgress(string line, out RestoreProgressUpdate progress)
@@ -1192,13 +1191,20 @@ public sealed class ResticBackrestEngine : IBackupEngine
         {
             using var json = System.Text.Json.JsonDocument.Parse(line);
             var root = json.RootElement;
-            if (!root.TryGetProperty("message_type", out var type) || type.GetString() is not ("status" or "summary")) return false;
-            long Read(string name) => root.TryGetProperty(name, out var p) && p.TryGetInt64(out var n) ? n : 0;
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                !root.TryGetProperty("message_type", out var type) ||
+                type.ValueKind != System.Text.Json.JsonValueKind.String ||
+                type.GetString() is not ("status" or "summary")) return false;
+            long Read(string name) => root.TryGetProperty(name, out var p) &&
+                p.ValueKind == System.Text.Json.JsonValueKind.Number && p.TryGetInt64(out var n) ? Math.Max(0, n) : 0;
             var total = Read("total_files");
             var restored = Read("files_restored") + Read("files_skipped");
             var bytes = Read("bytes_restored") + Read("bytes_skipped");
-            var fraction = root.TryGetProperty("percent_done", out var done) ? done.GetDouble() : total == 0 ? 0 : (double)restored / total;
-            progress = new RestoreProgressUpdate((int)total, (int)restored, Read("total_bytes"), bytes, Math.Clamp(fraction, 0, 1));
+            var fraction = root.TryGetProperty("percent_done", out var done) &&
+                done.ValueKind == System.Text.Json.JsonValueKind.Number && done.TryGetDouble(out var value) && double.IsFinite(value)
+                ? value : total == 0 ? 0 : (double)restored / total;
+            progress = new RestoreProgressUpdate((int)Math.Min(int.MaxValue, total), (int)Math.Min(int.MaxValue, restored),
+                Read("total_bytes"), bytes, Math.Clamp(fraction, 0, 1));
             return true;
         }
         catch (System.Text.Json.JsonException) { return false; }
@@ -1320,26 +1326,6 @@ public sealed class ResticBackrestEngine : IBackupEngine
             catch { /* not a summary line, skip */ }
         }
     }
-
-    /// <summary>
-    /// True iff <paramref name="name"/> contains a glob metachar that
-    /// restic's <c>filepath.Match</c> on Windows cannot escape via
-    /// any documented mechanism (<c>\</c> is disabled, class self-
-    /// escape <c>[[]</c> is rejected as "invalid pattern"). Names
-    /// matching this go through the bracket-fallback path:
-    /// restore the whole subfolder, then sweep extras.
-    /// <para>
-    /// <c>*</c> and <c>?</c> are forbidden in Windows filenames by
-    /// the Win32 API itself, but we check for them anyway because
-    /// the call site doesn't enforce a platform constraint and a
-    /// future filename arriving from a non-Windows snapshot could
-    /// carry them.
-    /// </para>
-    /// </summary>
-    private static bool HasGlobMetachars(string name) =>
-        name.IndexOfAny(_globMetacharsForInclude) >= 0;
-
-    private static readonly char[] _globMetacharsForInclude = new[] { '[', ']', '*', '?' };
 
     /// <summary>
     /// Replace every <c>[</c> and <c>]</c> in <paramref name="rel"/>
@@ -2277,9 +2263,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
             Guid = "",
             Uri = resticEnv.Uri,
             Password = password,
-            // A inherited positive FPS override bypasses restic's --quiet.
-            // Zero leaves normal commands at their default rate and allows
-            // quiet restores to suppress duration-proportional output.
+            // An inherited positive FPS override bypasses restic's --quiet.
+            // Zero keeps ordinary commands at their default rate. Native and
+            // direct restores explicitly enable bounded progress reporting.
             Env = resticEnv.Env.Concat(new[] { "RESTIC_PROGRESS_FPS=0" }).ToList(),
             Flags = repoFlags,
             AutoInitialize = false,

@@ -38,8 +38,19 @@ makes intermediate progress observable; the screenshot records a live percentage
 It compares the recovered contents and verifies that cancelling a second restore
 preserves an existing destination file and cleans up its staging directory.
 This tests real engine cancellation through the session action; it does not
-click the Stop restore button. Scattered selections and per-backup bandwidth
-limits still use quiet RunCommand and do not yet expose live percentages.
+click the Stop restore button.
+
+`E42_StreamingRestoreProgress` restores two scattered files (32 MiB total)
+with the production per-backup speed limit through one owned bundled restic
+process. It captures real intermediate progress, compares both files, rejects
+an unwanted bracket-name match, and checks that the completed bar reaches 100%.
+A headless pointer click on Stop restore cancels a second run and preserves an
+existing file. A third run uses deliberately damaged content packs in its own
+disposable repository: no staged output may replace either existing target file.
+`StreamingRestoreProcessTests` separately checks bounded memory with 100,000
+synthetic progress messages and rejects oversized output lines. These checks
+do not establish live cloud behavior, a multi-day run or an OS refusing to kill
+a process. Direct restores do not enter Backrest's operation history.
 
 `BackrestAuthenticationTests` injects failures at each authentication step and
 rejects an empty token. `InfrastructureLifecycleE2ETests` separately starts
@@ -202,9 +213,9 @@ older scenario comments that describe broader coverage.
 | Restore folder → minimal cover (1 pattern not N files) | `S47_RestoreFolderMinimalCover` projection plus `E35_FolderCollapseEndToEnd` collapsed selection through the real restore engine and byte comparison | ✅ |
 | Restore long include list (CreateProcess ceiling) | `E34_RestoreLongIncludeList` | ✅ |
 | Restore over slow network (retries) | — | ⛔ deferred: needs network-shaping infra |
-| Restore with bandwidth limit applied | — | ⛔ deferred: needs network-shaping infra |
-| Cancel a running restore | `E41_NativeRestoreProgress` cancels real native work through the session action and checks destination preservation; `RestoreSafetyRegressionTests` covers both RPC paths with a controlled daemon. The real Stop-button interaction remains separate. | 🟡 |
-| Live-tail restore progress | `E41_NativeRestoreProgress` captures real intermediate bytes and the progress UI. Scattered selections and per-backup bandwidth limits still have final counts only. | 🟡 |
+| Restore with bandwidth limit applied | `E42_StreamingRestoreProgress` applies the production per-backup limit to a real local restore; it does not measure throughput on a cloud connection. | 🟡 local only |
+| Cancel a running restore | `E41_NativeRestoreProgress` cancels real native work through the session action; E42 clicks Stop restore during real direct work. Both preserve existing files. `RestoreSafetyRegressionTests` covers native acknowledgement failures with a controlled daemon. | ✅ bounded local checks |
+| Live-tail restore progress | E41 captures real native progress; E42 covers scattered selections and a per-backup limit, including a completed 100% bar. | ✅ bounded local checks |
 
 ### Mount/Browse snapshots
 

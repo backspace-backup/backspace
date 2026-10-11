@@ -96,9 +96,14 @@ test harness to give each test its own isolated config dir.
    config DB or operation history directly. Every read goes through
    `GetConfig` / `GetOperationEvents` / `ListSnapshots` /
    `ListSnapshotFiles`, every write through `SetConfig` / `Backup` /
-   `Forget` / `DoRepoTask` / `Restore` / `RunCommand`. Restic is downstream of
-   Backrest; we never shell it out directly except for one-off helper
-   commands (e.g. change storage password) where Backrest has no API.
+   `Forget` / `DoRepoTask` / `Restore` / `RunCommand`. Single-path restores
+   use native Backrest Restore when it can express the request. Scattered
+   selections, per-backup bandwidth limits and significant whitespace use
+   one owned bundled restic process, with Backrest's repository configuration.
+   It streams bounded progress and retains the caller's repository lease
+   until exit is confirmed. These restores appear in Backspace, but not in
+   Backrest's operation history. Password changes and local snapshot-tree
+   fast paths also invoke bundled restic directly.
 2. **All destructive actions are type-to-confirm with the single token
    "OK"** (case-insensitive). Erase-destination, prune-to-latest,
    remove-backup, remove-destination, and restore-overwrite all gate on

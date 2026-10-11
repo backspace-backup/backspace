@@ -8,8 +8,8 @@ using Backspace.Models;
 namespace Backspace.Services;
 
 /// <summary>
-/// The restore engine. Mirrors Backrest's native restore semantics
-/// (per AGENT.md design principle 1: "Backrest owns its own state"):
+/// Coordinates restore requests through the engine's native Backrest or
+/// owned bundled restic path:
 /// ONE call into the engine per restore request, OVERALL progress
 /// reporting, no per-file callbacks, no synthetic retry cascade.
 ///

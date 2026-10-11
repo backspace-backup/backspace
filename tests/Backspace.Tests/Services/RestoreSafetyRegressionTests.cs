@@ -7,7 +7,6 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Backspace.Models;
@@ -135,22 +134,19 @@ public sealed class RestoreSafetyRegressionTests
     }
 
     [Fact]
-    public async Task Base64Logs_ProduceLiveProgress_AndPreserveBackendErrorAsWarningWhenAllOutputCompleted()
+    public async Task NativeSummary_ProducesLiveProgress_AndPreservesBackendErrorAsWarningWhenAllOutputCompleted()
     {
         using var workspace = new TempWorkspace("restore-log-decoding");
         using var fixture = new ProtocolFixture("STATUS_ERROR", stage => File.WriteAllText(Path.Combine(stage, "keep.txt"), "complete"));
         fixture.Handler.SynchronousRequest = true;
         fixture.Handler.ProgressPolls = 2;
-        fixture.Handler.LogText = "{\"message_type\":\"status\",\"total_files\":1,\"files_restored\":0,\"total_bytes\":8,\"bytes_restored\":4,\"percent_done\":0.5}\n" +
-            "{\"message_type\":\"verbose_status\",\"action\":\"restored\",\"item\":\"/keep.txt\",\"size\":8}\n" +
-            "{\"message_type\":\"summary\",\"total_files\":1,\"files_restored\":1,\"total_bytes\":8,\"bytes_restored\":8}\n";
+        fixture.Handler.NativeSummary = true;
         var updates = new List<RestoreProgressUpdate>();
         var result = await fixture.Restore(workspace.Sub("target"), new[] { "keep.txt" }, onProgress: updates.Add);
         Assert.Equal(RestoreTerminalStatus.Warning, result.Status);
         Assert.Equal(1, result.FilesRestored);
         Assert.NotNull(result.ErrorMessage);
         Assert.Contains(updates, p => p.BytesRestored == 4 && p.TotalBytes == 8);
-        Assert.True(fixture.Handler.LogFetchedWhileRequestPending);
     }
 
     [Fact]
@@ -166,7 +162,7 @@ public sealed class RestoreSafetyRegressionTests
     }
 
     [Fact]
-    public async Task CallerCancellation_SendsCancel_AndWaitsBeforeDeletingIncludeFile()
+    public async Task CallerCancellation_SendsCancel_AndWaitsBeforeDeletingStaging()
     {
         using var workspace = new TempWorkspace("restore-cancel-ack");
         using var cancellation = new CancellationTokenSource();
@@ -177,9 +173,8 @@ public sealed class RestoreSafetyRegressionTests
         var result = await fixture.Restore(target, new[] { "keep.txt" }, cancellation.Token);
         Assert.Equal(RestoreTerminalStatus.Cancelled, result.Status);
         Assert.Equal(1, fixture.Handler.CancelRequests);
-        Assert.True(fixture.Handler.IncludeExistedWhenCancelled);
+        Assert.True(fixture.Handler.StagingExistedWhenCancelled);
         Assert.True(fixture.Handler.TerminalAcknowledged);
-        Assert.False(File.Exists(fixture.Handler.IncludePath));
         Assert.Equal("original", File.ReadAllText(Path.Combine(target, "keep.txt")));
         Assert.Empty(Directory.GetDirectories(target));
     }
@@ -291,9 +286,14 @@ public sealed class RestoreSafetyRegressionTests
             typeof(BackrestSidecar).GetField("_client", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(sidecar, client);
             _engine = new ResticBackrestEngine(sidecar, new SecretsStore());
         }
-        public Task<RestoreOpResult> Restore(string target, string[] paths, CancellationToken ct = default, Action<RestoreProgressUpdate>? onProgress = null, bool native = false) =>
-            _engine.RestoreFilesAsync(new Backup { BandwidthLimitKBps = native ? 0 : 1024 }, Path.Combine(Path.GetTempPath(), "restore-fixture-source"),
-                new Destination { Id = "restore-probe" }, "default", 1, paths, target, onProgress, ct, paths);
+        public Task<RestoreOpResult> Restore(string target, string[] paths, CancellationToken ct = default, Action<RestoreProgressUpdate>? onProgress = null, bool native = true)
+        {
+            Assert.True(native); // These are native Backrest protocol/staging tests.
+            Handler.WholeSource = paths.Length > 1;
+            return _engine.RestoreFilesAsync(new Backup(), Path.Combine(Path.GetTempPath(), "restore-fixture-source"),
+                new Destination { Id = "restore-probe" }, "default", 1,
+                Handler.WholeSource ? new[] { "/" } : paths, target, onProgress, ct, paths);
+        }
         public Task<BackrestOperation> Track(string endpoint, CancellationToken ct, TimeSpan? uncertaintyTimeout = null) =>
             _engine.RunTrackedRepoRpcAsync(_client, "restore-probe-default", endpoint, new BackrestSidecar.EmptyRequest(),
                 op => op.OperationBackup is not null || op.OperationCheck is not null || op.OperationForget is not null, ct,
@@ -304,19 +304,17 @@ public sealed class RestoreSafetyRegressionTests
     private sealed class FakeBackrest(string status, Action<string>? produceOutput, CancellationTokenSource? cancel) : HttpMessageHandler
     {
         public int CancelRequests { get; private set; }
-        public bool IncludeExistedWhenCancelled { get; private set; }
+        public bool StagingExistedWhenCancelled { get; private set; }
         public bool TerminalAcknowledged { get; private set; }
-        public string? IncludePath { get; private set; }
-        public string? LogText { get; set; }
         public bool SynchronousRequest { get; set; }
         public int ProgressPolls { get; set; }
+        public bool NativeSummary { get; set; }
+        public bool WholeSource { get; set; }
         public int FailPolls { get; set; }
         public int FollowupPolls { get; set; }
         public bool CancelDuringFollowup { get; set; }
         public bool FollowupAcknowledged { get; private set; }
         public List<string> CancelledIds { get; } = new();
-        public bool LogFetchedWhileRequestPending { get; private set; }
-        private string? _command;
         private string? _endpoint;
         public string? LastEndpoint => _endpoint;
         private string? _nativeTarget;
@@ -339,32 +337,12 @@ public sealed class RestoreSafetyRegressionTests
                         _nativePath = body.RootElement.GetProperty("path").GetString()!;
                         Assert.False(Directory.Exists(_nativeTarget));
                         Directory.CreateDirectory(_nativeTarget);
-                        produceOutput?.Invoke(_nativeTarget);
+                        var output = WholeSource ? Path.Combine(_nativeTarget, "restore-fixture-source") : _nativeTarget;
+                        Directory.CreateDirectory(output);
+                        produceOutput?.Invoke(output);
                         _endpoint = path;
                     }
                     response = "{}"; // Native Restore acknowledges scheduling immediately.
-                    break;
-                case "/v1.Backrest/RunCommand":
-                    using (var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)))
-                    {
-                        var command = body.RootElement.GetProperty("command").GetString()!;
-                        _command = command;
-                        _endpoint = path;
-                        Assert.Contains("--quiet", command);
-                        Assert.DoesNotContain("--verbose", command);
-                        var target = Regex.Match(command, "--target '([^']+)' ").Groups[1].Value;
-                        IncludePath = Regex.Match(command, "--include-file '([^']+)'").Groups[1].Value;
-                        Assert.NotEmpty(target);
-                        Assert.True(File.Exists(IncludePath));
-                        produceOutput?.Invoke(target);
-                    }
-                    if (SynchronousRequest)
-                    {
-                        await _completed.Task.WaitAsync(cancellationToken);
-                        if (status != "STATUS_SUCCESS") return new HttpResponseMessage(HttpStatusCode.InternalServerError)
-                        { Content = new StringContent("{\"code\":\"unknown\",\"message\":\"command failed: exit status 1\"}") };
-                    }
-                    response = "{\"value\":\"42\"}";
                     break;
                 case "/v1.Backrest/Backup":
                 case "/v1.Backrest/Forget":
@@ -388,8 +366,7 @@ public sealed class RestoreSafetyRegressionTests
                     if (current != "STATUS_INPROGRESS") _completed.TrySetResult();
                     var recorded = new List<object> { new { id = "42", status = current, displayMessage = "Fixture terminal message",
                         operationRestore = _nativeTarget is null ? null : new { target = _nativeTarget, path = _nativePath,
-                            lastStatus = new { messageType = "status", totalBytes = "8", bytesRestored = "4", totalFiles = "1", filesRestored = "0", percentDone = 0.5 } },
-                        operationRunCommand = new { command = _command, outputLogref = LogText is null ? "" : "fixture-log" },
+                            lastStatus = new { messageType = NativeSummary && current != "STATUS_INPROGRESS" ? "summary" : "status", totalBytes = "8", bytesRestored = NativeSummary && current != "STATUS_INPROGRESS" ? "8" : "4", totalFiles = "1", filesRestored = NativeSummary && current != "STATUS_INPROGRESS" ? "1" : "0", percentDone = NativeSummary && current != "STATUS_INPROGRESS" ? 1.0 : 0.5 } },
                         operationBackup = _endpoint == "/v1.Backrest/Backup" ? new object() : null,
                         operationCheck = _endpoint == "/v1.Backrest/DoRepoTask" ? new object() : null,
                         operationForget = _endpoint == "/v1.Backrest/Forget" ? new object() : null } };
@@ -405,21 +382,11 @@ public sealed class RestoreSafetyRegressionTests
                     }
                     response = JsonSerializer.Serialize(new { operations = recorded });
                     break;
-                case "/v1.Backrest/GetLogs":
-                    LogFetchedWhileRequestPending = !_completed.Task.IsCompleted;
-                    var payload = JsonSerializer.SerializeToUtf8Bytes(new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(LogText!)) });
-                    var framed = new byte[5 + payload.Length + 7];
-                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(framed.AsSpan(1, 4), (uint)payload.Length);
-                    payload.CopyTo(framed.AsSpan(5));
-                    framed[5 + payload.Length] = 2;
-                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(framed.AsSpan(6 + payload.Length, 4), 2);
-                    framed[^2] = (byte)'{'; framed[^1] = (byte)'}';
-                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(framed) };
                 case "/v1.Backrest/Cancel":
                     CancelRequests++;
                     using (var cancelBody = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)))
                         CancelledIds.Add(cancelBody.RootElement.GetProperty("value").GetString()!);
-                    IncludeExistedWhenCancelled = File.Exists(IncludePath);
+                    StagingExistedWhenCancelled = Directory.Exists(_nativeTarget);
                     response = "{}";
                     break;
                 default: throw new InvalidOperationException("Unexpected request: " + path);
