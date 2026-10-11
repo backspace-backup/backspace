@@ -301,7 +301,7 @@ public sealed class NotificationService
             window = new Window
             {
                 Title = "Backspace",
-                SystemDecorations = SystemDecorations.None,
+                WindowDecorations = WindowDecorations.None,
                 CanResize = false,
                 ShowInTaskbar = topmost,
                 Topmost = topmost,

@@ -192,10 +192,12 @@ Restores write into their own empty staging directory and promote only the exact
 Startup cleanup trusts persisted process identity records (owner PID plus start time; child PID plus start time and executable) and leaves unknown/live owners alone. Windows job ownership covers the daemon and inherited child processes. There is no process-name or bundled-path sweep.
 
 On Windows, the platform builder uses Avalonia's RedirectionSurface composition
-path while retaining its hardware-rendering fallback order. Controlled native
-window-host measurements on the audit machine isolated sustained idle CPU to
-the default compositor, including with an empty Window. This choice substantially
-reduced measured idle work; it is not a claim of zero CPU on every system.
+path while retaining its hardware-rendering fallback order. Avalonia 12.1.3 can
+pause its compositor render loop when there is nothing to draw; Avalonia 11 kept
+ticking while idle. Native window-host measurements recorded lower idle CPU after
+the upgrade. They use an isolated configuration and do not guarantee zero CPU on
+every system. The test harness uses the matching Avalonia 12 headless packages
+and xUnit v3. DataGrid has its own package release, 12.1.2.
 
 The main window refreshes external configuration and run history on activation
 and when entering Backups or Activity. A fingerprint check and transaction run

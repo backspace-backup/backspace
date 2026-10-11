@@ -11,7 +11,6 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.VisualTree;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Backspace.Tests.Screenshots;
 
@@ -38,7 +37,7 @@ public class PoweredByLinkTests
             Width = 360,
             Height = 80,
             Background = new SolidColorBrush(Color.FromRgb(0xFB, 0xF8, 0xF2)),
-            SystemDecorations = SystemDecorations.None,
+            WindowDecorations = WindowDecorations.None,
         };
 
         // Replicate the MainWindow footer's exact structure.

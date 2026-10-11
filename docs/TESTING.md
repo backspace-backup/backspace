@@ -94,8 +94,7 @@ the test pipeline so an agent (or CI) can:
    `artifacts/scenarios/<name>/screenshots/<NN>-<step>.png`.
 4. **Report missing credentials explicitly.** `SecretsLoader` reads the
    ignored `tests/Backspace.Tests/secrets.env` file. The scenario report
-   records a skip and its reason; under xUnit v2 that scenario may still
-   appear as a passing runner result. Inspect both. Cloud E2E scenarios
+   records a skip and its reason in both the scenario report and the xUnit v3 runner result. Inspect both. Cloud E2E scenarios
    can acquire missing tokens interactively unless
    `BACKSPACE_E2E_NONINTERACTIVE=1` is set.
 5. **Write a markdown summary** at `artifacts/scenarios/SUMMARY.md`

@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Backspace.Models;
 using Backspace.Services;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Backspace.Tests.E2E;
 

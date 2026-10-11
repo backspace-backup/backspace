@@ -156,7 +156,8 @@ public class ScreenshotTests
     [AvaloniaFact]
     public void Shot_BackupEditor()
     {
-        var vm = new BackupEditorViewModel(new Backup { Name = "sample", SourcePaths = { @"C:\" } }, isNew: true);
+        ResetConfig(); // Do not inherit destinations from a preceding screenshot.
+        var vm = new BackupEditorViewModel(new Backup { Name = "sample", SourcePaths = { @"C:\Users\example\Documents" } }, isNew: true);
         var window = new BackupEditorWindow { DataContext = vm, Width = 980, Height = 840 };
         CaptureWindow(window, "editor-backup");
     }
@@ -349,7 +350,7 @@ public class ScreenshotTests
             Content = view,
             Width = 1240,
             Height = 820,
-            SystemDecorations = SystemDecorations.None,
+            WindowDecorations = WindowDecorations.None,
             Background = Avalonia.Media.Brushes.White,
         };
         CaptureWindow(window, name);
@@ -365,7 +366,7 @@ public class ScreenshotTests
             Content = view,
             Width = 1240,
             Height = 820,
-            SystemDecorations = SystemDecorations.None,
+            WindowDecorations = WindowDecorations.None,
             RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark,
             Background = Avalonia.Media.Brushes.Black,
         };
@@ -386,6 +387,7 @@ public class ScreenshotTests
             window.UpdateLayout();
             window.UpdateLayout();
             ScreenshotDiffTests.SettleInitialTransitions(window);
+            ScreenshotDiffTests.FreezeDemoScheduleLabels(window);
 
             Directory.CreateDirectory(OutputDir);
             var path = Path.Combine(OutputDir, $"{name}.png");
@@ -406,6 +408,8 @@ public class ScreenshotTests
             // shared headless session on a render/save throw.
             window.Close();
             (window.DataContext as IDisposable)?.Dispose();
+            if (window.Content is Control content)
+                (content.DataContext as IDisposable)?.Dispose();
         }
     }
 
@@ -430,6 +434,7 @@ public class ScreenshotTests
         {
             cfg.Backups.Clear();
             cfg.Destinations.Clear();
+            cfg.Preferences.Accent = AccentColor.Ocean;
         });
     }
 }

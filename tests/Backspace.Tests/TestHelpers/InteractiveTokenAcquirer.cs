@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Backspace.Models;
 using Backspace.Services;
 using Backspace.Services.OAuth;
-using Xunit.Abstractions;
+using Xunit;
 
 namespace Backspace.Tests.TestHelpers;
 

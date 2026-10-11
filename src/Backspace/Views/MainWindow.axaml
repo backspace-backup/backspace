@@ -10,7 +10,7 @@
         MinWidth="920" MinHeight="540"
         Background="{DynamicResource BS.Brush.BgBase}"
         ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaChromeHints="NoChrome"
+        WindowDecorations="BorderOnly"
         ExtendClientAreaTitleBarHeightHint="40">
 
   <Grid RowDefinitions="40,*">

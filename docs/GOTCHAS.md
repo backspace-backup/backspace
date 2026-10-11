@@ -83,7 +83,7 @@ the suite has **not been exercised** on either OS. Expect papercuts the
 first time someone tries — treat any Unix path as untested until it has
 a CI run against it.
 
-## `NumericUpDown.Value` is `decimal?` in Avalonia 11
+## `NumericUpDown.Value` is `decimal?`
 
 We bind it to plain `int` properties and rely on default numeric
 conversion. Works in practice; wrap in a converter if it ever throws.

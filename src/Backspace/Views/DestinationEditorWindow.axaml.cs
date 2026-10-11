@@ -1,6 +1,7 @@
 using System;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Backspace.Models;
 using Backspace.ViewModels;
@@ -127,7 +128,7 @@ public partial class DestinationEditorWindow : Window
         {
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard is null) return;
-            var text = await clipboard.GetTextAsync();
+            var text = await clipboard.TryGetTextAsync();
             if (string.IsNullOrWhiteSpace(text)) return;
             // Trim — users routinely copy a trailing newline from the
             // helper page; leaving it in tanks the validate call.

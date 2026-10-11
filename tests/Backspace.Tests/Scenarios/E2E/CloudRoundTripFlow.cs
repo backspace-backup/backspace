@@ -30,7 +30,7 @@ internal static class CloudRoundTripFlow
     public static async Task RunAsync(
         ScenarioContext ctx,
         CloudCredentialsLoader.Provider provider,
-        Xunit.Abstractions.ITestOutputHelper? log = null)
+        Xunit.ITestOutputHelper? log = null)
     {
         var cred = CloudCredentialsLoader.TryGet(provider);
 

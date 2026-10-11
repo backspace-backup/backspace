@@ -15,8 +15,7 @@ The suite-level `ScenarioSuiteFixture` writes
 `artifacts/scenarios/SUMMARY.md` after every test run with the
 step-completion/skip/failure breakdown, missing-secret table, and per-step
 screenshot index. Inspect the runner/TRX verdict too: scenario completion
-does not include later runner teardown, and a recorded scenario skip may
-appear as a passing runner result under xUnit v2.
+does not include later runner teardown. With xUnit v3, missing prerequisites are marked skipped in both the scenario report and the runner result.
 
 ## Running
 

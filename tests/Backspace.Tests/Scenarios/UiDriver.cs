@@ -121,7 +121,7 @@ public sealed class UiDriver : IDisposable
 
     /// <summary>
     /// Set the Text property of the first TextBox under
-    /// <paramref name="root"/> whose Watermark / Name matches
+    /// <paramref name="root"/> whose PlaceholderText / Name matches
     /// <paramref name="locator"/>. Two-way bindings see the change
     /// after the next dispatcher pump.
     /// </summary>
@@ -130,7 +130,7 @@ public sealed class UiDriver : IDisposable
         foreach (var tb in Descendants<TextBox>(root))
         {
             if (string.Equals(tb.Name, locator, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(tb.Watermark, locator, StringComparison.OrdinalIgnoreCase))
+                || string.Equals(tb.PlaceholderText, locator, StringComparison.OrdinalIgnoreCase))
             {
                 tb.Text = value;
                 Pump();

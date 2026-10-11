@@ -1,7 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using Avalonia.Platform;
 using Avalonia.Threading;
 using Backspace.Views;
 using Xunit;
@@ -50,7 +49,7 @@ public sealed class WindowPlacementTests
     [AvaloniaFact]
     public void OpenedPreservesConfiguredClientSizeOnSpaciousScreen()
     {
-        var screen = new Screen(1, new PixelRect(0, 0, 2000, 1200), new PixelRect(0, 0, 2000, 1160), true);
+        var screen = new WindowPlacement.MonitorGeometry(new PixelRect(0, 0, 2000, 1200), new PixelRect(0, 0, 2000, 1160), 1);
         var window = new Window { Width = 1000, Height = 700, MinWidth = 920, MinHeight = 540 };
         WindowPlacement.Attach(window, _ => screen);
         window.Show();
@@ -68,8 +67,8 @@ public sealed class WindowPlacementTests
     [AvaloniaFact]
     public void PositionHookFitsAnotherMonitorButLeavesOrdinaryDraggingAlone()
     {
-        var large = new Screen(1, new PixelRect(0, 0, 2000, 1200), new PixelRect(0, 0, 2000, 1160), true);
-        var small = new Screen(1, new PixelRect(2000, 0, 1024, 512), new PixelRect(2000, 0, 1024, 472), false);
+        var large = new WindowPlacement.MonitorGeometry(new PixelRect(0, 0, 2000, 1200), new PixelRect(0, 0, 2000, 1160), 1);
+        var small = new WindowPlacement.MonitorGeometry(new PixelRect(2000, 0, 1024, 512), new PixelRect(2000, 0, 1024, 472), 1);
         var currentScreen = large;
         var window = new Window { Width = 1000, Height = 700, MinWidth = 920, MinHeight = 540 };
         WindowPlacement.Attach(window, _ => currentScreen);
@@ -103,14 +102,14 @@ public sealed class WindowPlacementTests
     [AvaloniaFact]
     public void RestoreHookFitsDisplayChangesThatOccurredWhileMaximized()
     {
-        var currentScreen = new Screen(1, new PixelRect(0, 0, 2000, 1200), new PixelRect(0, 0, 2000, 1160), true);
+        var currentScreen = new WindowPlacement.MonitorGeometry(new PixelRect(0, 0, 2000, 1200), new PixelRect(0, 0, 2000, 1160), 1);
         var window = new Window { Width = 1000, Height = 700, MinWidth = 920, MinHeight = 540 };
         WindowPlacement.Attach(window, _ => currentScreen);
         window.Show();
         try
         {
             window.WindowState = WindowState.Maximized;
-            currentScreen = new Screen(1, new PixelRect(0, 0, 1024, 512), new PixelRect(0, 0, 1024, 472), true);
+            currentScreen = new WindowPlacement.MonitorGeometry(new PixelRect(0, 0, 1024, 512), new PixelRect(0, 0, 1024, 472), 1);
             window.Position = new PixelPoint(40, 40);
             Assert.Equal(700, window.Height);
             window.WindowState = WindowState.Normal;

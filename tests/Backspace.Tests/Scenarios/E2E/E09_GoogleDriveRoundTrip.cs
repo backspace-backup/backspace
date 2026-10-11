@@ -2,7 +2,6 @@ using System.Threading.Tasks;
 using Avalonia.Headless.XUnit;
 using Backspace.Tests.TestHelpers;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Backspace.Tests.Scenarios.E2E;
 

@@ -3,7 +3,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Diagnostics;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -52,7 +51,7 @@ public sealed class S59_DropdownAffordance : ScenarioBase
                 await Settle();
                 Assert.True(picker.IsDropDownOpen);
                 var popup = picker.GetVisualDescendants().OfType<Popup>().Single();
-                Assert.IsAssignableFrom<Control>(((IPopupHostProvider)popup).PopupHost);
+                Assert.NotNull(TopLevel.GetTopLevel(popup.Child!));
                 ctx.Snapshot(window, label + "-open-theme-choices",
                     "Clicking the chevron opens the actual System, Light and Dark chooser over Settings; its existing popup and selection behavior are retained.");
                 var option = popup.Child!.GetVisualDescendants().OfType<ComboBoxItem>()

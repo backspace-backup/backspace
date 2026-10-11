@@ -13,7 +13,6 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.VisualTree;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Backspace.Tests.Screenshots;
 
@@ -51,7 +50,7 @@ public class ButtonHoverScreenshotTests
             Width = 1080,
             Height = 720,
             Background = new SolidColorBrush(Color.FromRgb(0xFB, 0xF8, 0xF2)),
-            SystemDecorations = SystemDecorations.None,
+            WindowDecorations = WindowDecorations.None,
         };
 
         var grid = new Grid

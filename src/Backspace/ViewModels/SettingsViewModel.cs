@@ -78,11 +78,13 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
 
     partial void OnThemeChanged(AppTheme value)
     {
+        if (_suspendAutoSave || _disposed) return;
         ServiceLocator.Config.Update(cfg => cfg.Preferences.Theme = value);
     }
 
     partial void OnAccentChanged(AccentColor value)
     {
+        if (_suspendAutoSave || _disposed) return;
         ServiceLocator.Config.Update(cfg => cfg.Preferences.Accent = value);
     }
 
@@ -104,8 +106,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     /// <summary>If true, closing the X button hides the window to
     /// the tray instead of quitting. Default true — matches what
     /// Slack / Discord / Signal etc. do, and is the right default
-    /// for a backup app that needs to stay running for scheduled
-    /// jobs to fire.</summary>
+    /// for quick access. Windows Task Scheduler starts scheduled jobs
+    /// even when the GUI has quit.</summary>
     [ObservableProperty] private bool _minimizeToTrayOnClose;
 
     // ---- monitoring ----
@@ -409,12 +411,14 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
 
     partial void OnLogRetentionDaysChanged(int value)
     {
+        if (_suspendAutoSave || _disposed) return;
         if (value < 1) value = 1;
         ServiceLocator.Config.Update(cfg => cfg.Logging.RetentionDays = value);
     }
 
     partial void OnLogsVerboseChanged(bool value)
     {
+        if (_suspendAutoSave || _disposed) return;
         ServiceLocator.Config.Update(cfg => cfg.Logging.MinimumLevel = value ? "Verbose" : "Information");
     }
 
@@ -459,6 +463,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     /// initialising properties from config — without this, the very
     /// first hydration would schedule a redundant save round-trip.</summary>
     private bool _suspendAutoSave;
+    private bool _disposed;
 
     public SettingsViewModel() : this(null) { }
 
@@ -498,6 +503,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         ServiceLocator.Config.Changed -= OnConfigChanged;
         _autoSaveDebouncer.Dispose();
     }
@@ -507,12 +514,13 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     /// redundant save round-trip.</summary>
     private void ScheduleAutoSave()
     {
-        if (_suspendAutoSave) return;
+        if (_suspendAutoSave || _disposed) return;
         _autoSaveDebouncer.Schedule();
     }
 
     private void Load()
     {
+        if (_disposed) return;
         // Suppress auto-save during hydration: assigning Theme = X
         // would otherwise trigger OnThemeChanged → ScheduleAutoSave even
         // though we just READ the value from disk.

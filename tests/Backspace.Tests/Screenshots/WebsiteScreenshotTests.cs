@@ -283,6 +283,7 @@ public class WebsiteScreenshotTests
         {
             cfg.Backups.Clear();
             cfg.Destinations.Clear();
+            cfg.Preferences.Accent = AccentColor.Ocean;
 
             cfg.Destinations.Add(new Destination
             {
@@ -529,6 +530,7 @@ public class WebsiteScreenshotTests
             window.UpdateLayout();
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             ScreenshotDiffTests.SettleInitialTransitions(window);
+            ScreenshotDiffTests.FreezeDemoScheduleLabels(window);
 
             if (window.DataContext is MainWindowViewModel { SelectedNav: NavItem.Logs } main)
             {

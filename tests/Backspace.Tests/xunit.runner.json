@@ -1,5 +1,5 @@
 {
-  "$schema": "https://xunit.net/schema/v2.4.1/xunit.runner.schema.json",
+  "$schema": "https://xunit.net/schema/current/xunit.runner.schema.json",
 
   "//comment-parallelization": [
     "ParallelizeTestCollections=false is also set in the csproj — kept in",

@@ -13,7 +13,6 @@ using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Backspace.Tests.Screenshots;
 
@@ -92,7 +91,7 @@ public class AttentionPillScreenshotTests
             Width = 1100,
             Height = 360,
             Background = new SolidColorBrush(bgColor),
-            SystemDecorations = SystemDecorations.None,
+            WindowDecorations = WindowDecorations.None,
         };
 
         var grid = new Grid
@@ -240,7 +239,7 @@ public class AttentionPillScreenshotTests
             Width = 900,
             Height = 360,
             Background = new SolidColorBrush(bgColor),
-            SystemDecorations = SystemDecorations.None,
+            WindowDecorations = WindowDecorations.None,
         };
 
         var grid = new Grid

@@ -7,20 +7,9 @@ for the workflow rules an agent must follow before touching this file.
 
 ## Actively working
 
-### P2: Remove the backup setup time estimate
-
-- **Raised:** 2026-10-10
-- **Type:** polish
-- **Status:** Awaiting validation
-- **Context:** The user asked to remove “About 2 minutes” from “Set up a backup” because it sounds long and does not reliably describe how long setup takes.
-- **Current result:** The invitation says “Set up a backup”. No other user-facing occurrence of this time estimate was found.
-- **Proof — open and look:** 🖼️ [Setup invitation without an estimate](../audit-dashboard/evidence/agent-work-20261010/setup-without-time-estimate.png) — The primary button has no duration claim.
-- **Limitations / adversarial review:** Existing empty-state scenario passed with the real application resources. This is a wording change; no new behavior is introduced.
-- **I need from you:** Confirm the revised wording.
-
 **Review queue — 10 October 2026:** Your latest comments have replies and new evidence in [the review desk](http://127.0.0.1:4317/). [Review summary](../audit-dashboard/evidence/feedback-20261010/report.html). The accepted entries have been removed from this active list, with the original records preserved in the desk and reconciliation report. Your redesign approval is recorded. The Word document has been reviewed.
 
-**I need from you:** Review the new answers where the next turn is yours. Live cloud checks need account consent and provider configuration; email and Healthchecks checks need a test destination. The prepared Windows checks need an administrator session and B040 needs a real reboot. No input is needed for the agent’s restore-progress, idle-CPU or cloud-source implementation work. The historical port plan remains until the condition on your deletion permission is met.
+**I need from you:** Review the new answers where the next turn is yours. Live cloud checks need account consent and provider configuration; email and Healthchecks checks need a test destination. The prepared Windows checks need an administrator session and B040 needs a real reboot. B024 now has measured CPU improvements and asks for the remaining native tray/display-scale check. No input is needed for the agent’s remaining restore-progress or cloud-source implementation work. The historical port plan remains until the condition on your deletion permission is met.
 
 **Older items need attention:** Any remaining June/July entry awaiting validation is older than a week; accept its evidence or describe the remaining problem. These entries have not been silently removed.
 
@@ -82,6 +71,17 @@ for the workflow rules an agent must follow before touching this file.
   > => This isn't clear, what am I supposed to do? The page http://127.0.0.1:4317/proof/repair-verification.html doesn't show a proof of what you did.
 
 - **I need from you:** Open the new folder-restore report. The result to review is simple: 2,397 requested files recovered correctly, zero unwanted files, and the existing destination file unchanged. The report also explains why the individual filename safety list is still retained.
+
+### P1: Loading Settings must not rewrite saved preferences
+
+- **Raised:** 2026-10-10
+- **Type:** bug
+- **Status:** Awaiting validation
+- **Context:** The framework-upgrade checks exposed a settings refresh that writes values back while loading them. Queued refreshes can overwrite a newer logging choice, and simply opening Settings can change a saved Debug logging level to Verbose.
+- **Current result:** Opening and refreshing Settings no longer writes preferences back. Deliberate edits still save; queued refreshes are ignored after disposal.
+- **Proof — open and look:** [Settings before-and-after results](../audit-dashboard/evidence/agent-work-20261010/settings-refresh.html) — The test first reproduced four unwanted writes, then passed with zero on opening, correct deliberate saves and safe disposal.
+- **Limitations / adversarial review:** The test exercises real view-model/configuration behavior, including negative cases, through bound properties rather than native clicks. Existing Settings interaction scenarios also pass.
+- **I need from you:** Review A031 and its before-and-after report.
 
 ### P1: Stop engine startup if local authentication cannot be enabled
 
@@ -450,6 +450,17 @@ for the workflow rules an agent must follow before touching this file.
 
 - **I need from you:** B036: Open the before-click popup and after-click log screenshots. Windows desktop placement and focus still need a native check.
 
+### P2: Remove the backup setup time estimate
+
+- **Raised:** 2026-10-10
+- **Type:** polish
+- **Status:** Awaiting validation
+- **Context:** The user asked to remove “About 2 minutes” from “Set up a backup” because it sounds long and does not reliably describe how long setup takes.
+- **Current result:** The invitation says “Set up a backup”. No other user-facing occurrence of this time estimate was found.
+- **Proof — open and look:** 🖼️ [Setup invitation without an estimate](../audit-dashboard/evidence/agent-work-20261010/setup-without-time-estimate.png) — The primary button has no duration claim.
+- **Limitations / adversarial review:** Existing empty-state scenario passed with the real application resources. This is a wording change; no new behavior is introduced.
+- **I need from you:** Confirm the revised wording.
+
 ### P2: E2E coverage audit — user-action ↔ scenario matrix
 
 - **Raised:** 2026-06-11
@@ -560,22 +571,24 @@ for the workflow rules an agent must follow before touching this file.
 
 - **Raised:** 2026-10-02 (original note reintroduced for audit)
 - **Type:** coverage
-- **Status:** In progress
+- **Status:** Awaiting validation
 - **Context:** B024: Also it is misleading to say "Backspace keeps running in the background so scheduled backups still fire"! App doesn't need to run in the background for this! User should be reassured about this. Only useful to keep to reopen fast. How are things handled if a backup or any other operation is running and user wants to quit? I think we should still push to keep app running in the systray if you can confirm CPU impact will be zero when no operation is running. This can be reassuring for people to see Backspace if there. But we should reassure them even if Backspace is quit, it'll stop existing operations but scheduled operations will be triggered as usual. Find the best way to frame this.
-- **Current result:** The new native measurements still show idle CPU use: about 0.156% of this 22-thread machine with the window hidden. Backrest itself used no measurable CPU in that interval. Teleporter uses Avalonia 12.1.3, software rendering and a fully closed window. Backspace uses Avalonia 11.2.3; copying the renderer and closing the window in isolated probes did not reach zero CPU.
-- **Remaining:** Agent work: profile the remaining idle activity and compare framework behavior before choosing a fix. A renderer switch alone did not improve CPU, so no production renderer or tray-lifecycle change was made. Keep the issue open until a native measurement demonstrates the intended reduction.
+- **Current result:** Backspace now uses Avalonia 12.1.3, whose rendering loop sleeps when idle. Matched native measurements show less CPU use than the old framework. A separate low-overhead, one-minute sample measured about 0.0036% of this machine’s total CPU with the window hidden; Backrest used no measurable CPU in that interval.
+- **Remaining:** Review the measurements, then check the actual app at your Windows display scale and leave it idle in the tray while watching Task Manager. Confirm that the layout remains correct and CPU settles near zero. The isolated native-window reduction is measured, but the full tray and scaled-display check remains pending. B040 retains the reboot test.
 - **Proof — open and look:**
+
+  - [Measured idle CPU before and after the framework update](../audit-dashboard/evidence/agent-work-20261010/idle-cpu-12.html) — Backspace now uses Avalonia 12.1.3, whose rendering loop sleeps when idle. Matched native measurements show less CPU use than the old framework. A separate low-overhead, one-minute sample measured about 0.0036% of this machine’s total CPU with the window hidden; Backrest used no measurable CPU in that interval.
 
   - [10 October: answer and evidence](../audit-dashboard/evidence/feedback-20261010/idle-cpu.html) — The new native measurements still show idle CPU use: about 0.156% of this 22-thread machine with the window hidden. Backrest itself used no measurable CPU in that interval. Teleporter uses Avalonia 12.1.3, software rendering and a fully closed window. Backspace uses Avalonia 11.2.3; copying the renderer and closing the window in isolated probes did not reach zero CPU.
   - [Idle CPU with the final design](../audit-dashboard/evidence/design-native-idle/report.html) — Two 30-second samples: 0.203% visible and 0.209% hidden of total CPU on this 22-thread host. Empty disposable configuration; no universal zero-CPU claim.
   - [Idle CPU measurements and diagnosis](../audit-dashboard/evidence/idle-cpu-comparison.html) — Compare raw visible/hidden-window samples and the shared production-builder confirmation; measurement scope and machine details are disclosed.
-- **Limitations / adversarial review:** Empty disposable configuration, actual Windows window and owned Backrest daemon. These measurements exclude registered schedules, tray-menu interaction and personal backups. They prove the measured nonzero use, not the cause; a framework-version difference is a lead, not a diagnosis.
+- **Limitations / adversarial review:** Production window and styles in a native Windows host, real owned Backrest, empty disposable configuration. No tray icon, scheduled task registration, update checks or active backups in the CPU probe. Detailed and low-overhead samplers are identified separately. An artificial 125% bitmap capture showed displaced content; actual scaled-display acceptance is still needed. Windows screenshot inspection timed out awaiting app approval.
 - **Follow-up received 2026-10-10:**
   > You did not address all my original comments/questions. 
   > FYI With this project you achieved 0% CPU usage when app was in systray but not doing anything:
   > C:\Users\erwin\Dropbox\Projects\GitHub\Teleporter
 
-- **I need from you:** No action for this work now; the agent retains the next step.
+- **I need from you:** Review the measurements, then check the actual app at your Windows display scale and leave it idle in the tray while watching Task Manager. Confirm that the layout remains correct and CPU settles near zero. The isolated native-window reduction is measured, but the full tray and scaled-display check remains pending. B040 retains the reboot test.
 
 ### P2: Interactive OAuth test switch and reusable tokens
 

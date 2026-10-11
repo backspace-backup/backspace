@@ -1,7 +1,6 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Platform;
 using Avalonia.Threading;
 
 namespace Backspace.Views;
@@ -10,14 +9,15 @@ namespace Backspace.Views;
 internal static class WindowPlacement
 {
     internal readonly record struct Placement(Size ClientSize, Size MinimumSize, PixelPoint Position);
-    private readonly record struct MonitorGeometry(PixelRect Bounds, PixelRect WorkingArea, double Scaling);
+    internal sealed record MonitorGeometry(PixelRect Bounds, PixelRect WorkingArea, double Scaling);
 
     internal static void Attach(Window window) =>
-        Attach(window, w => w.Screens.ScreenFromWindow(w) ?? w.Screens.Primary);
+        Attach(window, w => (w.Screens.ScreenFromWindow(w) ?? w.Screens.Primary) is { } screen
+            ? new MonitorGeometry(screen.Bounds, screen.WorkingArea, screen.Scaling) : null);
 
     // The screen lookup is injectable so tests can drive the real window events
     // with two monitor geometries without changing the desktop's display setup.
-    internal static void Attach(Window window, Func<Window, Screen?> screenForWindow)
+    internal static void Attach(Window window, Func<Window, MonitorGeometry?> screenForWindow)
     {
         var minimum = new Size(window.MinWidth, window.MinHeight);
         MonitorGeometry? fittedMonitor = null;

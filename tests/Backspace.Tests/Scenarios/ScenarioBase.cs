@@ -45,14 +45,12 @@ public abstract class ScenarioBase
             if (ctx.Report.Status == ScenarioStatus.Pending)
                 ctx.Report.MarkPassed();
         }
-        catch (ScenarioSkippedException)
+        catch (ScenarioSkippedException ex)
         {
-            // ctx.Skip already stamped the report with the reason.
-            // xUnit v2 has no portable Assert.Skip, so we just
-            // return cleanly — the test passes (no failure) and
-            // SUMMARY.md carries the skip status. The scenario name
-            // also gets recorded in MissingSecretsByName so the
-            // suite summary surfaces what to do about it.
+            // Keep the runner/TRX verdict consistent with the human report.
+            // Missing credentials or a native dependency are not a passing test.
+            ctx.Dispose();
+            Assert.Skip(ex.Message);
         }
         catch (Exception ex)
         {

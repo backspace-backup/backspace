@@ -478,7 +478,7 @@
                            Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
               <Grid ColumnDefinitions="*,Auto" Margin="26,0,0,0">
                 <TextBox Grid.Column="0" Text="{Binding CustomTargetPath}"
-                         Watermark="Pick a folder"
+                         PlaceholderText="Pick a folder"
                          IsEnabled="{Binding TargetDifferentFolder}"/>
                 <Button Grid.Column="1" Classes="ghost" Content="Browse" Margin="10,0,0,0"
                         IsEnabled="{Binding TargetDifferentFolder}"
@@ -612,7 +612,7 @@
       <TextBox DockPanel.Dock="Top"
                Margin="0,0,0,10"
                Text="{Binding FileFilter}"
-               Watermark="Type a part of a filename to narrow down…"/>
+               PlaceholderText="Type a part of a filename to narrow down…"/>
 
       <!-- Bottom strip: counts on the left, Back/Next on the right.
            Docked Bottom so it stays glued to the page bottom no

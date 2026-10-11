@@ -219,10 +219,10 @@
             <Grid ColumnDefinitions="*,12,*">
               <TextBox Grid.Column="0"
                        Text="{Binding DropboxClientId}"
-                       Watermark="client_id (e.g. 1a2b3c4d5e6f7g8)"/>
+                       PlaceholderText="client_id (e.g. 1a2b3c4d5e6f7g8)"/>
               <TextBox Grid.Column="2"
                        Text="{Binding DropboxClientSecret}" PasswordChar="•"
-                       Watermark="client_secret (optional)"/>
+                       PlaceholderText="client_secret (optional)"/>
             </Grid>
           </StackPanel>
 
@@ -231,10 +231,10 @@
             <Grid ColumnDefinitions="*,12,*">
               <TextBox Grid.Column="0"
                        Text="{Binding OneDriveClientId}"
-                       Watermark="Application (client) ID from Microsoft Entra"/>
+                       PlaceholderText="Application (client) ID from Microsoft Entra"/>
               <TextBox Grid.Column="2"
                        Text="{Binding OneDriveClientSecret}" PasswordChar="•"
-                       Watermark="client_secret (optional)"/>
+                       PlaceholderText="client_secret (optional)"/>
             </Grid>
           </StackPanel>
 
@@ -243,10 +243,10 @@
             <Grid ColumnDefinitions="*,12,*">
               <TextBox Grid.Column="0"
                        Text="{Binding GoogleDriveClientId}"
-                       Watermark="client_id from Google Cloud Console"/>
+                       PlaceholderText="client_id from Google Cloud Console"/>
               <TextBox Grid.Column="2"
                        Text="{Binding GoogleDriveClientSecret}" PasswordChar="•"
-                       Watermark="client_secret (optional)"/>
+                       PlaceholderText="client_secret (optional)"/>
             </Grid>
           </StackPanel>
         </StackPanel>
@@ -419,7 +419,7 @@
                    but the helper line tells you not to. -->
               <TextBox Text="{Binding MailFrom}"
                        IsReadOnly="{Binding IsMailgunSandbox}"
-                       Watermark="Your name &lt;you@domain.com&gt;"/>
+                       PlaceholderText="Your name &lt;you@domain.com&gt;"/>
               <!-- Resend: verified-domain note. -->
               <TextBlock Classes="helper"
                          IsVisible="{Binding IsResendProvider}"
@@ -484,7 +484,7 @@
             <Grid ColumnDefinitions="*,Auto">
               <TextBox Grid.Column="0"
                        Text="{Binding MailToInput}"
-                       Watermark="you@example.com"
+                       PlaceholderText="you@example.com"
                        IsEnabled="{Binding CanAddMoreRecipients}">
                 <TextBox.KeyBindings>
                   <KeyBinding Gesture="Enter" Command="{Binding AddRecipientCommand}"/>
@@ -503,7 +503,7 @@
                       IsVisible="{Binding MailProvider, Converter={x:Static vm:Eq.To}, ConverterParameter=Resend}">
             <TextBlock Classes="label-caps" Text="RESEND API KEY"/>
             <TextBox Text="{Binding ResendApiKey}" PasswordChar="•"
-                     Watermark="re_xxxxxxxxxxxxxxxxxxxx">
+                     PlaceholderText="re_xxxxxxxxxxxxxxxxxxxx">
               <ToolTip.Tip>
                 <StackPanel MaxWidth="380" Spacing="6">
                   <TextBlock FontWeight="SemiBold" Text="How to get a Resend API key"/>
@@ -545,7 +545,7 @@
             <Grid ColumnDefinitions="*,22,160">
               <StackPanel Grid.Column="0" Spacing="6">
                 <TextBlock Classes="label-caps" Text="SENDING DOMAIN"/>
-                <TextBox Text="{Binding MailgunDomain}" Watermark="mg.yourdomain.com"
+                <TextBox Text="{Binding MailgunDomain}" PlaceholderText="mg.yourdomain.com"
                          ToolTip.Tip="The verified domain on your Mailgun account (e.g. mg.example.com). Mailgun won't accept sends from an unverified domain. Sandbox accounts only allow sending to addresses you've explicitly added as &quot;authorized recipients&quot;."/>
               </StackPanel>
               <StackPanel Grid.Column="2" Spacing="6">
@@ -559,7 +559,7 @@
             <StackPanel Spacing="6">
               <TextBlock Classes="label-caps" Text="MAILGUN API KEY"/>
               <TextBox Text="{Binding MailgunApiKey}" PasswordChar="•"
-                       Watermark="Private API key from Mailgun → API security">
+                       PlaceholderText="Private API key from Mailgun → API security">
                 <ToolTip.Tip>
                   <StackPanel MaxWidth="400" Spacing="6">
                     <TextBlock FontWeight="SemiBold" Text="How to get a Mailgun API key"/>

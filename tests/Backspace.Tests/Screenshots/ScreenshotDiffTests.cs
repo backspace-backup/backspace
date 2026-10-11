@@ -30,6 +30,18 @@ namespace Backspace.Tests.Screenshots;
 /// </summary>
 public class ScreenshotDiffTests
 {
+    // These are fictional presentation fixtures, not scheduler assertions.
+    // Keep their labels independent of whether the suite runs before or after 8pm.
+    internal static void FreezeDemoScheduleLabels(Avalonia.Controls.Window window)
+    {
+        var model = window.DataContext ?? (window.Content as Avalonia.Controls.Control)?.DataContext;
+        var backups = model is Backspace.ViewModels.MainWindowViewModel main ? main.Backups
+            : model as Backspace.ViewModels.BackupsViewModel;
+        if (backups is null) return;
+        foreach (var card in backups.Cards) card.NextRunLabel = "Tonight 20:00 (Daily)";
+        window.UpdateLayout();
+    }
+
     // The directory-wide check can run alongside a screenshot generator.
     // Serialize file publication and comparison so they never write the same
     // diff PNG at once or compare a file while another test replaces it.

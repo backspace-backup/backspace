@@ -76,7 +76,7 @@
               <Grid ColumnDefinitions="*,10,Auto">
                 <TextBox Grid.Column="0" Text="{Binding PathOrSubpath}"
                          Classes.error="{Binding PathError, Converter={x:Static vm:NotEmpty.To}}"
-                         Watermark="e.g. M:\Backups\Backspace"/>
+                         PlaceholderText="e.g. M:\Backups\Backspace"/>
                 <Button Grid.Column="2" Classes="ghost"
                         Command="{Binding BrowseFolderCommand}">
                   <StackPanel Orientation="Horizontal" Spacing="8">
@@ -122,7 +122,7 @@
                          Text="Removable drives can land on a different letter between sessions, so Backspace matches by volume label instead. We pre-filled the label from the folder you picked; review and edit if needed."/>
               <StackPanel Spacing="6">
                 <TextBlock Classes="label-caps" Text="EXPECTED VOLUME LABEL"/>
-                <TextBox Text="{Binding ExpectedVolumeLabel}" Watermark="e.g. My Passport"/>
+                <TextBox Text="{Binding ExpectedVolumeLabel}" PlaceholderText="e.g. My Passport"/>
                 <TextBlock Classes="helper" Text="Runs are skipped (not failed) when this drive isn't mounted."/>
               </StackPanel>
             </StackPanel>
@@ -140,7 +140,7 @@
               </TextBlock>
               <TextBox Text="{Binding PathOrSubpath}"
                        Classes.error="{Binding PathError, Converter={x:Static vm:NotEmpty.To}}"
-                       Watermark="\\server\share\folder"/>
+                       PlaceholderText="\\server\share\folder"/>
               <TextBlock Classes="field-error" Text="{Binding PathError}"
                          IsVisible="{Binding PathError, Converter={x:Static vm:NotEmpty.To}}"/>
 
@@ -219,7 +219,7 @@
                        PasswordChar="•"
                        FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12"
                        Classes.error="{Binding IsAuthError}"
-                       Watermark="{Binding TokenInputWatermark}"/>
+                       PlaceholderText="{Binding TokenInputWatermark}"/>
               <Button Grid.Column="2" Classes="ghost"
                       Click="OnPasteOAuthToken"
                       ToolTip.Tip="Paste from clipboard">
@@ -330,7 +330,7 @@
             <StackPanel Spacing="6" IsVisible="{Binding ShowCloudSubfolderField}">
               <TextBlock Classes="label-caps" Text="CLOUD SUBFOLDER"/>
               <TextBox Text="{Binding PathOrSubpath}"
-                       Watermark="e.g. backspace-photos (leave blank and we'll auto-name from this destination)"/>
+                       PlaceholderText="e.g. backspace-photos (leave blank and we'll auto-name from this destination)"/>
               <TextBlock Classes="helper"
                          Text="A folder under your cloud account where this backup's data lives. Backspace creates it on first run. Leave blank to auto-name from the destination name on save."/>
             </StackPanel>
@@ -344,14 +344,14 @@
             <Grid ColumnDefinitions="*,22,*">
               <StackPanel Grid.Column="0" Spacing="6">
                 <TextBlock Classes="label-caps" Text="ENDPOINT"/>
-                <TextBox Text="{Binding S3Endpoint}" Watermark="s3.us-east-1.amazonaws.com"/>
+                <TextBox Text="{Binding S3Endpoint}" PlaceholderText="s3.us-east-1.amazonaws.com"/>
               </StackPanel>
               <StackPanel Grid.Column="2" Spacing="6">
                 <TextBlock Classes="label-caps">
                   <Run Text="BUCKET "/>
                   <Run Classes="req-star" Text="*"/>
                 </TextBlock>
-                <TextBox Text="{Binding S3Bucket}" Watermark="my-bucket"
+                <TextBox Text="{Binding S3Bucket}" PlaceholderText="my-bucket"
                          Classes.error="{Binding BucketError, Converter={x:Static vm:NotEmpty.To}}"/>
                 <TextBlock Classes="field-error" Text="{Binding BucketError}"
                            IsVisible="{Binding BucketError, Converter={x:Static vm:NotEmpty.To}}"/>
@@ -422,7 +422,7 @@
               <Grid ColumnDefinitions="*,8,Auto">
                 <TextBox Grid.Column="0"
                          Text="{Binding StoragePasswordInput}" PasswordChar="•"
-                         Watermark="{Binding StoragePasswordWatermark}"
+                         PlaceholderText="{Binding StoragePasswordWatermark}"
                          IsEnabled="{Binding StoragePasswordEditable}"/>
                 <Button Grid.Column="2" Classes="ghost" Content="Change password…"
                         Click="OnChangeStoragePassword"
@@ -463,7 +463,7 @@
               <StackPanel Spacing="6">
                 <TextBlock Classes="label-caps" Text="NAME"/>
                 <TextBox Text="{Binding Name}"
-                         Watermark="{Binding SuggestedName}"
+                         PlaceholderText="{Binding SuggestedName}"
                          Classes.error="{Binding NameError, Converter={x:Static vm:NotEmpty.To}}"/>
                 <TextBlock Classes="helper"
                            Text="Leave blank and we'll use the suggestion above. Must be unique across destinations."/>
@@ -487,11 +487,11 @@
               <Grid ColumnDefinitions="*,22,*" IsVisible="{Binding ShowS3}">
                 <StackPanel Grid.Column="0" Spacing="6">
                   <TextBlock Classes="label-caps" Text="REGION"/>
-                  <TextBox Text="{Binding S3Region}" Watermark="us-east-1 / auto"/>
+                  <TextBox Text="{Binding S3Region}" PlaceholderText="us-east-1 / auto"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Spacing="6">
                   <TextBlock Classes="label-caps" Text="BUCKET PREFIX"/>
-                  <TextBox Text="{Binding PathOrSubpath}" Watermark="optional/subfolder"/>
+                  <TextBox Text="{Binding PathOrSubpath}" PlaceholderText="optional/subfolder"/>
                 </StackPanel>
               </Grid>
 
