@@ -191,6 +191,17 @@ internal static class WindowsUpdateRuntime
             if (!Guid.TryParseExact(Path.GetFileName(work), "N", out _)) continue;
             var path = Path.Combine(work, "plan.json");
             if (!File.Exists(path)) continue;
+            // Finished and merely downloaded updates need no startup recovery.
+            // Their absolute paths may legitimately be stale after the portable
+            // application folder moves. Only unfinished replacement records may
+            // authorize file changes, and those still receive full validation.
+            WindowsUpdatePackage.RejectReparse(work);
+            WindowsUpdatePackage.RejectReparse(path);
+            using (var record = JsonDocument.Parse(File.ReadAllText(path)))
+            {
+                if (record.RootElement.TryGetProperty("State", out var state)
+                    && state.GetString() is "Prepared" or "Installed" or "RolledBack") continue;
+            }
             var plan = ReadPlan(path);
             if (plan.State != "Installing") continue;
             using var gate = TryExclusive(root);

@@ -10,17 +10,17 @@ using Xunit;
 namespace Backspace.Tests.Scenarios;
 
 /// <summary>
-/// Settings page toggle persistence — covers two matrix rows:
+/// Settings notification state and legacy configuration compatibility:
 ///   • "Toggle notification gating per event" (Success/Skipped/Failure
 ///     × Toast/Sound/Email — 9 independent gates).
-///   • "Restore-retry cascade settings" (the per-attempt delay list).
+///   • The legacy restore-delay list remains ordered after a config update.
 ///
-/// Asserts: the toggle changes round-trip through SettingsViewModel
-/// → ConfigStore.Update → reload, the email-gate aggregate
-/// (<c>AnyEmailEnabled</c>) flips with the right combination, and
-/// the retry-cascade list survives the round-trip with the exact
-/// element order (the engine consumes elements in order, so a
-/// reordering during persist would silently break the cascade).
+/// Asserts: notification values remain in the current configuration after
+/// an explicit ConfigStore.Update, and the email-gate aggregate
+/// (<c>AnyEmailEnabled</c>) changes with the selected values. The legacy
+/// retry-delay list is written directly and checked for preserved order;
+/// there is no Settings control or active engine retry behavior for it.
+/// This scenario does not reload a fresh ConfigStore from disk.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class S45_SettingsTogglePersistence : ScenarioBase
@@ -50,7 +50,7 @@ public sealed class S45_SettingsTogglePersistence : ScenarioBase
             "FailureEmail flipped on — AnyEmailEnabled must surface true so the " +
             "email-provider section expands.");
 
-        // Cascade settings: pick a non-default list with a distinctive
+        // Legacy configuration: pick a non-default list with a distinctive
         // shape that would shuffle if the persist layer used a set
         // instead of a list.
         var cascade = new[] { 2, 7, 13, 25, 90 };
@@ -68,7 +68,7 @@ public sealed class S45_SettingsTogglePersistence : ScenarioBase
             cfg.Notifications.OnFailure.Email = vm.FailureEmail;
         });
 
-        // -------- Round-trip through ConfigStore --------
+        // -------- Current state after ConfigStore.Update --------
         var saved = ServiceLocator.Config.Current;
         Assert.True (saved.Notifications.OnSuccess.Toast, "Success.Toast lost");
         Assert.False(saved.Notifications.OnSuccess.Sound, "Success.Sound spuriously flipped");
@@ -83,8 +83,10 @@ public sealed class S45_SettingsTogglePersistence : ScenarioBase
         Assert.Equal(cascade, saved.Restore.RetryDelaysSeconds);
 
         ctx.Report.RecordNote(
-            "9 notification gates + retry cascade round-trip",
-            $"Cascade order preserved: [{string.Join(", ", saved.Restore.RetryDelaysSeconds)}]");
+            "Notification values and legacy restore-delay compatibility",
+            $"Current configuration retains all 9 notification values and the legacy delay order " +
+            $"[{string.Join(", ", saved.Restore.RetryDelaysSeconds)}]. " +
+            "The delay list has no active Settings control or engine retry behavior; this check does not reload the file.");
 
         return Task.CompletedTask;
     }

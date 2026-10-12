@@ -8,9 +8,11 @@ and [GOTCHAS.md](GOTCHAS.md) for upstream-specific traps.
 
 ```
 Program.cs
- ├── if (--run <name> / --run-all):  UnattendedRunner.RunAsync(...)   [headless]
- ├── if (--migrate <path>):          ConfigMigrator.MigrateFrom(...)  [one-shot]
- └── else:                           AppBuilder ... StartWithClassicDesktopLifetime(...)  [GUI]
+ ├── --run <name> / --run-all  → RunUnattended(...)              [headless]
+ ├── --prune / --check <name>  → RunUnattendedMaintenance(...)   [headless]
+ ├── --migrate <path>         → RunMigrate(...)                 [one-shot]
+ ├── --version / --help       → print and exit
+ └── no arguments            → RunGui(...)                     [Avalonia]
 
 Avalonia GUI
  ├── MainWindow
@@ -22,14 +24,13 @@ Avalonia GUI
      SourceTreePickerWindow, ErasingProgressWindow
 
 Services (singletons, accessed via ServiceLocator)
- └── src/Backspace/Services/  — ~60 classes; every one has a top-of-file
-                                XML doc comment explaining its role.
-                                Read the comment; don't rely on a list here.
+ └── src/Backspace/Services/  — backup, restore, persistence and integrations.
+                                Read each service's contract and tests.
                                 Platform-specific code lives under
                                 Services/Platform/{Windows,Unix}/.
 ```
 
-The headless code path (`--run` / `--run-all`) must work **without** the
+The headless code paths (`--run`, `--run-all`, `--prune`, `--check`) must work **without** the
 GUI loaded — no `App.Current` references, no Avalonia dispatcher
 assumptions. `ServiceLocator.InitializeCore` brings up only the services
 a backup needs.
@@ -62,7 +63,7 @@ Backspace/                          ← repo root (folder name may vary locally)
 │   ├── ViewModels/                  — one per view + dialog, MVVM (CommunityToolkit.Mvvm)
 │   ├── Views/                       — Avalonia .axaml + code-behind
 │   ├── Themes/                      — Theme.axaml + Accent_*.axaml + Controls.axaml + Icons.axaml
-│   ├── Assets/                      — embedded icons, fonts (Fraunces, Inter, JetBrains Mono),
+│   ├── Assets/                      — embedded icons and fonts (Manrope for headings),
 │   │                                  backrest(.exe) + restic(.exe) + rclone(.exe)
 │   │                                  (gitignored, fetched at build)
 │   ├── FetchBackrest.targets        — MSBuild target that downloads the engines on demand
@@ -177,6 +178,8 @@ test harness to give each test its own isolated config dir.
 - `Backspace`                              — launch GUI
 - `Backspace --run <backup-name>`          — unattended single-backup run (scheduler entry point)
 - `Backspace --run-all`                    — unattended, all enabled backups
+- `Backspace --prune <backup-name>`        — standalone retention and repository cleanup
+- `Backspace --check <backup-name>`        — standalone repository integrity check
 - `Backspace --migrate <path>`             — one-off import from an existing Duplicacy / duplicacy-util setup (single repo or parent-of-many)
 - `Backspace --version`
 - `Backspace --help | -h | /?`
@@ -192,7 +195,16 @@ Build and test commands live in [README.md § Building from source](../README.md
 
 `MaintenanceCoordinator` keeps a read lease for the lifetime of backups, restores, verification and mounted-file engine reads. Destructive maintenance and password changes require exclusive access, including a portable-config file handle that coordinates separate Backspace processes. Cancelling an operation is not proof it stopped: restore cancellation sends the daemon Cancel request and waits for a terminal acknowledgement. An unacknowledged daemon operation blocks further repository work until restart. Repository locks are never force-removed for password rotation.
 
-Restores write into their own empty staging directory and promote only the exact selected output after a successful or warning terminal result. Bracket-pattern cleanup never sweeps the user's target folder. Error and cancellation cannot publish partial staged content over existing files. Restore sessions retain their own wizard state, progress and result until the user dismisses them.
+Restores pin the immutable snapshot ID selected by the user; display revision numbers never identify an already selected snapshot. Output first goes into a private staging directory. Only confirmed complete selected files are moved to the target; bracket-pattern cleanup never sweeps that target. The replacement and folder-layout options apply during publication. Duplicate flattened names are rejected before replacing any file, and linked targets or ancestors are rejected before staging. Whole-folder restores also preserve empty directories. If cancellation or a disk error occurs while publishing completed files, files already moved remain and the result reports how many were copied. Restore sessions retain their own wizard state, progress and result until dismissed.
+
+Cleanup asks Backrest for snapshots belonging to each configured backup/source plan and forgets explicit snapshot IDs. It never deletes repository directories by their names. Removing a destination preserves unconfigured snapshots, unrelated files and reusable repository settings. Destination ownership is removed from configuration before its exclusive maintenance lease is released.
+
+Backups and standalone maintenance refresh saved configuration after acquiring
+their operation lease, before touching repositories. This includes a scheduled
+process that was waiting while another process removed a backup or destination.
+An unreadable configuration stops the operation. A run that finishes only some
+sources or destinations reports incomplete coverage; it neither advances the
+last complete-backup timestamp nor sends a successful monitoring ping.
 
 Startup cleanup trusts persisted process identity records (owner PID plus start time; child PID plus start time and executable) and leaves unknown/live owners alone. Windows job ownership covers the daemon and inherited child processes. There is no process-name or bundled-path sweep.
 

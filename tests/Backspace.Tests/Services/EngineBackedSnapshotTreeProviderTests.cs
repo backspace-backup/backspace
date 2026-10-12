@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Backspace.Models;
@@ -206,6 +208,80 @@ public class EngineBackedSnapshotTreeProviderTests : IDisposable
         await using (var s3 = await provider.OpenAsync("photos/2026/b.jpg", CancellationToken.None))
             Assert.Equal("gamma", await new StreamReader(s3).ReadToEndAsync());
         Assert.Equal(bulkBefore + 1, _engine.Calls.Count(c => c.StartsWith("RestoreSnapshotSubtree")));
+    }
+
+    [Fact]
+    public async Task CachedJunction_IsNeverFollowedIntoAnExternalSentinel()
+    {
+        using var provider = new EngineBackedSnapshotTreeProvider(_engine, _backup, _backup.SourcePaths[0],
+            _destination, "default", 1, _cacheDir);
+        var outside = Path.Combine(_tmpRoot, "outside");
+        Directory.CreateDirectory(Path.Combine(outside, "2026"));
+        var sentinel = Path.Combine(outside, "2026", "a.jpg");
+        File.WriteAllText(sentinel, "LIVE LOCAL FILE, NOT BACKUP DATA");
+        var junction = Path.Combine(_cacheDir, "files", "photos");
+        var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true };
+        start.ArgumentList.Add("/c"); start.ArgumentList.Add("mklink"); start.ArgumentList.Add("/J");
+        start.ArgumentList.Add(junction); start.ArgumentList.Add(outside);
+        using var child = Process.Start(start)!;
+        await child.WaitForExitAsync();
+        Assert.Equal(0, child.ExitCode);
+        try
+        {
+            var error = await Assert.ThrowsAsync<IOException>(() => provider.OpenAsync("photos/2026/a.jpg", CancellationToken.None));
+            Assert.Contains("linked file or folder", error.Message);
+            Assert.Equal("LIVE LOCAL FILE, NOT BACKUP DATA", File.ReadAllText(sentinel));
+            Assert.DoesNotContain(_engine.Calls, c => c.StartsWith("RestoreFiles"));
+        }
+        finally { Directory.Delete(junction); }
+    }
+
+    [Fact]
+    public async Task FailedBulkRestore_NeverServesPreallocatedFiles_AndFallsBackToVerifiedFiles()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var proxy = DispatchProxy.Create<IBackupEngine, BulkEngineProxy>();
+        var control = (BulkEngineProxy)proxy;
+        control.Inner = _engine;
+        control.Bulk = async args =>
+        {
+            var target = (string)args[5]!;
+            Directory.CreateDirectory(Path.Combine(target, "photos", "2026"));
+            File.WriteAllText(Path.Combine(target, "photos", "2026", "a.jpg"), "INCOMPLETE");
+            File.WriteAllText(Path.Combine(target, "photos", "2026", "b.jpg"), "INCOMPLETE");
+            started.TrySetResult();
+            await finish.Task;
+            return false;
+        };
+        using var provider = new EngineBackedSnapshotTreeProvider(proxy, _backup, _backup.SourcePaths[0],
+            _destination, "default", 1, _cacheDir);
+        await using (var first = await provider.OpenAsync("readme.txt", CancellationToken.None)) { }
+        var second = provider.OpenAsync("photos/2026/a.jpg", CancellationToken.None);
+        Task<Stream>? concurrent = null;
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            concurrent = provider.OpenAsync("photos/2026/b.jpg", CancellationToken.None);
+            await Task.Delay(100);
+            Assert.False(second.IsCompleted);
+            Assert.False(concurrent.IsCompleted);
+        }
+        finally { finish.TrySetResult(); }
+        await using var a = await second.WaitAsync(TimeSpan.FromSeconds(5));
+        await using var b = await concurrent!.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("beta", await new StreamReader(a).ReadToEndAsync());
+        Assert.Equal("gamma", await new StreamReader(b).ReadToEndAsync());
+    }
+
+    public class BulkEngineProxy : DispatchProxy
+    {
+        public IBackupEngine Inner { get; set; } = null!;
+        public Func<object?[], Task<bool>> Bulk { get; set; } = null!;
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) =>
+            targetMethod!.Name == nameof(IBackupEngine.RestoreSnapshotSubtreeAsync)
+                ? Bulk(args!) : targetMethod.Invoke(Inner, args);
     }
 
     [Fact]

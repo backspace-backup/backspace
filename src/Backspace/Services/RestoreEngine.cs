@@ -63,6 +63,7 @@ public sealed class RestoreEngine
             request.Backup.Name, request.SourcePath, request.Destination.Name, request.Revision,
             includes.Count, request.Files.Count, request.TargetPath);
 
+        ResticBackrestEngine.ValidateRestoreTarget(request.TargetPath);
         System.IO.Directory.CreateDirectory(request.TargetPath);
 
         var outcome = new RestoreOutcome
@@ -110,7 +111,8 @@ public sealed class RestoreEngine
                     }
                 },
                 ct,
-                expectedLeaves: request.Files.Count > 0 ? request.Files : null);
+                expectedLeaves: request.Files.Count > 0 ? request.Files : null,
+                expectedSnapshotId: request.SnapshotId, overwrite: request.Overwrite, preserveStructure: request.PreserveStructure);
 
             outcome.TotalFiles = request.Files.Count > 0 ? request.Files.Count : result.TotalFiles;
             outcome.RestoredCount = result.FilesRestored;
@@ -179,6 +181,7 @@ public sealed class RestoreRequest
     public required Destination Destination { get; init; }
     public required string StorageName { get; init; }
     public required int Revision { get; init; }
+    public string? SnapshotId { get; init; }
 
     /// <summary>Forward-slash relative paths the user selected. Drives
     /// the bracket-fallback sweep when the engine's `?`-substitution

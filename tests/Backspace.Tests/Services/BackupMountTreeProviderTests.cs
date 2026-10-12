@@ -95,6 +95,46 @@ public class BackupMountTreeProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task CancelledInitialRevisionListing_CanBeRetriedWithoutRemounting()
+    {
+        using var provider = new BackupMountTreeProvider(_engine, _backup, _destination, "default", _cacheDir);
+        using (var maintenance = await ServiceLocator.Maintenance.AcquireAsync("cancelled mount listing"))
+        {
+            using var cancel = new CancellationTokenSource();
+            var listing = provider.ListAsync("All revisions", cancel.Token);
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => listing);
+        }
+        var retried = await provider.ListAsync("All revisions", CancellationToken.None);
+        Assert.NotNull(retried);
+        Assert.Equal(2, retried!.Count);
+    }
+
+    [Fact]
+    public async Task FreshMount_IgnoresOldOrdinalCache_AndAnotherDestinationsBytes()
+    {
+        var legacy = Path.Combine(_cacheDir, "alpha-r3");
+        Directory.CreateDirectory(legacy);
+        File.WriteAllText(Path.Combine(legacy, "readme.txt"), "WRONG OLD SNAPSHOT");
+        using (var first = new BackupMountTreeProvider(_engine, _backup, _destination, "default", _cacheDir))
+        await using (var stream = await first.OpenAsync("Latest revision/alpha/readme.txt", CancellationToken.None))
+            Assert.Equal("alpha-root-r3", await new StreamReader(stream).ReadToEndAsync());
+
+        var other = new Destination { Id = "another-destination", Name = "Other", Kind = DestinationKind.LocalFolder,
+            PathOrSubpath = Path.Combine(_tmpRoot, "other-storage") };
+        Directory.CreateDirectory(other.PathOrSubpath);
+        for (var version = 1; version <= 3; version++)
+        {
+            File.WriteAllText(Path.Combine(_backup.SourcePaths[0], "readme.txt"), "OTHER DESTINATION " + version);
+            await _engine.BackupPruneCheckAsync(_backup, _backup.SourcePaths[0], other, "default", CancellationToken.None);
+        }
+        using var second = new BackupMountTreeProvider(_engine, _backup, other, "default", _cacheDir);
+        await using var otherStream = await second.OpenAsync("Latest revision/alpha/readme.txt", CancellationToken.None);
+        Assert.Equal("OTHER DESTINATION 3", await new StreamReader(otherStream).ReadToEndAsync());
+        Assert.Equal("WRONG OLD SNAPSHOT", File.ReadAllText(Path.Combine(legacy, "readme.txt")));
+    }
+
+    [Fact]
     public async Task Root_ListsTwoBranches()
     {
         using var provider = new BackupMountTreeProvider(_engine, _backup, _destination, "default", _cacheDir);

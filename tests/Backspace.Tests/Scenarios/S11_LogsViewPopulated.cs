@@ -49,10 +49,12 @@ public sealed class S11_LogsViewPopulated : ScenarioBase
             LastRunEndUtc = DateTime.UtcNow.AddHours(-1),
         };
         backup.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });
+        var otherBackup = new Backup { Name = "Photos" };
         ServiceLocator.Config.Update(cfg =>
         {
             cfg.Destinations.Add(dest);
             cfg.Backups.Add(backup);
+            cfg.Backups.Add(otherBackup);
         });
 
         // Build a synthetic per-run log file + persist a RunRecord
@@ -86,14 +88,23 @@ public sealed class S11_LogsViewPopulated : ScenarioBase
         Assert.Equal(NavItem.Logs, main.SelectedNav);
         var vm = main.Logs;
         var view = host.GetVisualDescendants().OfType<LogsView>().Single();
+        // The full suite may retain unrelated destination-maintenance history.
+        // Choose this backup through its real control rather than relying on
+        // whichever bucket happens to appear first in the selector.
+        var backupPicker = view.FindControl<ComboBox>("BackupPicker")!;
+        backupPicker.SelectedItem = backup.Name;
+        await ctx.Driver.PumpAsync(180);
+        Assert.All(vm.History, r => Assert.Equal(backup.Id, r.BackupId));
         var picker = view.FindControl<ComboBox>("RunPicker")!;
         var badge = view.FindControl<Border>("LiveBadge")!;
         var context = view.FindControl<TextBlock>("ConsoleContext")!;
         var clear = view.FindControl<Button>("ClearLog")!;
+        var combinedHint = view.FindControl<TextBlock>("CombinedOutputHint")!;
         Assert.Equal(record.Id, vm.SelectedRun?.Id);
         Assert.Contains("RUN_END Success", vm.DisplayText);
         Assert.False(badge.IsEffectivelyVisible);
         Assert.False(clear.IsEffectivelyVisible);
+        Assert.False(combinedHint.IsEffectivelyVisible);
         Assert.Contains("Success", context.Text);
         ctx.Snapshot(host, "logs populated past-run",
             "The actual Activity & logs navigation opens the saved successful run. Its output is visible; no LIVE indicator or Clear view action is shown for history.");
@@ -105,6 +116,10 @@ public sealed class S11_LogsViewPopulated : ScenarioBase
             Kind = RunKind.Restore, StartedUtc = DateTime.UtcNow, Status = BackupRunStatus.Running,
             Summary = "Running…" };
         ServiceLocator.Activity.Register(running);
+        var otherRunning = new RunRecord { BackupId = otherBackup.Id, BackupName = otherBackup.Name,
+            Kind = RunKind.Restore, StartedUtc = DateTime.UtcNow.AddSeconds(1), Status = BackupRunStatus.Running,
+            Summary = "Running…" };
+        ServiceLocator.Activity.Register(otherRunning);
         try
         {
             ctx.Driver.Pump();
@@ -112,6 +127,7 @@ public sealed class S11_LogsViewPopulated : ScenarioBase
             ServiceLocator.Engine.RaiseLineWritten("2026-05-01 12:00:00 INFO RESTORE_START Documents");
             ServiceLocator.Engine.RaiseLineWritten("2026-05-01 12:00:01 INFO RESTORE_FILE annual-report.pdf");
             ServiceLocator.Engine.RaiseLineWritten("2026-05-01 12:00:02 INFO RESTORE_PROGRESS 42 of 123 files");
+            ServiceLocator.Engine.RaiseLineWritten("2026-05-01 12:00:03 INFO RESTORE_FILE Photos — holiday.jpg");
             await ctx.Driver.PumpAsync(240);
             Assert.Equal(running.Id, vm.SelectedRun?.Id);
             Assert.Contains("42 of 123 files", vm.DisplayText);
@@ -119,8 +135,24 @@ public sealed class S11_LogsViewPopulated : ScenarioBase
             Assert.True(clear.IsEffectivelyVisible);
             Assert.Single(view.GetVisualDescendants().OfType<TextBlock>(),
                 t => t.IsEffectivelyVisible && string.Equals(t.Text, "live", StringComparison.OrdinalIgnoreCase));
-            Assert.Equal("Restore · Documents", context.Text);
+            Assert.Equal("All current activity", context.Text);
+            Assert.True(combinedHint.IsEffectivelyVisible);
+            Assert.Contains("holiday.jpg", vm.DisplayText);
             Assert.DoesNotContain("live", context.Text!, StringComparison.OrdinalIgnoreCase);
+            // Select the other running backup through the actual keyboard
+            // control. Both activities still share one engine stream, so the
+            // console must not relabel those same lines as Photos-only.
+            backupPicker.Focus();
+            host.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None); host.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            ctx.Driver.Pump();
+            Assert.Equal(otherBackup.Name, vm.SelectedBackup);
+            Assert.Equal(otherRunning.Id, vm.SelectedRun?.Id);
+            Assert.Equal("All current activity", context.Text);
+            Assert.Contains("annual-report.pdf", vm.DisplayText);
+            Assert.Contains("holiday.jpg", vm.DisplayText);
+            host.KeyPressQwerty(PhysicalKey.ArrowUp, RawInputModifiers.None); host.KeyReleaseQwerty(PhysicalKey.ArrowUp, RawInputModifiers.None);
+            ctx.Driver.Pump();
+            Assert.Equal(backup.Name, vm.SelectedBackup);
             foreach (var theme in new[] { ThemeVariant.Light, ThemeVariant.Dark })
             {
                 host.RequestedThemeVariant = theme;
@@ -150,17 +182,17 @@ public sealed class S11_LogsViewPopulated : ScenarioBase
                 }
                 Assert.Equal(Color.Parse("#303C4B"), Assert.IsAssignableFrom<ISolidColorBrush>(copyBorder.Background).Color);
                 ctx.Snapshot(host, $"logs single live indicator {theme}",
-                    "Exactly one LIVE badge, Restore · Documents context and streaming output. Copy and Clear view remain inside the console header; the hovered Copy button retains a dark, legible background in either theme.");
+                    "Exactly one LIVE badge, All current activity and an explanation that concurrent output is combined. Lines from Documents and Photos remain visible when the selected running backup changes. Copy and Clear view fit the header in both themes.");
                 host.MouseMove(new Point(2, 2));
             }
 
             picker.SelectedIndex = -1; ctx.Driver.Pump();
             Assert.Null(vm.SelectedRun);
-            Assert.Equal("Current output", context.Text);
+            Assert.Equal("All current activity", context.Text);
             Assert.Single(view.GetVisualDescendants().OfType<TextBlock>(),
                 t => t.IsEffectivelyVisible && string.Equals(t.Text, "live", StringComparison.OrdinalIgnoreCase));
             ctx.Snapshot(host, "unselected output has one live indicator",
-                "With no run selected, the console reads LIVE · Current output once. This reproduces the state that previously displayed LIVE Live.");
+                "With no run selected, the console reads LIVE · All current activity once. The explanation identifies its combined scope instead of implying that all lines came from the selected backup.");
 
             var savedBytes = File.ReadAllBytes(logPath);
             Click(host, clear); ctx.Driver.Pump();
@@ -171,11 +203,13 @@ public sealed class S11_LogsViewPopulated : ScenarioBase
             await ctx.Driver.PumpAsync(180);
             Assert.False(badge.IsEffectivelyVisible);
             Assert.False(clear.IsEffectivelyVisible);
+            Assert.False(combinedHint.IsEffectivelyVisible);
             Assert.Contains("RUN_END Success", vm.DisplayText);
+            Assert.DoesNotContain("holiday.jpg", vm.DisplayText);
             ctx.Snapshot(host, "saved history after clearing live display",
                 "Returning to a past run hides LIVE and restores its saved output. Clearing the live view did not delete the log file or history record.");
         }
-        finally { ServiceLocator.Activity.Unregister(running.Id); }
+        finally { ServiceLocator.Activity.Unregister(running.Id); ServiceLocator.Activity.Unregister(otherRunning.Id); }
         host.RequestedThemeVariant = ThemeVariant.Light;
         host.MouseMove(new Point(2, 2));
 

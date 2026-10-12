@@ -58,6 +58,7 @@ public sealed class BackupMountTreeProvider : ISnapshotTreeProvider, IDisposable
     private readonly Destination _destination;
     private readonly string _storageName;
     private readonly string _cacheRootDir;
+    private readonly string _unidentifiedSession = Guid.NewGuid().ToString("N");
 
     // Source folder name → source path. Built once at construction;
     // disambiguation happens here so the same logical name doesn't
@@ -82,7 +83,10 @@ public sealed class BackupMountTreeProvider : ISnapshotTreeProvider, IDisposable
         _backup = backup;
         _destination = destination;
         _storageName = storageName;
-        _cacheRootDir = cacheRootDir;
+        // Ignore legacy ordinal-only caches. Destination identity and its
+        // configured location both matter when reusing verified cached bytes.
+        _cacheRootDir = Path.Combine(cacheRootDir, "v2-" + CacheKey(
+            destination.Id, destination.PathOrSubpath, storageName));
         Directory.CreateDirectory(_cacheRootDir);
         _sourceByFolder = BuildSourceFolderMap(backup.SourcePaths);
     }
@@ -303,14 +307,21 @@ public sealed class BackupMountTreeProvider : ISnapshotTreeProvider, IDisposable
         return entry with { RelativePath = prefix + entry.RelativePath };
     }
 
-    private Task<IReadOnlyList<RevisionSummary>> GetRevisionsAsync(string sourceFolder, CancellationToken ct)
+    private async Task<IReadOnlyList<RevisionSummary>> GetRevisionsAsync(string sourceFolder, CancellationToken ct)
     {
-        return _revisionsCache.GetOrAdd(sourceFolder, async key =>
+        var fetch = _revisionsCache.GetOrAdd(sourceFolder, async key =>
         {
             using var lease = await ServiceLocator.Maintenance.AcquireReadAsync(ct).ConfigureAwait(false);
             return await ServiceLocator.Revisions.ListRevisionsAsync(
                 _backup, _sourceByFolder[key], _destination, _storageName, ct).ConfigureAwait(false);
         });
+        try { return await fetch.WaitAsync(ct).ConfigureAwait(false); }
+        catch
+        {
+            if (ct.IsCancellationRequested || fetch.IsCanceled || fetch.IsFaulted)
+                _revisionsCache.TryRemove(new KeyValuePair<string, Task<IReadOnlyList<RevisionSummary>>>(sourceFolder, fetch));
+            throw;
+        }
     }
 
     private async Task<int> LatestRevisionAsync(string sourceFolder, CancellationToken ct)
@@ -332,11 +343,15 @@ public sealed class BackupMountTreeProvider : ISnapshotTreeProvider, IDisposable
         var wasCreated = false;
         var sub = _subProviders.GetOrAdd((sourceFolder, revision), tuple =>
         {
-            var cacheDir = Path.Combine(_cacheRootDir,
-                SafeForFilesystem(tuple.Src) + "-r" + tuple.Rev);
+            var snapshot = revs.First(r => r.Number == revision);
+            // Revision numbers can be reassigned after retention. Only an
+            // immutable snapshot ID allows reuse across mounts. Engines that
+            // cannot supply one receive an isolated session cache instead.
+            var cacheDir = Path.Combine(_cacheRootDir, CacheKey(sourcePath,
+                snapshot.SnapshotId ?? _unidentifiedSession + "-r" + tuple.Rev));
             wasCreated = true;
             return new EngineBackedSnapshotTreeProvider(
-                _engine, _backup, sourcePath, _destination, _storageName, tuple.Rev, cacheDir);
+                _engine, _backup, sourcePath, _destination, _storageName, tuple.Rev, cacheDir, snapshot.SnapshotId);
         });
 
         // First materialisation: fire-and-forget a background prefetch
@@ -553,4 +568,7 @@ public sealed class BackupMountTreeProvider : ISnapshotTreeProvider, IDisposable
 
     private static string Normalize(string path)
         => string.IsNullOrEmpty(path) ? "" : path.Replace('\\', '/').Trim('/');
+
+    private static string CacheKey(params string[] parts) => Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join("\0", parts))));
 }

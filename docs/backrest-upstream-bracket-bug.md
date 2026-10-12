@@ -1,16 +1,15 @@
 # Upstream: Backrest single-file restore on Windows for names with `[` or `]`
 
-> **Status (2026-06-30):** Filed and **merged** as
+> **Historical upstream report (2026-06-30):** Filed and **merged** as
 > [garethgeorge/backrest#1254](https://github.com/garethgeorge/backrest/pull/1254)
-> (merge commit `91d76ac`). Not yet in a Backrest release — latest is
-> v1.13.0, and the fix is 28 commits ahead of that tag. This fix lives in
-> Backrest's `/v1.Backrest/Restore` RPC, which Backspace does **not** use
-> (our restore builds a raw `restic restore` invocation and runs it via
-> `/v1.Backrest/RunCommand`), so it does not change Backspace's own
-> behavior — it only helps other Backrest users. Retiring Backspace's
-> `?`-substitution + post-restore sweep is gated on restic
-> [`--include-from-raw` (#21872)](https://github.com/restic/restic/pull/21872),
-> not on this PR.
+> (merge commit `91d76ac`). The release and implementation observations
+> below describe that report's context, not the current app or latest
+> upstream release. Backspace now uses native Restore and direct restic
+> paths as appropriate. See [current restore behavior](GOTCHAS.md)
+> and [repository coordination](ARCHITECTURE.md#repository-operation-and-persistence-coordination).
+> Restores use private staging and publish only the selected completed
+> output. Never copy the historical target-wide cleanup proposal into
+> the user's restore directory.
 
 ## TL;DR
 
@@ -28,7 +27,7 @@ the leaf name has glob metachars on Windows.
 ## The bug, exactly
 
 ```go
-// internal/orchestrator/repo/repo.go (current)
+// internal/orchestrator/repo/repo.go (at the time of the report)
 func (r *RepoOrchestrator) Restore(ctx ..., snapshotId, snapshotPath, target ...) {
     ...
     if snapshotPath != "" {
@@ -101,7 +100,7 @@ Upstream is firm on inheriting `filepath.Match`'s behavior verbatim.
 So a fix has to live in Backrest's restore-command builder, not in
 restic.
 
-## Proposed fix
+## Original proposal (historical)
 
 On Windows, when the leaf name contains `[` or `]`, substitute each
 bracket with `?` (Go's single-char wildcard). NTFS does not allow
@@ -164,7 +163,7 @@ I'm a maintainer of Backspace, a desktop GUI that wraps Backrest as
 its restic orchestrator on Windows / macOS / Linux. The E2E matrix
 caught this on Windows when a synthetic source file with brackets
 in its name silently dropped from a partial restore. Working around
-it in Backspace is straightforward (we use the `snapshotID:subfolder`
+it in Backspace was straightforward (we used the `snapshotID:subfolder`
 syntax directly via `RunCommand` instead of `/v1.Backrest/Restore`),
 but the same workaround in Backrest itself would help every
 Backrest user on Windows.

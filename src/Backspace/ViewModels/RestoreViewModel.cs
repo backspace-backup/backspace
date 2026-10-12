@@ -81,12 +81,15 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     {
         get
         {
+            var behavior = OverwriteExisting
+                ? "existing files will be replaced; type OK to confirm before restoring"
+                : "existing files will stay unchanged";
             if (MultiSourceMode)
             {
                 var n = CheckedSourcePaths.Count;
-                return $"→ Each of the {n} ticked folders (existing files will be overwritten; you'll need to type OVERWRITE to confirm)";
+                return $"→ Each of the {n} selected folders ({behavior})";
             }
-            return $"→ {SelectedSourcePath} (existing files will be overwritten; you'll need to type OVERWRITE to confirm)";
+            return $"→ {SelectedSourcePath} ({behavior})";
         }
     }
 
@@ -216,7 +219,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty] private string _customTargetPath = "";
     [ObservableProperty] private bool _preserveStructure = true;
-    [ObservableProperty] private bool _overwriteExisting = true;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(OriginalSourceTargetLabel))]
+    private bool _overwriteExisting = true;
     [ObservableProperty] private int _threads = 4;
 
     // Step 6 (progress)
@@ -226,12 +230,12 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private int _inFlightCount;
     [ObservableProperty] private string _progressLog = "";
     [ObservableProperty] private bool _isRunning;
-    public ObservableCollection<FailedFileRow> FailuresList { get; } = new();
 
     // Step 7 (summary)
     [ObservableProperty] private bool _anyFailures;
     [ObservableProperty] private string _summaryLine = "";
     [ObservableProperty] private string _summaryHeading = "Restore complete";
+    [ObservableProperty] private string _summaryDetails = "";
 
     // Internal
     private CancellationTokenSource? _cts;
@@ -910,8 +914,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             return;
         }
         if (SelectedRevision is null) return;
-        await LoadFilesAsync();
-        CurrentStep = Step.PickFiles;
+        if (await LoadFilesAsync()) CurrentStep = Step.PickFiles;
     }
 
     [RelayCommand]
@@ -946,7 +949,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         // wrong destination, or NRE on a cleared SelectedRevision.
         var capturedBackup = SelectedBackup;
         var capturedDestination = SelectedDestination;
-        var capturedRevisionNumber = SelectedRevision!.Value.Number;
+        var capturedRevision = SelectedRevision!.Value;
+        var capturedRevisionNumber = capturedRevision.Number;
         var capturedSourcePath = SelectedSourcePath ?? capturedBackup.SourcePaths.FirstOrDefault() ?? "";
         var capturedStorageName = SelectedStorageName;
         var capturedFiles = SelectedPaths.ToList();
@@ -980,7 +984,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         // Type-OK gate when restoring onto the original source — same
         // confirm shape used for backup delete + destination wipe so
         // the user has one mental model for "this is destructive".
-        if (TargetOriginalSource)
+        if (TargetOriginalSource && capturedOverwrite)
         {
             var owner = OwnerWindow();
             if (owner is null) return;
@@ -1007,6 +1011,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             Destination = capturedDestination,
             StorageName = capturedStorageName,
             Revision = capturedRevisionNumber,
+            SnapshotId = capturedRevision.SnapshotId,
             Files = capturedFiles,
             IncludePatterns = capturedIncludePatterns,
             TargetPath = target,
@@ -1021,7 +1026,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         FailedCount = 0;
         InFlightCount = 0;
         ResetProgressLog();
-        FailuresList.Clear();
+        SummaryDetails = "";
         CurrentStep = Step.Progress;
 
         // Dispose any prior CTS before reassigning. Each restore-then-
@@ -1092,8 +1097,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             EndInFlightRestoreRun();
         }
 
-        PersistRestoreRunRecord(RunKind.Restore);
         BuildSummary();
+        PersistRestoreRunRecord(RunKind.Restore);
         CurrentStep = Step.Summary;
     }
 
@@ -1131,6 +1136,10 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         var capturedThreads = Threads;
         var capturedRetryDelays = ServiceLocator.Config.Current.Restore.RetryDelaysSeconds;
         var capturedTargetOriginalSource = TargetOriginalSource;
+        var capturedPreserveStructure = PreserveStructure;
+        var perSourcePick = MultiSourceRevisions
+            .Where(r => r.SelectedRevision is not null)
+            .ToDictionary(r => r.SourcePath, r => r.SelectedRevision!.Value);
         var pickedSources = CheckedSourcePaths;
         if (pickedSources.Count == 0) return;
         var targetRoot = capturedTargetOriginalSource ? null : (CustomTargetPath?.Trim() ?? "");
@@ -1139,14 +1148,14 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             ResetProgressLog("Pick a target folder first.\n");
             return;
         }
-        if (capturedTargetOriginalSource)
+        if (capturedTargetOriginalSource && capturedOverwrite)
         {
             var owner = OwnerWindow();
             if (owner is null) return;
             var dlg = new DestructiveConfirmWindow(
                 title: $"Restore will overwrite {pickedSources.Count} source folders",
                 subtitle:
-                    "Each source you ticked will be replaced with its state at the latest revision. " +
+                    "Each source you ticked will be restored from the snapshot you selected for it. " +
                     "There's no undo.",
                 confirmString: "OK",
                 caseInsensitive: true);
@@ -1160,7 +1169,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         FailedCount = 0;
         InFlightCount = 0;
         ResetProgressLog();
-        FailuresList.Clear();
+        SummaryDetails = "";
         // Reset multi-source baselines so OnEngineProgress doesn't
         // inherit counters from a previous wizard pass. They climb
         // monotonically as iterations finish (see end of loop body).
@@ -1191,19 +1200,17 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             // — fixed 2026-06-12 after the user complaint that
             // multi-source restore should let them pick the revision
             // for EACH source).
-            var perSourcePick = MultiSourceRevisions
-                .Where(r => r.SelectedRevision is not null)
-                .ToDictionary(r => r.SourcePath, r => r.SelectedRevision!.Value.Number);
-
             foreach (var src in pickedSources)
             {
                 if (_cts.Token.IsCancellationRequested) break;
                 SelectedSourcePath = src;
                 AppendProgressLine($"=== Source: {src} ===");
-                // User-picked revision for this source. Falls back to
-                // latest if the wizard's per-source row was missing
-                // (e.g., the source was added after the user reached
-                // the PickRevision step — unusual but possible).
+                // Never silently choose a revision the user did not see.
+                if (!perSourcePick.TryGetValue(src, out var picked))
+                {
+                    sourceErrors.Add($"{src}: no snapshot was selected. Return to the snapshot step and choose one.");
+                    continue;
+                }
                 IReadOnlyList<RevisionSummary> revs;
                 try
                 {
@@ -1223,8 +1230,9 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                     sourceErrors.Add($"{src}: no snapshots found");
                     continue;
                 }
-                var pickedNumber = perSourcePick.TryGetValue(src, out var n) ? n : revs[0].Number;
-                var latest = revs.FirstOrDefault(r => r.Number == pickedNumber);
+                var pickedNumber = picked.Number;
+                var latest = revs.FirstOrDefault(r => picked.SnapshotId is not null
+                    ? r.SnapshotId == picked.SnapshotId : r.Number == pickedNumber);
                 if (latest.Number == 0 && pickedNumber != 0)
                 {
                     sourceErrors.Add($"{src}: selected revision #{pickedNumber} no longer exists; no other revision was substituted.");
@@ -1240,18 +1248,13 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                 try
                 {
                     files = await ServiceLocator.Revisions.ListFilesAsync(
-                        capturedBackup, src, capturedDestination, capturedStorageName, latest.Number, _cts.Token);
+                        capturedBackup, src, capturedDestination, capturedStorageName, latest.Number, _cts.Token, latest.SnapshotId);
                 }
                 catch (OperationCanceledException) { break; }
                 catch (Exception ex)
                 {
                     AppendProgressLine($"[error] couldn't list files in revision {latest.Number} for {src}: {ex.Message}");
                     sourceErrors.Add($"{src}: {ex.Message}");
-                    continue;
-                }
-                if (files.Count == 0)
-                {
-                    AppendProgressLine($"[skip] revision {latest.Number} has no files for {src}");
                     continue;
                 }
                 TotalFiles += files.Count;
@@ -1272,7 +1275,10 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                     Destination = capturedDestination,
                     StorageName = capturedStorageName,
                     Revision = latest.Number,
-                    Files = files.Select(f => f.Path).ToList(),
+                    SnapshotId = latest.SnapshotId,
+                    // Complete source: retain empty folders as well as files.
+                    // The engine supplies final counts from actual output.
+                    IncludePatterns = new[] { "" },
                     TargetPath = perSourceTarget,
                     Overwrite = capturedOverwrite,
                     // Honour the user's "Preserve directory structure"
@@ -1283,13 +1289,10 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                     // meaningful — false flattens each source's tree
                     // under its own subfolder, which some users want
                     // for a quick "give me everything in one place".
-                    PreserveStructure = PreserveStructure,
+                    PreserveStructure = capturedPreserveStructure,
                     Threads = capturedThreads,
                     RetryDelaysSeconds = capturedRetryDelays,
                 };
-                try { System.IO.Directory.CreateDirectory(perSourceTarget); }
-                catch (Exception ex) { AppendProgressLine($"[warn] couldn't pre-create {perSourceTarget}: {ex.Message}"); }
-
                 try
                 {
                     lastOutcome = await engine.RunAsync(_currentRequest, _cts.Token);
@@ -1350,8 +1353,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             EndInFlightRestoreRun();
         }
 
-        PersistRestoreRunRecord(RunKind.Restore);
         BuildSummary();
+        PersistRestoreRunRecord(RunKind.Restore);
         CurrentStep = Step.Summary;
     }
 
@@ -1453,7 +1456,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         SelectedFilesCount = 0;
         SelectedFilesBytes = 0;
         ResetProgressLog();
-        FailuresList.Clear();
+        SummaryDetails = "";
         ShellLaunchPath = null;
         ShellLaunchFilterPath = null;
         FileFilter = "";
@@ -1502,8 +1505,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             IsRunning = false;
             EndInFlightRestoreRun();
         }
-        PersistRestoreRunRecord(RunKind.Restore);
         BuildSummary();
+        PersistRestoreRunRecord(RunKind.Restore);
         CurrentStep = Step.Summary;
     }
 
@@ -1668,7 +1671,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         // Config.Changed-driven refresh during the wizard always jumped
         // the user back to the latest revision, which is wrong if they
         // were inspecting an older one.
-        var previouslySelectedNumber = SelectedRevision?.Number;
+        var previousSelection = SelectedRevision;
         LoadingRevisions = true;
         LoadError = null;
         Revisions.Clear();
@@ -1701,9 +1704,13 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             }
             else
             {
-                SelectedRevision = previouslySelectedNumber is int prev
-                    ? Revisions.FirstOrDefault(r => r.Number == prev) is { } match ? match : Revisions[0]
+                var match = previousSelection is { } previous
+                    ? Revisions.FirstOrDefault(r => previous.SnapshotId is not null
+                        ? r.SnapshotId == previous.SnapshotId : r.Number == previous.Number)
                     : Revisions[0];
+                SelectedRevision = match.Number > 0 ? match : null;
+                if (SelectedRevision is null)
+                    LoadError = "The snapshot you selected is no longer available. Choose another snapshot to continue.";
             }
             // No LoadError on an empty result — the dedicated empty-state
             // placeholder ("no revisions yet — run the backup once first")
@@ -1732,19 +1739,24 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
 
     /// <summary>
     /// A snapshot with millions of files would blow out memory if we
-    /// materialized them all. Cap at this count; users who actually want the
-    /// whole tree can drill in with the search box.
+    /// added them all to the visible selection list. The mounted browser
+    /// provides access beyond this selection limit; search is local to the list.
     /// </summary>
     public const int MaxFilesInRestoreList = 200_000;
 
-    private async Task LoadFilesAsync()
+    private async Task<bool> LoadFilesAsync()
     {
-        if (SelectedBackup is null || SelectedDestination is null || SelectedRevision is null) return;
+        if (SelectedBackup is null || SelectedDestination is null || SelectedRevision is null) return false;
+        var backup = SelectedBackup;
+        var destination = SelectedDestination;
+        var revision = SelectedRevision.Value;
+        var storage = SelectedStorageName;
+        var step = CurrentStep;
         var source = SelectedSourcePath ?? SelectedBackup.SourcePaths.FirstOrDefault();
         if (string.IsNullOrEmpty(source))
         {
             LoadError = "This backup has no source paths configured.";
-            return;
+            return false;
         }
         LoadingFiles = true;
         LoadError = null;
@@ -1753,13 +1765,16 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         try
         {
             var list = await ServiceLocator.Revisions.ListFilesAsync(
-                SelectedBackup, source, SelectedDestination, SelectedStorageName,
-                SelectedRevision.Value.Number, CancellationToken.None);
+                backup, source, destination, storage,
+                revision.Number, CancellationToken.None, revision.SnapshotId);
+            if (SelectedBackup != backup || SelectedDestination != destination ||
+                SelectedRevision != revision || SelectedStorageName != storage ||
+                (SelectedSourcePath ?? SelectedBackup?.SourcePaths.FirstOrDefault()) != source || CurrentStep != step) return false;
 
             if (list.Count > MaxFilesInRestoreList)
             {
                 LoadError = $"This revision has {list.Count:N0} files; showing the first " +
-                            $"{MaxFilesInRestoreList:N0}. Use the search box above to find specific files.";
+                            $"{MaxFilesInRestoreList:N0}. Search applies only to those files. Use Browse backup to access files beyond this list.";
                 foreach (var f in list.Take(MaxFilesInRestoreList))
                     AllFiles.Add(new RevisionFileRow(f, this));
             }
@@ -1768,10 +1783,12 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                 foreach (var f in list) AllFiles.Add(new RevisionFileRow(f, this));
             }
             ApplyFileFilter();
+            return true;
         }
         catch (Exception ex)
         {
             LoadError = "Something went wrong while reading files: " + ex.Message;
+            return false;
         }
         finally { LoadingFiles = false; RecomputeSelectionTotals(); }
     }
@@ -1921,13 +1938,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             InFlightCount = s.InFlight;
         });
 
-    // OnFileRestored / OnFileFailed handlers removed in the 2026-06-12
-    // restore-stack refactor (per ROADMAP item "Investigate Backrest
-    // deviation"). Backrest's restore RPC emits OVERALL progress only,
-    // not per-file callbacks, so we no longer synthesize them. The
-    // FailuresList bound to the XAML stays as a property for source-
-    // compat but is left empty; the overall TerminalStatus +
-    // ErrorMessage now drive the failure UX.
+    // Backrest reports overall results rather than a reliable per-file
+    // failure list. Show that result directly; never fabricate file rows.
 
     // ---- misc ----
 
@@ -1950,7 +1962,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             var summary = BuildPersistedSummaryLine();
 
             // Per-run log file. Mirrors the per-backup-cell layout:
-            // <DuplicacyLogsRoot>/<sanitized-backup-name>/<timestamp>-<kind>.log
+            // <EngineLogsRoot>/<sanitized-backup-name>/<timestamp>-<kind>.log
             // The LogsView's "Selected run" pane reads this path.
             string? logPath = null;
             try
@@ -2081,7 +2093,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         var durText = dur < 60 ? $"in {dur:F0}s" : $"in {dur / 60:F1}m";
         return fail == 0
             ? $"{ok:N0} restored · {durText}"
-            : $"{ok:N0} restored · {fail:N0} failed · {durText}";
+            : $"{ok:N0} restored · {fail:N0} not restored · {durText}";
     }
 
     private void BuildSummary()
@@ -2099,14 +2111,30 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         if (_currentOutcome is null)
         {
             SummaryLine = "No completed restore result. See the log below for details.";
+            SummaryDetails = status == RestoreTerminalStatus.Cancelled
+                ? "The restore was cancelled before a completed result was available. Check the target folder before starting again."
+                : "Backspace could not confirm a completed restore. Read the log for the error and check the target folder before trying again.";
             return;
         }
         TotalFiles = _currentOutcome.TotalFiles;
         RestoredCount = _currentOutcome.RestoredCount;
         FailedCount = _currentOutcome.FailedCount;
         SummaryLine = $"{RestoredCount} restored · {FailedCount} not restored · into {_currentOutcome.TargetPath}";
+        SummaryDetails = !string.IsNullOrWhiteSpace(_currentOutcome.ErrorMessage)
+            ? _currentOutcome.ErrorMessage
+            : status switch
+            {
+                RestoreTerminalStatus.Success => "The restore finished successfully. Open the target folder to review the restored files.",
+                RestoreTerminalStatus.Warning => "Some selected files were not restored. Read the log for details before deciding whether to try again.",
+                RestoreTerminalStatus.Cancelled => "The restore was cancelled. Files already copied remain in the target folder; the remaining files were not restored.",
+                _ => "The restore stopped because of an error. Files already copied remain in the target folder. Read the log for details before trying again.",
+            };
         if (!string.IsNullOrWhiteSpace(_currentOutcome.ErrorMessage))
             AppendProgressLine($"[restore] {_currentOutcome.ErrorMessage}");
+        // The summary is a finished result, not another streaming frame. Make
+        // its final explanation visible immediately rather than waiting for
+        // the log's normal 150 ms batching timer.
+        ProgressLog = MaterializeProgressLog();
     }
 
     private static Avalonia.Controls.Window? OwnerWindow()
@@ -2335,13 +2363,6 @@ public sealed partial class MultiSourceRevisionRow : ObservableObject
     /// and excludes the source from the restore loop.</summary>
     public static MultiSourceRevisionRow Empty(string sourcePath)
         => new(sourcePath, Array.Empty<Backspace.Services.RevisionSummary>());
-}
-
-public sealed partial class FailedFileRow : ObservableObject
-{
-    public string Path { get; }
-    [ObservableProperty] private string _lastError = "";
-    public FailedFileRow(string path, string lastError) { Path = path; _lastError = lastError; }
 }
 
 /// <summary>

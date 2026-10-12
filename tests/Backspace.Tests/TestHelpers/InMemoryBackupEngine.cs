@@ -175,7 +175,7 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
                     Number: x.Num,
                     CreatedUtc: dir.CreationTimeUtc,
                     FileCount: files.Count,
-                    TotalBytes: total);
+                    TotalBytes: total) { SnapshotId = System.IO.Path.GetFileName(x.Path) };
             })
             .ToList();
         return Task.FromResult<IReadOnlyList<RevisionSummary>>(revs);
@@ -183,7 +183,7 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
 
     public Task<IReadOnlyList<RevisionFile>> ListSnapshotFilesAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, CancellationToken ct)
+        int revision, CancellationToken ct, string? expectedSnapshotId = null)
     {
         Calls.Enqueue($"ListSnapshotFiles({backup.Name},{sourcePath},r{revision})");
         var revDir = RevisionDir(backup, sourcePath, destination, revision);
@@ -204,7 +204,7 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
 
     public Task<bool> RestoreSnapshotSubtreeAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, string targetDir, CancellationToken ct)
+        int revision, string targetDir, CancellationToken ct, string? expectedSnapshotId = null)
     {
         Calls.Enqueue($"RestoreSnapshotSubtree({backup.Name},{sourcePath},r{revision},{targetDir})");
         var revDir = RevisionDir(backup, sourcePath, destination, revision);
@@ -222,7 +222,7 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
 
     public Task<IReadOnlyList<RevisionTreeNode>?> ListSnapshotTreeAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, CancellationToken ct)
+        int revision, CancellationToken ct, string? expectedSnapshotId = null)
     {
         Calls.Enqueue($"ListSnapshotTree({backup.Name},{sourcePath},r{revision})");
         var revDir = RevisionDir(backup, sourcePath, destination, revision);
@@ -247,7 +247,7 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
 
     public Task<IReadOnlyList<RevisionDirEntry>?> ListSnapshotDirectoryAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, string dirRelativePath, CancellationToken ct)
+        int revision, string dirRelativePath, CancellationToken ct, string? expectedSnapshotId = null)
     {
         Calls.Enqueue($"ListSnapshotDirectory({backup.Name},{sourcePath},r{revision},'{dirRelativePath}')");
         var revDir = RevisionDir(backup, sourcePath, destination, revision);
@@ -280,7 +280,7 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         int revision, IReadOnlyList<string> includePatterns, string targetPath,
         Action<RestoreProgressUpdate>? onProgress, CancellationToken ct,
-        IReadOnlyList<string>? expectedLeaves = null)
+        IReadOnlyList<string>? expectedLeaves = null, string? expectedSnapshotId = null, bool overwrite = true, bool preserveStructure = true)
     {
         // The 2026-06-12 restore-stack refactor moved the test engine to
         // overall-progress semantics. The in-memory engine continues to
@@ -294,7 +294,15 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
         Directory.CreateDirectory(targetPath);
         var encryptionKey = EncryptionKeyFor(destination);
 
-        var leaves = expectedLeaves ?? includePatterns;
+        var leaves = expectedLeaves ?? includePatterns.SelectMany(pattern =>
+        {
+            var relative = pattern.Replace('\\', '/').TrimStart('/');
+            var full = Path.Combine(revDir, relative.Replace('/', Path.DirectorySeparatorChar));
+            return Directory.Exists(full)
+                ? Directory.EnumerateFiles(full, "*", SearchOption.AllDirectories)
+                    .Select(file => Path.GetRelativePath(revDir, file).Replace('\\', '/'))
+                : new[] { relative };
+        }).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         Calls.Enqueue($"RestoreFiles({backup.Name},r{revision},{leaves.Count})");
 
         int restored = 0;
@@ -305,9 +313,11 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
             ct.ThrowIfCancellationRequested();
             var norm = relPath.Replace('\\', '/').TrimStart('/');
             var fromPath = System.IO.Path.Combine(revDir, norm.Replace('/', System.IO.Path.DirectorySeparatorChar));
-            var toPath   = System.IO.Path.Combine(targetPath, norm.Replace('/', System.IO.Path.DirectorySeparatorChar));
+            var toPath = System.IO.Path.Combine(targetPath, preserveStructure
+                ? norm.Replace('/', System.IO.Path.DirectorySeparatorChar) : System.IO.Path.GetFileName(norm));
             try
             {
+                if (!overwrite && File.Exists(toPath)) throw new IOException("Existing file left unchanged.");
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(toPath)!);
                 CopyMaybeEncrypted(fromPath, toPath, encryptionKey);
                 restored++;
@@ -374,8 +384,10 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
         Calls.Enqueue($"PruneSnapshotId({backup.Name},{snapshotId})");
         // Caller treats snapshot ids as opaque labels we minted in SnapshotDir.
         // Best-effort delete; missing path is fine.
-        var dir = System.IO.Path.Combine(destination.PathOrSubpath, StoreRoot, snapshotId);
-        try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { }
+        if (!System.Text.RegularExpressions.Regex.IsMatch(snapshotId, @"^r\d+$"))
+            throw new ArgumentException("Expected an exact snapshot identity.");
+        var dir = System.IO.Path.Combine(SnapshotDir(backup, sourcePath, destination), snapshotId);
+        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         return Task.CompletedTask;
     }
 

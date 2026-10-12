@@ -62,20 +62,15 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         || SelectedRun is { EndedUtc: null, Status: BackupRunStatus.Running };
 
     /// <summary>Context for the unified log pane. The view owns the
-    /// single LIVE indicator; this label identifies its content instead
-    /// of repeating that state. Past runs show their timestamp + status.</summary>
+    /// single LIVE indicator. Engine line events are a combined stream,
+    /// so never imply that live output belongs only to the selected run.
+    /// Past runs show their timestamp + status.</summary>
     public string DisplayLabel
     {
         get
         {
             var r = SelectedRun;
-            if (r is null) return "Current output";
-            if (IsShowingLive) return r.Kind switch
-            {
-                RunKind.Restore => $"Restore · {r.BackupName}",
-                RunKind.TestRestore => $"Test restore · {r.BackupName}",
-                _ => r.BackupName,
-            };
+            if (r is null || IsShowingLive) return "All current activity";
             var stamp = r.StartedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
             var status = r.Status switch
             {

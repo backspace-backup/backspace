@@ -27,48 +27,50 @@ public sealed class S16_RestoreSummary : ScenarioBase
     protected override Task RunAsync(ScenarioContext ctx)
     {
         // Success-only summary.
-        var ok = CreateSummary(RestoreTerminalStatus.Success, 1234, 0);
+        using var ok = CreateSummary(RestoreTerminalStatus.Success, 1234, 0);
         var view1 = new RestoreView { DataContext = ok };
         var host1 = new Avalonia.Controls.Window { Width = 1100, Height = 760, Content = view1 };
         ctx.Driver.Show(host1);
         ctx.Driver.Pump();
         AssertRenderedSummary(host1, ok, "Restore complete", 1234, 0);
+        Assert.False(ok.AnyFailures);
+        Assert.Contains("finished successfully", ok.SummaryDetails);
         ctx.Snapshot(host1, "summary success",
             "All files restored — Open target folder + Restore another buttons.");
         host1.Close();
 
-        // The engine owns per-file failure collection; this focused
-        // screenshot supplies those rows after projecting a warning outcome.
-        var bad = CreateSummary(RestoreTerminalStatus.Warning, 1228, 6);
-        bad.FailuresList.Add(new FailedFileRow("Documents/big-file-1.bin", "S3 read timed out"));
-        bad.FailuresList.Add(new FailedFileRow("Documents/big-file-2.bin", "S3 read timed out"));
-        bad.FailuresList.Add(new FailedFileRow("Photos/IMG_2025.jpg", "Chunk decryption failed"));
-        bad.FailuresList.Add(new FailedFileRow("Photos/IMG_2026.jpg", "Chunk decryption failed"));
-        bad.FailuresList.Add(new FailedFileRow("Music/track.mp3", "Connection reset"));
-        bad.FailuresList.Add(new FailedFileRow("Music/podcast.mp3", "Connection reset"));
+        // The real result supplies one overall explanation. Do not fabricate
+        // per-file failure rows that production cannot populate.
+        using var bad = CreateSummary(RestoreTerminalStatus.Warning, 1228, 6,
+            "Six files could not be restored because the connection was interrupted. Your other files were restored.");
         var view2 = new RestoreView { DataContext = bad };
         var host2 = new Avalonia.Controls.Window { Width = 1100, Height = 820, Content = view2 };
         ctx.Driver.Show(host2);
         ctx.Driver.Pump();
         AssertRenderedSummary(host2, bad, "Restore needs attention", 1228, 6);
+        Assert.Contains("connection was interrupted", bad.SummaryDetails);
+        Assert.Contains(bad.SummaryDetails, bad.ProgressLog);
         ctx.Snapshot(host2, "summary with failures",
-            "Warning heading, total 1234, restored 1228, failed 6, and six failure reasons remain visible.");
+            "Warning heading, total 1234, restored 1228, not restored 6, and the returned explanation are visible. No fictional per-file failure list is added.");
         // Terminal failure and cancellation must never inherit the success
         // heading, even if some files were recovered before the operation stopped.
-        var failed = CreateSummary(RestoreTerminalStatus.Error, 1228, 6);
+        using var failed = CreateSummary(RestoreTerminalStatus.Error, 1228, 6);
         view2.DataContext = failed;
         ctx.Driver.Pump();
         AssertRenderedSummary(host2, failed, "Restore failed", 1228, 6);
-        var cancelled = CreateSummary(RestoreTerminalStatus.Cancelled, 1228, 6);
+        Assert.Contains("stopped because of an error", failed.SummaryDetails);
+        using var cancelled = CreateSummary(RestoreTerminalStatus.Cancelled, 1228, 6);
         view2.DataContext = cancelled;
         ctx.Driver.Pump();
         AssertRenderedSummary(host2, cancelled, "Restore cancelled", 1228, 6);
+        Assert.Contains("Files already copied remain", cancelled.SummaryDetails);
+        Assert.DoesNotContain("finished successfully", cancelled.SummaryDetails);
         host2.Close();
 
         return Task.CompletedTask;
     }
 
-    private static RestoreViewModel CreateSummary(RestoreTerminalStatus status, int restored, int failed)
+    private static RestoreViewModel CreateSummary(RestoreTerminalStatus status, int restored, int failed, string? explanation = null)
     {
         var model = new RestoreViewModel();
         typeof(RestoreViewModel).GetField("_currentOutcome", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -79,7 +81,7 @@ public sealed class S16_RestoreSummary : ScenarioBase
                 RestoredCount = restored,
                 FailedCount = failed,
                 TargetPath = @"C:\Users\me\Documents",
-                ErrorMessage = failed > 0 ? "6 files could not be restored. See the recorded failures." : null,
+                ErrorMessage = explanation,
             });
         typeof(RestoreViewModel).GetMethod("BuildSummary", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(model, null);
@@ -99,7 +101,14 @@ public sealed class S16_RestoreSummary : ScenarioBase
         Assert.Contains("1234", visibleText);
         Assert.Contains(restored.ToString(), visibleText);
         Assert.Contains(failed.ToString(), visibleText);
+        Assert.Contains(model.SummaryDetails, visibleText);
+        Assert.Contains("NOT RESTORED", visibleText);
+        Assert.DoesNotContain("FAILED", visibleText);
+        Assert.DoesNotContain("RETRYING", visibleText);
+        Assert.DoesNotContain("Failures", visibleText);
         if (failed > 0)
             Assert.DoesNotContain("Restore complete", visibleText);
+        else
+            Assert.DoesNotContain("Restore needs attention", visibleText);
     }
 }

@@ -39,7 +39,25 @@ public class ScreenshotTests
     // banner the old Dashboard rendered.
     [AvaloniaFact] public void Shot_BackupsView_Empty()     { ResetConfig(); Capture<BackupsView,      BackupsViewModel>("backups-empty"); }
     [AvaloniaFact] public void Shot_DestinationsView_Empty(){ ResetConfig(); Capture<DestinationsView, DestinationsViewModel>("destinations-empty"); }
-    [AvaloniaFact] public void Shot_LogsView_Empty()        { ResetConfig(); Capture<LogsView,         LogsViewModel>("logs-empty"); }
+    [AvaloniaFact]
+    public void Shot_LogsView_Empty()
+    {
+        ResetConfig();
+        // Removing backups intentionally keeps destination-maintenance history.
+        // An empty-installation screenshot therefore needs an empty log root,
+        // not a purge of history left by other scenarios in this test process.
+        using var workspace = new TestHelpers.TempWorkspace("logs-empty-screenshot");
+        var vm = new LogsViewModel();
+        Assert.True(vm.HasNoBackups);
+        Assert.Empty(vm.History);
+        CaptureWindow(new Window
+        {
+            Content = new LogsView { DataContext = vm },
+            Width = 1240, Height = 820,
+            WindowDecorations = WindowDecorations.None,
+            Background = Avalonia.Media.Brushes.White,
+        }, "logs-empty");
+    }
     [AvaloniaFact] public void Shot_RestoreView_Empty()     { ResetConfig(); Capture<RestoreView,      RestoreViewModel>("restore-empty"); }
     [AvaloniaFact] public void Shot_SettingsView()          { ResetConfig(); Capture<SettingsView,     SettingsViewModel>("settings"); }
 

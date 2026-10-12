@@ -130,7 +130,7 @@ public interface IBackupEngine
         Destination destination,
         string storageName,
         int revision,
-        CancellationToken ct);
+        CancellationToken ct, string? expectedSnapshotId = null);
 
     /// <summary>Lazy single-directory listing — one RPC, immediate
     /// children only, no recursion. Drives the WinFSP snapshot mount
@@ -148,7 +148,7 @@ public interface IBackupEngine
         string storageName,
         int revision,
         string dirRelativePath,
-        CancellationToken ct);
+        CancellationToken ct, string? expectedSnapshotId = null);
 
     /// <summary>Bulk recursive snapshot tree — returns EVERY file and
     /// directory in the snapshot in one call. This is the fast-path
@@ -171,7 +171,7 @@ public interface IBackupEngine
         Destination destination,
         string storageName,
         int revision,
-        CancellationToken ct);
+        CancellationToken ct, string? expectedSnapshotId = null);
 
     /// <summary>Bulk restore — materialise EVERY file in a snapshot's
     /// source subtree onto <paramref name="targetDir"/> in one restic
@@ -186,7 +186,7 @@ public interface IBackupEngine
     /// <paramref name="targetDir"/> (matching the same layout the per-
     /// file path produces, so the mount-cache check
     /// <c>File.Exists(Path.Combine(cache, rel))</c> sees them).
-    /// Returns null when the implementation can't do a bulk restore
+    /// Returns false when the implementation can't do a bulk restore
     /// for this destination shape (cloud → the caller falls back to
     /// per-file restore via <see cref="RestoreFilesAsync"/>).</summary>
     Task<bool> RestoreSnapshotSubtreeAsync(
@@ -196,7 +196,7 @@ public interface IBackupEngine
         string storageName,
         int revision,
         string targetDir,
-        CancellationToken ct);
+        CancellationToken ct, string? expectedSnapshotId = null);
 
     /// <summary>Restore files matching <paramref name="includePatterns"/>
     /// from a specific snapshot into <paramref name="targetPath"/>.
@@ -222,7 +222,7 @@ public interface IBackupEngine
         string targetPath,
         Action<RestoreProgressUpdate>? onProgress,
         CancellationToken ct,
-        IReadOnlyList<string>? expectedLeaves = null);
+        IReadOnlyList<string>? expectedLeaves = null, string? expectedSnapshotId = null, bool overwrite = true, bool preserveStructure = true);
 
     /// <summary>Initialize the per-(backup,source) repo state on disk if
     /// it doesn't already exist, including registering the destination

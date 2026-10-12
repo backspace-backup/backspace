@@ -297,48 +297,18 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        // Be precise about what we'll actually delete. The Local /
-        // External / Network path only removes the restic-owned
-        // artefacts (snapshots/, chunks/, .restic/, config) — any
-        // unrelated files the user keeps in the same folder stay put,
-        // and we tear down the parent folder only if it ends up
-        // empty after our cleanup. The cloud / S3 path only prunes
-        // snapshot ids that match a known backup-chain id (foreign
-        // snapshots are never touched). Match the dialog copy to that
-        // contract so the user knows their other files are safe.
-        var where = dest.IsLocalLike
-            ? $"the backup data inside «{dest.PathOrSubpath}» (data/, index/, keys/, snapshots/, config; any other files in that folder are left alone)"
-            : $"the snapshot chains Backspace created at «{dest.Name}» (foreign snapshots from other tools or other machines stay untouched)";
-
         var dlg = new DestructiveConfirmWindow(
             title: "Remove this destination and its data?",
             subtitle:
-                $"The destination will disappear from Backspace AND {where} will be erased. " +
+                $"The destination will disappear from Backspace, and snapshots belonging to its configured backups will be erased. " +
+                "Other snapshots, unrelated files and the repository folder will stay in place. " +
                 "There's no undo. Type OK to confirm." + usedBySuffix,
             confirmString: "OK",
             caseInsensitive: true);
         var ok = await dlg.ShowDialog<bool>(owner);
         if (!ok) return;
 
-        // Strip the destination's id out of every backup that references
-        // it. Backups left with zero targets are still kept in config
-        // (the user explicitly said: don't auto-delete — let them
-        // either add a new destination or delete the backup later).
-        // The orchestrator's RunBackupCoreAsync already fast-fails on
-        // sources.Count==0; an explicit "no destinations" path is
-        // handled symmetrically in Targets.Count==0 below.
-        if (usedBy.Count > 0)
-        {
-            ServiceLocator.Config.Update(cfg =>
-            {
-                foreach (var b in cfg.Backups)
-                    b.Targets.RemoveAll(t => t.DestinationId == dest.Id);
-            });
-            _log.Information(
-                "Stripped destination {Dest} from {Count} backup(s): {Names}",
-                dest.Name, usedBy.Count, string.Join(", ", usedBy));
-        }
-
+        // Keep target ownership available until cleanup has finished.
         _log.Information("Destination wipe starting: name={Name} kind={Kind}", dest.Name, dest.Kind);
 
         // Always remove the destination from config — even if the wipe
@@ -348,6 +318,7 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
         // remote storage that the user can clean up by hand.
         CleanupReport? report = null;
         Exception? wipeError = null;
+        var detached = false;
 
         // Surface a modal "Erasing…" dialog so the user knows the
         // wipe is in flight (otherwise the Destinations tab sat
@@ -379,6 +350,12 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
                         wipeError = ex;
                         _log.Error(ex, "Destination wipe threw: name={Name} kind={Kind}", dest.Name, dest.Kind);
                     }
+                    finally
+                    {
+                        // Update ownership before releasing the exclusive lease:
+                        // a queued backup must not recreate the just-erased data.
+                        DetachDestination();
+                    }
                 });
         }
         catch (Exception ex)
@@ -404,23 +381,31 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
         // reason. The user explicitly asked: "invalidate the status
         // of the backup writing to this destination so it becomes
         // like when it was never run."
-        var affected = usedBy.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        ServiceLocator.Config.Update(cfg =>
+        if (!detached) DetachDestination();
+
+        void DetachDestination()
         {
-            cfg.Destinations.RemoveAll(x => x.Id == row.Id);
-            foreach (var b in cfg.Backups)
+            var affected = usedBy.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            ServiceLocator.Config.Update(cfg =>
             {
-                if (!affected.Contains(b.Name)) continue;
-                b.LastRunStatus = BackupRunStatus.NeverRun;
-                b.LastRunSummary = null;
-                b.LastRunStartUtc = null;
-                b.LastRunEndUtc = null;
-                b.SourceLastSizeBytes.Clear();
-                b.LastVerifyUtc = null;
-                b.LastVerifyPass = null;
-                b.LastVerifySummary = null;
-            }
-        });
+                cfg.Destinations.RemoveAll(x => x.Id == row.Id);
+                foreach (var b in cfg.Backups)
+                {
+                    b.Targets.RemoveAll(t => t.DestinationId == dest.Id);
+                    if (!affected.Contains(b.Name)) continue;
+                    b.LastRunStatus = BackupRunStatus.NeverRun;
+                    b.LastRunSummary = null;
+                    b.LastRunStartUtc = null;
+                    b.LastRunEndUtc = null;
+                    b.LastSuccessUtc = null;
+                    b.SourceLastSizeBytes.Clear();
+                    b.LastVerifyUtc = null;
+                    b.LastVerifyPass = null;
+                    b.LastVerifySummary = null;
+                }
+            });
+            detached = true;
+        }
         // Drop the per-destination wipe gate. Without this, a long-running
         // app accumulates a SemaphoreSlim per ever-deleted destination —
         // small but unbounded.
@@ -450,26 +435,11 @@ public sealed partial class DestinationsViewModel : ViewModelBase, IDisposable
                     $"{string.Join(" · ", report.Errors)}. " +
                     "Anything left on the destination is yours to remove if you'd like.");
         }
-        else if (!dest.IsLocalLike)
+        else if (report is not null)
         {
-            // Cloud destinations: chunks are gone, but restic leaves
-            // the storage's `config` file + an empty directory skeleton
-            // behind by design (the storage is treated as a re-usable
-            // resource, not a decommissionable one — see the matching
-            // Note in WipeRemoteRootAsync). Surface that as a calm
-            // info dialog so the user isn't surprised when they look
-            // at the remote and still see a folder. Local destinations
-            // don't have this problem — `WipeLocalRoot` does a real
-            // recursive delete.
             await DestructiveConfirmWindow.ShowInfoAsync(owner,
                 title: $"«{dest.Name}» removed",
-                subtitle:
-                    "Backup data has been removed from the destination. " +
-                    "An empty restic repository skeleton (a ~1 KB `config` file and empty " +
-                    "`data/`/`index/`/`snapshots/` directory structure) stays behind, because " +
-                    "restic's prune doesn't remove the repository's root folder. " +
-                    "If you want a fully clean remote, delete the folder via the " +
-                    "provider's web UI.");
+                subtitle: string.Join(" ", report.Notes));
         }
     }
 

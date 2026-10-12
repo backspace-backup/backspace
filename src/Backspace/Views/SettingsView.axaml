@@ -210,9 +210,9 @@
         </Expander.Header>
         <StackPanel Spacing="14" Margin="0,8,0,0">
           <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
-                     Text="Backspace ships its own OAuth apps for Dropbox / OneDrive / Google Drive; clicking Connect on a cloud destination uses those. If you'd rather route through your own registered OAuth app (e.g. for separate quota or auditing), paste its client_id + client_secret here. Leave blank to keep using Backspace's defaults."/>
+                     Text="Dropbox can connect using Backspace's registered app. OneDrive and Google Drive currently need an app you register with the provider. Enter that app's client ID below, then connect the destination."/>
           <TextBlock Classes="helper" TextWrapping="Wrap"
-                     Text="Leave any pair blank to keep using rclone's default. The client_secret is optional (installed-app OAuth registrations don't mint one)."/>
+                     Text="You can also enter your own Dropbox app ID. Leave Dropbox blank to use Backspace's app. A client secret is optional; use the settings required by your provider's app registration."/>
 
           <StackPanel Spacing="8">
             <TextBlock Classes="label-caps" Text="DROPBOX"/>
@@ -387,7 +387,7 @@
                    Resend so the choice is one less thing to research
                    for a user who hasn't picked a transactional-email
                    provider before. -->
-              <ComboBox ItemsSource="{Binding AvailableMailProviders}"
+              <ComboBox x:Name="MailProviderPicker" ItemsSource="{Binding AvailableMailProviders}"
                         SelectedItem="{Binding MailProvider}">
                 <ComboBox.ItemTemplate>
                   <DataTemplate>
@@ -417,7 +417,7 @@
                    any other sender is rejected by Mailgun anyway.
                    Resend with default onboarding@resend.dev is editable
                    but the helper line tells you not to. -->
-              <TextBox Text="{Binding MailFrom}"
+              <TextBox x:Name="MailSenderField" Text="{Binding MailFrom}"
                        IsReadOnly="{Binding IsMailgunSandbox}"
                        PlaceholderText="Your name &lt;you@domain.com&gt;"/>
               <!-- Resend: verified-domain note. -->
@@ -472,6 +472,7 @@
                               Padding="6,2" Width="22" Height="22"
                               FontSize="12" Content="✕"
                               ToolTip.Tip="Remove this address"
+                              AutomationProperties.Name="{Binding StringFormat='Remove {0}'}"
                               Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemoveRecipientCommand}"
                               CommandParameter="{Binding}"/>
                     </StackPanel>
@@ -482,7 +483,7 @@
             <!-- Entry row. Enter or click ADD to commit. Disabled when
                  already at the cap. -->
             <Grid ColumnDefinitions="*,Auto">
-              <TextBox Grid.Column="0"
+              <TextBox x:Name="MailRecipientField" Grid.Column="0"
                        Text="{Binding MailToInput}"
                        PlaceholderText="you@example.com"
                        IsEnabled="{Binding CanAddMoreRecipients}">
@@ -490,7 +491,7 @@
                   <KeyBinding Gesture="Enter" Command="{Binding AddRecipientCommand}"/>
                 </TextBox.KeyBindings>
               </TextBox>
-              <Button Grid.Column="1" Classes="ghost" Content="Add" Margin="8,0,0,0"
+              <Button x:Name="AddMailRecipientButton" Grid.Column="1" Classes="ghost" Content="Add" Margin="8,0,0,0"
                       Command="{Binding AddRecipientCommand}"
                       IsEnabled="{Binding CanAddMoreRecipients}"/>
             </Grid>
@@ -502,7 +503,7 @@
           <StackPanel Spacing="10"
                       IsVisible="{Binding MailProvider, Converter={x:Static vm:Eq.To}, ConverterParameter=Resend}">
             <TextBlock Classes="label-caps" Text="RESEND API KEY"/>
-            <TextBox Text="{Binding ResendApiKey}" PasswordChar="•"
+            <TextBox x:Name="ResendApiKeyField" Text="{Binding ResendApiKey}" PasswordChar="•"
                      PlaceholderText="re_xxxxxxxxxxxxxxxxxxxx">
               <ToolTip.Tip>
                 <StackPanel MaxWidth="380" Spacing="6">
@@ -545,7 +546,7 @@
             <Grid ColumnDefinitions="*,22,160">
               <StackPanel Grid.Column="0" Spacing="6">
                 <TextBlock Classes="label-caps" Text="SENDING DOMAIN"/>
-                <TextBox Text="{Binding MailgunDomain}" PlaceholderText="mg.yourdomain.com"
+              <TextBox x:Name="MailgunDomainField" Text="{Binding MailgunDomain}" PlaceholderText="mg.yourdomain.com"
                          ToolTip.Tip="The verified domain on your Mailgun account (e.g. mg.example.com). Mailgun won't accept sends from an unverified domain. Sandbox accounts only allow sending to addresses you've explicitly added as &quot;authorized recipients&quot;."/>
               </StackPanel>
               <StackPanel Grid.Column="2" Spacing="6">
@@ -558,7 +559,7 @@
             </Grid>
             <StackPanel Spacing="6">
               <TextBlock Classes="label-caps" Text="MAILGUN API KEY"/>
-              <TextBox Text="{Binding MailgunApiKey}" PasswordChar="•"
+              <TextBox x:Name="MailgunApiKeyField" Text="{Binding MailgunApiKey}" PasswordChar="•"
                        PlaceholderText="Private API key from Mailgun → API security">
                 <ToolTip.Tip>
                   <StackPanel MaxWidth="400" Spacing="6">
@@ -588,13 +589,13 @@
             <!-- Grid so the hint wraps at narrow widths (a horizontal
                  StackPanel measures it at infinite width and clips). -->
             <Grid ColumnDefinitions="Auto,10,*">
-              <Button Grid.Column="0" Classes="ghost" Content="Send test email"
+              <Button x:Name="SendTestEmailButton" Grid.Column="0" Classes="ghost" Content="Send test email"
                       VerticalAlignment="Center"
                       Command="{Binding SendTestEmailCommand}"
                       IsEnabled="{Binding !TestEmailBusy}"/>
               <TextBlock Grid.Column="2" Classes="dim" VerticalAlignment="Center"
                          TextWrapping="Wrap"
-                         Text="Sends to your TO addresses using the values you've typed (no Save needed)."/>
+                         Text="Sends to your saved recipients. A valid address still in the entry box is added and saved first."/>
             </Grid>
             <!-- Status: success / in-flight rendered as plain helper
                  text. Failure rendered as a single error callout (red
@@ -621,7 +622,7 @@
                            Text="{Binding TestEmailStatus}"/>
                 <TextBlock Classes="helper" TextWrapping="Wrap"
                            Foreground="{DynamicResource BS.Brush.DangerTintFg}"
-                           Text="The provider rejected the send. Fix the error above and click again."/>
+                           Text="Check the details above, then try again."/>
               </StackPanel>
             </Border>
           </StackPanel>
@@ -652,7 +653,7 @@
           <Grid ColumnDefinitions="*,22,*">
             <StackPanel Grid.Column="0" Spacing="6">
               <TextBlock Classes="label-caps" Text="API KEY"/>
-              <TextBox Text="{Binding HealthchecksApiKey}" PasswordChar="•">
+              <TextBox x:Name="HealthchecksApiKeyField" Text="{Binding HealthchecksApiKey}" PasswordChar="•">
                 <ToolTip.Tip>
                   <StackPanel MaxWidth="400" Spacing="6">
                     <TextBlock FontWeight="SemiBold" Text="How to get your Healthchecks.io API key"/>

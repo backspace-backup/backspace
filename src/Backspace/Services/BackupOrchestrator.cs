@@ -207,7 +207,10 @@ public sealed partial class BackupOrchestrator
     /// </summary>
     internal static string MutexNameForDestination(string destinationId, string storageName)
     {
-        var key = $"{destinationId ?? ""}|{storageName ?? ""}";
+        // Queue the actual engine repository, not the spelling used by the
+        // caller. Casing, empty/default names and normalized punctuation can
+        // all address the same Backrest repo.
+        var key = ResticBackrestEngine.MakeRepoId(new Destination { Id = destinationId ?? "" }, storageName);
         var h = System.Security.Cryptography.SHA1.HashData(
             System.Text.Encoding.UTF8.GetBytes(key));
         var sb = new System.Text.StringBuilder(16);
@@ -247,17 +250,17 @@ public sealed partial class BackupOrchestrator
         // that lists the same destination twice (config rounding) so
         // we don't try to take the same lock twice and self-deadlock.
         var keys = backup.Targets
-            .Select(t => (DestId: t.DestinationId ?? "", Storage: t.StorageName ?? "default"))
-            .Distinct()
-            .OrderBy(k => k.DestId, StringComparer.Ordinal)
-            .ThenBy(k => k.Storage, StringComparer.Ordinal)
+            .Select(t => (DestId: t.DestinationId ?? "", Storage: t.StorageName ?? "default",
+                Gate: MutexNameForDestination(t.DestinationId ?? "", t.StorageName ?? "default")))
+            .GroupBy(k => k.Gate, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .OrderBy(k => k.Gate, StringComparer.Ordinal)
             .ToList();
 
         if (keys.Count == 0) return;
 
-        foreach (var (destId, storage) in keys)
+        foreach (var (destId, storage, name) in keys)
         {
-            var name = MutexNameForDestination(destId, storage);
             Semaphore sem;
             try
             {
@@ -590,6 +593,7 @@ public sealed partial class BackupOrchestrator
     public async Task<RunRecord> RunBackupAsync(Backup backup, CancellationToken ct)
     {
         using var scope = Serilog.Context.LogContext.PushProperty("Backup", backup.Name);
+        var wasConfigured = _config.Current.Backups.Any(b => b.Id == backup.Id);
 
         // Maintenance gate (Erase / Wipe / Prune). While one of these
         // sensitive ops holds the lock, NO backup may run — they need
@@ -606,6 +610,18 @@ public sealed partial class BackupOrchestrator
             return MakeSkippedRunRecord(backup, "Cancelled before run started.");
         }
         using var maintenanceReadLease = maintenanceRead;
+
+        // A scheduled process can load settings before waiting for another
+        // process to erase/remove a destination. Refresh after admission, while
+        // our read lease prevents another destructive change from starting.
+        try
+        {
+            var admitted = await RefreshBackupAfterAdmissionAsync(backup, wasConfigured, ct);
+            if (admitted is null) return MakeSkippedRunRecord(backup, "Skipped: this backup was removed before the run could start.");
+            backup = admitted;
+        }
+        catch (OperationCanceledException) { return MakeSkippedRunRecord(backup, "Cancelled before run started."); }
+        catch (Exception ex) { return await ReportAdmissionFailureAsync(backup, RunKind.Backup, ex); }
 
         // Cross-process gate. See AcquireCrossProcessRunGate for the
         // full rationale. Returns (null, false) when the acquire was
@@ -739,6 +755,7 @@ public sealed partial class BackupOrchestrator
             }
             catch (Exception ex)
             {
+                result.Status = BackupRunStatus.Failed;
                 result.Errors.Add(ex.Message);
                 result.Summary = "Run threw before completing.";
                 result.EndedUtc = DateTime.UtcNow;
@@ -786,6 +803,36 @@ public sealed partial class BackupOrchestrator
         Status = BackupRunStatus.Skipped,
         Summary = summary,
     };
+
+    private async Task<Backup?> RefreshBackupAfterAdmissionAsync(Backup backup, bool wasConfigured, CancellationToken ct)
+    {
+        var changed = await _config.ReloadIfChangedAsync(ct).ConfigureAwait(false);
+        // Same-process updates already refresh the hash. They must still
+        // replace the caller's pre-wait object, or a removed backup can run.
+        if (!changed && !wasConfigured) return backup;
+        return _config.Current.Backups.FirstOrDefault(b => b.Id == backup.Id);
+    }
+
+    private async Task<RunRecord> ReportAdmissionFailureAsync(Backup backup, RunKind kind, Exception error)
+    {
+        var result = MakeSkippedRunRecord(backup, "Saved settings could not be read. No repository work was started.");
+        result.Kind = kind;
+        result.Status = BackupRunStatus.Failed;
+        result.Errors.Add(error.Message);
+        _log.Warning(error, "Refusing {Kind} for {Backup}: settings could not be refreshed safely", kind, backup.Name);
+        try { _logs.AppendRun(result); }
+        catch (Exception ex) { _log.Warning(ex, "Could not save the settings-read failure for {Backup}", backup.Name); }
+        if (kind == RunKind.Backup)
+        {
+            try { UpdateBackupLastRun(backup, result); }
+            catch (Exception ex) { _log.Warning(ex, "Could not save backup status after settings-read failure"); }
+            try { RunEnded?.Invoke(backup.Id, result); }
+            catch (Exception ex) { _log.Warning(ex, "RunEnded handler failed after settings-read failure"); }
+            try { await SendAlertsAsync(backup, result); }
+            catch (Exception ex) { _log.Warning(ex, "Could not notify about the settings-read failure"); }
+        }
+        return result;
+    }
 
     /// <summary>
     /// Take the cross-process named semaphore for this backup id.

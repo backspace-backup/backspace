@@ -26,7 +26,7 @@ public sealed partial class BackupOrchestrator
         var address = HealthcheckAddress(backup);
         if (address is null) return;
         var body = BuildEmailBody(backup, record);
-        if (record.Status is BackupRunStatus.Success or BackupRunStatus.Warning)
+        if ((record.Status is BackupRunStatus.Success or BackupRunStatus.Warning) && !HasIncompleteBackupCoverage(backup, record))
             await _hc.PingSuccessAsync(address, body, CancellationToken.None);
         else if (record.Status == BackupRunStatus.Failed && !alreadyFailed)
             await _hc.PingFailureAsync(address, body, CancellationToken.None);
@@ -241,10 +241,10 @@ public sealed partial class BackupOrchestrator
             // for 6 months then went offline for a weekend would have
             // its grace measured from CreatedUtc (or the last manual
             // reset) instead of "last time we knew this was working".
-            // Success+Warning both count: Warning is "succeeded with
-            // some unreadable source files," not a destination
-            // problem, so it's healthy from the grace clock's POV.
-            if (record.Status is BackupRunStatus.Success or BackupRunStatus.Warning)
+            // A completed run with warnings can still count. Partial coverage
+            // from a skipped destination/source or cancellation cannot reset
+            // the date of the last complete backup.
+            if ((record.Status is BackupRunStatus.Success or BackupRunStatus.Warning) && !HasIncompleteBackupCoverage(backup, record))
             {
                 b.LastSuccessUtc = record.EndedUtc ?? DateTime.UtcNow;
             }
@@ -261,6 +261,10 @@ public sealed partial class BackupOrchestrator
             }
         });
     }
+
+    private static bool HasIncompleteBackupCoverage(Backup backup, RunRecord record) =>
+        record.Kind == RunKind.Backup && (record.Cells.Any(c => c.Status == BackupRunStatus.Skipped)
+            || record.Cells.Count > 0 && record.Cells.Count < backup.SourcePaths.Count * DistinctTargets(backup.Targets).Count);
 
     internal static string BuildSummary(RunRecord r, string? orchestratorCancelReason = null,
         Backup? backup = null, AppConfig? config = null)

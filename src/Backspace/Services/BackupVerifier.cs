@@ -568,7 +568,7 @@ public sealed class BackupVerifier
         try
         {
             files = await _revisions.ListFilesAsync(
-                backup, sourcePath, dest, target.StorageName, latest.Number, ct);
+                backup, sourcePath, dest, target.StorageName, latest.Number, ct, latest.SnapshotId);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
@@ -637,7 +637,7 @@ public sealed class BackupVerifier
             // Initial restore + verify of the pre-filtered pick.
             var fileResults = await RunRestoreAndVerifyAsync(
                 picked, backup, sourcePath, dest, target.StorageName,
-                latest.Number, verifyRoot, ct);
+                latest.Number, verifyRoot, ct, latest.SnapshotId);
 
             fileResults.AddRange(missing);
             return ((IReadOnlyList<FileVerifyResult>)fileResults, latest.Number, latest.CreatedUtc, null);
@@ -710,7 +710,7 @@ public sealed class BackupVerifier
     private async Task<List<FileVerifyResult>> RunRestoreAndVerifyAsync(
         IReadOnlyList<RevisionFile> files,
         Backup backup, string sourcePath, Destination dest, string storageName,
-        int revision, string verifyRoot, CancellationToken ct)
+        int revision, string verifyRoot, CancellationToken ct, string? snapshotId)
     {
         var results = new List<FileVerifyResult>();
         // Bound scratch-space growth for large backups. Each batch is fully
@@ -723,7 +723,7 @@ public sealed class BackupVerifier
                 MaintenanceLeaseHeld = true,
                 ShowInRegistry = false,
                 Backup = backup, SourcePath = sourcePath, Destination = dest,
-                StorageName = storageName, Revision = revision,
+                StorageName = storageName, Revision = revision, SnapshotId = snapshotId,
                 Files = batch.Select(f => f.Path).ToList(), TargetPath = verifyRoot,
                 Overwrite = true, PreserveStructure = true,
                 Threads = Math.Max(1, backup.Threads == 0 ? 4 : backup.Threads),

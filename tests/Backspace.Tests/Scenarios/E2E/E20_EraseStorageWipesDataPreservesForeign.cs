@@ -18,8 +18,8 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// <see cref="StorageCleaner.WipeEntireDestinationAsync"/>. Two
 /// invariants:
 ///
-///   1. The restic-owned artefacts (data/, index/, keys/,
-///      snapshots/, config) under the destination folder are gone.
+///   1. The configured backup's snapshots are gone; the repository
+///      itself remains reusable rather than guessing ownership by filename.
 ///   2. Foreign files the user happens to keep in the same folder
 ///      stay put — the wipe is precise, not a `Directory.Delete`
 ///      of the whole tree.
@@ -99,11 +99,11 @@ public sealed class E20_EraseStorageWipesDataPreservesForeign : BackupE2EBase
             $"wipedPath={report.WipedPath}, notes={report.Notes.Count}.");
         Assert.Empty(report.Errors);
 
-        // Post-condition 1: restic artefacts are gone.
-        Assert.False(File.Exists(Path.Combine(destPath, "config")),
-            "Wipe left restic's `config` blob behind — destination not actually cleaned.");
-        Assert.False(Directory.Exists(Path.Combine(destPath, "data")),
-            "Wipe left restic's `data/` dir behind — destination not actually cleaned.");
+        // Ownership is decided by the engine, not by generic directory names.
+        Assert.Empty(await fixture.Engine.ListSnapshotsAsync(backup, source, dest, "default", CancellationToken.None));
+        Assert.NotEmpty(report.DeletedSnapshotIds);
+        Assert.True(File.Exists(Path.Combine(destPath, "config")));
+        ctx.Report.RecordNote("Safe destination cleanup", "The configured backup has no remaining snapshots. The repository settings and the user's unrelated file remain intact.");
 
         // Post-condition 2: the foreign file is still there with
         // unchanged contents. A regression that did a wholesale

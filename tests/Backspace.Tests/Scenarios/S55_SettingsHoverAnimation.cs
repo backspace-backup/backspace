@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Animation;
@@ -44,13 +45,18 @@ public sealed class S55_SettingsHoverAnimation : ScenarioBase
             if (theme == ThemeVariant.Dark)
                 Assert.True(rest.R < 80 && rest.G < 80 && rest.B < 80, "Dark hover must start with a dark transparent hue, not transparent white.");
 
+            // Keep the actual pointer-triggered production transition, but
+            // advance its clock explicitly. A busy suite can otherwise spend
+            // the whole 180 ms fade between MouseMove and the first sample.
+            var clock = new TransitionClock(wash);
             var point = header.TranslatePoint(new Point(header.Bounds.Width / 2, header.Bounds.Height / 2), window)!.Value;
             window.MouseMove(point); ctx.Driver.Pump();
             Assert.True(header.IsPointerOver);
             var colors = new List<Color>();
             for (var frame = 0; frame < 18; frame++)
             {
-                await Frames(1);
+                clock.Advance(TimeSpan.FromMilliseconds(16));
+                ctx.Driver.Pump();
                 var color = ColorOf(wash); colors.Add(color);
                 // The fade must change alpha only. Any white-tinted middle
                 // frame would violate this even if its final brush is correct.
@@ -59,7 +65,7 @@ public sealed class S55_SettingsHoverAnimation : ScenarioBase
                 Assert.InRange((int)color.B, Math.Max(0, rest.B - 1), Math.Min(255, rest.B + 1));
                 if (frame is 1 or 5)
                     ctx.Snapshot(window, $"{label}-hover-frame-{frame + 1}",
-                        $"Real pointer-over during the enabled header transition; sampled brush alpha {color.A}/255. RGB stays on the theme's neutral hue instead of passing through white.");
+                        $"Real pointer-over with the production transition advanced by a controlled clock; brush alpha {color.A}/255. RGB stays on the theme's neutral hue instead of passing through white.");
             }
             Assert.Contains(colors, c => c.A > 0 && c.A < 255); // Prove animation actually ran.
             Assert.Equal(255, colors[^1].A);
@@ -72,10 +78,15 @@ public sealed class S55_SettingsHoverAnimation : ScenarioBase
             ctx.Snapshot(window, $"{label}-hover-settled", "The final rounded wash extends left of the icon; the chevron has no separate dark block.");
 
             window.MouseMove(new Point(3, 3));
-            await Frames(18);
+            ctx.Driver.Pump();
+            for (var frame = 0; frame < 18; frame++)
+            {
+                clock.Advance(TimeSpan.FromMilliseconds(16));
+                ctx.Driver.Pump();
+            }
             Assert.False(header.IsPointerOver);
             Assert.Equal(0, ColorOf(wash).A);
-            ctx.Report.RecordNote(label + " transition samples", "Unmodified live transition alpha samples: " + string.Join(", ", colors.Select(c => c.A)) + ". Real pointer events; no pseudo-class forcing or transition removal.");
+            ctx.Report.RecordNote(label + " transition samples", "Production transition alpha samples at controlled 16 ms intervals: " + string.Join(", ", colors.Select(c => c.A)) + ". Real pointer events; original duration/easing and strict intermediate-alpha and no-white-flash checks. This tests animation values, not native frame timing.");
             window.Close();
         }
 
@@ -91,4 +102,36 @@ public sealed class S55_SettingsHoverAnimation : ScenarioBase
     }
 
     private static Color ColorOf(Border border) => Assert.IsAssignableFrom<ISolidColorBrush>(border.Background).Color;
+
+    /// <summary>
+    /// Avalonia 12 keeps its per-control clock internal. Reflection is confined
+    /// to this test adapter and fails explicitly if that API changes. No shared
+    /// clock or application setting is changed, and the production transition
+    /// itself is neither replaced nor disabled.
+    /// </summary>
+    private sealed class TransitionClock
+    {
+        private readonly object _clock;
+        private readonly MethodInfo _pulse;
+        private TimeSpan _elapsed;
+
+        public TransitionClock(Animatable target)
+        {
+            var clockType = typeof(Animatable).Assembly.GetType("Avalonia.Animation.ClockBase", throwOnError: true)!;
+            _clock = Activator.CreateInstance(clockType, nonPublic: true)!;
+            _pulse = clockType.GetMethod("Pulse", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            Assert.NotNull(_pulse);
+            var field = typeof(Animatable).GetField("ClockProperty", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            var property = Assert.IsAssignableFrom<AvaloniaProperty>(field.GetValue(null));
+            target.SetValue(property, _clock);
+            Advance(TimeSpan.Zero);
+        }
+
+        public void Advance(TimeSpan interval)
+        {
+            _elapsed += interval;
+            _pulse.Invoke(_clock, [_elapsed]);
+        }
+    }
 }

@@ -19,6 +19,37 @@ namespace Backspace.Tests.Services;
 public sealed class RestoreSafetyRegressionTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LinkedTargetOrAncestor_IsRejectedBeforeEngineSubmission(bool nestedTarget)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var workspace = new TempWorkspace("restore-junction-target");
+        var outside = workspace.Sub("outside");
+        File.WriteAllText(Path.Combine(outside, "keep.txt"), "UNTOUCHED");
+        var junction = Path.Combine(workspace.Root, "redirect");
+        using (var process = Process.Start(new ProcessStartInfo("cmd.exe") {
+            Arguments = $"/c mklink /J \"{junction}\" \"{outside}\"",
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true })!)
+        {
+            await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(0, process.ExitCode);
+        }
+        try
+        {
+            using var fixture = new ProtocolFixture("STATUS_SUCCESS", stage => File.WriteAllText(Path.Combine(stage, "keep.txt"), "REPLACED"));
+            var target = nestedTarget ? Path.Combine(junction, "new-child") : junction;
+            await Assert.ThrowsAsync<IOException>(() => fixture.Restore(target, new[] { "keep.txt" }));
+            Assert.Null(fixture.Handler.LastEndpoint);
+            Assert.Equal("UNTOUCHED", File.ReadAllText(Path.Combine(outside, "keep.txt")));
+            Assert.False(Directory.Exists(Path.Combine(outside, "new-child")));
+            Assert.Empty(Directory.GetDirectories(outside, ".backspace-restore-*"));
+            ResticBackrestEngine.ValidateRestoreTarget(Path.Combine(workspace.Root, "ordinary", "new-child"));
+        }
+        finally { Directory.Delete(junction); }
+    }
+
+    [Theory]
     [InlineData("STATUS_SUCCESS", RestoreTerminalStatus.Success)]
     [InlineData("STATUS_ERROR", RestoreTerminalStatus.Error)]
     [InlineData("STATUS_USER_CANCELLED", RestoreTerminalStatus.Cancelled)]

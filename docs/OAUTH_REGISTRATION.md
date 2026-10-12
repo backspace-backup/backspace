@@ -107,9 +107,9 @@ Google repository created under the intended application registration.
 
 For users who want their own client_id, the path is already there:
 
-- Settings → OAuth tab (or per-destination editor) → "Use my own
-  client_id" toggle.
-- The user pastes their client_id; Backspace stores it in
+- Open **Settings → Cloud OAuth apps**, then find the provider.
+- Paste the client ID and, if the registration requires one, its secret.
+  Backspace stores the override in
   `AppConfig.RcloneOAuthApps` (one entry per provider family) and
   passes it through `OAuthProviderFactory.For` next time they
   connect.

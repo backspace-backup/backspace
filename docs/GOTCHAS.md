@@ -66,6 +66,17 @@ It requires the WinFSP runtime on Windows. On macOS / Linux the matching
 path will need a FUSE-backed implementation. In-app snapshot browsing is
 a separate feature and does not require a mounted drive.
 
+Mounted-file caches are separated by destination, source and immutable snapshot
+ID. A revision number is only a display position and can change after retention;
+never use it to reuse bytes from an earlier mount. Bulk reads restore into a
+private directory and publish it by directory rename only after complete
+success. Failed or cancelled bulk output is never served merely because a file
+exists. Snapshot listing and restore processes retain their repository lease
+until process exit is confirmed; a cancelled HTTP wait alone is not sufficient.
+Mounted reads refuse links and linked parent folders, which could otherwise
+expose today's local files outside the snapshot. Restore can recover the link
+itself; mounted browsing does not currently emulate its filesystem semantics.
+
 ## Healthchecks.io management API rate limits
 
 Management calls log HTTP failures and return an unsuccessful result; they
@@ -101,8 +112,11 @@ That can also match same-length sibling names, so every restore writes
 into an isolated staging directory first. Only validated requested paths
 are published to the target after a successful or explicitly partial
 terminal result. Unrelated existing target files are never swept.
-Failed or cancelled staged output is not published. Existing target
-junctions and other reparse points are rejected before publishing.
+Incomplete staged files are not published. Target junctions and linked
+ancestors are rejected before staging. Publication moves completed files
+one at a time: if cancellation or a disk error occurs during that phase,
+already copied files remain and the result reports the copied count. There
+is no transaction or rollback spanning all restored files.
 
 The [Backrest Windows bracket fix](https://github.com/garethgeorge/backrest/pull/1254)
 was merged on June 30, 2026. It changes Backrest's native Restore RPC;

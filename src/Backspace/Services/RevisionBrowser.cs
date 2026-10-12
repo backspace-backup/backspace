@@ -42,16 +42,20 @@ public sealed class RevisionBrowser
 
     public async Task<IReadOnlyList<RevisionFile>> ListFilesAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, CancellationToken ct)
+        int revision, CancellationToken ct, string? expectedSnapshotId = null)
     {
         await _engine.EnsureInitializedAsync(backup, sourcePath, destination, storageName, ct);
         var files = await _engine.ListSnapshotFilesAsync(
-            backup, sourcePath, destination, storageName, revision, ct);
+            backup, sourcePath, destination, storageName, revision, ct, expectedSnapshotId);
         _log.Information("Listed {Count} files for {Backup} revision {Rev}",
             files.Count, backup.Name, revision);
         return files;
     }
 }
 
-public readonly record struct RevisionSummary(int Number, DateTime CreatedUtc, int FileCount, long TotalBytes);
+public readonly record struct RevisionSummary(int Number, DateTime CreatedUtc, int FileCount, long TotalBytes)
+{
+    /// <summary>Immutable engine identity. Number is only a display position and can change after retention.</summary>
+    public string? SnapshotId { get; init; }
+}
 public readonly record struct RevisionFile(string Path, long SizeBytes, DateTime ModifiedUtc);

@@ -11,23 +11,10 @@ using Serilog;
 namespace Backspace.Services;
 
 /// <summary>
-/// Cascading cleanup of restic storage backing a Backup or Destination,
-/// invoked from the two "delete" flows in the UI.
-///
-///   • EraseBackupFromDestinationAsync — removes just ONE backup's
-///     snapshot chain (and its now-orphaned chunks) from a destination,
-///     leaving other backups sharing that storage untouched.
-///
-///   • WipeEntireDestinationAsync — nukes EVERYTHING at a destination.
-///     Used when the user is removing the destination itself; the caller
-///     refuses up-front if any backup still points at it.
-///
-/// For Local / External / Network kinds we use straight filesystem ops
-/// — fast, obvious, no surprises. For cloud (Dropbox / OneDrive / Google
-/// Drive) and S3 we drive restic itself: it has the credentials, the
-/// rename/delete semantics per provider, and a tested retry path. We do
-/// NOT ask the user to clean up anything manually — the user's directive
-/// is that the app always finishes the job.
+/// Removes only snapshots the engine identifies as belonging to a configured
+/// backup/source. All providers use the same engine path. Repository folders,
+/// unrelated files and snapshots from other tools are never deleted directly.
+/// Callers hold the maintenance lease while this service works.
 /// </summary>
 public sealed class StorageCleaner
 {
@@ -249,18 +236,6 @@ public sealed class StorageCleaner
     }
 
     /// <summary>
-    /// Test seam for the snapshot-id listing step in
-    /// <see cref="EraseSnapshotsViaEngineAsync"/>. Production code
-    /// leaves this null, falling through to <see cref="Probe"/>. Tests
-    /// set it to a fake that returns canned data so they can drive the
-    /// probe-first short-circuit (re-running Erase against an empty
-    /// destination must report "nothing to remove" without spawning
-    /// restic). Returning null means "I don't know" — callers fall
-    /// back to the historical blind-prune behaviour.
-    /// </summary>
-    internal Func<Destination, CancellationToken, Task<HashSet<string>?>>? TestSnapshotIdLister;
-
-    /// <summary>
     /// Removes the data Backspace wrote for <paramref name="backup"/>
     /// from <paramref name="destination"/>. Other backups sharing the
     /// same storage root are untouched.
@@ -279,34 +254,14 @@ public sealed class StorageCleaner
             ? (IProgress<string>)new Progress<string>(session.Status)
             : new ChainedProgress<string>(progress, new Progress<string>(session.Status));
 
-        // Gate on the same per-destination semaphore that
-        // WipeEntireDestinationAsync uses. Without this, a "delete
-        // backup" + "remove destination" issued back-to-back would race
-        // each other on the SAME snapshots/<id> directory tree —
-        // EraseSnapshotsLocally walks it while WipeLocalRoot is also
-        // deleting it, throwing IOException mid-walk and leaving the
-        // storage half-cleaned. Same gate also serialises against any
-        // concurrent backup completing into the same destination.
+        // Serialise cleanup calls for this destination. The caller's
+        // maintenance lease coordinates cleanup with backups and restores.
         teeProgress.Report("Waiting for the destination to be free…");
         var gate = _wipeGates.GetOrAdd(destination.Id, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
         try
         {
-            var snapshotIds = backup.SourcePaths
-                .Select(sp => SnapshotIdFor(backup, sp))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (destination.IsLocalLike)
-            {
-                teeProgress.Report($"Removing local snapshots for «{backup.Name}»…");
-                EraseSnapshotsLocally(destination, snapshotIds, report);
-            }
-            else
-            {
-                teeProgress.Report($"Removing «{backup.Name}»'s chunks from «{destination.Name}»…");
-                await EraseSnapshotsViaEngineAsync(backup, destination, storageName, snapshotIds, report, ct, teeProgress, chunkPercent);
-            }
+            await EraseSnapshotsViaEngineAsync(backup, destination, storageName, report, ct, teeProgress, chunkPercent);
         }
         catch (Exception ex)
         {
@@ -328,9 +283,8 @@ public sealed class StorageCleaner
     }
 
     /// <summary>
-    /// Deletes every file Backspace could have written at
-    /// <paramref name="destination"/>'s storage root. Used by the
-    /// destination-delete flow.
+    /// Removes snapshots owned by configured backups at this destination.
+    /// Leaves repository settings, unrelated files and other snapshots intact.
     /// </summary>
     public async Task<CleanupReport> WipeEntireDestinationAsync(
         Destination destination, CancellationToken ct,
@@ -360,16 +314,21 @@ public sealed class StorageCleaner
             var report = new CleanupReport(destination.Name);
             try
             {
-                if (destination.IsLocalLike)
+                // Capture the configured ownership before the UI detaches this
+                // destination. Never guess ownership from folder names or labels.
+                var owners = _config.Current.Backups
+                    .SelectMany(b => b.Targets.Where(t => t.DestinationId == destination.Id)
+                        .Select(t => (Backup: b, Storage: t.StorageName)))
+                    .DistinctBy(x => (x.Backup.Id, x.Storage)).ToArray();
+                foreach (var owner in owners)
                 {
-                    teeProgress.Report($"Removing backup data inside «{destination.PathOrSubpath}»…");
-                    WipeLocalRoot(destination, report);
+                    ct.ThrowIfCancellationRequested();
+                    await EraseSnapshotsViaEngineAsync(owner.Backup, destination, owner.Storage,
+                        report, ct, teeProgress, chunkPercent);
                 }
-                else
-                {
-                    teeProgress.Report($"Clearing «{destination.Name}»…");
-                    await WipeRemoteRootAsync(destination, report, ct, teeProgress, chunkPercent);
-                }
+                report.Notes.Add(owners.Length == 0
+                    ? "No configured backup owns snapshots here. Existing files and snapshots were left untouched."
+                    : "Only snapshots belonging to the configured backups were removed. Other snapshots and unrelated files were preserved. The reusable repository folder and its settings remain.");
             }
             catch (Exception ex)
             {
@@ -429,329 +388,39 @@ public sealed class StorageCleaner
         _wipeGates.TryRemove(destinationId, out _);
     }
 
-    // =====================================================================
-    // Local / External / Network
-    // =====================================================================
-
-    private static void EraseSnapshotsLocally(Destination dest, IReadOnlyList<string> snapshotIds, CleanupReport report)
-    {
-        if (string.IsNullOrWhiteSpace(dest.PathOrSubpath))
-        {
-            report.Errors.Add("Destination has no folder path.");
-            return;
-        }
-        var snapshotsRoot = Path.Combine(dest.PathOrSubpath, "snapshots");
-        if (!Directory.Exists(snapshotsRoot))
-        {
-            report.Notes.Add($"No snapshots folder at {snapshotsRoot}; nothing to clean up.");
-            return;
-        }
-        foreach (var id in snapshotIds)
-        {
-            var dir = Path.Combine(snapshotsRoot, id);
-            if (Directory.Exists(dir))
-            {
-                Directory.Delete(dir, recursive: true);
-                report.DeletedSnapshotIds.Add(id);
-            }
-        }
-
-        // Orphaned chunks (data blocks) remain under {root}/chunks/ unless
-        // we also clean them up. We don't try to be exhaustive here —
-        // running a proper "prune -exhaustive" is expensive and needs a
-        // repo. Leaving the chunks is safe: next time a backup runs to
-        // the same storage, restic will garbage-collect them on a
-        // scheduled prune.
-        report.Notes.Add("Chunks will be garbage-collected on the next scheduled prune for this destination.");
-    }
-
-    /// <summary>
-    /// Wipe only the artefacts Backspace / restic could have put
-    /// into the user's local folder. Earlier this method blanket-deleted
-    /// the whole folder via <c>Directory.Delete(recursive=true)</c>,
-    /// which destroyed any pre-existing user files the user happened to
-    /// have stashed alongside the backup repo (the user reported losing
-    /// unrelated content this way). The new contract: we only touch
-    /// names we know restic creates — <c>snapshots/</c>,
-    /// <c>chunks/</c>, the top-level <c>config</c> file, and the
-    /// <c>.restic</c> hidden metadata directory. Everything else the
-    /// user keeps in that folder stays put. If the folder ends up empty
-    /// after our cleanup we remove the now-empty directory; otherwise
-    /// we leave it in place and surface a note.
-    /// </summary>
-    /// <summary>
-    /// Retry a delete operation a few times with short backoff. The
-    /// Backrest sidecar's index-snapshots / check tasks routinely
-    /// hold file handles on data/, locks/, etc. for ~100ms–few
-    /// hundred-ms after a backup completes; a naïve single-shot
-    /// Directory.Delete races them and reports "process cannot
-    /// access the file because it is being used by another
-    /// process" even when the next attempt would succeed.
-    /// </summary>
-    private static bool RetryDelete(Action deleteFn, out string lastError)
-    {
-        lastError = "";
-        for (int attempt = 0; attempt < 5; attempt++)
-        {
-            try
-            {
-                deleteFn();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                lastError = ex.Message;
-                if (attempt < 4)
-                    System.Threading.Thread.Sleep(200);
-            }
-        }
-        return false;
-    }
-
-    private static void WipeLocalRoot(Destination dest, CleanupReport report)
-    {
-        if (string.IsNullOrWhiteSpace(dest.PathOrSubpath))
-        {
-            report.Errors.Add("Destination has no folder path.");
-            return;
-        }
-        var root = dest.PathOrSubpath;
-        if (!Directory.Exists(root))
-        {
-            report.Notes.Add($"Folder {root} doesn't exist; nothing to clean up.");
-            return;
-        }
-
-        // Only known-restic artefacts. Adding to this list is the
-        // ONLY safe way to delete more — never extend this to wildcards
-        // or "everything in the folder" without explicit user opt-in.
-        // restic 0.17+ layout: config(file), data/, index/, keys/,
-        // locks/, snapshots/. The historical "chunks" name was from
-        // the Duplicacy era; keep it in the sweep list so legacy
-        // imports still tidy up cleanly.
-        string[] knownDirs   = { "snapshots", "data", "index", "keys", "locks", "chunks", ".duplicacy" };
-        string[] knownFiles  = { "config" };
-
-        var deletedNames = new List<string>();
-        foreach (var name in knownDirs)
-        {
-            var path = Path.Combine(root, name);
-            if (!Directory.Exists(path)) continue;
-            if (RetryDelete(() => Directory.Delete(path, recursive: true), out var err))
-                deletedNames.Add(name + "/");
-            else
-                report.Errors.Add($"Couldn't delete {name}/: {err}");
-        }
-        foreach (var name in knownFiles)
-        {
-            var path = Path.Combine(root, name);
-            if (!File.Exists(path)) continue;
-            if (RetryDelete(() => File.Delete(path), out var err))
-                deletedNames.Add(name);
-            else
-                report.Errors.Add($"Couldn't delete {name}: {err}");
-        }
-
-        if (deletedNames.Count == 0)
-        {
-            report.Notes.Add($"Folder {root} contained no backup data; nothing to remove.");
-            return;
-        }
-
-        report.WipedPath = root;
-
-        // Remove the parent directory only if it's now empty AND we
-        // actually deleted at least one restic artefact (otherwise
-        // the user pointed at a folder that had nothing of ours and
-        // anything left is theirs). EnumerateFileSystemEntries is
-        // cheap on the Win32 backing store.
-        try
-        {
-            if (!Directory.EnumerateFileSystemEntries(root).Any())
-            {
-                Directory.Delete(root, recursive: false);
-            }
-            else
-            {
-                report.Notes.Add(
-                    $"Left {root} in place: it still contains files that Backspace didn't put there. " +
-                    "Remove it by hand if you don't want it.");
-            }
-        }
-        catch (Exception ex)
-        {
-            // Non-fatal: the cleanup itself succeeded; we just couldn't
-            // tidy the now-empty parent. Surface as a note rather than an
-            // error.
-            report.Notes.Add($"Couldn't probe/remove {root}: {ex.Message}");
-        }
-    }
-
-    // =====================================================================
-    // Cloud / S3 — delegated to restic
-    // =====================================================================
-
     private async Task EraseSnapshotsViaEngineAsync(
-        Backup backup, Destination destination, string storageName,
-        IReadOnlyList<string> snapshotIds, CleanupReport report, CancellationToken ct,
-        IProgress<string>? progress = null,
-        IProgress<int?>? chunkPercent = null)
+        Backup backup, Destination destination, string storageName, CleanupReport report,
+        CancellationToken ct, IProgress<string>? progress, IProgress<int?>? percent)
     {
-        // Probe the destination FIRST so we only iterate snapshot ids
-        // that still actually exist. Without this, a re-run of Erase
-        // against an already-empty destination would still report
-        // "Removing snapshot 1 of 2…" for every source path the
-        // backup is configured with — restic prune just does
-        // nothing under the hood, but the dialog and the
-        // DeletedSnapshotIds report come back as if we actually
-        // erased something. The user reported: "If I erase a
-        // dropbox destination, it shows me the first time it is
-        // erasing 2 snapshots. But then if I run Erase again it
-        // also shows me it is erasing 2 snapshots! Why doesn't he
-        // see there are no more snapshots?"
-        //
-        // The probe call also tells us how many of the configured
-        // ids actually exist remotely so the progress message
-        // reflects reality rather than backup.SourcePaths.Count.
-        var existingIds = await TryListExistingSnapshotIdsAsync(destination, ct);
-        var idsToPrune = backup.SourcePaths
-            .Select(sp => (Source: sp, Id: SnapshotIdFor(backup, sp)))
-            .Where(x => existingIds is null || existingIds.Contains(x.Id))
-            .ToList();
-
-        if (idsToPrune.Count == 0)
+        foreach (var source in backup.SourcePaths.Distinct())
         {
-            // Either the probe returned a definitive empty list,
-            // OR the user's configured snapshot ids no longer match
-            // anything on the storage (renamed backup, foreign
-            // shared destination, etc.). Either way, there's
-            // nothing for us to do — say so explicitly so the
-            // progress dialog doesn't pretend we erased something.
-            progress?.Report("Nothing to remove: no snapshots for this backup at this destination.");
-            report.Notes.Add("No matching snapshots at destination; nothing to remove.");
-            return;
-        }
-
-        var total = idsToPrune.Count;
-        var done = 0;
-        // Hook the engine's LineWritten so we can surface chunk-removal
-        // counts ("Deleted N/M chunks") to the progress dialog as
-        // restic emits them. Otherwise the dialog would freeze on
-        // "Asking restic to drop chunks…" for the entire prune.
-        // Track current snapshot index for the overall-progress
-        // weighting math in the LineWritten handler below. Captured
-        // by the closure; updated inside the loop.
-        int currentSnapshotIndex = 0;
-        Action<string>? handler = null;
-        if (progress is not null || chunkPercent is not null)
-        {
-            handler = line =>
+            ct.ThrowIfCancellationRequested();
+            progress?.Report($"Checking stored snapshots for «{backup.Name}»…");
+            await _engine.EnsureInitializedAsync(backup, source, destination, storageName, ct);
+            // A listing failure must remain a failure, never 'already empty'.
+            var snapshots = await _engine.ListSnapshotsAsync(backup, source, destination, storageName, ct);
+            if (snapshots.Any(s => string.IsNullOrWhiteSpace(s.SnapshotId)))
+                throw new InvalidOperationException("The engine did not identify the stored snapshots. Nothing was removed for this source.");
+            if (snapshots.Count == 0)
             {
-                var (msg, pct) = TryFormatPruneProgressLineWithPercent(line);
-                if (msg is not null) progress?.Report(msg);
-                if (pct is not null && chunkPercent is not null && currentSnapshotIndex > 0)
-                {
-                    // Ponderate per-snapshot pct into overall pct.
-                    // Snapshot i of N → base = (i-1)/N, then add
-                    // pct/(100*N) for the fractional progress through
-                    // the current snapshot. Cap at 99 so the bar only
-                    // hits 100 from the explicit completion report
-                    // below — restic may emit "Deleted 99 of 100"
-                    // multiple times near the end without it meaning
-                    // the whole operation is done.
-                    var fraction = ((currentSnapshotIndex - 1) + pct.Value / 100.0) / total;
-                    var overall = (int)Math.Clamp(Math.Round(fraction * 99.0), 0, 99);
-                    chunkPercent.Report(overall);
-                }
-            };
-            _engine.LineWritten += handler;
-        }
-        try
-        {
-            foreach (var (sourcePath, id) in idsToPrune)
+                report.Notes.Add($"No matching snapshots for {source}; nothing to remove.");
+                continue;
+            }
+            var done = 0;
+            foreach (var snapshot in snapshots)
             {
                 ct.ThrowIfCancellationRequested();
-                done++;
-                currentSnapshotIndex = done;
-                // Anchor the bar at the floor of this snapshot's slice
-                // so when a fast snapshot finishes before any "Deleted
-                // X of Y" line is emitted, the bar still advances.
-                if (chunkPercent is not null)
-                {
-                    var floor = (int)Math.Floor((done - 1) * 99.0 / total);
-                    chunkPercent.Report(Math.Clamp(floor, 0, 99));
-                }
-                progress?.Report(total > 1
-                    ? $"Removing snapshot {done} of {total} for «{backup.Name}»…"
-                    : $"Removing snapshot for «{backup.Name}»…");
-                try
-                {
-                    await _engine.PruneSnapshotIdAsync(backup, sourcePath, destination, storageName, id, ct);
-                    report.DeletedSnapshotIds.Add(id);
-                }
-                catch (Exception ex)
-                {
-                    _log.Warning(ex, "Snapshot prune failed for {Id}", sourcePath);
-                    report.Errors.Add($"Couldn't remove snapshots: {ex.Message}");
-                }
+                progress?.Report($"Removing snapshot {done + 1} of {snapshots.Count} for «{backup.Name}»…");
+                await _engine.PruneSnapshotIdAsync(backup, source, destination, storageName, snapshot.SnapshotId!, ct);
+                report.DeletedSnapshotIds.Add(snapshot.SnapshotId!);
+                percent?.Report(++done * 90 / snapshots.Count);
             }
-            // All snapshots processed cleanly → push the bar the rest
-            // of the way home. The earlier 99-cap kept the bar honest
-            // about ongoing chunk-delete output; once the loop has
-            // exited we're done.
-            chunkPercent?.Report(100);
-        }
-        finally
-        {
-            if (handler is not null) _engine.LineWritten -= handler;
+            progress?.Report("Freeing space no remaining snapshot needs…");
+            await _engine.PruneExhaustiveAsync(backup, source, destination, storageName, ct);
+            percent?.Report(100);
         }
     }
 
-    /// <summary>
-    /// Best-effort enumerate the snapshot ids currently stored at
-    /// <paramref name="destination"/> via <see cref="Probe"/>. Returns
-    /// null when the probe is unavailable OR the listing failed —
-    /// callers should treat null as "I don't know, assume everything
-    /// might exist" and fall back to attempting prune for every
-    /// configured id (the historical pre-probe behaviour). Returns an
-    /// empty set when the destination is reachable and confirmed
-    /// empty — callers can short-circuit with a "nothing to remove"
-    /// message in that case.
-    /// </summary>
-    private async Task<HashSet<string>?> TryListExistingSnapshotIdsAsync(
-        Destination destination, CancellationToken ct)
-    {
-        // Both paths share the same error contract: cancellation
-        // propagates, any other exception is swallowed and reported
-        // as null ("don't know — fall back to blind prune"). The
-        // earlier shape only wrapped the Probe path, so a
-        // TestSnapshotIdLister throw in tests escaped to the caller
-        // and surfaced as a wipe error instead of a clean "no
-        // probe info" fallback. Symmetric handling keeps the test
-        // hook semantically identical to the production path.
-        try
-        {
-            if (TestSnapshotIdLister is not null)
-                return await TestSnapshotIdLister(destination, ct);
-            if (Probe is null) return null;
-            var ids = await Probe.ListSnapshotIdsAsync(destination, ct);
-            return new HashSet<string>(ids, StringComparer.OrdinalIgnoreCase);
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            _log.Warning(ex, "Couldn't list snapshot ids at {Dest} — falling back to blind prune", destination.Name);
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Recognise restic's prune progress lines and format a tight
-    /// status update for the progress dialog. Returns null for lines
-    /// that aren't useful surface signal (DEBUG noise, irrelevant
-    /// INFO codes). Public so the BackupEditor's PruneToLatestAsync
-    /// can reuse the same parser for its own progress dialog.
-    /// </summary>
     public static string? TryFormatPruneProgressLineForUi(string line) =>
         TryFormatPruneProgressLine(line);
 
@@ -802,257 +471,7 @@ public sealed class StorageCleaner
         @"(?:Removed|Deleted)\s+snapshot\s+\S+\s+(?:at\s+)?revision\s+(\d+)",
         System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-    /// <summary>
-    /// Cloud + S3 wipe: prune ONLY the snapshot ids that Backspace
-    /// knows about (derived from current config's Backup.Name +
-    /// SourcePath pairs). We deliberately do NOT touch unknown snapshot
-    /// ids — the user might be sharing the same Dropbox folder with
-    /// another tool / another machine running restic directly, and
-    /// blanket-pruning everything we found would destroy data we
-    /// didn't put there.
-    ///
-    /// After this, our snapshots and the chunks they exclusively
-    /// referenced are gone. Foreign snapshots + any chunks they keep
-    /// referenced remain. The exhaustive prune at the end is GATED:
-    /// it only runs if every remote snapshot id is one we recognise
-    /// (no foreign data on the storage), otherwise it could remove
-    /// chunks belonging to unrelated snapshots.
-    /// </summary>
-    private async Task WipeRemoteRootAsync(
-        Destination destination, CleanupReport report, CancellationToken ct,
-        IProgress<string>? progress = null,
-        IProgress<int?>? chunkPercent = null)
-    {
-        if (Probe is null)
-        {
-            // Defensive: if the locator forgot to wire the probe, we
-            // still want the rest of the call to succeed cleanly.
-            _log.Warning("StorageCleaner.Probe is null — skipping remote enumeration");
-            report.Errors.Add("Couldn't enumerate remote contents; skipping cloud wipe.");
-            return;
-        }
 
-        IReadOnlyCollection<string> remoteIds;
-        try
-        {
-            remoteIds = await Probe.ListSnapshotIdsAsync(destination, ct);
-        }
-        catch (Exception ex)
-        {
-            _log.Warning(ex, "Couldn't list snapshots at remote {Name}", destination.Name);
-            report.Errors.Add($"Couldn't list remote snapshots: {ex.Message}");
-            return;
-        }
-
-        // Build the set of snapshot ids the app considers its own. Each
-        // (backup, source-path) pair has a deterministic snapshot id
-        // (see <see cref="SnapshotIdFor"/>). We only prune ids that
-        // appear in this set AND on the remote.
-        var ownedIds = new System.Collections.Generic.HashSet<string>(
-            StringComparer.OrdinalIgnoreCase);
-        foreach (var b in _config.Current.Backups)
-        {
-            foreach (var src in b.SourcePaths)
-                ownedIds.Add(SnapshotIdFor(b, src));
-        }
-
-        var toPrune = remoteIds.Where(id => ownedIds.Contains(id)).ToList();
-        var foreignIds = remoteIds.Where(id => !ownedIds.Contains(id)).ToList();
-
-        if (foreignIds.Count > 0)
-        {
-            // Surface what we're leaving alone. The cleanup report goes
-            // to the diagnostic log; the user can review what wasn't
-            // touched if they're surprised.
-            _log.Information(
-                "Skipping {Count} unknown snapshot id(s) at {Dest}: {Ids}",
-                foreignIds.Count, destination.Name, string.Join(", ", foreignIds));
-            report.Notes.Add(
-                $"Skipped {foreignIds.Count} unknown snapshot id(s): they don't belong to any backup Backspace knows about. " +
-                $"Use the provider's web UI if you want to remove them: {string.Join(", ", foreignIds)}");
-        }
-
-        var snapshotIds = toPrune;
-        if (snapshotIds.Count == 0)
-        {
-            // Nothing of ours to remove — bail out, but still mark the
-            // wipe as successful so the caller knows we finished cleanly.
-            report.Notes.Add(remoteIds.Count == 0
-                ? "Storage was already empty; nothing to remove."
-                : "Storage contains only foreign snapshots; nothing Backspace put there to remove.");
-            report.WipedPath = string.IsNullOrWhiteSpace(destination.PathOrSubpath)
-                ? "(remote root)"
-                : destination.PathOrSubpath;
-            return;
-        }
-
-        // We need ANY backup on file to drive restic through this
-        // storage — restic commands need a repo dir + storage URL,
-        // and we already write per-source repos at first-init. The
-        // synthetic backup below has the right Name/SourcePaths so the
-        // prune args are well-formed; no real source data is read. The
-        // synthetic repo is cleaned up in the finally block — without
-        // that, every cloud destination wipe leaves a stub repo dir
-        // behind under %LOCALAPPDATA%\Backspace\repos\.
-        var synthetic = new Backup
-        {
-            // Prefix with a letter so the name doesn't violate the
-            // canonical [A-Za-z0-9_-]+ regex in Backup.IsValidName,
-            // and so SanitizeName's `Trim('_', '-')` doesn't strip
-            // the leading underscore and produce a different string
-            // — leaving the repo-dir cleanup at line 444's `finally`
-            // unable to find what it created.
-            Name = $"wipe{System.Guid.NewGuid():N}".Substring(0, 16),
-            SourcePaths = { System.IO.Path.GetTempPath() },
-        };
-        const string storageName = "default";
-
-        // Hook the engine's LineWritten so chunk-deletion progress
-        // surfaces in the dialog while we drive each snapshot id's
-        // prune. Otherwise the user sees "Asking restic to clear…"
-        // for the entire wipe even though restic is reporting
-        // chunk counts every few seconds.
-        // Overall-progress weighting for the destination-wipe path.
-        // Snapshots own the first 90% of the bar (split evenly across
-        // N snapshots); the exhaustive sweep at the end owns the
-        // remaining 10% (or whatever PercentForExhaustiveSweep dials
-        // to). User-visible win: the bar climbs smoothly to ~90%
-        // through the snapshot loop, then to ~99% through the
-        // exhaustive phase, and snaps to 100 only on success
-        // completion — no "stuck at 100%" while restic is still
-        // working.
-        const int PercentForSnapshotPhase = 90;
-        int currentSnapshotIndex = 0;
-        bool inExhaustivePhase = false;
-        Action<string>? progressHandler = null;
-        if (progress is not null || chunkPercent is not null)
-        {
-            progressHandler = line =>
-            {
-                var (msg, pct) = TryFormatPruneProgressLineWithPercent(line);
-                if (msg is not null) progress?.Report(msg);
-                if (pct is not null && chunkPercent is not null)
-                {
-                    double overall;
-                    if (inExhaustivePhase)
-                    {
-                        // 90 → 99 as exhaustive's "Deleted X of Y"
-                        // climbs from 0% to 100%.
-                        overall = PercentForSnapshotPhase
-                                + (100 - PercentForSnapshotPhase) * pct.Value / 100.0;
-                    }
-                    else if (currentSnapshotIndex > 0)
-                    {
-                        // 0 → 90 across N snapshots.
-                        var fraction = ((currentSnapshotIndex - 1) + pct.Value / 100.0) / snapshotIds.Count;
-                        overall = fraction * PercentForSnapshotPhase;
-                    }
-                    else return;
-                    chunkPercent.Report((int)Math.Clamp(Math.Round(overall), 0, 99));
-                }
-            };
-            _engine.LineWritten += progressHandler;
-        }
-        try
-        {
-            var doneCount = 0;
-            foreach (var id in snapshotIds)
-            {
-                ct.ThrowIfCancellationRequested();
-                doneCount++;
-                currentSnapshotIndex = doneCount;
-                // Anchor the bar at this snapshot's floor so a fast
-                // snapshot still advances the bar even if restic
-                // emits no chunk lines for it.
-                if (chunkPercent is not null)
-                {
-                    var floor = (int)Math.Floor((doneCount - 1) * (double)PercentForSnapshotPhase / snapshotIds.Count);
-                    chunkPercent.Report(Math.Clamp(floor, 0, 99));
-                }
-                progress?.Report(snapshotIds.Count > 1
-                    ? $"Removing snapshot {doneCount} of {snapshotIds.Count}: «{id}»…"
-                    : $"Removing snapshot «{id}»…");
-                try
-                {
-                    await _engine.PruneSnapshotIdAsync(synthetic, synthetic.SourcePaths[0], destination, storageName, id, ct);
-                    report.DeletedSnapshotIds.Add(id);
-                }
-                catch (Exception ex)
-                {
-                    _log.Warning(ex, "Snapshot prune failed for id {Id} on {Dest}", id, destination.Name);
-                    report.Errors.Add($"Couldn't remove snapshot «{id}»: {ex.Message}");
-                }
-            }
-
-            // Exhaustive sweep — picks up any chunks that weren't tied to
-            // a snapshot (e.g. partial uploads from interrupted runs).
-            // Anchor the bar at 90% as we enter this phase so the user
-            // sees the snapshot-phase complete cleanly. The handler
-            // will then push 90 → 99 as exhaustive emits its own
-            // "Deleted X of Y" chunk lines.
-            inExhaustivePhase = true;
-            chunkPercent?.Report(PercentForSnapshotPhase);
-            progress?.Report("Final pass: cleaning up any leftover chunks…");
-            try
-            {
-                await _engine.PruneExhaustiveAsync(synthetic, synthetic.SourcePaths[0], destination, storageName, ct);
-            }
-            catch (Exception ex)
-            {
-                _log.Warning(ex, "Exhaustive prune failed on {Dest}", destination.Name);
-                report.Errors.Add($"Final chunk sweep failed: {ex.Message}");
-            }
-
-            report.WipedPath = string.IsNullOrWhiteSpace(destination.PathOrSubpath)
-                ? "(remote root)"
-                : destination.PathOrSubpath;
-            // Wipe finished — push the bar the last percent home.
-            chunkPercent?.Report(100);
-            // Document the residue. restic's prune deletes chunks +
-            // snapshot manifests but does NOT remove the storage's
-            // `config` file, the 256 empty `chunks/<XX>/` hash-bucket
-            // dirs, the empty per-snapshot-id dirs, or the storage
-            // root folder itself — by design, since restic treats
-            // a storage URL as a long-lived resource ready to receive
-            // a new backup. We can't clean that up from inside
-            // Backspace because our OAuth path issues refresh
-            // tokens via restic.com's helper, not access tokens
-            // (Bearer auth against api.dropboxapi.com would 401).
-            // Surfacing this in the cleanup report's Notes so the
-            // activity-log transcript explains what the user is
-            // seeing on Dropbox, and the success-case dialog can
-            // quote it verbatim. Errors-free path only — failure
-            // paths already surface their own diagnostic notes.
-            if (report.Errors.Count == 0)
-            {
-                report.Notes.Add(
-                    "A small `config` file (~1 KB) and an empty directory skeleton "
-                    + "(`data/`/`index/`/`keys/`/`locks/`/`snapshots/`) remain at "
-                    + $"`{report.WipedPath}` on the remote. restic's prune doesn't remove "
-                    + "the repository's root or its config (the repo is designed to be "
-                    + "re-used). Delete the folder via the provider's web UI if you want "
-                    + "a fully clean state.");
-            }
-        }
-        finally
-        {
-            if (progressHandler is not null)
-                _engine.LineWritten -= progressHandler;
-            // Clean up the synthetic repo dir so we don't leave junk
-            // behind. Best-effort: a locked file should never block the
-            // wipe report from coming back to the user.
-            try
-            {
-                var repoRoot = AppPaths.RepoDirForBackup(synthetic.Name);
-                if (System.IO.Directory.Exists(repoRoot))
-                    System.IO.Directory.Delete(repoRoot, recursive: true);
-            }
-            catch (Exception ex)
-            {
-                _log.Warning(ex, "Couldn't delete synthetic repo dir for {Name}", synthetic.Name);
-            }
-        }
-    }
 }
 
 /// <summary>

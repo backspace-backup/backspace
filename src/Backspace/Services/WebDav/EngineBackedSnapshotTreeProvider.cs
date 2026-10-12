@@ -37,7 +37,10 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
     private readonly Destination _destination;
     private readonly string _storageName;
     private readonly int _revision;
+    private readonly string? _snapshotId;
     private readonly string _cacheDir;
+    private readonly string _bulkCacheDir;
+    private string? _publishedBulkCacheDir;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _perFileGates = new();
     // Per-directory listing cache. Key = source-relative dir path
@@ -51,7 +54,7 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
 
     public EngineBackedSnapshotTreeProvider(
         IBackupEngine engine, Backup backup, string sourcePath, Destination destination,
-        string storageName, int revision, string cacheDir)
+        string storageName, int revision, string cacheDir, string? snapshotId = null)
     {
         _engine = engine;
         _backup = backup;
@@ -59,8 +62,11 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         _destination = destination;
         _storageName = storageName;
         _revision = revision;
-        _cacheDir = cacheDir;
+        _snapshotId = snapshotId;
+        _cacheDir = Path.Combine(cacheDir, "files");
+        _bulkCacheDir = Path.Combine(cacheDir, "bulk-complete");
         Directory.CreateDirectory(_cacheDir);
+        if (Directory.Exists(_bulkCacheDir)) _publishedBulkCacheDir = _bulkCacheDir;
     }
 
     public async Task<IReadOnlyList<WebDavEntry>?> ListAsync(string relativeDir, CancellationToken ct)
@@ -126,15 +132,16 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         // — anything we put there is visible to the user, so we
         // only put what they've actively opened.
         var reads = Interlocked.Increment(ref _readCount);
-        if (reads >= BulkRestoreReadThreshold && !File.Exists(cachedPath))
+        if (TryGetCachedPath(key) is { } alreadyCached)
+            return OpenCached(alreadyCached);
+        if (reads >= BulkRestoreReadThreshold)
         {
-            try { await EnsureBulkRestoredAsync(ct).ConfigureAwait(false); }
+            try { await EnsureBulkRestoredAsync(ct).WaitAsync(ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested || _lifetime.IsCancellationRequested) { throw; }
             catch { /* fall through to per-file restore */ }
-            if (File.Exists(cachedPath))
-                return OpenCached(cachedPath);
+            if (TryGetCachedPath(key) is { } bulkCached)
+                return OpenCached(bulkCached);
         }
-        if (File.Exists(cachedPath))
-            return OpenCached(cachedPath);
 
         // Per-file gate so two concurrent GETs don't both trigger a
         // restore. The dictionary keeps the gate alive for the
@@ -145,6 +152,8 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (TryGetCachedPath(key) is { } racedCached)
+                return OpenCached(racedCached);
             if (!File.Exists(cachedPath))
             {
                 var result = await WithReadLeaseAsync(token => _engine.RestoreFilesAsync(
@@ -152,7 +161,7 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
                     _revision, new[] { "/" + key.TrimStart('/') }, _cacheDir,
                     onProgress: null,
                     token,
-                    expectedLeaves: new[] { key }), ct).ConfigureAwait(false);
+                    expectedLeaves: new[] { key }, expectedSnapshotId: _snapshotId), ct).ConfigureAwait(false);
 
                 if (result.Status is RestoreTerminalStatus.Error or RestoreTerminalStatus.Cancelled)
                     throw new IOException(result.ErrorMessage ?? "Engine reported restore failure.");
@@ -199,7 +208,7 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         try
         {
             bulk = await WithReadLeaseAsync(token => _engine.ListSnapshotTreeAsync(
-                _backup, _sourcePath, _destination, _storageName, _revision, token), ct)
+                _backup, _sourcePath, _destination, _storageName, _revision, token, _snapshotId), ct)
                 .ConfigureAwait(false);
         }
         catch
@@ -306,11 +315,47 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
             // open-cancel doesn't kill the bulk restore everyone else
             // is now sharing. The restore costs nothing once the
             // files are on disk; the next opener gets them for free.
-            _bulkRestoreTask = Task.Run(() => WithReadLeaseAsync(token => _engine.RestoreSnapshotSubtreeAsync(
-                _backup, _sourcePath, _destination, _storageName, _revision, _cacheDir,
-                token), _lifetime.Token));
+            _bulkRestoreTask = Task.Run(async () =>
+            {
+                // No reader can see this directory until the engine confirms
+                // complete success. Failed/preallocated files never masquerade
+                // as usable files merely because File.Exists returns true.
+                var privateCache = Path.Combine(Path.GetDirectoryName(_cacheDir)!, ".bulk-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    var complete = await WithReadLeaseAsync(token => _engine.RestoreSnapshotSubtreeAsync(
+                        _backup, _sourcePath, _destination, _storageName, _revision, privateCache,
+                        token, _snapshotId), _lifetime.Token).ConfigureAwait(false);
+                    if (!complete || _lifetime.IsCancellationRequested) return false;
+                    // Directory rename publishes the complete cache atomically,
+                    // including for later mounts of this exact same snapshot.
+                    try { Directory.Move(privateCache, _bulkCacheDir); }
+                    catch (IOException) when (Directory.Exists(_bulkCacheDir)) { }
+                    Volatile.Write(ref _publishedBulkCacheDir, _bulkCacheDir);
+                    return true;
+                }
+                finally
+                {
+                    // An unconfirmed engine stop retains staging and blocks
+                    // maintenance until restart. Never remove its live output.
+                    if (!ServiceLocator.Maintenance.IsBlocked)
+                        try { if (Directory.Exists(privateCache)) Directory.Delete(privateCache, recursive: true); }
+                        catch { /* unpublished scratch output is safe to retain */ }
+                }
+            });
             return _bulkRestoreTask;
         }
+    }
+
+    private string? TryGetCachedPath(string key)
+    {
+        var relative = key.Replace('/', Path.DirectorySeparatorChar);
+        var perFile = Path.Combine(_cacheDir, relative);
+        if (File.Exists(perFile)) return perFile;
+        var bulkRoot = Volatile.Read(ref _publishedBulkCacheDir);
+        if (bulkRoot is null) return null;
+        var bulkFile = Path.Combine(bulkRoot, relative);
+        return File.Exists(bulkFile) ? bulkFile : null;
     }
 
     public void Dispose()
@@ -351,7 +396,7 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
     private async Task<IReadOnlyList<WebDavEntry>?> FetchDirAsync(string normalizedKey, CancellationToken ct)
     {
         var children = await WithReadLeaseAsync(token => _engine.ListSnapshotDirectoryAsync(
-            _backup, _sourcePath, _destination, _storageName, _revision, normalizedKey, token), ct)
+            _backup, _sourcePath, _destination, _storageName, _revision, normalizedKey, token, _snapshotId), ct)
             .ConfigureAwait(false);
         if (children is null) return null;
 
@@ -379,6 +424,13 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         => string.IsNullOrEmpty(path) ? "" : path.Replace('\\', '/').Trim('/');
 
     private static FileStream OpenCached(string path)
-        => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
+    {
+        // A restored link points at today's local filesystem, not the chosen
+        // snapshot's bytes. Never follow it while presenting a read-only backup.
+        for (var current = Path.GetFullPath(path); current is not null; current = Path.GetDirectoryName(current))
+            if (Path.Exists(current) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("This snapshot contains a linked file or folder. Backspace cannot open links from a mounted backup because they may point outside the snapshot. Use Restore to recover the link itself.");
+        return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
+    }
 }
 

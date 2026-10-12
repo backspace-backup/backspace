@@ -432,18 +432,18 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 Number: sorted.Count - i,
                 CreatedUtc: when,
                 FileCount: 0,
-                TotalBytes: 0));
+                TotalBytes: 0) { SnapshotId = s.Id });
         }
         return revisions;
     }
 
     public async Task<IReadOnlyList<RevisionFile>> ListSnapshotFilesAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, CancellationToken ct)
+        int revision, CancellationToken ct, string? expectedSnapshotId = null)
     {
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var (snapshotId, repoGuid) = await ResolveSnapshotIdAsync(
-            backup, sourcePath, destination, storageName, revision, ct).ConfigureAwait(false);
+            backup, sourcePath, destination, storageName, revision, ct, expectedSnapshotId).ConfigureAwait(false);
 
         var collected = new List<RevisionFile>();
         await WalkSnapshotTreeAsync(client, repoGuid, snapshotId, rootPath: "/", collected, ct)
@@ -499,11 +499,11 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
     public async Task<IReadOnlyList<RevisionDirEntry>?> ListSnapshotDirectoryAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, string dirRelativePath, CancellationToken ct)
+        int revision, string dirRelativePath, CancellationToken ct, string? expectedSnapshotId = null)
     {
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var (snapshotId, repoGuid) = await ResolveSnapshotIdAsync(
-            backup, sourcePath, destination, storageName, revision, ct).ConfigureAwait(false);
+            backup, sourcePath, destination, storageName, revision, ct, expectedSnapshotId).ConfigureAwait(false);
 
         // Translate source-relative request path → absolute snapshot
         // path. Backrest's ListSnapshotFiles wants "/" for the source
@@ -559,14 +559,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
     public async Task<IReadOnlyList<RevisionTreeNode>?> ListSnapshotTreeAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, CancellationToken ct)
+        int revision, CancellationToken ct, string? expectedSnapshotId = null)
     {
         // Resolve the snapshot ID (via Backrest) and pull the live
         // repo stanza so we know the URI, env vars, and per-repo
         // flags Backrest would have set for any restic invocation.
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var (snapshotId, repoGuid) = await ResolveSnapshotIdAsync(
-            backup, sourcePath, destination, storageName, revision, ct).ConfigureAwait(false);
+            backup, sourcePath, destination, storageName, revision, ct, expectedSnapshotId).ConfigureAwait(false);
         var cfg = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
             "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
         var repo = cfg.Repos.FirstOrDefault(r =>
@@ -630,28 +630,21 @@ public sealed class ResticBackrestEngine : IBackupEngine
         var srcPrefix = SourcePathToSnapshotPrefix(sourcePath); // e.g. "C/ntws"
         var rootBound = "/" + srcPrefix; // e.g. "/C/ntws"
 
-        using var proc = new Process { StartInfo = psi };
-        proc.Start();
-        // Drain stderr concurrently so a chatty restic doesn't
-        // block on its stderr pipe filling up.
-        var stderrTask = proc.StandardError.ReadToEndAsync(ct);
-
-        string? line;
-        while ((line = await proc.StandardOutput.ReadLineAsync(ct).ConfigureAwait(false)) is not null)
+        var result = await StreamingRestoreProcess.RunAsync(psi, line =>
         {
-            if (line.Length == 0 || line[0] != '{') continue;
+            if (line.Length == 0 || line[0] != '{') return;
             ResticLsLine? parsed;
             try { parsed = System.Text.Json.JsonSerializer.Deserialize<ResticLsLine>(line); }
-            catch { continue; }
-            if (parsed is null) continue;
-            if (parsed.struct_type != "node") continue; // skip snapshot summary
+            catch { return; }
+            if (parsed is null) return;
+            if (parsed.struct_type != "node") return; // skip snapshot summary
             // restic emits absolute snapshot paths like "/C/ntws/foo".
             // Rebase to source-relative ("foo"). Anything OUTSIDE the
             // source's subtree we skip — defensive, shouldn't happen
             // for a single-source-paths snapshot but the snapshot
             // might cover multiple paths.
             var path = parsed.path ?? "";
-            if (string.IsNullOrEmpty(path)) continue;
+            if (string.IsNullOrEmpty(path)) return;
             string rel;
             if (string.Equals(path, rootBound, StringComparison.OrdinalIgnoreCase))
             {
@@ -668,21 +661,19 @@ public sealed class ResticBackrestEngine : IBackupEngine
             }
             else
             {
-                continue; // path outside our source — skip
+                return; // path outside our source — skip
             }
             var isDir = string.Equals(parsed.type, "dir", StringComparison.OrdinalIgnoreCase);
             var modified = DateTime.TryParse(parsed.mtime, out var mt) ? mt.ToUniversalTime() : DateTime.MinValue;
-            nodes.Add(new RevisionTreeNode(rel, isDir, isDir ? 0 : parsed.size, modified));
-        }
-
-        await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
-        if (proc.ExitCode != 0 && nodes.Count == 0)
+            lock (nodes) nodes.Add(new RevisionTreeNode(rel, isDir, isDir ? 0 : parsed.size, modified));
+        }, ct).ConfigureAwait(false);
+        if (result.Cancelled) throw new OperationCanceledException(ct);
+        if (result.ExitCode != 0 || result.HadErrors)
         {
-            // Non-zero exit with no output means we got nothing
-            // useful. Log stderr and let the caller fall back.
+            // An incomplete listing must never become a complete directory
+            // cache: missing files would otherwise disappear from Explorer.
             _log.Warning("restic ls --json {Snap} exited {Code}: {Err}",
-                snapshotId, proc.ExitCode, stderr.Length > 500 ? stderr.Substring(0, 500) : stderr);
+                snapshotId, result.ExitCode, result.Output);
             return null;
         }
         return nodes;
@@ -690,84 +681,21 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
     public async Task<bool> RestoreSnapshotSubtreeAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, string targetDir, CancellationToken ct)
+        int revision, string targetDir, CancellationToken ct, string? expectedSnapshotId = null)
     {
-        var client = await EnsureClientAsync(ct).ConfigureAwait(false);
-        var (snapshotId, repoGuid) = await ResolveSnapshotIdAsync(
-            backup, sourcePath, destination, storageName, revision, ct).ConfigureAwait(false);
-        var cfg = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
-            "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
-        var repo = cfg.Repos.FirstOrDefault(r =>
-            string.Equals(r.Guid, repoGuid, StringComparison.OrdinalIgnoreCase));
-        if (repo is null) return false;
-
-        // Cloud destinations route through rclone — see
-        // ListSnapshotTreeAsync for the same shape and why we punt
-        // for those. Caller falls back to the per-file restore path.
-        if (repo.Uri.StartsWith("rclone:", StringComparison.OrdinalIgnoreCase))
-            return false;
-        if (!File.Exists(AppPaths.ResticBinary))
-            return false;
-
-        Directory.CreateDirectory(targetDir);
-
-        // restic's "snapshot:subpath" syntax restores the snapshot
-        // subtree AND strips the subpath prefix from the output paths.
-        // So `restic restore SNAP:/C/ntws --target cache` writes
-        // C/ntws/foo.txt as cache/foo.txt — matching our cacheDir
-        // layout exactly. Without the subpath, restic would write
-        // cache/C/ntws/foo.txt and the per-file File.Exists checks
-        // would miss every file (which is what hit the user-reported
-        // 2 hour copy stall before this fast-path landed).
-        var srcPrefix = SourcePathToSnapshotPrefix(sourcePath); // e.g. "C/ntws"
-        var snapshotSubpath = "/" + srcPrefix;
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = AppPaths.ResticBinary,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            StandardOutputEncoding = System.Text.Encoding.UTF8,
-            StandardErrorEncoding = System.Text.Encoding.UTF8,
-        };
-        psi.ArgumentList.Add("-r");
-        psi.ArgumentList.Add(repo.Uri);
-        foreach (var f in repo.Flags ?? new List<string>())
-            psi.ArgumentList.Add(f);
-        psi.ArgumentList.Add("restore");
-        psi.ArgumentList.Add(snapshotId + ":" + snapshotSubpath);
-        psi.ArgumentList.Add("--target");
-        psi.ArgumentList.Add(targetDir);
-        if (!string.IsNullOrEmpty(repo.Password))
-            psi.Environment["RESTIC_PASSWORD"] = repo.Password;
-        foreach (var e in repo.Env ?? new List<string>())
-        {
-            var eq = e.IndexOf('=');
-            if (eq <= 0) continue;
-            psi.Environment[e.Substring(0, eq)] = e.Substring(eq + 1);
-        }
-
-        using var proc = new Process { StartInfo = psi };
-        proc.Start();
-        // Drain both streams concurrently — restic emits progress
-        // lines to stderr and finished-file lines to stdout. Letting
-        // either buffer fill blocks the process.
-        var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = proc.StandardError.ReadToEndAsync(ct);
-        await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-        var stdout = await stdoutTask.ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
-        if (proc.ExitCode != 0)
-        {
-            _log.Warning("restic restore {Snap}:{Sub} exited {Code}: {Err}",
-                snapshotId, snapshotSubpath, proc.ExitCode,
-                stderr.Length > 500 ? stderr.Substring(0, 500) : stderr);
-            return false;
-        }
-        _log.Information("Bulk-restored snapshot subtree {Snap}:{Sub} to {Dir}", snapshotId, snapshotSubpath, targetDir);
-        return true;
+        // Keep consumer-cloud mounts lazy; browsing a second small file must
+        // not begin downloading a whole cloud snapshot as a side effect.
+        if (destination.NeedsOAuth) return false;
+        // Use the same staging, process ownership and terminal-result checks as
+        // an ordinary restore. Cancellation must stop the owned engine before
+        // the mount's repository lease can end. The provider publishes this
+        // private cache only after every requested file has been recovered.
+        var result = await RestoreFilesAsync(backup, sourcePath, destination, storageName,
+            revision, new[] { "" }, targetDir, onProgress: null, ct,
+            expectedSnapshotId: expectedSnapshotId).ConfigureAwait(false);
+        if (result.Status == RestoreTerminalStatus.Cancelled)
+            throw new OperationCanceledException(ct);
+        return result.Status == RestoreTerminalStatus.Success;
     }
 
     /// <summary>One line from <c>restic ls --json</c>. restic emits one
@@ -792,13 +720,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         int revision, IReadOnlyList<string> includePatterns, string targetPath,
         Action<RestoreProgressUpdate>? onProgress, CancellationToken ct,
-        IReadOnlyList<string>? expectedLeaves = null)
+        IReadOnlyList<string>? expectedLeaves = null, string? expectedSnapshotId = null, bool overwrite = true, bool preserveStructure = true)
     {
         if (includePatterns.Count == 0)
             return new RestoreOpResult(0, 0, 0, 0, RestoreTerminalStatus.Success, null);
+        ValidateRestoreTarget(targetPath);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var (snapshotId, repoGuid) = await ResolveSnapshotIdAsync(
-            backup, sourcePath, destination, storageName, revision, ct).ConfigureAwait(false);
+            backup, sourcePath, destination, storageName, revision, ct, expectedSnapshotId).ConfigureAwait(false);
         Directory.CreateDirectory(targetPath);
         var repoId = MakeRepoId(destination, storageName);
         var srcPrefix = SourcePathToSnapshotPrefix(sourcePath);
@@ -977,12 +906,43 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     var relative = OutputRelative(path);
                     return exact?.Contains(relative) ?? includes.Any(p => p.Length == 0 || relative == p || relative.StartsWith(p.TrimEnd('/') + "/", StringComparison.Ordinal));
                 }).ToArray();
-                if (exact is null && total == 0) total = output.Length;
-                foreach (var path in output)
+                // Restic counts directories in its summary. The browser counts
+                // files, so a confirmed whole-tree success must compare the
+                // published leaves with the requested leaves, not directories.
+                if (exact is null && (total == 0 || status == RestoreTerminalStatus.Success))
+                    total = output.Length;
+                var destinations = output.Select(path => SafeRestorePath(targetPath,
+                    preserveStructure ? OutputRelative(path) : Path.GetFileName(path))).ToArray();
+                var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+                if (destinations.Distinct(pathComparer).Count() != destinations.Length)
+                    throw new IOException("Several selected files have the same name. Keep folder structure enabled or restore them separately. No files were replaced.");
+                // A whole-folder restore must also preserve ordinary empty
+                // directories. Exact leaf selections must not create extra
+                // unselected folders. Only confirmed success publishes them.
+                var directoryDestinations = exact is null && preserveStructure && status == RestoreTerminalStatus.Success
+                    ? EnumerateRestoreDirectories(outputRoot).Where(path =>
+                    {
+                        var relative = OutputRelative(path);
+                        return includes.Any(p => p.Length == 0 || relative == p || relative.StartsWith(p.TrimEnd('/') + "/", StringComparison.Ordinal));
+                    }).Select(path => SafeRestorePath(targetPath, OutputRelative(path))).ToArray()
+                    : Array.Empty<string>();
+                foreach (var directory in directoryDestinations)
+                {
+                    ValidateRestoreTarget(directory);
+                    if (File.Exists(directory)) throw new IOException($"A file already occupies the folder {directory}. Restore to another folder. No files were replaced.");
+                }
+                foreach (var directory in directoryDestinations) Directory.CreateDirectory(directory);
+                var skipped = 0;
+                for (var outputIndex = 0; outputIndex < output.Length; outputIndex++)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var relative = OutputRelative(path);
-                    var destinationPath = SafeRestorePath(targetPath, relative);
+                    var path = output[outputIndex];
+                    var destinationPath = destinations[outputIndex];
+                    if (!overwrite && (File.Exists(destinationPath) || Directory.Exists(destinationPath)))
+                    {
+                        skipped++;
+                        continue;
+                    }
                     Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
                     var attributes = File.GetAttributes(path);
                     var isDirectory = (attributes & FileAttributes.Directory) != 0;
@@ -991,17 +951,24 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     else
                     {
                         var length = (attributes & FileAttributes.ReparsePoint) == 0 ? new FileInfo(path).Length : 0;
-                        File.Move(path, destinationPath, overwrite: true);
+                        File.Move(path, destinationPath, overwrite: overwrite);
                         restoredBytes += length;
                     }
                     restored++;
+                }
+                if (skipped > 0)
+                {
+                    status = RestoreTerminalStatus.Warning;
+                    error = $"Restored {restored} file(s). Left {skipped} existing item(s) unchanged because replacing existing files is turned off.";
                 }
                 if (status == RestoreTerminalStatus.Success && (errors > 0 || restored < total))
                 {
                     status = restored == 0 ? RestoreTerminalStatus.Error : RestoreTerminalStatus.Warning;
                     error = $"Recovered {restored} of {total} requested files. {Math.Max(errors, total - restored)} item(s) could not be restored.";
                 }
-                if (status == RestoreTerminalStatus.Success && restored == 0)
+                var restoredEmptyFolder = exact is null && preserveStructure &&
+                    (directoryDestinations.Length > 0 || (includes.Contains("") && Directory.Exists(outputRoot)));
+                if (status == RestoreTerminalStatus.Success && restored == 0 && !restoredEmptyFolder)
                 {
                     status = RestoreTerminalStatus.Error;
                     error = "The backup engine completed without producing any requested files.";
@@ -1011,7 +978,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
         catch (OperationCanceledException) when (safeToCleanup)
         {
             status = RestoreTerminalStatus.Cancelled;
-            error = "Restore cancelled.";
+            error = restored == 0 ? "Restore cancelled. No files were replaced." :
+                $"Restore cancelled after copying {restored} complete file(s). Those files remain in the destination; the remaining files were not copied.";
         }
         catch (Exception ex)
         {
@@ -1234,20 +1202,22 @@ public sealed class ResticBackrestEngine : IBackupEngine
     }
 
     private static int CountRestoreDirectories(string root)
+        => EnumerateRestoreDirectories(root).Count();
+
+    private static IEnumerable<string> EnumerateRestoreDirectories(string root)
     {
+        if (!Directory.Exists(root)) yield break;
         var pending = new Stack<string>();
         pending.Push(root);
-        var count = 0;
         while (pending.Count > 0)
         {
             foreach (var directory in Directory.EnumerateDirectories(pending.Pop()))
             {
                 if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) continue;
-                count++;
+                yield return directory;
                 pending.Push(directory);
             }
         }
-        return count;
     }
 
     internal static string NormalizeRestoreRelativePath(string path)
@@ -1260,6 +1230,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
     private static string SafeRestorePath(string root, string relative)
     {
+        ValidateRestoreTarget(root);
         relative = NormalizeRestoreRelativePath(relative);
         var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var result = Path.GetFullPath(Path.Combine(fullRoot, relative));
@@ -1269,6 +1240,15 @@ public sealed class ResticBackrestEngine : IBackupEngine
             if (Directory.Exists(parent) && (File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
                 throw new IOException($"Cannot restore through the linked folder {parent}. Choose an ordinary folder as the destination.");
         return result;
+    }
+
+    internal static void ValidateRestoreTarget(string target)
+    {
+        // Check the target AND every existing ancestor before creating staging.
+        // Checking only descendants misses a junction chosen as the target.
+        for (var path = Path.GetFullPath(target); path is not null; path = Path.GetDirectoryName(path))
+            if (Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException($"Cannot restore through the linked folder {path}. Choose an ordinary folder as the destination.");
     }
 
     private static IEnumerable<string> EnumerateRestoreLeaves(string root)
@@ -1402,9 +1382,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
         // Restic snapshot ids are 64-char hex; the GUI surfaces a short
         // "revision number" instead. Sort newest-first (by unix_time_ms)
-        // so callers can use the resulting index as a stable, human-
-        // readable identifier where "latest = highest number" matches
-        // what the user sees in the revision picker.
+        // for display only. The immutable snapshot ID carries an existing
+        // selection across retention changes; positions are not stable IDs.
         return resp.Snapshots.OrderByDescending(s => s.UnixTimeMs).ToList();
     }
 
@@ -1423,11 +1402,13 @@ public sealed class ResticBackrestEngine : IBackupEngine
     /// if the revision doesn't exist.</summary>
     internal async Task<(string SnapshotId, string RepoGuid)> ResolveSnapshotIdAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, CancellationToken ct)
+        int revision, CancellationToken ct, string? expectedSnapshotId = null)
     {
         var sorted = await ListSnapshotsSortedAsync(backup, sourcePath, destination, storageName, ct)
             .ConfigureAwait(false);
-        var pickedId = PickSnapshotIdForRevision(sorted, revision);
+        var pickedId = expectedSnapshotId is null ? PickSnapshotIdForRevision(sorted, revision) :
+            sorted.Any(s => s.Id == expectedSnapshotId) ? expectedSnapshotId :
+            throw new InvalidOperationException("The selected snapshot is no longer available. Reopen Restore and choose a snapshot; no other version was substituted.");
 
         // Backrest 1.13's ListSnapshotFiles RPC requires the canonical
         // 64-char restic config-id as repo_guid; the older permissive
@@ -1618,11 +1599,18 @@ public sealed class ResticBackrestEngine : IBackupEngine
         string snapshotId, CancellationToken ct)
     {
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
+        var owned = await ListSnapshotsSortedAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
+        if (!owned.Any(s => s.Id == snapshotId))
+            throw new InvalidOperationException("The snapshot no longer belongs to this backup. Nothing was removed.");
         var repoId = MakeRepoId(destination, storageName);
-        var planId = MakePlanId(backup, sourcePath, destination, storageName);
-        var result = await RunTrackedRepoRpcAsync(client, repoId, "/v1.Backrest/Forget",
-            new ForgetRequest { RepoId = repoId, PlanId = planId, SnapshotId = snapshotId },
-            op => op.PlanId == planId && op.OperationForget is not null, ct).ConfigureAwait(false);
+        if (!IsValidBackrestGuid(snapshotId)) throw new InvalidOperationException("Invalid snapshot identity; nothing was removed.");
+        // Backrest removes a successful one-off Forget operation from its history.
+        // A tracked command retains a terminal record, so we can confirm completion
+        // and keep the repository lease through cancellation and index follow-ups.
+        var command = "forget " + snapshotId;
+        var result = await RunTrackedRepoRpcAsync(client, repoId, "/v1.Backrest/RunCommand",
+            new RunCommandRequest { RepoId = repoId, Command = command },
+            op => op.OperationRunCommand?.Command == command, ct).ConfigureAwait(false);
         if (result.Status is not BackrestStatus.Success)
             throw new IOException($"Snapshot removal reported {result.Status}: {result.DisplayMessage}");
     }
@@ -1650,13 +1638,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
     // ---- operations with a real Restic analogue routed via RunCommand ----
 
     /// <summary>
-    /// Forgets all snapshots except the most recent one, then prunes
-    /// the unreferenced chunks. Implemented as a single restic invocation
-    /// (<c>forget --keep-last 1 --prune</c>) routed through Backrest's
-    /// RunCommand RPC. Backrest doesn't expose a "forget with overridden
-    /// retention" task in its plan-driven API, so RunCommand is the
-    /// honest tool — it bypasses Backrest's plan/retention machinery
-    /// without mutating the user's configured retention policy.
+    /// Forgets older snapshots belonging to this backup/source plan only,
+    /// then prunes unreferenced chunks. Explicit IDs preserve other plans
+    /// sharing the repository and leave configured retention unchanged.
     /// </summary>
     public async Task<RunRecord> PruneToLatestAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
@@ -1667,20 +1651,23 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
         var started = DateTime.UtcNow;
         RaiseLineWritten($"[backspace] prune-to-latest started for {destination.Name}/{storageName}");
-        const string command = "forget --keep-last 1 --prune";
-        var terminal = await RunTrackedRepoRpcAsync(client, MakeRepoId(destination, storageName), "/v1.Backrest/RunCommand",
-            new RunCommandRequest { RepoId = MakeRepoId(destination, storageName), Command = command },
-            op => op.OperationRunCommand?.Command == command, ct).ConfigureAwait(false);
+        // Never run an unfiltered repository-wide retention command here.
+        // Several backups, sources, or external tools can share this repository.
+        var snapshots = await ListSnapshotsSortedAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
+        foreach (var snapshot in snapshots.Skip(1))
+            await PruneSnapshotIdAsync(backup, sourcePath, destination, storageName, snapshot.Id, ct).ConfigureAwait(false);
+        if (snapshots.Count > 1)
+            await PruneExhaustiveAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
 
         return new RunRecord
         {
             BackupId = backup.Id,
             BackupName = backup.Name,
-            Kind = RunKind.Backup,
+            Kind = RunKind.Prune,
             StartedUtc = started,
             EndedUtc = DateTime.UtcNow,
-            Status = StatusFromBackrestTerminal(terminal.Status),
-            Summary = $"prune-to-latest: {terminal.Status} (op {terminal.Id}) {terminal.DisplayMessage}",
+            Status = BackupRunStatus.Success,
+            Summary = $"Removed {Math.Max(0, snapshots.Count - 1)} older snapshot(s) from this backup source. Other backup histories were preserved.",
         };
     }
 

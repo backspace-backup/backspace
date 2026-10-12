@@ -94,8 +94,8 @@
             CornerRadius="10"
             ClipToBounds="True">
       <DockPanel LastChildFill="True">
-        <!-- State appears once. The adjacent label identifies the
-             backup or historical run, rather than repeating LIVE. -->
+        <!-- State appears once. Live output combines all operations;
+             only a historical run has a run-specific log. -->
         <Border DockPanel.Dock="Top"
                 Background="#161B22"
                 BorderBrush="#1F2630"
@@ -155,6 +155,18 @@
                     ToolTip.Tip="Clear the live display. Saved run history is kept."
                     IsVisible="{Binding IsShowingLive}"/>
           </Grid>
+        </Border>
+
+        <Border DockPanel.Dock="Top" Padding="14,10" Background="#161B22">
+          <Border.IsVisible>
+            <MultiBinding Converter="{x:Static vm:BoolAnd.To}">
+              <Binding Path="IsShowingLive"/>
+              <Binding Path="!HasNoHistoryForSelected"/>
+            </MultiBinding>
+          </Border.IsVisible>
+          <TextBlock x:Name="CombinedOutputHint" FontSize="12.5" Foreground="#A8B3C1"
+                     TextWrapping="Wrap"
+                     Text="This combines output from running backups and restores. Select a finished run above to read only that run’s saved log."/>
         </Border>
 
         <!-- Explicit ScrollViewer + SelectableTextBlock. The earlier

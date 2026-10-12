@@ -368,7 +368,10 @@ public sealed partial class BackupOrchestrator
         }
 
         final.EndedUtc = DateTime.UtcNow;
-        final.Status = ClassifyFromCells(final, ct);
+        var plannedCells = sources.Count * DistinctTargets(backup.Targets).Count;
+        if (ct.IsCancellationRequested && final.Cells.Count < plannedCells)
+            final.Warnings.Add("Backup stopped before all sources and destinations were processed.");
+        final.Status = ClassifyFromCells(final, ct, plannedCells);
         // Pass the orchestrator's recorded cancel reason as a fallback
         // so the run-level Summary still reads "Manually skipped after
         // 1m 12s" even when the user clicked Stop BEFORE any cell got
@@ -724,22 +727,22 @@ public sealed partial class BackupOrchestrator
             run.LogPath = cell.LogPath;
     }
 
-    private static BackupRunStatus ClassifyFromCells(RunRecord r, CancellationToken ct)
+    private static BackupRunStatus ClassifyFromCells(RunRecord r, CancellationToken ct, int plannedCells)
     {
-        if (ct.IsCancellationRequested) return BackupRunStatus.Skipped;
-        if (r.Cells.Count == 0) return BackupRunStatus.Failed;
-
         var hasFailure = r.Cells.Any(c => c.Status == BackupRunStatus.Failed);
         var hasWarning = r.Cells.Any(c => c.Status == BackupRunStatus.Warning);
-        var hasSkipped = r.Cells.Any(c => c.Status == BackupRunStatus.Skipped);
+        var hasSkipped = r.Cells.Any(c => c.Status == BackupRunStatus.Skipped) || r.Cells.Count < plannedCells;
         var hasSuccess = r.Cells.Any(c => c.Status == BackupRunStatus.Success);
 
+        // Stopping later work does not erase a failure already reported, and
+        // saving only part of the requested backup is not a complete success.
         if (hasFailure) return BackupRunStatus.Failed;
         if (hasWarning) return BackupRunStatus.Warning;
+        if (hasSuccess) return hasSkipped ? BackupRunStatus.Warning : BackupRunStatus.Success;
         // All cells skipped, no failure → overall Skipped (e.g. every
         // external drive unplugged).
-        if (!hasSuccess && hasSkipped) return BackupRunStatus.Skipped;
-        return BackupRunStatus.Success;
+        if (hasSkipped || ct.IsCancellationRequested) return BackupRunStatus.Skipped;
+        return BackupRunStatus.Failed;
     }
 
     /// <summary>

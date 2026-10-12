@@ -38,6 +38,12 @@ public sealed class S53_ExternalScheduledRefresh : ScenarioBase
         var window = ctx.Driver.Show(new MainWindow { DataContext = vm });
         await vm.RefreshExternalStateAsync();
         SelectNavigation("Activity & logs");
+        // Earlier scenarios may leave the separate destination-maintenance
+        // history bucket. Select this backup through the actual picker rather
+        // than assuming that the first history bucket belongs to our fixture.
+        var backupPicker = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(c => c.ItemsSource == vm.Logs.BackupNames);
+        backupPicker.SelectedItem = backup.Name;
         await Until(() => vm.Logs.History.Any(r => r.Id == oldRun.Id));
         using var draft = new BackupEditorViewModel(backup, isNew: false)
         {

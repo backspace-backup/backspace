@@ -9,7 +9,7 @@ The matrix below is an inventory of tests, not proof that every complete user fl
 
 Real backup/restore scenarios now compare SHA-256 for every regular restored file, including large fixtures. Mutable sources, repositories and restore targets live in unique temporary directories outside the synced checkout. Screenshots and rendered scenario reports remain under the repository's artifacts directory. This avoids attributing a sync client's attribute changes to restore code.
 
-The original audit reproduced data-safety, ownership and reporting defects. The active ROADMAP records the repair evidence and remaining limits. Fake-provider HTTP tests cover deterministic OAuth and notification contracts; they do not prove real account registration, email delivery, real VSS elevation, online-only file hydration or a reboot-triggered schedule.
+The original audit reproduced data-safety, ownership and reporting defects. The local Review desk records repair evidence and remaining limits. Fake-provider HTTP tests cover deterministic OAuth and notification contracts; they do not prove real account registration, email delivery, real VSS elevation, online-only file hydration or a reboot-triggered schedule.
 
 S33 now exercises persisted ownership records with injected process inspection/termination actions. It never sweeps the developer's running processes. Real-engine tests use disposable data and exclusively owned daemons; live cloud tests require explicit credentials and their opt-in gate.
 
@@ -21,7 +21,40 @@ Release checks also build the missing-executable fallback and set `BACKSPACE_REQ
 
 `WindowsUpdateTests` covers release selection, URL/checksum rejection, archive path safety, complete replacement and rollback after each move, modified staging files, preserved configuration, and a real child process holding the update lease. `S62_WindowsUpdates` clicks actual Settings controls with simulated GitHub HTTP and captures light/dark screenshots. Neither establishes a public release download, a native GUI restart, SmartScreen behavior or a real low-disk-space condition. Keep the update issue marked as needing testing until the packaged flow is exercised.
 
+`WindowsUpdateRelocationTests` moves disposable portable-installation folders
+after completed updates. Completed journals must not prevent startup merely
+because their old absolute paths no longer exist; interrupted installation
+journals still require full validation and must not mutate unrelated files.
+
 `E2E_WindowsUpdateBundle` requires `BACKSPACE_UPDATE_CANDIDATE` to point to a published self-contained Windows folder. It verifies that real bundle through a file-backed HTTP response, replaces a disposable installation, launches its native executable with `--version`, then rolls back and compares every original file. This verifies packaging, file replacement and native CLI launch, not a running GUI upgrade or live GitHub download. The release workflow runs it against its candidate. Prerelease candidates instead must be rejected by the stable installer without changing installed files.
+
+### Cleanup, restore and truthful results
+
+`E44_DestructiveOperationSafety` uses an encrypted local repository with two
+independent backup histories. It checks explicit snapshot deletion, retention
+scope, immutable restore selection after renumbering, no-replacement behavior,
+flattened-name collisions, repeat erase and recovery of unmanaged snapshots
+after destination cleanup. `RestoreSafetyRegressionTests` also rejects actual
+NTFS junction targets and ancestors before any engine submission.
+
+`E45_MountedSnapshotSafety` checks real lazy and bulk mounted-file reads,
+cache identity after retention, nested folders and empty-only folders. The
+provider tests inject interrupted or preallocated output and reject linked
+cached paths. These do not establish Explorer/WinFSP or cloud-account behavior.
+
+`E46_RestoreOptionsThroughUi` activates the real wizard's controls with
+headless keyboard input and restores real backup contents. Existing files
+must survive when replacement is off, and disabling folder preservation
+must place recovered files at the target root. `E47_MaintenanceOutcomeSafety`
+checks real engine maintenance cancelled between sources and the subsequent
+complete retry. The runtime regression tests separately inject failed,
+skipped and unexpected outcomes; those simulations are not live-cloud proof.
+
+`S63_SettingsPersistence` uses actual Settings controls and fresh reads of
+the saved JSON for provider/domain/recipient changes, clearing credentials,
+and switching away from Mailgun sandbox restrictions. It does not send email.
+`S11_LogsViewPopulated` checks combined live output and separate saved history
+with injected activity and log signals, rather than concurrent real engines.
 
 ### Production scale
 
@@ -154,7 +187,7 @@ the UI driver; teardown must not kill an active backend to make a test pass.
 
 ## Coverage matrix — every user-driven action vs. its scenario
 
-Built as a deliverable for ROADMAP item 6b (2026-06-12). The goal: no
+The goal of this action coverage matrix is that no
 user-reachable action gets shipped without an E2E or scenario covering
 it. Two production bugs (Mount fails on dist, restore crash on long
 include list) shipped under green scenario suites this month; the gaps
@@ -234,7 +267,7 @@ older scenario comments that describe broader coverage.
 | Restore over original source (overwrite) | `E18_RestoreToOriginalSource` | ✅ |
 | Multi-source restore (pick one source) | `S20_RestorePickSourceMulti` | ✅ |
 | Restore wizard target step | `S23_RestoreTargetStep` renders both states; `InteractionTests.RestorePickTarget_RadioToggle_DrivesTargetOriginalSource` clicks both radios | ✅ |
-| Restore wizard summary | `S16_RestoreSummary` | ✅ |
+| Restore wizard summary | `S16_RestoreSummary` checks success, warning, error and cancellation explanations. `E46_RestoreOptionsThroughUi` verifies that deliberately preserved existing files are explained on screen and in the saved log, with a “not restored” count rather than a false failure count. | ✅ bounded local checks |
 | Restore folder → minimal cover (1 pattern not N files) | `S47_RestoreFolderMinimalCover` projection plus `E35_FolderCollapseEndToEnd` collapsed selection through the real restore engine and byte comparison | ✅ |
 | Restore long include list (CreateProcess ceiling) | `E34_RestoreLongIncludeList` | ✅ |
 | Restore over slow network (retries) | — | ⛔ deferred: needs network-shaping infra |
@@ -295,8 +328,8 @@ older scenario comments that describe broader coverage.
 | Configure Healthchecks.io | `CloudNotificationRepairTests` fake HTTP exercises custom PingUrl, terminal pings and retries; live service remains | 🟡 |
 | Configure Resend / Mailgun email | `CloudNotificationRepairTests` fake HTTP exercises API requests, retry and visible nonfatal failure; live delivery remains | 🟡 |
 | Toggle notification gating per event | `S45_SettingsTogglePersistence` | ✅ |
-| Restore-retry cascade settings | `S45` | ✅ |
-| Section-header hover wash (no Fluent band leak) | `S55_SettingsHoverAnimation` sends real headless pointer movement with transitions enabled in light/dark, samples intermediate alpha/RGB frames, rejects a white hue, checks left extension/corners and return to transparent. Native display-scale rendering remains acceptance. | ✅ sampled animation |
+| Legacy restore-delay configuration | `S45` directly writes the old `RetryDelaysSeconds` list and checks that its order remains in the current configuration. This is a compatibility check, not an active Settings control or engine retry feature. | ✅ configuration compatibility |
+| Section-header hover wash (no Fluent band leak) | `S55_SettingsHoverAnimation` sends real headless pointer movement and advances the production transition with a controlled per-control clock. It checks intermediate alpha/RGB values, rejects a white hue, and checks left extension/corners and return to transparent in both themes. This does not measure native frame timing or display-scale rendering. | ✅ controlled-clock animation |
 
 ### Monitoring & notifications
 
@@ -393,7 +426,7 @@ application starts.
 The general window screenshot generators advance real render frames for a short
 settling interval before capture, so initial caret rotations and theme brushes
 have finished. Transitions stay enabled. `S55_SettingsHoverAnimation` separately
-captures and checks intermediate hover frames rather than using this settling
+captures and checks intermediate hover values with a controlled clock rather than using this settling
 step. `S54_EditorialMinimumWidth` checks both themes at 1180 × 720, including the
 retained Restores navigation row, all action-label bounds and viewport edges,
 and a deliberately narrow card that must wrap its actions onto multiple rows.

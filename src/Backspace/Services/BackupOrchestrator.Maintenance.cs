@@ -41,6 +41,7 @@ public sealed partial class BackupOrchestrator
         CancellationToken ct)
     {
         using var scope = LogContext.PushProperty("Backup", backup.Name);
+        var wasConfigured = _config.Current.Backups.Any(b => b.Id == backup.Id);
         var started = DateTime.UtcNow;
         var aggregate = new RunRecord
         {
@@ -69,6 +70,29 @@ public sealed partial class BackupOrchestrator
         }
         using var maintenanceReadLease = maintenanceRead;
 
+        try
+        {
+            var admitted = await RefreshBackupAfterAdmissionAsync(backup, wasConfigured, ct);
+            if (admitted is null)
+            {
+                aggregate.EndedUtc = DateTime.UtcNow;
+                aggregate.Status = BackupRunStatus.Skipped;
+                aggregate.Summary = $"{action} skipped: this backup was removed before it could start.";
+                _logs.AppendRun(aggregate);
+                return aggregate;
+            }
+            backup = admitted;
+        }
+        catch (OperationCanceledException)
+        {
+            aggregate.EndedUtc = DateTime.UtcNow;
+            aggregate.Status = BackupRunStatus.Skipped;
+            aggregate.Summary = $"{action} cancelled before it could start.";
+            _logs.AppendRun(aggregate);
+            return aggregate;
+        }
+        catch (Exception ex) { return await ReportAdmissionFailureAsync(backup, kind, ex); }
+
         // Metered-network watchdog. Mirrors the in-process guard the
         // backup path adds when AbortOnMeteredNetwork is set on the
         // Backup: prune / check transfer less than a backup but they
@@ -84,7 +108,7 @@ public sealed partial class BackupOrchestrator
 
         try
         {
-            int cellsOk = 0, cellsFailed = 0, cellsSkipped = 0;
+            bool interrupted = false;
             // Shared dedup helper so a future change can't make Maintenance
             // and CellLoop drift on the grouping shape (which would
             // re-introduce the truncated-log + ambiguous-event-stream bug
@@ -92,96 +116,92 @@ public sealed partial class BackupOrchestrator
             var distinctTargets = DistinctTargets(backup.Targets);
             foreach (var src in backup.SourcePaths)
             {
-                if (linked.IsCancellationRequested) break;
                 foreach (var target in distinctTargets)
                 {
-                    if (linked.IsCancellationRequested) break;
                     var dest = _config.Current.Destinations.FirstOrDefault(d => d.Id == target.DestinationId);
+                    if (interrupted || linked.IsCancellationRequested)
+                    {
+                        AddOutcome(src, dest?.Name ?? "(missing)", target.StorageName, BackupRunStatus.Skipped,
+                            meteredAborted ? "Not started because the network became metered." : "Not started because the operation was cancelled.");
+                        continue;
+                    }
                     if (dest is null)
                     {
-                        // Round-4 review caught: a Target whose
-                        // Destination was DELETED from config is a
-                        // permanent misconfig, not a transient skip
-                        // — the user has to fix it. Treating it as
-                        // cellsSkipped+ was masking the real problem
-                        // by routing the aggregate to Skipped, so
-                        // it's now cellsFailed+ instead.
-                        aggregate.Errors.Add($"Destination id={target.DestinationId} no longer exists for source '{src}'. Backup needs reconfiguration.");
-                        cellsFailed++;
+                        AddOutcome(src, "(missing)", target.StorageName, BackupRunStatus.Failed,
+                            $"Destination id={target.DestinationId} no longer exists. Backup needs reconfiguration.");
                         continue;
                     }
                     try
                     {
                         var cell = await engineCall(_engine, backup, src, dest, target.StorageName, linked.Token);
-                        if (cell.Status == BackupRunStatus.Failed)
-                        {
-                            cellsFailed++;
-                            aggregate.Errors.AddRange(cell.Errors);
-                        }
-                        else
-                        {
-                            cellsOk++;
-                        }
+                        var status = cell.Status;
+                        var summary = cell.Summary;
+                        // An absent terminal result cannot establish that the
+                        // repository was checked or its retention policy applied.
+                        if (status is BackupRunStatus.NeverRun or BackupRunStatus.Running)
+                        { status = BackupRunStatus.Failed; summary = "The engine did not report a completed result. " + summary; }
+                        if (status == BackupRunStatus.Success && cell.Errors.Count > 0) status = BackupRunStatus.Failed;
+                        if (status == BackupRunStatus.Success && cell.Warnings.Count > 0) status = BackupRunStatus.Warning;
+                        AddOutcome(src, dest.Name, target.StorageName, status, summary, cell);
                     }
                     catch (OperationCanceledException)
                     {
-                        if (meteredAborted)
-                        {
-                            aggregate.Errors.Add(
-                                $"{action} cancelled at source '{src}', dest '{dest.Name}': " +
-                                "network became metered (mobile / tethered), per backup setting.");
-                        }
-                        else
-                        {
-                            aggregate.Errors.Add($"{action} cancelled mid-flow at source '{src}', dest '{dest.Name}'.");
-                        }
-                        cellsSkipped++;
-                        break;
+                        interrupted = true;
+                        AddOutcome(src, dest.Name, target.StorageName, BackupRunStatus.Skipped,
+                            meteredAborted ? "Cancelled because the network became metered (mobile / tethered)." : "Cancelled before completion.");
                     }
                     catch (Exception ex)
                     {
                         _log.Warning(ex, "{Action} threw for backup {Backup}, source {Source}, dest {Dest}",
                             action, backup.Name, src, dest.Name);
-                        aggregate.Errors.Add($"{action} failed for source '{src}', dest '{dest.Name}': {ex.Message}");
-                        cellsFailed++;
+                        AddOutcome(src, dest.Name, target.StorageName, BackupRunStatus.Failed, ex.Message);
                     }
                 }
             }
 
             aggregate.EndedUtc = DateTime.UtcNow;
-            // Failed > Success > Skipped, with one twist: a no-cell-run
-            // outcome that was DUE TO metered abort surfaces as Skipped
-            // (user intent: pause, not fail) while a no-cell-run
-            // outcome due to "every destination missing in config" or
-            // "every cell threw a Failed-status engine error" must
-            // surface as Failed so the user notices. The dead-ternary
-            // shape that previously had `meteredAborted ? Skipped :
-            // Skipped` collapsed both into Skipped, masking real
-            // misconfiguration as a metered-abort-style Skipped.
-            // Carve out for "user just created this Backup, scheduler
-            // fired before they finished configuring Targets /
-            // SourcePaths" — Skipped is the honest verdict (nothing
-            // to attempt isn't a failure of the maintenance op). The
-            // bottom branch only stays Failed for the case where we
-            // tried at least one source × target pair and every cell
-            // bailed without reaching Skipped status either.
-            var nothingToAttempt = backup.Targets.Count == 0 || backup.SourcePaths.Count == 0;
+            var cellsOk = aggregate.Cells.Count(c => c.Status == BackupRunStatus.Success);
+            var cellsWarned = aggregate.Cells.Count(c => c.Status == BackupRunStatus.Warning);
+            var cellsFailed = aggregate.Cells.Count(c => c.Status == BackupRunStatus.Failed);
+            var cellsSkipped = aggregate.Cells.Count(c => c.Status == BackupRunStatus.Skipped);
+            // Partial completion must not look like an entirely successful
+            // check. Count unstarted parts too, including cancellation between
+            // two completed engine calls.
             aggregate.Status = cellsFailed > 0
                 ? BackupRunStatus.Failed
+                : cellsWarned > 0 || cellsOk > 0 && cellsSkipped > 0 ? BackupRunStatus.Warning
                 : cellsOk > 0 ? BackupRunStatus.Success
-                  : meteredAborted ? BackupRunStatus.Skipped
-                  : nothingToAttempt ? BackupRunStatus.Skipped
-                  : cellsSkipped > 0 ? BackupRunStatus.Skipped
-                  : BackupRunStatus.Failed;
+                : BackupRunStatus.Skipped;
             var durationSec = ((aggregate.EndedUtc ?? DateTime.UtcNow) - started).TotalSeconds;
             var meteredSuffix = meteredAborted ? " (aborted on metered network)" : "";
-            aggregate.Summary = $"{action}: {cellsOk} ok, {cellsFailed} failed, {cellsSkipped} skipped " +
-                                $"across {backup.SourcePaths.Count}×{backup.Targets.Count} cells " +
+            aggregate.Summary = $"{action}: {cellsOk} completed, {cellsWarned} with warnings, {cellsFailed} failed, {cellsSkipped} skipped " +
+                                $"across {aggregate.Cells.Count} parts " +
                                 $"in {durationSec:F1}s{meteredSuffix}.";
 
             try { _logs.AppendRun(aggregate); }
             catch (Exception ex) { _log.Warning(ex, "Failed to persist {Action} run for {Backup}", action, backup.Name); }
             return aggregate;
+
+            void AddOutcome(string source, string destination, string storage, BackupRunStatus status, string summary, RunRecord? result = null)
+            {
+                aggregate.Cells.Add(new CellOutcome
+                {
+                    SourcePath = source, DestinationName = destination, StorageName = storage,
+                    Status = status, Summary = summary,
+                    LastError = status == BackupRunStatus.Failed ? result?.Errors.FirstOrDefault() ?? summary : null,
+                    Duration = result is null ? TimeSpan.Zero : (result.EndedUtc ?? DateTime.UtcNow) - result.StartedUtc,
+                    LogPath = result?.LogPath ?? "", AttemptsMade = result is null ? 0 : 1,
+                });
+                if (result is not null)
+                {
+                    aggregate.Errors.AddRange(result.Errors);
+                    aggregate.Warnings.AddRange(result.Warnings);
+                }
+                if (status == BackupRunStatus.Failed && (result is null || result.Errors.Count == 0))
+                    aggregate.Errors.Add($"[{source} → {destination}] {summary}");
+                if (status is BackupRunStatus.Warning or BackupRunStatus.Skipped && (result is null || result.Warnings.Count == 0))
+                    aggregate.Warnings.Add($"[{source} → {destination}] {summary}");
+            }
         }
         finally
         {

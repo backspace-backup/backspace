@@ -936,16 +936,29 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         // user explicitly asked: "ensure that NO backup or restore at
         // all can run … while one of these sensitive operations is
         // in progress."
-        await ErasingProgressWindow.RunAsync(
-            owner,
-            $"Erasing «{Name}» from «{row.DestinationName}»",
-            async (progress, chunkPct, ct) =>
-            {
-                using var maintenance = await ServiceLocator.Maintenance.AcquireAsync(
-                    $"Erasing «{Name}» from «{row.DestinationName}»", progress, cancelGracePeriod: null, ct);
-                await ServiceLocator.Cleaner.EraseBackupFromDestinationAsync(
-                    saved, dest, row.StorageName, ct, progress, chunkPct);
-            });
+        try
+        {
+            await ErasingProgressWindow.RunAsync(
+                owner,
+                $"Erasing «{Name}» from «{row.DestinationName}»",
+                async (progress, chunkPct, ct) =>
+                {
+                    using var maintenance = await ServiceLocator.Maintenance.AcquireAsync(
+                        $"Erasing «{Name}» from «{row.DestinationName}»", progress, cancelGracePeriod: null, ct);
+                    var report = await ServiceLocator.Cleaner.EraseBackupFromDestinationAsync(
+                        saved, dest, row.StorageName, ct, progress, chunkPct);
+                    if (report.Errors.Count > 0)
+                        throw new System.IO.IOException(string.Join("; ", report.Errors));
+                    ResetErasedBackupStatus();
+                });
+        }
+        catch (Exception ex)
+        {
+            await DestructiveConfirmWindow.ShowInfoAsync(owner,
+                title: "Could not finish erasing this backup",
+                subtitle: ex.Message + " Open Activity & logs for details. Existing backup status was kept; inspect the stored snapshots before trying again.");
+            return;
+        }
 
         // Reset the backup's run state so the card no longer shows a
         // "Last successful run on date X" verdict — the data that
@@ -955,7 +968,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         // reason. The user explicitly asked for this: "invalidate
         // the status of the backup writing to this destination so
         // it becomes like when it was never run."
-        ServiceLocator.Config.Update(cfg =>
+        void ResetErasedBackupStatus() => ServiceLocator.Config.Update(cfg =>
         {
             var b = cfg.Backups.FirstOrDefault(x => x.Id == saved.Id);
             if (b is null) return;
@@ -963,6 +976,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             b.LastRunSummary = null;
             b.LastRunStartUtc = null;
             b.LastRunEndUtc = null;
+            b.LastSuccessUtc = null;
             b.SourceLastSizeBytes.Clear();
             b.LastVerifyUtc = null;
             b.LastVerifyPass = null;
@@ -1003,43 +1017,54 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         // restore overlap. Hooks the runner's LineWritten so the
         // dialog's status line ticks through "Deleted N of M chunks…"
         // as restic emits per-chunk progress.
-        await ErasingProgressWindow.RunAsync(
-            owner,
-            $"Pruning «{Name}» on «{row.DestinationName}»",
-            async (progress, ct) =>
-            {
-                using var maintenance = await ServiceLocator.Maintenance.AcquireAsync(
-                    $"Pruning «{Name}» on «{row.DestinationName}»", progress, cancelGracePeriod: null, ct);
+        try
+        {
+            await ErasingProgressWindow.RunAsync(
+                owner,
+                $"Pruning «{Name}» on «{row.DestinationName}»",
+                async (progress, ct) =>
+                {
+                    using var maintenance = await ServiceLocator.Maintenance.AcquireAsync(
+                        $"Pruning «{Name}» on «{row.DestinationName}»", progress, cancelGracePeriod: null, ct);
 
-                Action<string> handler = line =>
-                {
-                    var msg = StorageCleaner.TryFormatPruneProgressLineForUi(line);
-                    if (msg is not null) progress.Report(msg);
-                };
-                ServiceLocator.Engine.LineWritten += handler;
-                try
-                {
-                    var totalSources = saved.SourcePaths.Count;
-                    var doneSources = 0;
-                    // Prune across every source of the backup — each
-                    // source is its own restic repo, so "prune to
-                    // latest" only touches the one whose repo we
-                    // target.
-                    foreach (var src in saved.SourcePaths)
+                    Action<string> handler = line =>
                     {
-                        ct.ThrowIfCancellationRequested();
-                        doneSources++;
-                        progress.Report(totalSources > 1
-                            ? $"Pruning source {doneSources} of {totalSources}…"
-                            : "Pruning revisions…");
-                        await ServiceLocator.Engine.PruneToLatestAsync(saved, src, dest, row.StorageName, ct);
+                        var msg = StorageCleaner.TryFormatPruneProgressLineForUi(line);
+                        if (msg is not null) progress.Report(msg);
+                    };
+                    ServiceLocator.Engine.LineWritten += handler;
+                    try
+                    {
+                        var totalSources = saved.SourcePaths.Count;
+                        var doneSources = 0;
+                        // Prune across every source of the backup — each
+                        // source has its own plan inside a shared repository.
+                        // The engine removes only that plan's older snapshots.
+                        foreach (var src in saved.SourcePaths)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            doneSources++;
+                            progress.Report(totalSources > 1
+                                ? $"Pruning source {doneSources} of {totalSources}…"
+                                : "Pruning revisions…");
+                            var result = await ServiceLocator.Engine.PruneToLatestAsync(saved, src, dest, row.StorageName, ct);
+                            if (result.Status != BackupRunStatus.Success)
+                                throw new System.IO.IOException(result.Summary ?? "Could not finish freeing space. Check Activity & logs.");
+                        }
                     }
-                }
-                finally
-                {
-                    ServiceLocator.Engine.LineWritten -= handler;
-                }
-            });
+                    finally
+                    {
+                        ServiceLocator.Engine.LineWritten -= handler;
+                    }
+                });
+        }
+        catch (Exception ex)
+        {
+            await DestructiveConfirmWindow.ShowInfoAsync(owner,
+                title: "Could not finish freeing space",
+                subtitle: ex.Message + " Open Activity & logs for details. Existing backup status was kept; inspect the stored snapshots before trying again.");
+            return;
+        }
 
         // Update the run-state metadata: prune doesn't invalidate the
         // backup itself (the latest revision is still there), so we

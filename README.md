@@ -29,7 +29,7 @@ mileage to call itself stable yet; broader use will surface the rough edges
 that one developer's machine never hits. Help us shake those out by trying it
 and reporting anything that surprises you.
 
-- **Tested on Windows 11.** Automated checks cover the interface and real local backup/restore operations. Current live-cloud, reboot and native updater acceptance checks are still pending; see the active roadmap. Windows 10 has not been exercised.
+- **Tested on Windows 11.** Automated checks cover the interface and real local backup/restore operations. Current live-cloud, reboot and native updater acceptance checks are tracked in the [local Review desk](http://127.0.0.1:4317/). Windows 10 has not been exercised.
 - **No testing on macOS or Linux yet.** The code targets both via Avalonia
   and there's no architectural reason it shouldn't run — but no one has
   actually launched it there. If you do, please file an issue with what
@@ -53,7 +53,7 @@ and a live progress bar while one is running.
 ![Three-step setup wizard](docs/screenshots/08-onboarding-sources.png)
 
 Pick a folder, pick a destination, pick a schedule. The wizard walks
-first-time users from cold install to first backup in under a minute.
+first-time users through the choices needed to start their first backup.
 
 ### Restore exactly what you need
 
@@ -79,7 +79,7 @@ unmount or close the app.
 
 ## What it does
 
-- **Windows updates**: Settings → App updates checks GitHub for stable releases. Checks are monthly by default; choose daily, weekly, or never, or check manually. Read the release notes, skip a version, or download and restart when ready. Installation waits for active work, verifies the complete Windows bundle, and preserves the portable configuration folder. A recovery launcher and the previous application files remain available if the new version will not start. Development builds and folders without write access offer a manual download instead. The packaged update/restart flow still needs native Windows acceptance testing; see the active roadmap.
+- **Windows updates**: Settings → App updates checks GitHub for stable releases. Checks are monthly by default; choose daily, weekly, or never, or check manually. Read the release notes, skip a version, or download and restart when ready. Installation waits for active work, verifies the complete Windows bundle, and preserves the portable configuration folder. A recovery launcher and the previous application files remain available if the new version will not start. Development builds and folders without write access offer a manual download instead. See the [local Review desk](http://127.0.0.1:4317/) for packaged update/restart acceptance results.
 
 - **Destinations**: local folder, external drive (with volume-name matching —
   backups skip gracefully when the drive isn't plugged in, not fail), SMB /
@@ -99,8 +99,8 @@ unmount or close the app.
   metered connection mid-backup, the run aborts cleanly instead of eating
   your data plan. The toggle is hidden on macOS / Linux. The same guard wraps
   standalone prune and check runs — a tethered phone connection mid-prune
-  cancels the prune cleanly, surfaced as Skipped with the metered reason in
-  Activity & logs.
+  cancels the prune, with the interruption and any work already completed
+  recorded in Logs & runs.
 - **Schedule preconditions inherit to maintenance**: prune and check schedules
   inherit the main backup's "skip on battery", "stop on battery",
   "require network", and "catch up missed runs" settings — so a laptop
@@ -112,11 +112,11 @@ unmount or close the app.
   and name the checks for you). Local early-warning via stdout parsing for
   `ERROR` / `Failed to` / `access denied`. Toast + topmost alert with sound
   (bypasses Focus Assist for failures by default).
-- **Email**: optional, via [Resend](https://resend.com) (free for 3000 emails/month,
-  API-key only) or Mailgun SMTP.
+- **Email**: optional, via [Resend](https://resend.com) or Mailgun. Both use
+  the provider's HTTP API and an API key.
 - **Restore**: a step-by-step wizard — pick the backup, choose a moment in
-  time, tick the files you want, pick where they land, go. Parallel restore
-  with per-file retry cascade.
+  time, tick the files you want, pick where they land, go. Choose whether
+  to replace existing files and keep their original folder structure.
 - **Test-restore drill**: one-click "is this backup actually restorable?"
   — restores every file from each source's latest snapshot at every
   destination, in temporary batches, and compares bytes with unchanged
@@ -149,7 +149,7 @@ clicks to your first backup. Default schedule is daily at 8 PM with retention
 
 ### Import from existing Duplicacy
 
-Coming from Duplicacy? **Settings → Import from existing Duplicacy** can
+Coming from Duplicacy? **Settings → Import existing backups** can
 read either layout:
 
 - The folder containing your `.duplicacy/` directory (plain Duplicacy users)
@@ -256,8 +256,11 @@ manually or pass `-p:SkipBackrestDownload=true`.
 Backspace                          # launch GUI
 Backspace --run <backup-name>      # unattended single-backup run (scheduler entry point)
 Backspace --run-all                # unattended, all enabled backups
+Backspace --prune <backup-name>    # apply the backup's retention policy
+Backspace --check <backup-name>    # check the backup's repositories
 Backspace --migrate <path>         # one-off import from an existing Duplicacy setup
 Backspace --version
+Backspace --help
 ```
 
 ## License

@@ -28,10 +28,9 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     public MailgunRegion[] AvailableMailgunRegions { get; } =
         new[] { MailgunRegion.US, MailgunRegion.EU };
 
-    // Auto-save bridge for every "regular" field — wires the
-    // ObservableProperty's OnChanged into the debounced save. Theme,
-    // Accent, MailProvider, MailgunDomain, LogRetentionDays,
-    // LogsVerbose already do their own immediate ConfigStore.Update
+    // Auto-save bridge for every "regular" field. UI edits save
+    // immediately; the shared dispatcher helper coalesces worker calls.
+    // Theme, Accent, LogRetentionDays and LogsVerbose do their own ConfigStore.Update
     // inside their OnChanged partials (live-theme swaps need
     // immediate effect); the rest are covered here.
     partial void OnHealthchecksEnabledChanged(bool value)     => ScheduleAutoSave();
@@ -172,7 +171,12 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         var raw = (MailToInput ?? "").Trim();
         if (string.IsNullOrEmpty(raw)) return;
-        if (MailToList.Count >= MailSettings.MaxRecipients) return;
+        if (MailToList.Count >= MailSettings.MaxRecipients)
+        {
+            TestEmailStatus = $"You can add up to {MailSettings.MaxRecipients} recipients. Remove one before adding another.";
+            TestEmailFailed = true;
+            return;
+        }
         // Naive shape check — let the provider do the real validation.
         // We just block obvious typos like "no-at-sign" and dupes.
         if (!raw.Contains('@') || raw.Contains(' '))
@@ -184,6 +188,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         if (MailToList.Any(x => string.Equals(x, raw, StringComparison.OrdinalIgnoreCase)))
         {
             MailToInput = "";
+            TestEmailStatus = "";
+            TestEmailFailed = false;
             return;
         }
         MailToList.Add(raw);
@@ -192,6 +198,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(CanAddMoreRecipients));
         RecomputeEmailGate();
         TestEmailStatus = "";
+        TestEmailFailed = false;
+        ScheduleAutoSave();
     }
 
     [RelayCommand]
@@ -201,17 +209,22 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(MailToCount));
         OnPropertyChanged(nameof(CanAddMoreRecipients));
         RecomputeEmailGate();
+        ScheduleAutoSave();
     }
 
     [RelayCommand]
     private async Task SendTestEmail()
     {
-        // Use sentinel "-test" ref names so the test never persists a
-        // possibly-wrong key into the production ref that real backup
-        // emails read. Earlier we wrote directly to the production refs;
-        // a failed test followed by closing Settings without Save left
-        // the bad key live in secrets, and the next real backup email
-        // picked it up.
+        // Treat Send test as accepting a valid address still in the entry
+        // box. Otherwise a successful test could reassure the user while
+        // scheduled alerts had no saved recipient at all.
+        if (!string.IsNullOrWhiteSpace(MailToInput))
+        {
+            AddRecipient();
+            if (!string.IsNullOrWhiteSpace(MailToInput)) return;
+        }
+        // Temporary references isolate the in-flight test from later edits.
+        // A blank field must never reuse a test key left by an interrupted send.
         const string testResendRef = "mail:resendApiKey-test";
         const string testMailgunRef = "mail:mailgunApiKey-test";
 
@@ -219,30 +232,23 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         {
             Provider = MailProvider,
             FromAddress = MailFrom,
-            ResendApiKeyRef = testResendRef,
-            MailgunApiKeyRef = testMailgunRef,
+            ResendApiKeyRef = string.IsNullOrWhiteSpace(ResendApiKey) ? null : testResendRef,
+            MailgunApiKeyRef = string.IsNullOrWhiteSpace(MailgunApiKey) ? null : testMailgunRef,
             MailgunDomain = MailgunDomain,
             MailgunRegion = MailgunRegion,
         };
 
-        if (!string.IsNullOrWhiteSpace(ResendApiKey))
-            ServiceLocator.Secrets.Set(testResendRef, ResendApiKey);
-        if (!string.IsNullOrWhiteSpace(MailgunApiKey))
-            ServiceLocator.Secrets.Set(testMailgunRef, MailgunApiKey);
-
         var to = MailToList.ToList();
-        if (to.Count == 0 && !string.IsNullOrWhiteSpace(MailToInput))
-        {
-            // Be forgiving: the user typed an address but didn't click
-            // Add. Use it for the test anyway.
-            to.Add(MailToInput.Trim());
-        }
 
         TestEmailBusy = true;
         TestEmailStatus = "Sending…";
         TestEmailFailed = false;
         try
         {
+            if (test.ResendApiKeyRef is not null)
+                ServiceLocator.Secrets.Set(testResendRef, ResendApiKey);
+            if (test.MailgunApiKeyRef is not null)
+                ServiceLocator.Secrets.Set(testMailgunRef, MailgunApiKey);
             var (ok, detail) = await ServiceLocator.Mail.SendTestAsync(
                 test, to, System.Threading.CancellationToken.None);
             // MailService formats failures as "Send failed: <reason>".
@@ -256,6 +262,12 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
                 ? detail[failPrefix.Length..]
                 : detail;
             TestEmailFailed = !ok;
+        }
+        catch (Exception ex)
+        {
+            _log.Warning(ex, "Could not prepare the test email");
+            TestEmailStatus = "The test email could not be sent: " + ex.GetBaseException().Message;
+            TestEmailFailed = true;
         }
         finally
         {
@@ -350,9 +362,15 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         OnPropertyChanged(nameof(IsMailEnabled));
         OnPropertyChanged(nameof(IsResendProvider));
+        OnPropertyChanged(nameof(IsMailgunSandbox));
         RecomputeEmailGate();
-        if (value == MailProvider.Resend && string.IsNullOrWhiteSpace(MailFrom))
+        var generatedSandboxSender = $"backspace@{Services.MailService.NormaliseMailgunDomain(MailgunDomain)}";
+        if (value == MailProvider.Resend && (string.IsNullOrWhiteSpace(MailFrom)
+            || string.Equals(MailFrom, generatedSandboxSender, StringComparison.OrdinalIgnoreCase)))
             MailFrom = "onboarding@resend.dev";
+        else if (IsMailgunSandbox)
+            MailFrom = generatedSandboxSender;
+        ScheduleAutoSave();
     }
     [ObservableProperty] private string _resendApiKey = "";
 
@@ -373,6 +391,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         get
         {
+            if (MailProvider != MailProvider.Mailgun) return false;
             var d = Services.MailService.NormaliseMailgunDomain(MailgunDomain);
             if (string.IsNullOrEmpty(d)) return false;
             return System.Text.RegularExpressions.Regex.IsMatch(
@@ -403,6 +422,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
             var d = Services.MailService.NormaliseMailgunDomain(value);
             MailFrom = $"backspace@{d}";
         }
+        ScheduleAutoSave();
     }
 
     // ---- logging ----
@@ -450,19 +470,17 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         }
     }
 
-    /// <summary>Auto-save debouncer. Every settings field's OnChanged
-    /// partial schedules this; the actual Save runs once 800 ms after
-    /// the last edit so a user racing through five fields gets ONE
-    /// disk write, not five. Theme + Accent + a few others already
-    /// save eagerly inside their OnChanged (they need immediate effect
-    /// for the live theme swap); the debounced auto-save covers the
-    /// long tail. The visible Save button still works for users who
-    /// want immediate persistence.</summary>
+    /// <summary>Shared UI dispatcher for saving regular fields. UI-thread
+    /// edits save immediately so closing the app cannot discard pending
+    /// typing; only worker-thread calls use its 800 ms coalescing timer.
+    /// Theme, Accent and logging preferences have direct handlers. The
+    /// visible Save button also reports explicit confirmation.</summary>
     private readonly UiThreadDebouncer _autoSaveDebouncer;
     /// <summary>Set by Load() to suppress auto-save while the VM is
     /// initialising properties from config — without this, the very
     /// first hydration would schedule a redundant save round-trip.</summary>
     private bool _suspendAutoSave;
+    private bool _saving;
     private bool _disposed;
 
     public SettingsViewModel() : this(null) { }
@@ -472,8 +490,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         Updates = updates ?? ServiceLocator.Updates;
         // Auto-save runs the persist logic SILENTLY — without flipping
         // SaveStatus to "Saved." each time. Otherwise typing into a
-        // text field with 800ms debounce would re-render "Saved."
-        // every time the user paused, which read as "the app is
+        // text field would re-render "Saved." after each edit,
+        // which read as "the app is
         // doing something I should care about" rather than the
         // intended invisible-by-default behaviour. The manual Save
         // button (RelayCommand below) explicitly opts into the
@@ -497,7 +515,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         // pre-save config snapshot, wiping whatever the user just
         // typed. The outstanding save will run shortly and produce a
         // fresh Changed event the user's input has already informed.
-        if (_autoSaveDebouncer.HasPendingFlush) return;
+        if (_saving || _autoSaveDebouncer.HasPendingFlush) return;
         OnUiThread(Load);
     }
 
@@ -566,10 +584,10 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(MailToCount));
         OnPropertyChanged(nameof(CanAddMoreRecipients));
 
-        if (cfg.Mail.ResendApiKeyRef is { } rr && ServiceLocator.Secrets.TryGet(rr, out var rk)) ResendApiKey = rk;
+        ResendApiKey = cfg.Mail.ResendApiKeyRef is { } rr && ServiceLocator.Secrets.TryGet(rr, out var rk) ? rk : "";
         MailgunDomain = cfg.Mail.MailgunDomain;
         MailgunRegion = cfg.Mail.MailgunRegion;
-        if (cfg.Mail.MailgunApiKeyRef is { } mak && ServiceLocator.Secrets.TryGet(mak, out var mk)) MailgunApiKey = mk;
+        MailgunApiKey = cfg.Mail.MailgunApiKeyRef is { } mak && ServiceLocator.Secrets.TryGet(mak, out var mk) ? mk : "";
 
         // Hydrate the OAuth client_id pairs from the saved
         // RcloneOAuthApps list. Each provider family has at most one
@@ -590,10 +608,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         Action<string> setClientId, Action<string> setClientSecret)
     {
         var entry = cfg.RcloneOAuthApps.FirstOrDefault(a => a.Provider == family);
-        if (entry is null) return;
-        setClientId(entry.ClientId);
-        if (entry.ClientSecretRef is { } r && ServiceLocator.Secrets.TryGet(r, out var s))
-            setClientSecret(s);
+        setClientId(entry?.ClientId ?? "");
+        setClientSecret(entry?.ClientSecretRef is { } r && ServiceLocator.Secrets.TryGet(r, out var s) ? s : "");
     }
 
     /// <summary>Reconcile the RcloneOAuthApps list with the current
@@ -648,6 +664,10 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
 
     private void SaveCore(bool silent)
     {
+        // ConfigStore broadcasts Changed synchronously. Re-reading our own
+        // save would reset controls while the user is still entering a pair
+        // such as an OAuth client ID and secret.
+        _saving = true;
         try
         {
             var secrets = ServiceLocator.Secrets;
@@ -663,6 +683,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
                     cfg.Monitoring.HealthchecksApiKeyRef ??= "monitoring:hcApiKey";
                     secrets.Set(cfg.Monitoring.HealthchecksApiKeyRef, HealthchecksApiKey);
                 }
+                else cfg.Monitoring.HealthchecksApiKeyRef = null;
 
                 cfg.Notifications.OnSuccess.Toast = SuccessToast;
                 cfg.Notifications.OnSuccess.Sound = SuccessSound;
@@ -694,6 +715,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
                     cfg.Mail.ResendApiKeyRef ??= "mail:resendApiKey";
                     secrets.Set(cfg.Mail.ResendApiKeyRef, ResendApiKey);
                 }
+                else cfg.Mail.ResendApiKeyRef = null;
                 cfg.Mail.MailgunDomain = MailgunDomain.Trim();
                 cfg.Mail.MailgunRegion = MailgunRegion;
                 if (!string.IsNullOrWhiteSpace(MailgunApiKey))
@@ -701,6 +723,11 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
                     cfg.Mail.MailgunApiKeyRef ??= "mail:mailgunApiKey";
                     secrets.Set(cfg.Mail.MailgunApiKeyRef, MailgunApiKey);
                 }
+                else cfg.Mail.MailgunApiKeyRef = null;
+
+                // Clearing a field disconnects that credential. Leave the
+                // encrypted value itself alone: another configuration entry
+                // may share the reference, and no caller uses an unreferenced key.
 
                 PersistOAuthApp(cfg, secrets, DestinationKind.DropboxAppScoped,
                     DropboxClientId, DropboxClientSecret, "rclone:dropbox:client_secret");
@@ -747,6 +774,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
             _log.Error(ex, "Settings save failed");
             SaveStatus = "Save failed: " + ex.Message;
         }
+        finally { _saving = false; }
     }
 
     // ---- legacy import ----

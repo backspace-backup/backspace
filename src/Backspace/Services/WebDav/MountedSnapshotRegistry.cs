@@ -218,11 +218,9 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
                 $"{WinFspRuntimeDetector.InstallUrl}.");
         }
 
-        // One cache root per (backup, destination). Inside it the
-        // composite provider partitions per (sourceFolder, revision)
-        // sub-cache so two mount sessions for the same backup share
-        // already-restored files. Drop the "-rN" suffix the old
-        // single-revision mount used — the composite holds many.
+        // The composite provider separates destination/source/snapshot IDs
+        // below this root. Latest and All revisions share verified bytes;
+        // retention changing a display number cannot reuse another snapshot.
         var cacheDir = System.IO.Path.Combine(AppPaths.BackrestDataDir, "mount-cache", backup.Id);
         var provider = new BackupMountTreeProvider(
             ServiceLocator.Engine, backup, destination, target.StorageName, cacheDir);
