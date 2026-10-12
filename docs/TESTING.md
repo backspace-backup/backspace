@@ -61,9 +61,16 @@ with injected activity and log signals, rather than concurrent real engines.
 `E40_BracketFolderRestore` uses a real encrypted local repository. It restores
 2,397 files from a folder containing brackets through one folder pattern,
 compares every file's bytes, rejects a similarly named wildcard match, and
-preserves an existing destination file. A second restore selects only two
-files and verifies that a third does not appear. This tests the production
-selection and restore services; it does not click the wizard's folder checkbox.
+preserves an existing destination file. It repeats the folder request without
+an exact-file list and checks that a deceptive sibling's existing contents stay
+unchanged. Six single-file restores cover paired brackets, multiple pairs and
+an unmatched opening bracket, each with a deceptive sibling in the backup.
+They prove that an absent sibling stays absent and an existing sibling stays
+unchanged even with replacement enabled. The daemon's operation records confirm
+these requests used its native Restore API. A two-file restore exercises the
+direct restic path and verifies that a third file does not appear. This tests
+the production selection and restore services; it does not click the wizard's
+folder checkbox or establish that every possible filename has been tested.
 
 `E41_NativeRestoreProgress` restores 128 MiB of incompressible data through
 the bundled Backrest native Restore API. A limit on its disposable repository

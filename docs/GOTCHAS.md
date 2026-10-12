@@ -119,7 +119,11 @@ already copied files remain and the result reports the copied count. There
 is no transaction or rollback spanning all restored files.
 
 The [Backrest Windows bracket fix](https://github.com/garethgeorge/backrest/pull/1254)
-was merged on June 30, 2026. It changes Backrest's native Restore RPC;
+was merged on June 30, 2026 (status rechecked October 12). It is included in
+v1.14.1, but our pinned and bundled v1.13.0 predates it. Backspace therefore
+performs the bracket substitution itself before calling native Restore.
+The upstream fix also uses wildcard substitution, so upgrading Backrest
+alone would not remove the need to filter the staged output literally.
 Backspace uses native Restore for a single selected file or folder when no
 per-backup bandwidth limit is set. Its target must not exist and its plan ID
 must be supplied. The output is still staged and filtered before publication;
@@ -132,7 +136,8 @@ These restores appear in Backspace, but not in Backrest's operation history.
 Native Restore cannot accept several paths or a per-request bandwidth limit.
 Both paths keep staging and the repository lease until engine exit is confirmed.
 The proposed [restic literal include flag](https://github.com/restic/restic/pull/21872)
-was still open when checked on October 2, 2026. Only retire our wildcard
+was still open, awaiting review, when checked on October 12, 2026. The bundled
+restic v0.18.1 does not have that proposed flag. Only retire our wildcard
 workaround after a bundled restic version supports literal includes and
 the occupied-target preservation tests still pass.
 
