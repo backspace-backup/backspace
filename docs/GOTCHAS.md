@@ -48,6 +48,13 @@ cancellation and maintenance checks against those binaries.
 
 ## Backrest 1.13.0+ `SetConfig` guid contract
 
+Plan backup options must use the explicit JSON name `backup_flags`, not
+`backupFlags`. The latter can be silently ignored: VSS, cloud-placeholder
+exclusion and bandwidth limits then disappear even though a local unit
+test sees the right list. The real-daemon configuration test writes and
+reads these options through Backrest. Consult the pinned version's proto
+for each field; naming is not uniformly camel case.
+
 Guids must be 64-char hex; `auto_initialize=true` is rejected when a
 guid is set; the validator reruns over the entire on-disk config on
 every write, so an old 36-char UUID-shaped guid (Backspace pre-2026-06)

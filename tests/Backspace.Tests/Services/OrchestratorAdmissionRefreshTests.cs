@@ -30,7 +30,7 @@ public sealed class OrchestratorAdmissionRefreshTests
         var scheduledConfig = new ConfigStore(); scheduledConfig.Load();
         var secrets = new SecretsStore(); var logs = new LogStore();
         var destination = new Destination { Name = "Removed repository", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("repository") };
-        var backup = new Backup { Name = "Waiting scheduled run", UseVss = false, AbortOnMeteredNetwork = false,
+        var backup = new Backup { Name = "Waiting scheduled run", UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false,
             SourcePaths = { workspace.Sub("source") }, Targets = { new() { DestinationId = destination.Id } } };
         scheduledConfig.Update(c => { c.Backups.Add(backup); c.Destinations.Add(destination);
             c.Notifications.OnSuccess = new(); c.Notifications.OnFailure = new(); c.Notifications.OnSkipped = new(); });
@@ -87,7 +87,7 @@ public sealed class OrchestratorAdmissionRefreshTests
         var config = new ConfigStore(); config.Load();
         var secrets = new SecretsStore(); var logs = new LogStore();
         var destination = new Destination { Name = "Unchanged repository", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("repository") };
-        var backup = new Backup { Name = "Unreadable settings", UseVss = false, AbortOnMeteredNetwork = false,
+        var backup = new Backup { Name = "Unreadable settings", UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false,
             SourcePaths = { workspace.Sub("source") }, Targets = { new() { DestinationId = destination.Id } } };
         config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(destination);
             c.Notifications.OnSuccess = new(); c.Notifications.OnFailure = new(); c.Notifications.OnSkipped = new(); });

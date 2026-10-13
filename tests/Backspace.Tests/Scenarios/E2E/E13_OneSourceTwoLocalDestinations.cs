@@ -61,7 +61,7 @@ public sealed class E13_OneSourceTwoLocalDestinations : BackupE2EBase
         {
             Name = "Documents (E13)",
             SourcePaths = { source },
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),

@@ -167,6 +167,19 @@
 
           <!-- Provenance remains anchored to the bottom. -->
           <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,18" Spacing="2">
+            <Button Name="LimitedProtectionButton" Margin="16,0,16,8" Padding="12"
+                    HorizontalContentAlignment="Stretch" IsVisible="{Binding HasLimitedProtection}"
+                    Background="{DynamicResource BS.Brush.WarnTint}" BorderBrush="{DynamicResource BS.Brush.Warn}"
+                    BorderThickness="1" Click="OnLimitedProtection">
+              <Grid ColumnDefinitions="20,8,*">
+                <PathIcon Grid.Column="0" Data="{StaticResource Icon.Warn}" Width="18" Height="18"
+                          Foreground="{DynamicResource BS.Brush.Warn}" VerticalAlignment="Top" Margin="0,3,0,0"/>
+                <StackPanel Grid.Column="2" Spacing="3">
+                  <TextBlock FontSize="14" FontWeight="SemiBold" Text="Limited protection"/>
+                  <TextBlock FontSize="13" Text="Snapshots are off. Review →" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Grid>
+            </Button>
             <!-- Footer: dropped the redundant app-name line — the
                  sidebar masthead already says "Backspace". What's
                  actually useful here:

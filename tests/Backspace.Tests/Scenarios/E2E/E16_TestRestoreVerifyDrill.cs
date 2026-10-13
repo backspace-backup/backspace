@@ -58,7 +58,7 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
         {
             Name = "Docs (E16)",
             SourcePaths = { source, secondSource },
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),

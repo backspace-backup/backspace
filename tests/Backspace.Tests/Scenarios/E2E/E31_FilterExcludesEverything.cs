@@ -65,7 +65,7 @@ public sealed class E31_FilterExcludesEverything : BackupE2EBase
             SourcePaths = { sourceRoot },
             // Restic-native glob — matches every .tmp file in the tree.
             FiltersText = "*.tmp",
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),

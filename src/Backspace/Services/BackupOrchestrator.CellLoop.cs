@@ -67,6 +67,16 @@ public sealed partial class BackupOrchestrator
             return final;
         }
 
+        if (_engine is ResticBackrestEngine && OperatingSystem.IsWindows()
+            && !backup.UseVss && !backup.VssDisabledAcknowledged)
+        {
+            final.EndedUtc = DateTime.UtcNow;
+            final.Status = BackupRunStatus.Failed;
+            final.Summary = "Backup stopped: Windows snapshots are disabled without your confirmation.";
+            final.Errors.Add("Open this backup’s Advanced settings. Enable Windows snapshots, or explicitly accept that open and locked files may be missing.");
+            return final;
+        }
+
         if (HealthcheckAddress(backup) is { } hcUuid)
             await _hc.PingStartAsync(hcUuid, ct);
 

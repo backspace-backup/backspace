@@ -52,6 +52,28 @@ public sealed class InfrastructureLifecycleE2ETests
     }
 
     [Fact]
+    public async Task Real_daemon_retains_snapshot_cloud_exclusion_and_bandwidth_flags()
+    {
+        Assert.True(RealEngineFixture.BinariesPresent, RealEngineFixture.MissingBinariesReason());
+        using var workspace = new TempWorkspace();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, workspace.Sub("flags"));
+        await sidecar.StartAsync(timeout.Token);
+        var cfg = await sidecar.Client!.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
+            "/v1.Backrest/GetConfig", new(), timeout.Token);
+        cfg.Repos.Add(new BackrestRepo { Id = "flags-repo", Uri = workspace.Sub("repository"), Password = "disposable-password", AutoInitialize = true });
+        var plan = ResticBackrestEngine.BuildPlanFromBackup("flags-plan", "flags-repo",
+            new Backspace.Models.Backup { UseVss = true, ExcludeCloudFiles = true, BandwidthLimitKBps = 123 }, workspace.Sub("source"));
+        cfg.Plans.Add(plan);
+        await sidecar.Client.CallAsync<BackrestConfig, BackrestConfig>("/v1.Backrest/SetConfig", cfg, timeout.Token);
+        var saved = await sidecar.Client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
+            "/v1.Backrest/GetConfig", new(), timeout.Token);
+        Assert.Equal(new[] { "--use-fs-snapshot", "--exclude-cloud-files", "--limit-upload", "123" },
+            Assert.Single(saved.Plans).BackupFlags);
+        Assert.DoesNotContain("backupFlags", File.ReadAllText(System.IO.Path.Combine(sidecar.DataDir, "config.json")));
+    }
+
+    [Fact]
     public async Task Wrong_saved_password_stops_the_real_daemon_and_preserves_configuration()
     {
         Assert.True(RealEngineFixture.BinariesPresent, RealEngineFixture.MissingBinariesReason());

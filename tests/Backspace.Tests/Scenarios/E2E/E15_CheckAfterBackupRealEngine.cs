@@ -49,7 +49,7 @@ public sealed class E15_CheckAfterBackupRealEngine : BackupE2EBase
         {
             Name = "Docs (E15)",
             SourcePaths = { source },
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // PruneSchedule sentinel suppresses inline prune;
             // CheckSchedule null = inline check (the focus of this scenario).
             PruneSchedule = new BackupSchedule(),

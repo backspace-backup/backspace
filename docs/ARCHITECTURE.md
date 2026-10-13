@@ -55,6 +55,21 @@ that attempt to reach localhost. It does not isolate Backspace from malware
 already running as the same Windows user or as administrator. The password
 file receives a current-user ACL where the filesystem supports it.
 
+## Windows snapshot protection
+
+New backups enable Windows snapshots (VSS) by default. The desktop stays at
+normal privilege so Explorer can see its mounted drives. When a backup needs
+VSS, an elevated helper owns a separate Backrest/restic process tree. Declining
+the administrator prompt stops the run; it does not turn snapshots off.
+
+Disabling snapshots requires an explicit acknowledgement in the advanced
+backup editor. Older configurations with snapshots off and no acknowledgement
+are blocked before repository work. The sidebar shows Limited protection
+while any backup has snapshots disabled, with an explanation and an action to
+enable them. NAS sources and filesystems unsupported by VSS can legitimately
+need the disabled setting. A VSS-enabled run can still warn or fail if Windows
+cannot create a snapshot; configuration is not a guarantee of successful capture.
+
 ## Windows release updates
 
 `WindowsUpdateViewModel` owns the Settings update controls and a one-shot timer for the chosen check frequency. Checks use GitHub's latest stable release endpoint; downloads and restarts require a click. `WindowsUpdatePackage` verifies the official asset URL, exact size, GitHub SHA-256 digest, safe archive entries and application version before preparing a complete bundle under `.backspace-updates` beside the executable.

@@ -109,7 +109,7 @@ public sealed class E34_RestoreLongIncludeList : BackupE2EBase
         var backup = new Backup
         {
             Name = "Many files (E34)",
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
             Threads = 2,

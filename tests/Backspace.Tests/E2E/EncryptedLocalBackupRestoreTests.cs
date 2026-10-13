@@ -64,7 +64,7 @@ public class EncryptedLocalBackupRestoreTests
             CheckSchedule = new BackupSchedule(),
             AbortOnMeteredNetwork = false,
             Threads = 2,
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } },
         };
 

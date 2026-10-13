@@ -31,7 +31,7 @@ public sealed class BackupCoverageOutcomeTests
         var destination = new Destination { Name = "Coverage repository", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("repository") };
         var priorSuccess = DateTime.UtcNow.AddDays(-3);
         const string ping = "https://coverage.invalid/ping/00000000-0000-0000-0000-000000000001";
-        var backup = new Backup { Name = "Partial coverage review", AbortOnMeteredNetwork = false, UseVss = false,
+        var backup = new Backup { Name = "Partial coverage review", AbortOnMeteredNetwork = false, UseVss = false, VssDisabledAcknowledged = true,
             LastSuccessUtc = priorSuccess, HealthcheckPingUrl = ping,
             SourcePaths = { workspace.Sub("source-a"), workspace.Sub("source-b") }, Targets = { new() { DestinationId = destination.Id } } };
         config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(destination);

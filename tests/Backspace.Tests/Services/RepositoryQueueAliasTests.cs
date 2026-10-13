@@ -22,7 +22,7 @@ public sealed class RepositoryQueueAliasTests
         var secrets = new SecretsStore();
         var destination = new Destination { Name = "Alias queue review", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("repository") };
         Assert.Equal(ResticBackrestEngine.MakeRepoId(destination, first), ResticBackrestEngine.MakeRepoId(destination, alias));
-        var backup = new Backup { Name = "Alias queue", UseVss = false, AbortOnMeteredNetwork = false,
+        var backup = new Backup { Name = "Alias queue", UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false,
             SourcePaths = { workspace.Sub("source") }, Targets = {
                 new() { DestinationId = destination.Id, StorageName = first } } };
         File.WriteAllText(Path.Combine(backup.SourcePaths[0], "fixture.txt"), "isolated contents");

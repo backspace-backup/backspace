@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -14,6 +15,39 @@ namespace Backspace.Views;
 
 public partial class MainWindow : Window
 {
+    private async void OnLimitedProtection(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var affected = ServiceLocator.Config.Current.Backups.Where(b => !b.UseVss).ToList();
+            var names = string.Join(", ", affected.Select(b => b.Name));
+            var enable = await DestructiveConfirmWindow.ShowConfirmAsync(this,
+                "Some backups cannot capture locked files",
+                $"Windows snapshots are off for: {names}.\n\nOpen files may be skipped, and changing files may not form a consistent copy. Enable snapshots to restore protection; Windows will ask for administrator permission when a backup needs it. If you cannot approve that prompt, ask your administrator.\n\nNAS folders and unsupported filesystems may require snapshots to stay off. Their source applications should be closed before backing up.",
+                "Enable snapshots", "Keep current settings");
+            if (!enable) return;
+            if (affected.Any(b => ServiceLocator.Orchestrator.IsRunning(b.Id)))
+            {
+                await DestructiveConfirmWindow.ShowInfoAsync(this, "Wait for the current backup",
+                    "Stop the affected backups or let them finish, then enable snapshots here. Running backups were left unchanged.");
+                return;
+            }
+            var ids = affected.Select(b => b.Id).ToHashSet();
+            ServiceLocator.Config.Update(c =>
+            {
+                foreach (var b in c.Backups.Where(b => ids.Contains(b.Id)))
+                {
+                    b.UseVss = true;
+                    b.VssDisabledAcknowledged = false;
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            await DestructiveConfirmWindow.ShowInfoAsync(this, "Could not update snapshot protection", ex.Message);
+        }
+    }
+
     /// <summary>
     /// How many rotated frames exist per accent for the syncing animation.
     /// Must match the -SyncingFrameCount passed to tools/build-icon.ps1.

@@ -73,7 +73,7 @@ internal static class CloudRoundTripFlow
         {
             Name = $"E2E {provider}",
             SourcePaths = { sourcePath },
-            UseVss = false, Threads = 2,
+            UseVss = false, VssDisabledAcknowledged = true, Threads = 2,
             Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } },
         };
         ServiceLocator.Config.Update(cfg =>

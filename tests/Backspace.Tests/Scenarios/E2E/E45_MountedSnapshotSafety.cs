@@ -29,7 +29,7 @@ public sealed class E45_MountedSnapshotSafety : BackupE2EBase
         var destination = new Destination { Name = "Disposable mounted backup", Kind = DestinationKind.LocalFolder,
             PathOrSubpath = ctx.MakeLocalDestination("repository"), Encrypted = true,
             StoragePasswordRef = ServiceLocator.Secrets.PutNew("e45", Guid.NewGuid().ToString("N")) };
-        var backup = new Backup { Name = "Mounted snapshot audit", SourcePaths = { source }, UseVss = false,
+        var backup = new Backup { Name = "Mounted snapshot audit", SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
         ServiceLocator.Config.Update(c => { c.Destinations.Add(destination); c.Backups.Add(backup); });
@@ -72,7 +72,7 @@ public sealed class E45_MountedSnapshotSafety : BackupE2EBase
 
         var emptySource = Path.Combine(ctx.SourcesDir, "onlyempty");
         Directory.CreateDirectory(Path.Combine(emptySource, "child"));
-        var emptyBackup = new Backup { Name = "Only empty folders", SourcePaths = { emptySource }, UseVss = false,
+        var emptyBackup = new Backup { Name = "Only empty folders", SourcePaths = { emptySource }, UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
         ServiceLocator.Config.Update(c => c.Backups.Add(emptyBackup));
@@ -88,7 +88,7 @@ public sealed class E45_MountedSnapshotSafety : BackupE2EBase
 
         var bareSource = Path.Combine(ctx.SourcesDir, "bare-root");
         Directory.CreateDirectory(bareSource);
-        var bareBackup = new Backup { Name = "Completely empty source", SourcePaths = { bareSource }, UseVss = false,
+        var bareBackup = new Backup { Name = "Completely empty source", SourcePaths = { bareSource }, UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
         Assert.Equal(BackupRunStatus.Success,

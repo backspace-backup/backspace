@@ -53,7 +53,7 @@ public sealed class E18_RestoreToOriginalSource : BackupE2EBase
         {
             Name = "Docs (E18)",
             SourcePaths = { source },
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),

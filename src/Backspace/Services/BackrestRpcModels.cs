@@ -11,8 +11,8 @@ namespace Backspace.Services;
 /// desktop GUI. Adding fields later is mechanical: copy the json_name
 /// from proto/v1/*.proto into a new property.
 ///
-/// Property names are camelCase to match the proto's <c>json_name</c>
-/// annotations. We rely on <see cref="JsonPropertyNameAttribute"/> for
+/// Wire names follow each proto's explicit <c>json_name</c>, including
+/// snake_case exceptions. We rely on <see cref="JsonPropertyNameAttribute"/> for
 /// the exact field name rather than the default naming policy so
 /// reordering / renaming fields here doesn't risk silent wire drift.
 ///
@@ -139,12 +139,10 @@ internal sealed class BackrestPlan
     [JsonPropertyName("excludes")] public List<string> Excludes { get; set; } = new();
     [JsonPropertyName("iexcludes")] public List<string> IExcludes { get; set; } = new();
     [JsonPropertyName("retention")] public BackrestRetentionPolicy? Retention { get; set; }
-    [JsonPropertyName("backupFlags")] public List<string> BackupFlags { get; set; } = new();
-    /// <summary>protojson-snake-case alias for older Backrest versions.
-    /// 1.13 emits camelCase; legacy releases used snake_case. Accepting
-    /// both keeps round-trip GetConfig→SetConfig intact across the
-    /// mid-version range we support.</summary>
-    [JsonPropertyName("backup_flags")] public List<string>? BackupFlagsLegacy { set { if (value is not null) BackupFlags = value; } }
+    // Explicit json_name in Backrest's Plan proto. Camel case is silently
+    // ignored by its decoder, losing VSS, placeholder exclusion and limits.
+    [JsonPropertyName("backup_flags")] public List<string> BackupFlags { get; set; } = new();
+    [JsonPropertyName("backupFlags")] public List<string>? BackupFlagsLegacy { set { if (value is not null) BackupFlags = value; } }
     [JsonPropertyName("skipIfUnchanged")] public bool SkipIfUnchanged { get; set; }
     /// <summary>Round-trip passthrough for fields newer Backrest
     /// versions add (see <see cref="BackrestConfig.AdditionalFields"/>).</summary>

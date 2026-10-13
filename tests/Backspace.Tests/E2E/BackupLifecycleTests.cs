@@ -64,7 +64,7 @@ public class BackupLifecycleTests
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
             AbortOnMeteredNetwork = false,
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Threads = 1,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = destination.Id, StorageName = "default" });
@@ -119,7 +119,7 @@ public class BackupLifecycleTests
             // so this test focuses on prune.
             CheckSchedule = new BackupSchedule(),
             AbortOnMeteredNetwork = false,
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Threads = 1,
             // Default policy shipped by the app. We're not asserting that
             // prune removed anything (fresh revisions won't be due for
@@ -176,7 +176,7 @@ public class BackupLifecycleTests
             // so this test focuses on check.
             PruneSchedule = new BackupSchedule(),
             AbortOnMeteredNetwork = false,
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Threads = 1,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = destination.Id, StorageName = "default" });

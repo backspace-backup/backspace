@@ -124,7 +124,7 @@ public class DropboxBackupRestoreTests
             CheckSchedule = new BackupSchedule(),
             AbortOnMeteredNetwork = false,
             Threads = 2,
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = destination.Id, StorageName = "default" });
 

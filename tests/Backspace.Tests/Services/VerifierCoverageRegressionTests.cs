@@ -22,7 +22,7 @@ public sealed class VerifierCoverageRegressionTests
         File.WriteAllText(Path.Combine(second, "empty.txt"), "");
         File.WriteAllText(Path.Combine(second, "second.txt"), "second source content");
         var destination = new Destination { Name = "Verification fixture", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("storage"), Encrypted = false };
-        var backup = new Backup { Name = "All sources " + Guid.NewGuid().ToString("N"), SourcePaths = { first, second }, UseVss = false,
+        var backup = new Backup { Name = "All sources " + Guid.NewGuid().ToString("N"), SourcePaths = { first, second }, UseVss = false, VssDisabledAcknowledged = true,
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
         ServiceLocator.Config.Update(config => { config.Backups.Clear(); config.Destinations.Clear(); config.Backups.Add(backup); config.Destinations.Add(destination); });
         foreach (var source in backup.SourcePaths)

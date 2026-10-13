@@ -56,7 +56,7 @@ public class BackupVerifierTests
             AbortOnMeteredNetwork = false,
             Enabled = true,
             Threads = 2,
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Targets = { new BackupTarget { DestinationId = "", StorageName = "default" } },
         };
         backup.Targets[0].DestinationId = destination.Id;
@@ -166,7 +166,7 @@ public class BackupVerifierTests
             AbortOnMeteredNetwork = false,
             Enabled = true,
             Threads = 2,
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } },
         };
 

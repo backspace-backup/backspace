@@ -399,7 +399,7 @@ older scenario comments that describe broader coverage.
 | Future mtimes | peculiarity set | ✅ |
 | NTFS-specific shapes (ADS, hidden, system, junction) | E11 compares regular-file contents and reports the unsupported junction. Regular-file hashing does not prove ADS/ACL/attribute fidelity. | 🟡 |
 | Locked file during backup (FileShare.None) | Peculiarity generator supports an opt-in sentinel; its presence alone does not prove an elevated locked-file backup | 🟡 |
-| VSS shadow-copy path | Policy/routing/helper tests cover contracts; actual Windows consent, elevated process and locked-file content remain | ⛔ |
+| VSS shadow-copy path | Native Windows probe accepted UAC, backed up an exclusively locked file, restored identical bytes while it remained locked, and cancelled another elevated backup without reporting success. `S64_VssProtection` clicks the warning, acknowledgement and sidebar recovery controls. This covers the disposable local fixture, not every VSS provider or source application. | ✅ bounded native + UI checks |
 
 ### Headless / CLI
 

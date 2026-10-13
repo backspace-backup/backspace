@@ -343,7 +343,7 @@ public class BackupOrchestratorDestinationQueueTests
             // Non-null sentinels suppress inline prune/check, keeping the test fast.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Threads = 1,
         };
         b.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });

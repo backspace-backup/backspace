@@ -81,7 +81,7 @@ public sealed class E30_CustomFilter : BackupE2EBase
             // unanchored so restic --exclude treats it as "directory
             // or file named skip, anywhere in the tree".
             FiltersText = "skip",
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),

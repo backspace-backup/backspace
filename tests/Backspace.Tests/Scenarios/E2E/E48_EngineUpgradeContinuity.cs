@@ -49,7 +49,7 @@ public sealed class E48_EngineUpgradeContinuity : ScenarioBase
         };
         var backup = new Backup
         {
-            Name = "Existing backup", UseVss = false, SourcePaths = { source },
+            Name = "Existing backup", UseVss = false, VssDisabledAcknowledged = true, SourcePaths = { source },
             // The previous version has different maintenance response shapes.
             // Only the common Backup RPC is used while creating legacy data.
             PruneSchedule = new(), CheckSchedule = new(),

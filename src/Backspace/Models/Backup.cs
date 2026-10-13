@@ -149,6 +149,11 @@ public sealed class Backup
     /// dance for users running the GUI unelevated.</summary>
     public bool UseVss { get; set; } = true;
 
+    /// <summary>Explicit acceptance of incomplete locked-file coverage when
+    /// Windows snapshots cannot be used. Older disabled configurations need
+    /// acknowledgement before their next run; they are never silently accepted.</summary>
+    public bool VssDisabledAcknowledged { get; set; }
+
     /// <summary>
     /// Skip cloud-only / "online-only" placeholder files (OneDrive
     /// Files-On-Demand, Dropbox cloud-only, iCloud optimised storage)

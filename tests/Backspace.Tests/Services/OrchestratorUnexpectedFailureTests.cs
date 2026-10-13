@@ -22,7 +22,7 @@ public sealed class OrchestratorUnexpectedFailureTests
         var destination = new Destination { Name = "Isolated destination", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("repository") };
         var backup = new Backup
         {
-            Name = "Unexpected failure review", AbortOnMeteredNetwork = true, UseVss = false,
+            Name = "Unexpected failure review", AbortOnMeteredNetwork = true, UseVss = false, VssDisabledAcknowledged = true,
             SourcePaths = { workspace.Sub("source") }, Targets = { new() { DestinationId = destination.Id } },
         };
         File.WriteAllText(Path.Combine(backup.SourcePaths[0], "fixture.txt"), "Backup retry must retain these bytes.");

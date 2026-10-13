@@ -29,7 +29,7 @@ public sealed class E44_DestructiveOperationSafety : BackupE2EBase
         var dest = new Destination { Name = "Shared disposable repository", Kind = DestinationKind.LocalFolder,
             PathOrSubpath = ctx.MakeLocalDestination("shared"), Encrypted = true,
             StoragePasswordRef = ServiceLocator.Secrets.PutNew("e44", Guid.NewGuid().ToString("N")) };
-        Backup MakeBackup(string name) => new() { Name = name, SourcePaths = { source }, UseVss = false,
+        Backup MakeBackup(string name) => new() { Name = name, SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } } };
         var selected = MakeBackup("Selected backup");

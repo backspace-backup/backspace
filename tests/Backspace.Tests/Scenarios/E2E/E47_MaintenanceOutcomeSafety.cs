@@ -30,7 +30,7 @@ public sealed class E47_MaintenanceOutcomeSafety : BackupE2EBase
         };
         var backup = new Backup
         {
-            Name = "Two-source maintenance", UseVss = false, AbortOnMeteredNetwork = false,
+            Name = "Two-source maintenance", UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false,
             PruneSchedule = new(), CheckSchedule = new(),
             Targets = { new() { DestinationId = destination.Id } },
         };

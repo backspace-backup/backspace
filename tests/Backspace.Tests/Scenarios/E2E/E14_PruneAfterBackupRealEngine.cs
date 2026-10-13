@@ -61,7 +61,7 @@ public sealed class E14_PruneAfterBackupRealEngine : BackupE2EBase
         {
             Name = "Docs (E14)",
             SourcePaths = { source },
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // keep-last-1: every prune pass discards every revision
             // except the freshest. Three runs with this policy land
             // on a single live revision.

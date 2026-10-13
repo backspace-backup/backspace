@@ -71,7 +71,7 @@ public sealed class E33_DestinationPathRenameMidLife : BackupE2EBase
         {
             Name = "Docs (E33)",
             SourcePaths = { source },
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),

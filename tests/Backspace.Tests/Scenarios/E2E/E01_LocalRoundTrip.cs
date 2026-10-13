@@ -78,7 +78,7 @@ public sealed class E01_LocalRoundTrip : BackupE2EBase
         var backup = new Backup
         {
             Name = $"Documents (E01 / {_size})",
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),

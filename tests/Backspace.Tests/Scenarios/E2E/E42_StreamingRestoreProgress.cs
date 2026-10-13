@@ -41,7 +41,7 @@ public sealed class E42_StreamingRestoreProgress : BackupE2EBase
         var dest = new Destination { Name = "Disposable local repository", Kind = DestinationKind.LocalFolder,
             PathOrSubpath = ctx.MakeLocalDestination("repo"), Encrypted = true,
             StoragePasswordRef = ServiceLocator.Secrets.PutNew("e42", Guid.NewGuid().ToString("N")) };
-        var backup = new Backup { Name = "Selected files · live progress", SourcePaths = { source }, UseVss = false,
+        var backup = new Backup { Name = "Selected files · live progress", SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } } };
         ServiceLocator.Config.Update(c => { c.Destinations.Add(dest); c.Backups.Add(backup); });

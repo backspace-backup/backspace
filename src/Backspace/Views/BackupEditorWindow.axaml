@@ -377,12 +377,12 @@
                   </StackPanel>
                   <StackPanel Grid.Column="4" Spacing="6">
                     <TextBlock Classes="label-caps" Text="WINDOWS BEHAVIOR"/>
-                    <CheckBox IsChecked="{Binding UseVss}"
-                              Content="Use VSS for locked files"
+                    <CheckBox Name="UseVssCheck" IsChecked="{Binding UseVss}"
+                              Content="Use Windows snapshots (VSS)"
                               Foreground="{DynamicResource BS.Brush.FgPrimary}">
                       <ToolTip.Tip>
                         <TextBlock MaxWidth="360" TextWrapping="Wrap"
-                                   Text="Capture open / locked files via Volume Shadow Copy. Required for Outlook PSTs, running databases, browser profiles. We auto-elevate the backup process when needed."/>
+                                   Text="Recommended. Read files from a consistent Windows snapshot, including files held open by other apps. Windows asks for administrator permission when needed. NAS folders and some filesystems do not support snapshots."/>
                       </ToolTip.Tip>
                     </CheckBox>
                     <CheckBox IsChecked="{Binding ExcludeCloudFiles}"
@@ -401,6 +401,17 @@
                     </CheckBox>
                   </StackPanel>
                 </Grid>
+
+                <Border IsVisible="{Binding ShowVssWarning}" Background="{DynamicResource BS.Brush.WarnTint}"
+                        BorderBrush="{DynamicResource BS.Brush.Warn}" BorderThickness="1" CornerRadius="8" Padding="16">
+                  <StackPanel Spacing="8">
+                    <TextBlock FontWeight="SemiBold" FontSize="16" Text="Open or locked files may be missing from this backup" TextWrapping="Wrap"/>
+                    <TextBlock TextWrapping="Wrap" Text="Windows snapshots are off. Files in use may be skipped, and files changing during the backup may not form a consistent copy. Keep snapshots on whenever the source supports them. If Windows denies permission, approve its administrator prompt or ask your administrator for access."/>
+                    <CheckBox Name="VssLimitationAcknowledgement" IsChecked="{Binding VssDisabledAcknowledged}">
+                      <TextBlock TextWrapping="Wrap" Text="I cannot use Windows snapshots for this backup and accept these limitations."/>
+                    </CheckBox>
+                  </StackPanel>
+                </Border>
 
                 <StackPanel Spacing="6">
                   <TextBlock Classes="label-caps" Text="HEALTHCHECKS.IO"/>

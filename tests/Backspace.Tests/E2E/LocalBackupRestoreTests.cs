@@ -66,7 +66,7 @@ public class LocalBackupRestoreTests
             AbortOnMeteredNetwork = false,
             Enabled = true,
             Threads = 2,
-            UseVss = false, // VSS needs admin; not required for a folder-source test
+            UseVss = false, VssDisabledAcknowledged = true, // VSS needs admin; not required for a folder-source test
             Targets = { new BackupTarget { DestinationId = "", StorageName = "default" } },
         };
         backup.Targets[0].DestinationId = destination.Id;

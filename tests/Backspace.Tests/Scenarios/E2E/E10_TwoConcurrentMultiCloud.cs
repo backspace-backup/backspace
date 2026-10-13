@@ -75,7 +75,7 @@ public sealed class E10_TwoConcurrentMultiCloud : BackupE2EBase
         {
             Name = "Project A (E10)",
             SourcePaths = { sourceA },
-            UseVss = false, Threads = 2,
+            UseVss = false, VssDisabledAcknowledged = true, Threads = 2,
             Targets =
             {
                 new BackupTarget { DestinationId = destLocalA.Id, StorageName = "default" },
@@ -85,7 +85,7 @@ public sealed class E10_TwoConcurrentMultiCloud : BackupE2EBase
         {
             Name = "Project B (E10)",
             SourcePaths = { sourceB },
-            UseVss = false, Threads = 2,
+            UseVss = false, VssDisabledAcknowledged = true, Threads = 2,
             Targets =
             {
                 new BackupTarget { DestinationId = destLocalB.Id, StorageName = "default" },

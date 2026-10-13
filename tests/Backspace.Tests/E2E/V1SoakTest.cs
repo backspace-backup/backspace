@@ -89,7 +89,7 @@ public class V1SoakTest
             AbortOnMeteredNetwork = false,
             Enabled = true,
             Threads = 2,
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Targets = { new BackupTarget { DestinationId = "", StorageName = "default" } },
         };
         backup.Targets[0].DestinationId = destination.Id;

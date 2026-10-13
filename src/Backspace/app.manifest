@@ -21,14 +21,12 @@
              same mount up.) Running at asInvoker puts the mount in
              the user's normal session and Explorer sees it without
              ceremony.
-             VSS shadow copies need admin. The cost of asInvoker is
-             that an INTERACTIVE backup of locked / in-use files
-             (live registry hives, mailbox files, lock-held SQLite
-             DBs from running apps) will skip those files when
-             Backspace isn't elevated. Users who need that coverage
-             can right-click → Run as administrator (same Kopia
-             workflow). Scheduled runs are unaffected: Task
-             Scheduler launches them with "highest available"
+             VSS shadow copies need admin. Interactive snapshot
+             backups automatically launch an elevated helper that
+             owns its own elevated Backrest/restic processes.
+             Declining UAC stops that backup; it does not silently
+             disable snapshots. Task Scheduler launches scheduled
+             runs with "highest available"
              privileges (see TaskSchedulerService), which gives them
              admin rights for VSS without an interactive UAC
              prompt. -->

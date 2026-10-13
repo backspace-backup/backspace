@@ -56,7 +56,7 @@ public sealed class E02_StopAndResume : BackupE2EBase
         {
             Name = "Docs (E02)",
             SourcePaths = { sourcePath },
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Threads = 2,
             Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } },
         };

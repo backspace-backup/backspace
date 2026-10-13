@@ -51,7 +51,12 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     /// </summary>
     public ObservableCollection<SourceChipVm> SourceChips { get; } = new();
     [ObservableProperty] private int _threads;
-    [ObservableProperty] private bool _useVss;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowVssWarning))]
+    private bool _useVss;
+    [ObservableProperty] private bool _vssDisabledAcknowledged;
+    public bool ShowVssWarning => OperatingSystem.IsWindows() && !UseVss;
+    partial void OnUseVssChanged(bool value) => VssDisabledAcknowledged = false;
     [ObservableProperty] private bool _excludeCloudFiles;
     [ObservableProperty] private string _keepPolicy;
 
@@ -439,6 +444,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         // "Auto" via a placeholder rather than coercing to 4.
         _threads = working.Threads;
         _useVss = working.UseVss;
+        _vssDisabledAcknowledged = working.VssDisabledAcknowledged;
         _excludeCloudFiles = working.ExcludeCloudFiles;
         _keepPolicy = string.IsNullOrEmpty(working.KeepPolicy) ? "0:365 30:90 7:30 1:7" : working.KeepPolicy;
         _keepPolicyExplanation = KeepPolicyHumanizer.Describe(_keepPolicy);
@@ -1090,6 +1096,9 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
 
         var errors = new List<string>();
 
+        if (ShowVssWarning && !VssDisabledAcknowledged)
+            errors.Add("Windows snapshots are off. Enable them, or accept the locked-file limitation in Advanced settings before saving.");
+
         if (SourcePaths.Count == 0)
         {
             SourcesError = "Add at least one folder to back up.";
@@ -1230,6 +1239,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         // 0 is a valid stored value meaning "auto" — don't floor to 1.
         Working.Threads = Math.Max(0, Threads);
         Working.UseVss = UseVss;
+        Working.VssDisabledAcknowledged = !UseVss && VssDisabledAcknowledged;
         Working.ExcludeCloudFiles = ExcludeCloudFiles;
         Working.KeepPolicy = KeepPolicy?.Trim() ?? "";
         Working.AbortOnMeteredNetwork = AbortOnMeteredNetwork;

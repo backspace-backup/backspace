@@ -50,7 +50,7 @@ public sealed class E22_RestoreFromOlderRevision : BackupE2EBase
         {
             Name = "Docs (E22)",
             SourcePaths = { source },
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),

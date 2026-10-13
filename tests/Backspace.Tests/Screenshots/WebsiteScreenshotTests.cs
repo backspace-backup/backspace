@@ -359,6 +359,7 @@ public class WebsiteScreenshotTests
                 },
                 Threads = 2,
                 UseVss  = false,
+                VssDisabledAcknowledged = true,
                 KeepPolicy = "0:730 30:180 7:60",
             });
         });

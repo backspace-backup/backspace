@@ -85,9 +85,13 @@ unmount or close the app.
   backups skip gracefully when the drive isn't plugged in, not fail), SMB /
   network share, Dropbox (app-scoped), OneDrive (personal + Business),
   Google Drive, S3-compatible (Wasabi, Cloudflare R2, MinIO, Backblaze-B2-via-S3).
-- **VSS shadow copies on Windows**: locked / in-use files (Outlook, SQL
-  Server data files, browser profiles) get backed up cleanly via a brief
-  elevated helper that takes a Volume Shadow Copy. Toggleable per backup.
+- **Windows snapshots (VSS)**: enabled by default to include locked files
+  and capture files at a consistent point in time. Backspace requests
+  administrator permission for a separate backup helper when needed.
+  Declining permission stops the backup. Turning snapshots off requires
+  acknowledging the risk of missing or inconsistent files; a persistent
+  sidebar warning explains how to restore protection. NAS folders and
+  unsupported filesystems may require this exception.
 - **Filters**: edit restic's filter syntax with a live simulation pane that
   shows exactly which files would be included or excluded before you run.
 - **Scheduling**: per-platform native scheduler integration — Windows Task

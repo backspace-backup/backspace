@@ -45,7 +45,7 @@ public sealed class E43_CloudSourceChangeDetection : BackupE2EBase
         var dest = new Destination { Name = "Disposable source experiment", Kind = DestinationKind.LocalFolder,
             PathOrSubpath = ctx.MakeLocalDestination("repo"), Encrypted = true,
             StoragePasswordRef = ServiceLocator.Secrets.PutNew("e43", Guid.NewGuid().ToString("N")) };
-        var backup = new Backup { Name = "Cloud-source change detection experiment", UseVss = false,
+        var backup = new Backup { Name = "Cloud-source change detection experiment", UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } } };
         ServiceLocator.Config.Update(c => { c.Destinations.Add(dest); c.Backups.Add(backup); });

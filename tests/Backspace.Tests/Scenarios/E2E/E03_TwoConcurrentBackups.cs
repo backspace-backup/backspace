@@ -63,14 +63,14 @@ public sealed class E03_TwoConcurrentBackups : BackupE2EBase
         {
             Name = "Project A (E03)",
             SourcePaths = { sourceA },
-            UseVss = false, Threads = 2,
+            UseVss = false, VssDisabledAcknowledged = true, Threads = 2,
             Targets = { new BackupTarget { DestinationId = destA.Id, StorageName = "default" } },
         };
         var backupB = new Backup
         {
             Name = "Project B (E03)",
             SourcePaths = { sourceB },
-            UseVss = false, Threads = 2,
+            UseVss = false, VssDisabledAcknowledged = true, Threads = 2,
             Targets = { new BackupTarget { DestinationId = destB.Id, StorageName = "default" } },
         };
 

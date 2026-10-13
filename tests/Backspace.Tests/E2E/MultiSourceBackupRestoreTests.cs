@@ -64,7 +64,7 @@ public class MultiSourceBackupRestoreTests
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
             AbortOnMeteredNetwork = false,
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Threads = 2,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = destination.Id, StorageName = "default" });
@@ -171,7 +171,7 @@ public class MultiSourceBackupRestoreTests
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
             AbortOnMeteredNetwork = false,
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Threads = 1,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = healthy.Id, StorageName = "healthy" });

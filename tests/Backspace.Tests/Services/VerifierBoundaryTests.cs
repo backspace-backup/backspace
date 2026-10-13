@@ -27,7 +27,7 @@ public sealed class VerifierBoundaryTests
         var unavailable = new Destination { Name = "Unavailable", Kind = DestinationKind.LocalFolder,
             PathOrSubpath = workspace.Sub("offline"), Encrypted = false,
             ExpectedDriveLetter = Path.GetPathRoot(workspace.Root), ExpectedVolumeLabel = "not-a-real-volume-" + Guid.NewGuid().ToString("N") };
-        var backup = new Backup { Name = "All targets " + Guid.NewGuid().ToString("N"), UseVss = false,
+        var backup = new Backup { Name = "All targets " + Guid.NewGuid().ToString("N"), UseVss = false, VssDisabledAcknowledged = true,
             SourcePaths = { source }, Targets = { new BackupTarget { DestinationId = online.Id, StorageName = "online" },
                 new BackupTarget { DestinationId = unavailable.Id, StorageName = "unavailable" } } };
         var config = new ConfigStore(); config.Load();
@@ -53,7 +53,7 @@ public sealed class VerifierBoundaryTests
         File.WriteAllText(Path.Combine(source, "file.txt"), "unchanged bytes");
         var destination = new Destination { Name = "Shared drive", Kind = DestinationKind.LocalFolder,
             PathOrSubpath = workspace.Sub("repository"), Encrypted = false };
-        var backup = new Backup { Name = "Storage targets " + Guid.NewGuid().ToString("N"), UseVss = false,
+        var backup = new Backup { Name = "Storage targets " + Guid.NewGuid().ToString("N"), UseVss = false, VssDisabledAcknowledged = true,
             SourcePaths = { source }, Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "first" },
                 new BackupTarget { DestinationId = destination.Id, StorageName = "second" } } };
         var config = new ConfigStore(); config.Load();
@@ -146,7 +146,7 @@ public sealed class VerifierBoundaryTests
         File.WriteAllText(Path.Combine(source, "file.txt"), "unchanged bytes");
         var destination = new Destination { Name = "Isolated verifier", Kind = DestinationKind.LocalFolder,
             PathOrSubpath = workspace.Sub("repository"), Encrypted = false };
-        var backup = new Backup { Name = "Verifier terminal " + Guid.NewGuid().ToString("N"), UseVss = false,
+        var backup = new Backup { Name = "Verifier terminal " + Guid.NewGuid().ToString("N"), UseVss = false, VssDisabledAcknowledged = true,
             SourcePaths = { source }, Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
         var config = new ConfigStore();
         config.Load();

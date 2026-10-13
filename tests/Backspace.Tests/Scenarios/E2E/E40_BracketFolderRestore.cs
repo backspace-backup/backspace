@@ -51,7 +51,7 @@ public sealed class E40_BracketFolderRestore : BackupE2EBase
         var dest = new Destination { Name = "Disposable encrypted repository", Kind = DestinationKind.LocalFolder,
             PathOrSubpath = ctx.MakeLocalDestination("repo"), Encrypted = true,
             StoragePasswordRef = ServiceLocator.Secrets.PutNew("e40", Guid.NewGuid().ToString("N")) };
-        var backup = new Backup { Name = "Bracket folder safety", SourcePaths = { source }, UseVss = false,
+        var backup = new Backup { Name = "Bracket folder safety", SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } } };
         ServiceLocator.Config.Update(c => { c.Destinations.Add(dest); c.Backups.Add(backup); });

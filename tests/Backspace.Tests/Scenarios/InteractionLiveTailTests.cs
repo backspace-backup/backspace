@@ -58,7 +58,7 @@ public class InteractionLiveTailTests
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Threads = 1,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });
@@ -138,7 +138,7 @@ public class InteractionLiveTailTests
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Threads = 1,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });
@@ -201,7 +201,7 @@ public class InteractionLiveTailTests
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             Threads = 1,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });

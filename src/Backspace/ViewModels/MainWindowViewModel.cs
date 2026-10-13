@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -31,6 +32,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     /// ROADMAP item 8's follow-up.</summary>
     [ObservableProperty] private bool _hasActiveRestores;
     [ObservableProperty] private bool _hasRunningRestores;
+    [ObservableProperty] private bool _hasLimitedProtection;
+
+    private void OnProtectionChanged(object? sender, EventArgs e) =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed) RefreshProtection();
+        });
+
+    private void RefreshProtection() => HasLimitedProtection = OperatingSystem.IsWindows()
+        && ServiceLocator.Config.Current.Backups.Any(b => !b.UseVss);
 
     public BackupsViewModel Backups { get; }
 
@@ -94,6 +105,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         ServiceLocator.ActiveRestores.SessionOpened += OnRestoreSessionOpened;
         HasActiveRestores = ServiceLocator.ActiveRestores.HasAny;
         HasRunningRestores = ServiceLocator.ActiveRestores.HasRunning;
+        ServiceLocator.Config.Changed += OnProtectionChanged;
+        RefreshProtection();
     }
 
     private void OnActiveRestoresChanged()
@@ -216,6 +229,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         _refreshLifetime.Cancel();
         _refreshLifetime.Dispose();
         AppNavigator.Requested -= OnNavRequested;
+        ServiceLocator.Config.Changed -= OnProtectionChanged;
         ServiceLocator.ActiveRestores.Changed -= OnActiveRestoresChanged;
         ServiceLocator.ActiveRestores.SessionOpened -= OnRestoreSessionOpened;
         Backups.Dispose();

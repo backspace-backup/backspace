@@ -163,7 +163,7 @@ public class EdgeCaseBackupRestoreTests
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
-            UseVss = false, // VSS would need elevation; the in-memory engine doesn't care
+            UseVss = false, VssDisabledAcknowledged = true, // VSS would need elevation; the in-memory engine doesn't care
             ExcludeCloudFiles = false,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = destination.Id, StorageName = "default" });

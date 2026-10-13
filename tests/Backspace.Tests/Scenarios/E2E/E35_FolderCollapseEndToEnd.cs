@@ -79,7 +79,7 @@ public sealed class E35_FolderCollapseEndToEnd : BackupE2EBase
         var backup = new Backup
         {
             Name = "Folder-collapse target (E35)",
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
             Threads = 2,

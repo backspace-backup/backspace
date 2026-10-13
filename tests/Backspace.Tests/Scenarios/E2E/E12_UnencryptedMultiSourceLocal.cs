@@ -72,7 +72,7 @@ public sealed class E12_UnencryptedMultiSourceLocal : BackupE2EBase
         {
             Name = "Two sources (E12)",
             SourcePaths = { sourceA, sourceB },
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),

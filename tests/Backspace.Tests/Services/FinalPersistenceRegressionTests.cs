@@ -23,7 +23,7 @@ public sealed class FinalPersistenceRegressionTests
         var config = new ConfigStore();
         config.Load();
         var destination = new Destination { Name = "Local fixture", PathOrSubpath = workspace.Sub("destination"), Kind = DestinationKind.LocalFolder };
-        var backup = new Backup { Name = "unattended", UseVss = false, SourcePaths = { workspace.Sub("source") },
+        var backup = new Backup { Name = "unattended", UseVss = false, VssDisabledAcknowledged = true, SourcePaths = { workspace.Sub("source") },
             Targets = { new BackupTarget { DestinationId = destination.Id } } };
         config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(destination); });
         var originalConfig = ServiceLocator.Config;
@@ -125,7 +125,7 @@ public sealed class FinalPersistenceRegressionTests
         var first = workspace.Sub("A/Docs"); var second = workspace.Sub("B/Docs");
         File.WriteAllText(Path.Combine(first, "first.txt"), "first");
         File.WriteAllText(Path.Combine(second, "second.txt"), "second");
-        var backup = new Backup { Name = "Parallel Docs", UseVss = false, Threads = 2, SourcePaths = { first, second },
+        var backup = new Backup { Name = "Parallel Docs", UseVss = false, VssDisabledAcknowledged = true, Threads = 2, SourcePaths = { first, second },
             Targets = { new BackupTarget { DestinationId = destination.Id } } };
         config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(destination); });
         var orchestrator = new BackupOrchestrator(config, secrets, engine, logs,

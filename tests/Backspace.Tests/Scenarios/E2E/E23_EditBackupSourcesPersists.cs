@@ -54,7 +54,7 @@ public sealed class E23_EditBackupSourcesPersists : BackupE2EBase
         {
             Name = "Docs (E23)",
             SourcePaths = { sourceA },
-            UseVss = false,
+            UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),

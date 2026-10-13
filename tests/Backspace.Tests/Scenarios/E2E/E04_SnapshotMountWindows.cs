@@ -82,7 +82,7 @@ public sealed class E04_SnapshotMountWindows : BackupE2EBase
         {
             Name = "Mount target (E04)",
             SourcePaths = { sourcePath },
-            UseVss = false, Threads = 2,
+            UseVss = false, VssDisabledAcknowledged = true, Threads = 2,
             Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } },
         };
         ServiceLocator.Config.Update(cfg =>
