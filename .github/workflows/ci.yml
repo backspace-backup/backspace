@@ -62,7 +62,10 @@ jobs:
         run: dotnet restore Backspace.sln
 
       - name: Build
-        run: dotnet build src/Backspace/Backspace.csproj -c Release -p:SkipStubBuild=true --nologo --no-restore
+        # Select the supported TFM so its downloader does not race the
+        # fallback build. Let this Release build restore its own RID assets;
+        # the solution restore above uses the default Debug configuration.
+        run: dotnet build src/Backspace/Backspace.csproj -c Release -f net10.0-windows10.0.19041.0 -m:1 -p:SkipStubBuild=true --nologo
 
       # Run unit + main ViewModel tests only — fast (~30 s on the
       # author's machine), no daemon spawns. The full E2E + Cloud
@@ -75,7 +78,6 @@ jobs:
             -f net10.0-windows10.0.19041.0 `
             --filter "FullyQualifiedName~Services|FullyQualifiedName~Models|FullyQualifiedName~ViewModels.Editor|FullyQualifiedName~ViewModels.BackupsViewModelTests|FullyQualifiedName~ViewModels.DestinationsViewModelTests" `
             --nologo `
-            --no-build `
             --logger "trx;LogFileName=test-results.trx"
         shell: pwsh
 

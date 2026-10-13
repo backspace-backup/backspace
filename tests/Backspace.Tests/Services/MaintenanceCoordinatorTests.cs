@@ -184,6 +184,8 @@ public class MaintenanceCoordinatorTests
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
             UseVss = false,
+            // Locking tests must not depend on the CI machine's network billing policy.
+            AbortOnMeteredNetwork = false,
             Threads = 1,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });
@@ -255,6 +257,8 @@ public class MaintenanceCoordinatorTests
             PruneSchedule = new BackupSchedule(),
             CheckSchedule = new BackupSchedule(),
             UseVss = false,
+            // Locking tests must not depend on the CI machine's network billing policy.
+            AbortOnMeteredNetwork = false,
             Threads = 1,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });
