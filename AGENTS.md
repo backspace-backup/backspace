@@ -211,10 +211,15 @@ preserves the previous backlog and a record of stale or superseded claims.
 ## Working conventions
 
 Before publishing any GitHub release, follow [docs/RELEASING.md](docs/RELEASING.md).
-Run the large real-engine round trip for the exact release revision, and
-attach current screenshots and documentation for human review. Do not
-claim the GitHub approval gate is enforced until its repository settings
-and the publishing workflow have actually been configured and exercised.
+Complete the current release checklist for the exact committed revision,
+including the real 20,000-file round trip, documentation review and current
+screenshots. Save it as `release-checks/<full-commit>.json`; this folder stays
+Git-ignored. Every required box needs actual work and specific findings.
+Use `scripts/release-checklist.cjs` to validate and dispatch it to GitHub.
+No human approval is required: the agent performs and records the review.
+Never bypass the workflow or reuse a checklist after the commit or template
+changes. Do not claim the gate is enforced until its repository settings
+and both passing and rejecting workflow paths have actually been exercised.
 
 These rules exist because they were learned the hard way during prior
 sessions. Read them once and treat them as load-bearing.

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    { "id": "tests", "label": "The unit and interface tests passed for this exact commit; failures and skips were reviewed." },
+    { "id": "large-round-trip", "label": "The real-engine 20,000-file, approximately 2 GiB backup and restore passed full SHA-256 comparisons for this commit." },
+    { "id": "readme", "label": "README instructions, claims and examples match this build; documented commands were checked." },
+    { "id": "guides", "label": "Architecture, testing, design, release and contributor guides match this build." },
+    { "id": "screenshots", "label": "App and website screenshots and captions were reviewed; screenshots were regenerated where the UX changed." },
+    { "id": "windows-package", "label": "The Windows package, version, engine versions, update installation and rollback checks passed." },
+    { "id": "limitations", "label": "Outstanding native Windows and live-account checks were reviewed and any release-blocking gaps resolved; remaining limits are stated in the release notes." }
+  ]
+}

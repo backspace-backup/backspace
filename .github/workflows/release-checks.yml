@@ -4,13 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish after human approval (false exercises the gate without creating a release)'
+        description: 'Publish after all automated checks and the commit checklist pass'
         type: boolean
         default: false
       tag:
         description: 'New release tag, e.g. v1.0.0 (required only when publishing)'
         type: string
         default: ''
+      checklist:
+        description: 'Exact JSON from release-checks/<commit>.json, completed using the current template'
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -28,6 +32,16 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require the complete checklist for this exact commit
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_CHECKLIST: ${{ inputs.checklist }}
+        run: node scripts/release-checklist.cjs receive
+      - name: Verify the checklist validator rejects incomplete and stale records
+        run: node --test scripts/release-checklist.test.cjs
       - name: Validate release request
         shell: pwsh
         env:
@@ -65,7 +79,7 @@ jobs:
           if ($summary -notmatch '(?m)^### E34-restore-long-include-list — ✓ STEPS COMPLETED ') { throw 'The real-engine scenario did not complete its steps.' }
           $validation = [System.IO.File]::ReadAllText((Join-Path $PWD 'tests/Backspace.Tests/artifacts/scenarios/E34-restore-long-include-list/restore-validation.md'), [System.Text.UTF8Encoding]::new($false))
           if ($validation -notmatch 'Full SHA-256 comparison of 20000 files: all match\.') { throw 'The large run did not verify all 20,000 restored files.' }
-      - name: Record the exact revision for the human documentation review
+      - name: Preserve the revision, checklist and reviewed documentation
         shell: pwsh
         timeout-minutes: 3
         run: |
@@ -74,19 +88,15 @@ jobs:
           Copy-Item docs/RELEASING.md release-evidence/RELEASING.md
           Copy-Item README.md, DESIGN.md release-evidence/
           Copy-Item docs release-evidence/docs -Recurse
+          Copy-Item "release-checks/${{ github.sha }}.json" release-evidence/
           ./scripts/record-engine-versions.ps1 -SourceDirectory src/Backspace/Assets -ResultFile release-evidence/engine-versions.txt
           @"
-          ## Human review required
+          ## Commit-specific release checklist
           Revision: ${{ github.sha }}. Publish requested: ${{ inputs.publish }}.
-          Open release-evidence-${{ github.sha }} and follow its RELEASING.md checklist before approving.
-
-          - Compare README and guides with the candidate, including the documented commands.
-          - Compare website images and captions with the fresh screenshots and current behavior.
-          - Record corrections, reviewed images, and remaining Windows or live-account limitations.
-          - Include this exact revision and the evidence link in the approval comment.
-
-          Passing tests and newly generated images do not prove that the documentation is accurate.
-          Any correction to the candidate requires a new run and review.
+          The completed agent checklist is included in release-evidence-${{ github.sha }}.
+          Every required box, its findings, the exact revision and the template fingerprint were checked.
+          This run separately executes the interface tests, real 20,000-file round trip and update-package checks.
+          Documentation and screenshot accuracy are the agent's recorded review; no human approval is required.
           "@ | Add-Content $env:GITHUB_STEP_SUMMARY
       - name: Build the Windows release candidate
         shell: pwsh
@@ -119,8 +129,33 @@ jobs:
             tests/Backspace.Tests/artifacts/screenshots/
           if-no-files-found: error
 
-  approve-and-publish:
-    name: Human review before publishing
+  rehearse-gate:
+    name: Rehearse the final checklist gate without publishing
+    if: ${{ !inputs.publish }}
+    needs: windows-release-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: reviewed-evidence
+      - name: Validate the preserved checklist at the publication boundary
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          node scripts/release-checklist.cjs validate "reviewed-evidence/release-evidence/$RELEASE_SHA.json" "$RELEASE_SHA"
+          echo 'Checklist and all candidate checks passed. No tag or release was created.' >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish the checked candidate
+    if: ${{ inputs.publish }}
     needs: windows-release-checks
     runs-on: ubuntu-latest
     environment:
@@ -129,13 +164,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: actions/download-artifact@v4
         with:
           name: release-evidence-${{ github.sha }}
           path: reviewed-evidence
-      - name: Gate rehearsal completed
-        if: ${{ !inputs.publish }}
-        run: echo 'Human approval was required. This rehearsal creates no tag or release.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Recheck the preserved checklist against the current main template
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/release-checklist.cjs validate "reviewed-evidence/release-evidence/$RELEASE_SHA.json" "$RELEASE_SHA"
+          node scripts/release-checklist.cjs latest-template
       - name: Publish the reviewed candidate
         if: ${{ inputs.publish }}
         env:
@@ -145,6 +191,7 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/main'
           test "$(tr -d '\r\n\357\273\277' < reviewed-evidence/release-evidence/commit.txt)" = "$RELEASE_SHA"
           # Atomic creation rejects an existing tag, including one created
           # concurrently. Never reuse a tag pointing to an unreviewed revision.

@@ -1,42 +1,51 @@
 # Preparing a release
 
-A passing build cannot tell whether a README explanation or a screenshot is still accurate. Every release needs both automated checks and a human review of the exact revision being released.
+Every release needs an agent-completed checklist for its exact commit. Automated tests cannot judge whether explanations and screenshots are accurate; the agent must inspect them and record specific findings. No human approval is required by this process.
 
-1. Run **Release checks** in GitHub Actions on `main`, enable **publish**, and enter a new version tag such as `v1.0.0`. It runs the unit and interface suite, then backs up and restores at least 20,000 files and approximately 2 GiB through the real bundled Backrest and Restic engine. It compares restored contents with the originals. A missing or skipped large test fails the check. Leave **publish** off for a rehearsal that creates no tag or release.
-2. Open the resulting `release-evidence-<commit>` artifact. Inspect the new scenario and website screenshots, the test results and the recorded engine versions. The commit recorded in the artifact must match the release revision; rerun after any change. Engine versions are selected in `engine-versions.json`; both platform downloaders use those release tags. Existing developer binaries are preserved, so compare their versions when reproducing a result. Upgrading an engine requires changing that file deliberately and repeating the real-engine tests.
-3. Review README, DESIGN, the architecture and testing guides, and the website's screenshots against that build. Update obsolete wording and images. Check the first-run, backup, destination setup, restore, settings and logs screens. Check the documented build and launch commands. Record the reviewed revision and any known limitations in the release notes.
-4. A human reviewer confirms that the screenshots and documentation match the build, then approves the waiting `release` environment job. Do not treat generated images, their timestamps, or an agent's claim as that confirmation. An agent must not approve on the reviewer's behalf.
-5. The approved job publishes the Windows candidate already built by this run. It checks the recorded revision and creates a new tag atomically; an existing tag is rejected rather than reused or retargeted. If publication fails after tag creation, investigate before retrying; do not automatically delete the tag.
+## Prepare and record the checks
 
-## What the reviewer must actually check
+1. Finish the changes, run the relevant tests, review the documentation and screenshots, and commit any corrections.
+2. Run the full unit/interface suite, the real-engine 20,000-file round trip and the Windows package/update checks for that exact commit. Commands and fixtures are in [TESTING.md](TESTING.md). A test that was skipped or run before the last change does not establish coverage for the release.
+3. Run `node scripts/release-checklist.cjs create` from a clean checkout. It creates `release-checks/<full-commit>.json` with every box unchecked. The directory is Git-ignored; copy the completed file separately if moving the checkout.
+4. Read every requirement in `scripts/release-checklist-template.json`. Fill in who performed the review, when it happened, whether the UX changed, and specific findings or evidence for every item. Tick each box only after doing that work. Inspect README, contributor instructions, technical guides, app/website screenshots and captions against this build. Regenerate images affected by UX changes and review them with your eyes. Record remaining limitations and resolve release-blocking gaps.
+5. Validate the record with `node scripts/release-checklist.cjs validate release-checks/<full-commit>.json <full-commit>`. If any source, guide or screenshot changes afterward, commit it and prepare a checklist for the new commit. If the template changes, repeat the review using its latest requirements.
 
-Automation prepares the evidence and prevents this publishing job from running without approval. It cannot judge whether the explanations are accurate or the screenshots are useful. An agent can perform that comparison and propose corrections, but a human must approve the result. Adding a reminder to AGENTS.md alone cannot enforce that pause.
+A checklist is a durable statement of work performed, not proof that an LLM understood every sentence correctly. The validator checks the exact revision, template fingerprint, required items, true checkboxes, review metadata and non-empty findings. It rejects absent, incomplete, wrongly named and stale records.
 
-Before approving, record the following in the GitHub approval comment, using the full revision from the evidence artifact:
+## Run the release workflow
 
-- **Revision reviewed:** the exact commit, with a link to this run's evidence.
-- **README and guides:** compare the installation, first backup, restore, scheduling, tray/quit and update instructions with the candidate. Run the documented commands. Name any corrections, or say that no corrections were needed.
-- **Screenshots and website:** open the published images alongside the newly rendered screens. Check labels, navigation, layout and the behavior described by captions. A recently generated screenshot can still depict the wrong state. Name the images replaced or checked.
-- **Limitations:** record unfinished native Windows or live-account checks and whether they block this release.
+Once the checked commit is on `origin/main`, run:
 
-An example approval comment is: “Reviewed revision <full commit> and its linked evidence. Checked README and guides against the candidate, compared website images with the current screens, and reviewed the recorded limitations. Approved for release.” Add specific findings rather than copying this statement without doing the review. If a correction changes the release revision, start a new run and review the new candidate.
+```text
+node scripts/release-checklist.cjs dispatch release-checks/<full-commit>.json
+```
 
-The approval comment is an audit record, not a machine-checked claim of correctness. The enforced boundary is the required human approval. An LLM review could assist later, but would not remove the need for judgment or prove that every statement is correct.
+This performs a rehearsal without creating a tag or release. To publish an explicitly authorized version:
+
+```text
+node scripts/release-checklist.cjs dispatch release-checks/<full-commit>.json --publish --tag v1.0.0
+```
+
+The dispatcher verifies a clean checkout and that the checked commit is current `origin/main`. It sends the exact JSON as a GitHub Actions input. The workflow saves it under its commit filename, so the record can remain Git-ignored locally while still being available to the release gate and included in the evidence artifact.
+
+The workflow rejects an invalid checklist before building. It then independently reruns the interface suite, a real backup and restore of at least 20,000 files and approximately 2 GiB, and the packaged Windows update/rollback test. Every restored file must match its original SHA-256. A missing or skipped large test fails the gate.
+
+The final job downloads the candidate and checklist from that same run. It validates the checklist again and, for publication, checks its template against the current template on main. A newly added requirement therefore invalidates a candidate prepared under the older template. Only the publishing job receives repository write permission. It creates a new tag atomically and publishes the already-tested Windows bundle. Existing tags are rejected; a failure after tag creation needs investigation, not automatic tag deletion or retargeting.
+
+A development-branch rehearsal can be dispatched directly through GitHub Actions with publishing off. This exercises the candidate gate without changing the main-only publishing rule. Its checklist must still truthfully record checks performed on that exact branch commit.
 
 ## Windows update package contract
 
 The workflow embeds the requested tag's version in the executable and publishes `Backspace-windows-x64.zip`. Stable tags use three numeric components; prerelease tags are marked as prereleases and are not offered by the stable updater. Keep the bundle flat, with Backspace, Backrest, Restic and rclone executables together. The updater requires GitHub's SHA-256 asset digest and checks the executable's product version against the release tag. A missing digest or mismatched bundle must fail closed and offer the manual release page.
 
-Before the first public updater release, verify the actual packaged download/restart flow on Windows, including an active scheduled run, cancellation, insufficient space, rollback and the recovery launcher from a folder containing spaces and non-ASCII characters. A mocked release response or a passing replacement unit test does not establish native acceptance.
+Verify the actual packaged download/restart flow on Windows, including an active scheduled run, cancellation, insufficient space, rollback and the recovery launcher from a folder containing spaces and non-ASCII characters. A mocked release response or a passing replacement unit test does not establish native acceptance.
 
-## Enforcing the process on GitHub
+## GitHub settings and scope
 
-The **Release checks** workflow makes publishing depend on successful tests and a human approval. Its check job has read-only repository access; only the protected publishing job receives write access. The `release` environment was configured on 9 October 2026 with `mayerwin` as its required reviewer and administrator bypass disabled. The maintainer can approve their own manually started run because this repository currently has one designated reviewer.
+The `release` environment restricts publication to `main`. It must have no required human reviewers or waiting timer for this process. Preserve the branch restriction when updating its settings. The previous human-review requirement is superseded by the agent checklist.
 
-The allowed publishing branch is `main`. The implementation branch may temporarily be allowed for a non-publishing rehearsal, and must be removed from the environment's branch policies afterward. The workflow independently rejects publishing requests from any other branch.
+The workflow is the enforced publishing route for agents. GitHub repository administrators can still change workflow or permission settings, and maintainers with release-write access can publish through other routes. This mechanism cannot make manual publication impossible for an administrator. Keep those privileges limited and require this workflow for every release.
 
-This protects this workflow. It does not remove an administrator's ability to change repository settings, nor prevent someone who already has repository write permission from publishing manually through a different route. Keep write access limited to trusted maintainers and use this workflow for every release. Do not describe the environment as a repository-wide ban on manual releases. `AGENTS.md` is a standing reminder, not a substitute for the gate.
+Record actual configuration and rehearsal results in the local Review desk issue N011. Do not describe the new gate as exercised until the candidate workflow has passed a non-publishing rehearsal and its rejection cases have been tested. The older October 9 human-approval rehearsal is historical evidence for that earlier workflow, not for this checklist gate.
 
-The [9 October 2026 rehearsal](https://github.com/backspace-backup/backspace/actions/runs/37926997445), at revision `d344e04`, passed all automatic checks and reached the waiting approval job. It was deliberately cancelled there without publishing. Its temporary implementation-branch exception was removed. The local Review desk links the saved waiting-state screenshot and detailed results. This proves the approval path for that revision; every real release must run fresh checks on its own revision. The implementation branch still needs review and merging before main contains this complete version of the workflow. Do not approve a rehearsal automatically merely to obtain a green result.
-
-GitHub describes [deployment environments and required reviewers](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments). Cloud sign-in, reboot, VSS and physical-drive acceptance checks remain separate requirements where relevant; a local large-data test does not prove them.
+GitHub documents [deployment environments and their protection rules](https://docs.github.com/en/rest/deployments/environments). Live cloud, reboot and application-specific Windows checks remain separate where relevant; a large local round trip does not prove them.

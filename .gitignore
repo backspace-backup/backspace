@@ -103,3 +103,6 @@ RELEASE_READINESS.md
 
 # Upstream PR forks (Backrest, restic) — local clones for build/test work
 .upstream-prs/
+
+# Exact-commit release attestations are transferred to CI, not committed.
+/release-checks/
