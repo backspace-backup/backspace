@@ -1,5 +1,5 @@
 {
-  "backrest": "v1.13.0",
-  "restic": "v0.18.1",
+  "backrest": "v1.14.1",
+  "restic": "v0.19.1",
   "rclone": "v1.74.1"
 }

@@ -75,6 +75,108 @@ public sealed class RestoreSafetyRegressionTests
         Assert.Contains(updates, p => p.TotalBytes == 8 && p.BytesRestored == 4);
         Assert.Empty(Directory.GetDirectories(target, ".backspace-restore-*"));
         Assert.Equal("/v1.Backrest/Restore", fixture.Handler.LastEndpoint);
+        Assert.EndsWith("/nested/picked[1].txt", fixture.Handler.NativePath);
+        Assert.DoesNotContain("picked?1?", fixture.Handler.NativePath);
+    }
+
+    [Theory]
+    [InlineData("/v1.Backrest/DoRepoTask")]
+    [InlineData("/v1.Backrest/Forget")]
+    [InlineData("/v1.Backrest/RunCommand")]
+    public async Task ScheduledRepositoryRpc_UsesReturnedId_AndWaitsForRecordedOperation(string endpoint)
+    {
+        using var fixture = new ProtocolFixture("STATUS_SUCCESS");
+        fixture.Handler.DiscoveryDelayPolls = 2;
+        fixture.Handler.IncludeOtherMatchingOperation = true;
+        var terminal = await fixture.Track(endpoint, TestContext.Current.CancellationToken);
+        Assert.Equal("42", terminal.Id);
+        Assert.Equal("STATUS_SUCCESS", terminal.Status);
+        Assert.Equal(0, fixture.Handler.DiscoveryDelayPolls);
+        Assert.Equal(0, fixture.Handler.CancelRequests);
+    }
+
+    [Theory]
+    [InlineData("/v1.Backrest/DoRepoTask")]
+    [InlineData("/v1.Backrest/Forget")]
+    public async Task ScheduledRepositoryRpc_DelayedAcknowledgement_CannotAdoptAnotherOperation(string endpoint)
+    {
+        using var fixture = new ProtocolFixture("STATUS_SUCCESS");
+        fixture.Handler.DelayAcknowledgement = true;
+        fixture.Handler.IncludeOtherMatchingOperation = true;
+        var terminal = await fixture.Track(endpoint, TestContext.Current.CancellationToken);
+        Assert.Equal("42", terminal.Id);
+        Assert.Equal("STATUS_SUCCESS", terminal.Status);
+        Assert.True(fixture.Handler.AcknowledgementReleased);
+        Assert.Equal(0, fixture.Handler.CancelRequests);
+    }
+
+    [Theory]
+    [InlineData("/v1.Backrest/DoRepoTask")]
+    [InlineData("/v1.Backrest/Forget")]
+    public async Task ScheduledRepositoryRpc_CancellationDuringDelayedAcknowledgement_CancelsOnlyReturnedId(string endpoint)
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var fixture = new ProtocolFixture("STATUS_INPROGRESS", cancel: cancellation);
+        fixture.Handler.DelayAcknowledgement = true;
+        fixture.Handler.IncludeOtherMatchingOperation = true;
+        var terminal = await fixture.Track(endpoint, cancellation.Token);
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.True(fixture.Handler.AcknowledgementReleased);
+        Assert.Equal("42", Assert.Single(fixture.Handler.CancelledIds));
+        Assert.True(fixture.Handler.TerminalAcknowledged);
+        Assert.Equal("42", terminal.Id);
+        Assert.Equal("STATUS_USER_CANCELLED", terminal.Status);
+    }
+
+    [Fact]
+    public async Task NativeRestore_UsesReturnedOperationId_DespiteDelayedVisibilityAndSimilarOperation()
+    {
+        using var workspace = new TempWorkspace("native-restore-returned-id");
+        using var fixture = new ProtocolFixture("STATUS_SUCCESS", stage => File.WriteAllText(Path.Combine(stage, "picked.txt"), "complete"));
+        fixture.Handler.DiscoveryDelayPolls = 2;
+        fixture.Handler.IncludeOtherMatchingOperation = true;
+        var result = await fixture.Restore(workspace.Sub("target"), new[] { "picked.txt" });
+        Assert.Equal(RestoreTerminalStatus.Success, result.Status);
+        Assert.Equal(1, result.FilesRestored);
+        Assert.Equal(0, fixture.Handler.DiscoveryDelayPolls);
+        Assert.Equal(0, fixture.Handler.CancelRequests);
+    }
+
+    [Fact]
+    public async Task NativeRestore_CancellationBeforeAcknowledgement_WaitsForIdAndCancelsOnlyThatOperation()
+    {
+        using var workspace = new TempWorkspace("native-restore-delayed-acknowledgement");
+        using var cancellation = new CancellationTokenSource();
+        using var fixture = new ProtocolFixture("STATUS_INPROGRESS", stage => File.WriteAllText(Path.Combine(stage, "picked.txt"), "partial"));
+        fixture.Handler.DelayNativeAcknowledgement = true;
+        fixture.Handler.IncludeOtherMatchingOperation = true;
+        var target = workspace.Sub("target");
+        File.WriteAllText(Path.Combine(target, "picked.txt"), "original");
+        var restore = fixture.Restore(target, new[] { "picked.txt" }, cancellation.Token);
+        await fixture.Handler.NativeSubmitted.WaitAsync(TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+        Assert.False(restore.IsCompleted);
+        Assert.Equal(0, fixture.Handler.CancelRequests);
+        fixture.Handler.ReleaseAcknowledgement();
+        var result = await restore;
+        Assert.Equal(RestoreTerminalStatus.Cancelled, result.Status);
+        Assert.Equal("42", Assert.Single(fixture.Handler.CancelledIds));
+        Assert.True(fixture.Handler.StagingExistedWhenCancelled);
+        Assert.True(fixture.Handler.TerminalAcknowledged);
+        Assert.Equal("original", File.ReadAllText(Path.Combine(target, "picked.txt")));
+        Assert.Empty(Directory.GetDirectories(target));
+    }
+
+    [Fact]
+    public async Task SnapshotListings_UseConfiguredRepositoryId_ForBothTreeAndDirectoryRequests()
+    {
+        using var fixture = new ProtocolFixture("STATUS_SUCCESS");
+        var tree = await fixture.ListFiles();
+        Assert.Equal("kept.txt", Assert.Single(tree).Path);
+        var directory = await fixture.ListDirectory();
+        Assert.Equal("kept.txt", Assert.Single(directory!).Name);
+        Assert.Contains("/", fixture.Handler.ListedPaths);
+        Assert.Contains("/" + ResticBackrestEngine.SourcePathToSnapshotPrefix(ProtocolFixture.Source), fixture.Handler.ListedPaths);
     }
 
     [Fact]
@@ -212,8 +314,7 @@ public sealed class RestoreSafetyRegressionTests
 
     [Theory]
     [InlineData("/v1.Backrest/Backup", "STATUS_USER_CANCELLED")]
-    [InlineData("/v1.Backrest/DoRepoTask", "STATUS_USER_CANCELLED")]
-    [InlineData("/v1.Backrest/Forget", "STATUS_USER_CANCELLED")]
+    [InlineData("/v1.Backrest/RunCommand", "STATUS_USER_CANCELLED")]
     public async Task SynchronousRepositoryRpc_CancelsDaemonBeforeReleasingOwnership(string endpoint, string expected)
     {
         using var cancel = new CancellationTokenSource();
@@ -232,7 +333,7 @@ public sealed class RestoreSafetyRegressionTests
     {
         using var fixture = new ProtocolFixture(status);
         fixture.Handler.SynchronousRequest = true;
-        var terminal = await fixture.Track("/v1.Backrest/DoRepoTask", default);
+        var terminal = await fixture.Track("/v1.Backrest/RunCommand", default);
         Assert.Equal(status, terminal.Status);
         Assert.Equal("42", terminal.Id);
         Assert.NotEqual(BackupRunStatus.Success, ResticBackrestEngine.StatusFromBackrestTerminal(terminal.Status));
@@ -245,7 +346,7 @@ public sealed class RestoreSafetyRegressionTests
         fixture.Handler.SynchronousRequest = true;
         fixture.Handler.FailPolls = 1;
         fixture.Handler.ProgressPolls = 4;
-        var terminal = await fixture.Track("/v1.Backrest/DoRepoTask", default, TimeSpan.FromMilliseconds(100));
+        var terminal = await fixture.Track("/v1.Backrest/RunCommand", default, TimeSpan.FromMilliseconds(100));
         Assert.Equal("STATUS_SUCCESS", terminal.Status);
         Assert.Equal(0, fixture.Handler.CancelRequests);
     }
@@ -302,6 +403,7 @@ public sealed class RestoreSafetyRegressionTests
 
     private sealed class ProtocolFixture : IDisposable
     {
+        public static string Source => Path.Combine(Path.GetTempPath(), "restore-fixture-source");
         public FakeBackrest Handler { get; }
         private readonly HttpClient _http;
         private readonly ResticBackrestEngine _engine;
@@ -321,14 +423,18 @@ public sealed class RestoreSafetyRegressionTests
         {
             Assert.True(native); // These are native Backrest protocol/staging tests.
             Handler.WholeSource = paths.Length > 1;
-            return _engine.RestoreFilesAsync(new Backup(), Path.Combine(Path.GetTempPath(), "restore-fixture-source"),
+            return _engine.RestoreFilesAsync(new Backup(), Source,
                 new Destination { Id = "restore-probe" }, "default", 1,
                 Handler.WholeSource ? new[] { "/" } : paths, target, onProgress, ct, paths);
         }
         public Task<BackrestOperation> Track(string endpoint, CancellationToken ct, TimeSpan? uncertaintyTimeout = null) =>
             _engine.RunTrackedRepoRpcAsync(_client, "restore-probe-default", endpoint, new BackrestSidecar.EmptyRequest(),
-                op => op.OperationBackup is not null || op.OperationCheck is not null || op.OperationForget is not null, ct,
+                op => op.OperationBackup is not null || op.OperationCheck is not null || op.OperationForget is not null || op.OperationRunCommand is not null, ct,
                 uncertaintyTimeout: uncertaintyTimeout);
+        public Task<IReadOnlyList<RevisionFile>> ListFiles() =>
+            _engine.ListSnapshotFilesAsync(new Backup(), Source, new Destination { Id = "restore-probe" }, "default", 1, TestContext.Current.CancellationToken);
+        public Task<IReadOnlyList<RevisionDirEntry>?> ListDirectory() =>
+            _engine.ListSnapshotDirectoryAsync(new Backup(), Source, new Destination { Id = "restore-probe" }, "default", 1, "", TestContext.Current.CancellationToken);
         public void Dispose() => _http.Dispose();
     }
 
@@ -346,13 +452,25 @@ public sealed class RestoreSafetyRegressionTests
         public bool CancelDuringFollowup { get; set; }
         public bool FollowupAcknowledged { get; private set; }
         public List<string> CancelledIds { get; } = new();
+        public List<string> ListedPaths { get; } = new();
+        public int DiscoveryDelayPolls { get; set; }
+        public bool IncludeOtherMatchingOperation { get; set; }
+        public bool DelayAcknowledgement { get; set; }
+        public bool DelayNativeAcknowledgement { get; set; }
+        public bool AcknowledgementReleased => _acknowledgement.Task.IsCompleted;
+        public Task NativeSubmitted => _nativeSubmitted.Task;
+        public void ReleaseAcknowledgement() => _acknowledgement.TrySetResult();
+        public string NativePath => _nativePath ?? "";
         private string? _endpoint;
         public string? LastEndpoint => _endpoint;
         private string? _nativeTarget;
         private string? _nativePath;
         private int _polls;
         private int _followupPolls;
+        private int _acknowledgementPolls;
         private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _acknowledgement = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _nativeSubmitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -361,6 +479,19 @@ public sealed class RestoreSafetyRegressionTests
             {
                 case "/v1.Backrest/ListSnapshots": response = "{\"snapshots\":[{\"id\":\"snapshot\",\"unixTimeMs\":1}]}"; break;
                 case "/v1.Backrest/GetConfig": response = "{\"repos\":[{\"id\":\"restore-probe-default\",\"guid\":\"guid\"}]}"; break;
+                case "/v1.Backrest/ListSnapshotFiles":
+                    using (var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)))
+                    {
+                        Assert.Equal("restore-probe-default", body.RootElement.GetProperty("repo_id").GetString());
+                        Assert.False(body.RootElement.TryGetProperty("repo_guid", out _));
+                        var listed = body.RootElement.GetProperty("path").GetString()!;
+                        ListedPaths.Add(listed);
+                        var prefix = "/" + ResticBackrestEngine.SourcePathToSnapshotPrefix(ProtocolFixture.Source);
+                        var entries = new List<object> { new { path = prefix, type = "dir" } };
+                        if (listed == prefix) entries.Add(new { path = prefix + "/kept.txt", type = "file", size = "7" });
+                        response = JsonSerializer.Serialize(new { path = listed, entries });
+                    }
+                    break;
                 case "/v1.Backrest/Restore":
                     using (var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)))
                     {
@@ -373,34 +504,50 @@ public sealed class RestoreSafetyRegressionTests
                         produceOutput?.Invoke(output);
                         _endpoint = path;
                     }
-                    response = "{}"; // Native Restore acknowledges scheduling immediately.
+                    _nativeSubmitted.TrySetResult();
+                    if (DelayNativeAcknowledgement) await _acknowledgement.Task.WaitAsync(cancellationToken);
+                    response = "{\"operationId\":\"42\"}"; // Backrest 1.14.1 returns the scheduled id.
                     break;
                 case "/v1.Backrest/Backup":
                 case "/v1.Backrest/Forget":
                 case "/v1.Backrest/DoRepoTask":
+                case "/v1.Backrest/RunCommand":
                     _endpoint = path;
+                    if (DelayAcknowledgement) await _acknowledgement.Task.WaitAsync(cancellationToken);
                     if (SynchronousRequest)
                     {
                         await _completed.Task.WaitAsync(cancellationToken);
                         if (status != "STATUS_SUCCESS") return new HttpResponseMessage(HttpStatusCode.InternalServerError)
                         { Content = new StringContent("{\"code\":\"unknown\",\"message\":\"fixture operation failed\"}") };
                     }
-                    response = "{}";
+                    response = path == "/v1.Backrest/Backup" ? "{}" : "{\"operationId\":\"42\"}";
                     break;
                 case "/v1.Backrest/GetOperations":
                     if (_endpoint is null) { response = "{\"operations\":[{\"id\":\"41\",\"status\":\"STATUS_SUCCESS\",\"operationCheck\":{}}]}"; break; }
+                    if (DelayAcknowledgement && ++_acknowledgementPolls >= 2) _acknowledgement.TrySetResult();
                     if (FailPolls-- > 0) return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
                         { Content = new StringContent("{\"code\":\"unavailable\",\"message\":\"temporary fixture fault\"}") };
+                    var recorded = new List<object>();
+                    if (IncludeOtherMatchingOperation)
+                        recorded.Add(new { id = "99", status = "STATUS_ERROR", operationCheck = new object(),
+                            operationRestore = _nativeTarget is null ? null : new { target = _nativeTarget, path = _nativePath } });
+                    if (DiscoveryDelayPolls > 0)
+                    {
+                        DiscoveryDelayPolls--;
+                        response = JsonSerializer.Serialize(new { operations = recorded });
+                        break;
+                    }
                     var current = CancelRequests > 0 ? "STATUS_USER_CANCELLED" : _polls++ < ProgressPolls ? "STATUS_INPROGRESS" : status;
                     if (CancelRequests > 0) TerminalAcknowledged = true;
                     else if (current == "STATUS_INPROGRESS") cancel?.Cancel();
                     if (current != "STATUS_INPROGRESS") _completed.TrySetResult();
-                    var recorded = new List<object> { new { id = "42", status = current, displayMessage = "Fixture terminal message",
+                    recorded.Add(new { id = "42", status = current, displayMessage = "Fixture terminal message",
                         operationRestore = _nativeTarget is null ? null : new { target = _nativeTarget, path = _nativePath,
                             lastStatus = new { messageType = NativeSummary && current != "STATUS_INPROGRESS" ? "summary" : "status", totalBytes = "8", bytesRestored = NativeSummary && current != "STATUS_INPROGRESS" ? "8" : "4", totalFiles = "1", filesRestored = NativeSummary && current != "STATUS_INPROGRESS" ? "1" : "0", percentDone = NativeSummary && current != "STATUS_INPROGRESS" ? 1.0 : 0.5 } },
                         operationBackup = _endpoint == "/v1.Backrest/Backup" ? new object() : null,
                         operationCheck = _endpoint == "/v1.Backrest/DoRepoTask" ? new object() : null,
-                        operationForget = _endpoint == "/v1.Backrest/Forget" ? new object() : null } };
+                        operationForget = _endpoint == "/v1.Backrest/Forget" ? new object() : null,
+                        operationRunCommand = _endpoint == "/v1.Backrest/RunCommand" ? new { command = "fixture command" } : null });
                     if (FollowupPolls > 0)
                     {
                         var followup = CancelledIds.Contains("43") ? "STATUS_USER_CANCELLED" :
@@ -416,7 +563,10 @@ public sealed class RestoreSafetyRegressionTests
                 case "/v1.Backrest/Cancel":
                     CancelRequests++;
                     using (var cancelBody = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)))
-                        CancelledIds.Add(cancelBody.RootElement.GetProperty("value").GetString()!);
+                    {
+                        Assert.False(cancelBody.RootElement.TryGetProperty("value", out _));
+                        CancelledIds.Add(cancelBody.RootElement.GetProperty("operationId").GetString()!);
+                    }
                     StagingExistedWhenCancelled = Directory.Exists(_nativeTarget);
                     response = "{}";
                     break;

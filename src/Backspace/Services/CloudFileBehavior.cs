@@ -9,8 +9,8 @@ namespace Backspace.Services;
 /// Restic's --exclude-cloud-files asks the engine to omit supported
 /// online-only files; omitted content cannot be restored from that backup.
 /// Without that flag, opening a supported placeholder can download it.
-/// Provider behavior varies: a real Dropbox placeholder tested with the
-/// bundled Restic 0.18.1 was rejected as an unsupported irregular file,
+/// Provider behavior varies: a real Dropbox placeholder tested during the
+/// Restic 0.18.1 audit was rejected as an unsupported irregular file,
 /// with no content saved and no local download, with either flag setting.
 /// Do not promise hydration or automatic removal of downloaded content.
 /// </summary>

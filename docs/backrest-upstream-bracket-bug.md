@@ -1,5 +1,20 @@
 # Upstream: Backrest single-file restore on Windows for names with `[` or `]`
 
+> **Correction (12 October 2026):** The explanation below was wrong about
+> `[[]`. On Windows, that pattern does match a literal opening bracket;
+> a closing bracket is already literal outside a character class. Only
+> the proposed `[]]` escape is invalid. Tests using actual restic 0.19.1
+> confirm that replacing `[` with `[[]` selects the exact filename.
+> The wildcard workaround merged in #1254 can restore and overwrite
+> an unrelated, similarly named file. The follow-up replaces that
+> workaround with exact matching and tests existing target preservation.
+> It was submitted as
+> [garethgeorge/backrest#1411](https://github.com/garethgeorge/backrest/pull/1411).
+> Backspace separately stages and checks restored output before publication.
+> The remainder of this document is the original, superseded report;
+> its claims about impossible literal matching and acceptable over-restoring
+> must not guide new code.
+
 > **Historical upstream report (2026-06-30):** Filed and **merged** as
 > [garethgeorge/backrest#1254](https://github.com/garethgeorge/backrest/pull/1254)
 > (merge commit `91d76ac`). The release and implementation observations

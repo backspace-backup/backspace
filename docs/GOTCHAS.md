@@ -33,15 +33,20 @@ performed with the current registrations.
 ## Engine upgrades require a compatibility check
 
 Build downloads use the versions in `src/Backspace/engine-versions.json`.
-Do not replace those tags with `latest`: the release rehearsal on 9 October
-2026 found that Backrest 1.14.1 changes the snapshot-file request from
-`repo_guid` to `repo_id`, along with cancellation and command-response
-formats. A backup succeeded, but restore browsing failed. The selected
-Backrest version remains 1.13.0 until an intentional upgrade passes the
-real backup, restore, cancellation and maintenance checks. Existing local
-binaries are not overwritten by the downloader.
+The current pins are Backrest 1.14.1 and restic 0.19.1. Do not replace
+those tags with `latest`: a successful backup alone does not establish
+compatibility. Backrest 1.14.1 lists snapshot files using its configured
+`repo_id`; operation queries still use the canonical repository guid.
+Cancellation takes `operationId`, and scheduled-task responses return
+that same field. Maintenance and Restore can acknowledge scheduling before
+the operation appears in polling results. Wait for the identified operation
+to finish; an HTTP success is not a completed backup, restore or check.
+Existing local binaries are not overwritten by the downloader, so an upgrade
+must replace them deliberately and verify the versions in the test output
+directory as well as in the source assets. Run real backup, restore,
+cancellation and maintenance checks against those binaries.
 
-## Backrest 1.13.0 `SetConfig` guid contract
+## Backrest 1.13.0+ `SetConfig` guid contract
 
 Guids must be 64-char hex; `auto_initialize=true` is rejected when a
 guid is set; the validator reruns over the entire on-disk config on
@@ -99,17 +104,18 @@ a CI run against it.
 We bind it to plain `int` properties and rely on default numeric
 conversion. Works in practice; wrap in a converter if it ever throws.
 
-## Restic `--include` cannot match `[` or `]` literally
+## Literal brackets in restore selections on Windows
 
 Restic's include matcher runs Go's `path/filepath.Match`. On Windows
-the backslash escape is unavailable (`\` is a path separator there) AND
-restic's `ValidatePatterns` rejects the POSIX class self-escape `[[]` /
-`[]]` as `invalid pattern(s)`. There is currently no way to express a
-literal `[` or `]` as a match character on Windows.
+the backslash escape is unavailable (`\` is a path separator there), but
+`[[]` matches a literal opening bracket. A closing bracket is already
+literal outside a character class; do not replace it with the invalid
+pattern `[]]`. Our earlier claim that neither bracket could be matched
+literally was wrong. Actual restic 0.19.1 tests cover these patterns,
+including unpaired brackets, Unicode and similarly named siblings.
 
-Backspace substitutes each bracket with `?` for restic's include matcher.
-That can also match same-length sibling names, so every restore writes
-into an isolated staging directory first. Only validated requested paths
+Every Backspace restore writes into an isolated staging directory first.
+Only validated requested paths
 are published to the target after a successful or explicitly partial
 terminal result. Unrelated existing target files are never swept.
 Incomplete staged files are not published. Target junctions and linked
@@ -120,10 +126,15 @@ is no transaction or rollback spanning all restored files.
 
 The [Backrest Windows bracket fix](https://github.com/garethgeorge/backrest/pull/1254)
 was merged on June 30, 2026 (status rechecked October 12). It is included in
-v1.14.1, but our pinned and bundled v1.13.0 predates it. Backspace therefore
-performs the bracket substitution itself before calling native Restore.
-The upstream fix also uses wildcard substitution, so upgrading Backrest
-alone would not remove the need to filter the staged output literally.
+our bundled v1.14.1. Backspace passes the original literal path to native
+Restore and lets Backrest escape it. That release still substitutes
+wildcards, so it can read extra matching files into staging. The exact
+selection check prevents those files from reaching the user's target.
+Direct restic restores can use the literal-bracket pattern described above.
+The [follow-up exact-match fix](https://github.com/garethgeorge/backrest/pull/1411)
+was submitted on 12 October with real-restic regression tests. It is not
+part of bundled Backrest 1.14.1; keep that distinction when describing
+which engine protection the app currently relies on.
 Backspace uses native Restore for a single selected file or folder when no
 per-backup bandwidth limit is set. Its target must not exist and its plan ID
 must be supplied. The output is still staged and filtered before publication;
@@ -137,9 +148,10 @@ Native Restore cannot accept several paths or a per-request bandwidth limit.
 Both paths keep staging and the repository lease until engine exit is confirmed.
 The proposed [restic literal include flag](https://github.com/restic/restic/pull/21872)
 was still open, awaiting review, when checked on October 12, 2026. The bundled
-restic v0.18.1 does not have that proposed flag. Only retire our wildcard
-workaround after a bundled restic version supports literal includes and
-the occupied-target preservation tests still pass.
+restic v0.19.1 does not have that proposed flag. It is not required to match
+brackets literally. Keep staging and target-preservation checks when changing
+engine versions or pattern handling; they also protect against partial output,
+unsafe paths and an engine that does not honor the requested selection.
 
 ## Repository command lifetime and cancellation
 

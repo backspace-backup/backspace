@@ -651,7 +651,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
         // Idempotent-with-version-guard: preserve a real Backrest
         // config from a previous launch (portability), but overwrite
         // when its schema version is newer than what our bundled
-        // Backrest binary understands. The bundled Backrest 1.13.0
+        // Backrest binary understands. The bundled Backrest 1.14.1
         // expects version 6; a future binary emitting v7 sitting on
         // disk would be downgraded silently and our typed-model
         // round-trip (GetConfig → mutate → SetConfig) might lose
@@ -727,13 +727,13 @@ public sealed class BackrestSidecar : IAsyncDisposable
     /// <summary>
     /// The config schema version Backrest's bundled binary expects.
     /// Bump this whenever we upgrade the bundled binary to a release
-    /// whose migrations target a newer version. Verified by booting
-    /// the bundled <c>backrest --version</c> against a fresh empty
-    /// config and reading the "migrating config from version 0 to N"
-    /// log line; N is the value to use here.
+    /// whose migrations target a newer version. Check the pinned release's
+    /// migrations and confirm by starting an isolated daemon with a fresh
+    /// config: its "migrating config from version 0 to N" log gives the
+    /// target version. The --version command does not run migrations.
     ///
-    /// Bundled binary at the time of writing: Backrest 1.13.0
-    /// (commit a389bbc7) → version 6. Earlier code shipped
+    /// Bundled Backrest 1.14.1 still uses version 6, as declared in
+    /// internal/config/migrations/migrations.go at that release tag. Earlier code shipped
     /// "Version = 4" which silently downgraded the seed on every
     /// launch, then forced Backrest to migrate it forward on read.
     /// The migration was nominally lossless, but combined with our

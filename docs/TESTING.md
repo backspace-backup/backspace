@@ -30,6 +30,37 @@ journals still require full validation and must not mutate unrelated files.
 
 ### Cleanup, restore and truthful results
 
+`BackrestRpcModelsTests` checks the pinned 1.14.1 request and response
+fields. `RestoreSafetyRegressionTests` supplies delayed scheduling replies
+and a misleading second operation: Backspace must wait for its returned ID
+and cancel only that operation. The native restore case also requires
+temporary output to remain until the daemon acknowledges cancellation.
+These are controlled protocol tests. E01, E40–E42 and E44–E47 exercise the
+production adapter with the actual bundled engines; record their binary
+versions with `scripts/record-engine-versions.ps1` when upgrading.
+
+`E48_EngineUpgradeContinuity` creates two encrypted backup versions with
+Backrest 1.13.0 and restic 0.18.1, then starts the current bundled engines
+against the same disposable repository and daemon data. It checks preserved
+configuration, authentication, operation history and snapshot identities,
+adds a third backup version, and compares exact contents across four real
+restores. It never opens user repositories or replaces installed binaries.
+This tests engine/data continuity, not the updater, cloud accounts or a
+power failure.
+
+On Windows, put the previous executables in a separate test-input folder,
+named exactly `backrest-1.13.0.exe` and `restic-0.18.1.exe`, then run:
+
+```powershell
+$env:BACKSPACE_PREVIOUS_ENGINE_DIRECTORY = 'C:\test-tools\backspace-previous-engines'
+dotnet test tests/Backspace.Tests --filter "FullyQualifiedName~E48_EngineUpgradeContinuity"
+```
+
+E48 explicitly skips when the environment variable, either previous
+executable, or any current bundled engine binary is missing. A skipped
+rehearsal is not upgrade proof. Require both completed scenario steps and
+a passing final test-runner result, and retain the recorded engine versions.
+
 `E44_DestructiveOperationSafety` uses an encrypted local repository with two
 independent backup histories. It checks explicit snapshot deletion, retention
 scope, immutable restore selection after renumbering, no-replacement behavior,

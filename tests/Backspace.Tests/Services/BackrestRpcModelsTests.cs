@@ -18,6 +18,23 @@ namespace Backspace.Tests.Services;
 public class BackrestRpcModelsTests
 {
     [Fact]
+    public void PinnedBackrest1141_UsesRepositoryIdForFileListing_AndOperationIdForCancel()
+    {
+        using var listing = JsonDocument.Parse(JsonSerializer.Serialize(new ListSnapshotFilesRequest
+        { RepoId = "documents-default", SnapshotId = "snapshot", Path = "/Documents" }));
+        Assert.Equal("documents-default", listing.RootElement.GetProperty("repo_id").GetString());
+        Assert.False(listing.RootElement.TryGetProperty("repo_guid", out _));
+
+        const string largeId = "9007199254740993"; // More than JavaScript's exact numeric range.
+        using var cancel = JsonDocument.Parse(JsonSerializer.Serialize(new CancelOperationRequest { OperationId = largeId }));
+        Assert.Equal(largeId, cancel.RootElement.GetProperty("operationId").GetString());
+        Assert.False(cancel.RootElement.TryGetProperty("value", out _));
+        var scheduled = JsonSerializer.Deserialize<BackrestScheduledOperationResponse>("{\"operationId\":\"9007199254740993\"}")!;
+        Assert.Equal(largeId, scheduled.OperationId);
+        Assert.Equal("0", JsonSerializer.Deserialize<BackrestScheduledOperationResponse>("{}")!.OperationId);
+    }
+
+    [Fact]
     public void BackrestConfig_roundTripsUnknownFieldsViaExtensionData()
     {
         // A v6 config the way Backrest 1.13.0 emits it — with

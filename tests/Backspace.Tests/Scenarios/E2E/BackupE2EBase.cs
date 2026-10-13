@@ -199,7 +199,7 @@ public abstract class BackupE2EBase : ScenarioBase
     /// is "did the wrapper / FS / OS preserve everything correctly?"
     /// — that's file count, mtime (±2s for FAT compat), attributes,
     /// (optionally) NTFS ACLs, (optionally) sparse-file flag, plus a
-    /// sampled-byte SHA-256 compare for cheap regression coverage.
+    /// full-file SHA-256 comparisons for every regular restored file.
     ///
     /// Any failed dimension stops the scenario via <see cref="Assert.Fail"/>
     /// after writing the full report to a sibling file.
@@ -250,7 +250,7 @@ public abstract class BackupE2EBase : ScenarioBase
     /// <summary>Backwards-compat alias: existing scenarios use
     /// AssertBytesEqual; new code should call
     /// <see cref="AssertRestoreEquivalent"/> which adds the metadata
-    /// dimensions on top of the sampled byte compare. This shim
+    /// dimensions on top of the full-file byte comparison. This shim
     /// avoids a wide rename while keeping the upgrade path obvious.</summary>
     protected void AssertBytesEqual(string expected, string actual, ScenarioContext ctx,
         params string[] skipSegments)

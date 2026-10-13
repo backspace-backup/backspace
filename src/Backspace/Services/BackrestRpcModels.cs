@@ -267,7 +267,7 @@ internal sealed class RestoreSnapshotRequest
 
 internal sealed class ListSnapshotFilesRequest
 {
-    [JsonPropertyName("repo_guid")] public string RepoGuid { get; set; } = "";
+    [JsonPropertyName("repo_id")] public string RepoId { get; set; } = "";
     [JsonPropertyName("snapshot_id")] public string SnapshotId { get; set; } = "";
     /// <summary>Path inside the snapshot to list (empty = root).</summary>
     [JsonPropertyName("path")] public string Path { get; set; } = "";
@@ -302,13 +302,17 @@ internal sealed class RunCommandRequest
     [JsonPropertyName("command")] public string Command { get; set; } = "";
 }
 
-/// <summary>Wraps an int64 — used as the return type of RunCommand
-/// (the operation id Backrest enqueued) and Cancel. Wire shape:
-/// <c>{ "value": "123" }</c> (string-encoded because JSON numbers
-/// would silently truncate ≥ 2^53).</summary>
-internal sealed class Int64Value
+/// <summary>Backrest 1.14.1's ScheduleTaskResponse and RunCommandResponse
+/// share this shape. An acknowledgement identifies the operation; it is not
+/// proof that the operation has finished. Int64 ids are strings in proto JSON.</summary>
+internal sealed class BackrestScheduledOperationResponse
 {
-    [JsonPropertyName("value")] public string Value { get; set; } = "0";
+    [JsonPropertyName("operationId")] public string OperationId { get; set; } = "0";
+}
+
+internal sealed class CancelOperationRequest
+{
+    [JsonPropertyName("operationId")] public string OperationId { get; set; } = "0";
 }
 
 // ---- streaming: GetOperationEvents ----
