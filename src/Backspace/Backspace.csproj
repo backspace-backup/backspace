@@ -108,6 +108,8 @@
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.1.2" />
 
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <!-- Seed Backrest authentication before its HTTP listener starts. -->
+    <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="Serilog" Version="4.2.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.Async" Version="2.1.0" />

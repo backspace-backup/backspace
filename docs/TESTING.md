@@ -148,9 +148,13 @@ survive in one block while obsolete generated rules are removed. It also
 checks Cancel, Save and reopening the stored configuration. The related
 rule tests preserve malformed custom blocks without losing user rules.
 
-`BackrestAuthenticationTests` injects failures at each authentication step and
-rejects an empty token. `InfrastructureLifecycleE2ETests` separately starts
-the real bundled daemon and checks that an unauthenticated request is rejected.
+`BackrestAuthenticationTests` injects failed login and an empty token and
+rejects any use of unprotected setup RPCs. `BackrestSidecarTests` verifies
+password preparation before launch, retention of unrelated configuration,
+and refusal to overwrite corrupt or newer engine data.
+`InfrastructureLifecycleE2ETests` probes the real bundled daemon during first
+startup and missing-password recovery: anonymous requests with an untrusted
+website origin must be rejected, while the authenticated application works.
 
 Set `BACKSPACE_E2E_SCALE=huge` to lift the shared E2E source builders and manual E11/E30/E31/E34/E35 fixtures to production-sized input. The standard huge fixture has at least 20,000 files and approximately 2 GiB; exact edge fixtures retain their special files in addition to the scale payload. Multi-source or multi-backup tests can create multiple such payloads, and backup/restore copies need additional free space. The default remains small. This switch increases local I/O and, for explicitly enabled cloud scenarios, upload/download traffic.
 

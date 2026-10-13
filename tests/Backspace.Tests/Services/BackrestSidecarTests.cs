@@ -36,7 +36,7 @@ public class BackrestSidecarTests
     }
 
     [Fact]
-    public void WriteSeedConfig_writesValidJsonWithAuthDisabled()
+    public void WriteSeedConfig_neverDisablesAuthentication()
     {
         var tmpDir = Path.Combine(Path.GetTempPath(), "backspace-sidecar-tests-" + System.Guid.NewGuid().ToString("N"));
         try
@@ -54,8 +54,7 @@ public class BackrestSidecarTests
             var root = doc.RootElement;
 
             Assert.Equal("backspace", root.GetProperty("instance").GetString());
-            Assert.True(root.GetProperty("auth").GetProperty("disabled").GetBoolean(),
-                "Seed config must disable Backrest auth — protection is the 127.0.0.1-only bind until bcrypt seeding lands.");
+            Assert.False(root.GetProperty("auth").GetProperty("disabled").GetBoolean());
 
             // The repos/plans arrays should be present and empty — the
             // engine adds entries via SetConfig once a backup is wired.
@@ -88,14 +87,12 @@ public class BackrestSidecarTests
     }
 
     [Fact]
-    public void StripAuthFromConfigOnDisk_ResetsAuthOnly_PreservesEverythingElse()
+    public async System.Threading.Tasks.Task MissingPassword_IsReplacedBeforeLaunch_WithoutLosingOtherConfiguration()
     {
         // The orphan-auth recovery scenario: user deleted
         // sidecar-auth.txt but kept config.json. Before Backrest
-        // boots we strip auth back to seed state so EnsureAuthAsync
-        // can re-bootstrap. The strip MUST NOT touch any other key
-        // (repos, plans, instance, sync, etc.) — losing those would
-        // re-orphan the user's wired backups.
+        // boots we replace only its credentials on disk. There must
+        // never be an unprotected listener or loss of repository settings.
         var tmpDir = Path.Combine(Path.GetTempPath(),
             "backspace-strip-" + System.Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tmpDir);
@@ -111,19 +108,28 @@ public class BackrestSidecarTests
                   { "name": "backspace", "passwordBcrypt": "$2a$10$abcdef..." }
                 ]
               },
-              "repos": [ { "id": "r1", "uri": "C:/data" } ]
+              "repos": [ { "id": "r1", "uri": "C:/data" } ],
+              "unknownFutureField": { "keep": true }
             }
             """);
         try
         {
-            BackrestSidecar.StripAuthFromConfigOnDisk(configPath);
+            await using var sidecar = new BackrestSidecar("unused", "unused", tmpDir);
+            sidecar.PrepareAuthentication();
             using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
             var root = doc.RootElement;
             Assert.Equal("backspace", root.GetProperty("instance").GetString());
             Assert.Equal(1, root.GetProperty("repos").GetArrayLength());
-            Assert.True(root.GetProperty("auth").GetProperty("disabled").GetBoolean());
-            Assert.False(root.GetProperty("auth").TryGetProperty("users", out _),
-                "auth.users must be removed so EnsureAuthAsync re-bootstraps");
+            Assert.False(root.GetProperty("auth").GetProperty("disabled").GetBoolean());
+            Assert.True(root.GetProperty("unknownFutureField").GetProperty("keep").GetBoolean());
+            var hash = System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String(
+                root.GetProperty("auth").GetProperty("users")[0].GetProperty("passwordBcrypt").GetString()!));
+            var password = File.ReadAllText(Path.Combine(tmpDir, "sidecar-auth.txt"));
+            Assert.True(BCrypt.Net.BCrypt.Verify(password, hash));
+            Assert.False(BCrypt.Net.BCrypt.Verify("wrong password", hash));
+            var prepared = File.ReadAllText(configPath);
+            sidecar.PrepareAuthentication();
+            Assert.Equal(prepared, File.ReadAllText(configPath));
         }
         finally
         {
@@ -232,26 +238,22 @@ public class BackrestSidecarTests
 
     /// <summary>
     /// Regression for the schema-skew variant of the bug. An existing
-    /// config whose schema version is NEWER than the bundled binary
-    /// understands gets overwritten with our seed — Backrest's
-    /// auto-generated sync identity is lost (and regenerated on next
-    /// start) but the daemon will at least load.
+    /// config whose schema version is newer or corrupt must remain intact.
     /// </summary>
-    [Fact]
-    public void WriteSeedConfig_overwritesWhenExistingVersionIsNewerThanBundled()
+    [Theory]
+    [InlineData("{\"version\":999,\"repos\":[{\"id\":\"keep\"}]}")]
+    [InlineData("{\"version\":6,\"repos\":[")]
+    [InlineData("{}")]
+    public void WriteSeedConfig_rejectsUnsupportedConfigWithoutReplacingIt(string original)
     {
         var dir = Path.Combine(Path.GetTempPath(), "bsp-seed-overwrite-" + System.Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         try
         {
             var cfg = Path.Combine(dir, "config.json");
-            // Pretend a future Backrest wrote a v999 config.
-            File.WriteAllText(cfg, """{"modno":0,"version":999,"instance":"backspace","sync":{"identity":"x"}}""");
-            BackrestSidecar.WriteSeedConfig(cfg);
-            var written = File.ReadAllText(cfg);
-            // Seed re-anchored at the bundled binary's expected version.
-            Assert.Contains($"\"version\": {BackrestSidecar.SeedConfigVersion}", written);
-            Assert.DoesNotContain("999", written);
+            File.WriteAllText(cfg, original);
+            Assert.Throws<IOException>(() => BackrestSidecar.WriteSeedConfig(cfg));
+            Assert.Equal(original, File.ReadAllText(cfg));
         }
         finally { Directory.Delete(dir, recursive: true); }
     }

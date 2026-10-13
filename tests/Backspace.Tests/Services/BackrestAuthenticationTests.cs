@@ -13,9 +13,6 @@ namespace Backspace.Tests.Services;
 public sealed class BackrestAuthenticationTests
 {
     [Theory]
-    [InlineData("HashPassword")]
-    [InlineData("GetConfig")]
-    [InlineData("SetConfig")]
     [InlineData("Login")]
     [InlineData("empty-token")]
     public async Task Failed_authentication_cannot_return_a_usable_client(string failure)
@@ -25,6 +22,8 @@ public sealed class BackrestAuthenticationTests
         try
         {
             await using var sidecar = new BackrestSidecar("unused", "unused", root);
+            BackrestSidecar.WriteSeedConfig(Path.Combine(root, "config.json"));
+            sidecar.PrepareAuthentication();
             using var handler = new AuthenticationHandler(failure);
             using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
             var client = new BackrestClient(http);
@@ -45,6 +44,8 @@ public sealed class BackrestAuthenticationTests
         try
         {
             await using var sidecar = new BackrestSidecar("unused", "unused", root);
+            BackrestSidecar.WriteSeedConfig(Path.Combine(root, "config.json"));
+            sidecar.PrepareAuthentication();
             using var http = new HttpClient(new AuthenticationHandler(null)) { BaseAddress = new Uri("http://localhost/") };
             await sidecar.EnsureAuthAsync(new BackrestClient(http), CancellationToken.None);
             Assert.Equal("Bearer", http.DefaultRequestHeaders.Authorization?.Scheme);
@@ -65,9 +66,8 @@ public sealed class BackrestAuthenticationTests
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError) {
                     Content = new StringContent("{\"code\":\"internal\",\"message\":\"deliberate test failure\"}") });
             var json = method switch {
-                "HashPassword" => "{\"value\":\"test-hash\"}",
                 "Login" => failure == "empty-token" ? "{\"token\":\"\"}" : "{\"token\":\"test-token\"}",
-                _ => "{}"
+                _ => throw new InvalidOperationException("Startup must not use unprotected setup RPCs.")
             };
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
         }

@@ -31,8 +31,8 @@ namespace Backspace.Services;
 ///      waits up to a grace period, and then force-kills if the daemon
 ///      is still alive.
 ///
-/// Auth: a new daemon starts on loopback with a seed config, then
-/// bootstraps a random bcrypt credential and authenticates the client
+/// Auth: prepare a random bcrypt credential before the daemon binds to
+/// loopback, then authenticate the client
 /// with a JWT. Subsequent starts reuse the protected companion file.
 ///
 /// All paths and the port are testable independently of an actual
@@ -164,34 +164,8 @@ public sealed class BackrestSidecar : IAsyncDisposable
 
             _port = AllocateEphemeralPort();
             var configPath = Path.Combine(DataDir, "config.json");
-            // Orphan-auth recovery (BEFORE we boot the daemon): if the
-            // user deleted sidecar-auth.txt but kept config.json, the
-            // daemon would come up bcrypt-protected with a password we
-            // no longer hold and every RPC would 401. Detect that on
-            // disk, strip the auth section back to seed state, and let
-            // WriteSeedConfig + EnsureAuthAsync do a fresh bootstrap as
-            // if the user had nuked the whole config dir. Critically:
-            // this happens BEFORE Process.Start, so Backrest only ever
-            // reads the already-recovered config — no re-entrant restart
-            // logic needed.
-            if (Directory.Exists(DataDir)
-                && ConfigHasAuthUsers(configPath)
-                && !File.Exists(AuthFilePath))
-            {
-                _log.Warning(
-                    "{File} is missing but {Config} still has auth users. " +
-                    "Recovering: stripping auth from config so we can re-bootstrap a fresh password on this launch.",
-                    AuthFilePath, configPath);
-                try { StripAuthFromConfigOnDisk(configPath); }
-                catch (Exception ex)
-                {
-                    _log.Error(ex,
-                        "Couldn't strip stale auth state from {Config}. The daemon will come up auth-gated and every RPC will 401. " +
-                        "Delete {Config} (or the whole {Dir} folder) to reset; backup data at the destination is unaffected.",
-                        configPath, configPath, DataDir);
-                }
-            }
             WriteSeedConfig(configPath);
+            PrepareAuthentication();
 
             var psi = new ProcessStartInfo(BackrestBinaryPath)
             {
@@ -283,8 +257,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
             var client = new BackrestClient(_http);
             await WaitForReadyAsync(client, ct).ConfigureAwait(false);
             await EnsureAuthAsync(client, ct).ConfigureAwait(false);
-            // IsRunning must not expose the unauthenticated bootstrap window
-            // to another caller while this startup still holds the gate.
+            // Expose the client only after authenticated startup has finished.
             _client = client;
         }
         catch
@@ -316,122 +289,46 @@ public sealed class BackrestSidecar : IAsyncDisposable
         => Path.Combine(AppPaths.ConfigRoot, "engine-runs", purpose,
             $"{Environment.ProcessId}-{Guid.NewGuid():N}");
 
-    /// <summary>One-shot bcrypt auth bootstrap.
-    ///
-    /// First launch ever (or after the user nuked the config) — the
-    /// seed config wrote <c>auth.disabled = true</c>, so the daemon
-    /// answers RPCs without a bearer. We use that window to:
-    /// generate a random per-instance password, ask the daemon to
-    /// bcrypt-hash it via <c>HashPasswordAsync</c>, splice the
-    /// resulting user into the config via SetConfig, and persist
-    /// the password to a sidecar-local file next to the data dir.
-    ///
-    /// Every subsequent launch — the seed-config writer preserves
-    /// the existing config, so auth.users is already populated and
-    /// the password file is on disk. We skip the setup leg and go
-    /// straight to Login.
-    ///
-    /// Either way, we end with a JWT on the client. From this point
-    /// on every RPC carries the bearer token; a malicious page in
-    /// the user's browser can no longer drive the daemon by XHR'ing
-    /// the loopback port (which was the open hole the localhost-only
-    /// bind alone didn't close).</summary>
-    internal async Task EnsureAuthAsync(BackrestClient client, CancellationToken ct)
+    /// <summary>Prepare a protected configuration while no daemon is running.
+    /// Preserve all unrelated configuration, including fields unknown to our
+    /// typed model. Missing credentials are replaced locally; no unauthenticated
+    /// HTTP setup endpoint is ever needed.</summary>
+    internal void PrepareAuthentication()
     {
         var configPath = Path.Combine(DataDir, "config.json");
-        var alreadyConfigured = ConfigHasAuthUsers(configPath);
+        var config = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(configPath))
+            as System.Text.Json.Nodes.JsonObject
+            ?? throw new IOException("The engine configuration is not a JSON object. It was left unchanged.");
+        var auth = config["auth"] as System.Text.Json.Nodes.JsonObject;
+        if (ConfigHasAuthUsers(configPath) && auth?["disabled"]?.GetValue<bool>() != true
+            && ReadAuthFile().Length > 0)
+            return;
 
-        // Why is the password kept in a SEPARATE file
-        // (<see cref="AuthFilePath"/>) and not inlined into
-        // config.json? Two reasons:
-        //   1. config.json is OWNED by Backrest. Every time Backspace
-        //      (or the user, via Backrest's own admin UI) calls
-        //      /v1.Backrest/SetConfig, Backrest re-serializes the
-        //      protobuf-defined Config struct back to disk — any
-        //      top-level field NOT defined in Backrest's proto is
-        //      silently dropped. Inlining the plaintext password
-        //      there would lose it the next time anything wrote
-        //      config.
-        //   2. Keeping our per-instance secret in its own file lets
-        //      us scope file-system ACLs (current user only) without
-        //      having to argue about who owns config.json.
-        //
-        // Hard recovery: if you DELETE this file, the daemon is now
-        // bcrypt-protected with a password only YOU know — but you
-        // don't know it because we generated it randomly. The error
-        // path below logs a clear actionable line; the fix is to also
-        // delete config.json next to it and let Backspace re-seed
-        // both files on next launch. (No data loss — the restic repo
-        // at the destination is encrypted with a separate password
-        // that is independent of this one.)
-        string password;
-        if (!alreadyConfigured)
+        var password = GenerateRandomPassword();
+        // Backrest's protobuf passwordBcrypt is base64 of a normal bcrypt hash.
+        // Use the same work factor as Go bcrypt.DefaultCost.
+        var hash = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
+            BCrypt.Net.BCrypt.HashPassword(password, workFactor: 10)));
+        WriteAuthFile(password);
+        config["auth"] = new System.Text.Json.Nodes.JsonObject
         {
-            password = GenerateRandomPassword();
-            string hash;
-            try
+            ["disabled"] = false,
+            ["users"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject
             {
-                hash = await client.HashPasswordAsync(password, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                throw new IOException("The backup engine could not enable local authentication. Startup was stopped.", ex);
-            }
+                ["name"] = AuthUserName,
+                ["passwordBcrypt"] = hash,
+            }),
+        };
+        WriteConfigAtomically(configPath, config.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
 
-            BackrestConfig cfg;
-            try
-            {
-                cfg = await client.CallAsync<EmptyRequest, BackrestConfig>(
-                    "/v1.Backrest/GetConfig", new EmptyRequest(), ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                throw new IOException("The backup engine authentication settings could not be read. Startup was stopped.", ex);
-            }
-
-            cfg.Auth ??= new BackrestAuth();
-            cfg.Auth.Disabled = false;
-            cfg.Auth.Users.Add(new BackrestAuthUser
-            {
-                Name = AuthUserName,
-                PasswordBcrypt = hash,
-            });
-
-            try
-            {
-                await client.CallAsync<BackrestConfig, BackrestConfig>(
-                    "/v1.Backrest/SetConfig", cfg, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                throw new IOException("The backup engine could not save its authentication settings. Startup was stopped.", ex);
-            }
-
-            try { WriteAuthFile(password); }
-            catch (Exception ex)
-            {
-                _log.Warning(ex, "Couldn't persist sidecar password — next launch will have to re-seed");
-                // Don't return — we still try to login below using the
-                // password we have in memory for THIS session.
-            }
-            _log.Information("Backrest sidecar auth bootstrapped (bcrypt user '{User}' added)", AuthUserName);
-        }
-        else
-        {
-            password = ReadAuthFile();
-            if (password.Length == 0)
-            {
-                _log.Error(
-                    "Backrest config at {Config} has auth users but its companion " +
-                    "password file at {AuthFile} is missing. The daemon will reject " +
-                    "every RPC with 401 until this is fixed. To recover: DELETE " +
-                    "{Config} (Backspace will re-seed both files cleanly on the next " +
-                    "launch). The backup data at the destination is encrypted with " +
-                    "a different password and is unaffected.",
-                    configPath, AuthFilePath, configPath);
-                throw new IOException("The backup engine's local sign-in password is unavailable. Startup was stopped.");
-            }
-        }
+    /// <summary>Sign in to the already-protected daemon. Any failure stops
+    /// startup; no caller receives a client without a nonempty bearer token.</summary>
+    internal async Task EnsureAuthAsync(BackrestClient client, CancellationToken ct)
+    {
+        var password = ReadAuthFile();
+        if (password.Length == 0)
+            throw new IOException("The backup engine's local sign-in password is unavailable. Startup was stopped.");
 
         string jwt;
         try
@@ -528,34 +425,6 @@ public sealed class BackrestSidecar : IAsyncDisposable
         catch { return false; }
     }
 
-    /// <summary>Rewrite the on-disk config so the auth section is back
-    /// to the seed-state (<c>{disabled: true}</c>) — every other key
-    /// is preserved verbatim. Called from the orphan-auth recovery
-    /// path BEFORE the daemon starts, so we have exclusive access
-    /// to the file. Bumps the <c>modno</c> field if Backrest tracks
-    /// one, since rewriting fields under Backrest's nose without
-    /// touching modno can confuse Backrest's "concurrent edit"
-    /// validation on the next SetConfig.</summary>
-    internal static void StripAuthFromConfigOnDisk(string configPath)
-    {
-        var text = File.ReadAllText(configPath);
-        using var parsed = JsonDocument.Parse(text);
-        var rebuilt = new System.Text.Json.Nodes.JsonObject();
-        foreach (var prop in parsed.RootElement.EnumerateObject())
-        {
-            if (prop.NameEquals("auth"))
-            {
-                rebuilt[prop.Name] = new System.Text.Json.Nodes.JsonObject { ["disabled"] = true };
-            }
-            else
-            {
-                rebuilt[prop.Name] = System.Text.Json.Nodes.JsonNode.Parse(prop.Value.GetRawText());
-            }
-        }
-        if (!rebuilt.ContainsKey("auth"))
-            rebuilt["auth"] = new System.Text.Json.Nodes.JsonObject { ["disabled"] = true };
-        File.WriteAllText(configPath, rebuilt.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-    }
 
 
     public async Task StopAsync(TimeSpan? gracePeriod = null, CancellationToken ct = default)
@@ -639,54 +508,28 @@ public sealed class BackrestSidecar : IAsyncDisposable
         finally { listener.Stop(); }
     }
 
-    /// <summary>Writes a minimal Backrest config.json that opts out of
-    /// auth (relying on the localhost bind) and sets the instance name
-    /// to "Backspace". Backrest will read this on startup. We use the
-    /// proto field names directly so the file shape matches what
-    /// backrest --config-file expects.</summary>
+    /// <summary>Create a new engine configuration, or preserve an existing one.
+    /// Authentication is completed on disk before Process.Start. A corrupt or
+    /// newer configuration must never be replaced with an empty repository list.</summary>
     internal static void WriteSeedConfig(string configPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
-
-        // Idempotent-with-version-guard: preserve a real Backrest
-        // config from a previous launch (portability), but overwrite
-        // when its schema version is newer than what our bundled
-        // Backrest binary understands. The bundled Backrest 1.14.1
-        // expects version 6; a future binary emitting v7 sitting on
-        // disk would be downgraded silently and our typed-model
-        // round-trip (GetConfig → mutate → SetConfig) might lose
-        // fields the newer schema relies on. Overwriting in that
-        // case re-anchors at the bundled binary's expected version;
-        // the only thing lost is Backrest's auto-generated
-        // multi-host sync identity, which Backrest regenerates on
-        // next start and which Backspace doesn't use anyway.
         if (File.Exists(configPath))
         {
+            var existing = File.ReadAllText(configPath);
+            int? version;
             try
             {
-                var existing = File.ReadAllText(configPath);
-                if (!string.IsNullOrWhiteSpace(existing))
-                {
-                    var existingVersion = TryExtractConfigVersion(existing);
-                    if (existingVersion is int ev && ev > SeedConfigVersion)
-                    {
-                        // Newer-than-bundled schema. Fall through
-                        // and overwrite with our SeedConfigVersion
-                        // seed.
-                    }
-                    else if (existing.Contains("\"version\""))
-                    {
-                        // Compatible existing config — preserve it.
-                        return;
-                    }
-                }
+                using var parsed = JsonDocument.Parse(existing);
+                version = TryExtractConfigVersion(existing);
             }
-            catch
+            catch (JsonException ex)
             {
-                // Couldn't read the existing file (lock / permission /
-                // garbage) — fall through and overwrite so the daemon
-                // doesn't choke on whatever's there.
+                throw new IOException("The engine configuration is unreadable. It was left unchanged; recover a known-good copy before retrying.", ex);
             }
+            if (version is null || version > SeedConfigVersion)
+                throw new IOException("The engine configuration has an unsupported schema version. It was left unchanged; use a compatible Backspace version.");
+            return;
         }
 
         var cfg = new BackrestConfig
@@ -694,7 +537,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
             Modno = 0,
             Version = SeedConfigVersion,
             Instance = "backspace",
-            Auth = new BackrestAuth { Disabled = true },
+            Auth = new BackrestAuth { Disabled = false },
         };
 
         var json = JsonSerializer.Serialize(cfg, new JsonSerializerOptions
@@ -702,12 +545,11 @@ public sealed class BackrestSidecar : IAsyncDisposable
             WriteIndented = true,
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
         });
-        // Atomic write — two parents racing each other (the GUI plus a
-        // simultaneous `--run` scheduled task) would otherwise leave a
-        // half-written config.json that the daemon refuses to read.
-        // Write-to-tmp + rename closes that window: each writer lands a
-        // complete file, and the rename is OS-atomic on Windows
-        // (File.Replace) and Unix (rename(2)).
+        WriteConfigAtomically(configPath, json);
+    }
+
+    private static void WriteConfigAtomically(string configPath, string json)
+    {
         var tmp = configPath + ".tmp";
         try
         {
@@ -796,7 +638,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
             if (doc.RootElement.TryGetProperty("version", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.Number)
                 return v.GetInt32();
         }
-        catch { /* malformed json — caller falls back to overwrite */ }
+        catch { /* caller rejects malformed or unsupported configuration */ }
         return null;
     }
 

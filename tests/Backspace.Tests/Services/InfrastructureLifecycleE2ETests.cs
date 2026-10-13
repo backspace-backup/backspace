@@ -15,6 +15,43 @@ namespace Backspace.Tests.Services;
 public sealed class InfrastructureLifecycleE2ETests
 {
     [Fact]
+    public async Task First_start_and_missing_password_recovery_never_accept_unauthenticated_requests()
+    {
+        Assert.True(RealEngineFixture.BinariesPresent, RealEngineFixture.MissingBinariesReason());
+        using var workspace = new TempWorkspace();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, workspace.Sub("first-start"));
+        for (var launch = 0; launch < 2; launch++)
+        {
+            var starting = sidecar.StartAsync(timeout.Token);
+            using var http = new HttpClient { BaseAddress = new Uri(sidecar.WebUiUrl) };
+            var observed = 0;
+            do
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, "/v1.Backrest/GetConfig")
+                { Content = new StringContent("{}") };
+                request.Headers.Add("Origin", "https://untrusted.example");
+                try
+                {
+                    using var response = await http.SendAsync(request, timeout.Token);
+                    Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+                    observed++;
+                }
+                catch (HttpRequestException) when (!starting.IsCompleted) { }
+                if (!starting.IsCompleted) await Task.Delay(10, timeout.Token);
+            } while (!starting.IsCompleted || observed == 0);
+            await starting;
+            await sidecar.Client!.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
+                "/v1.Backrest/GetConfig", new(), timeout.Token);
+            using var wrong = await http.PostAsync("/v1.Authentication/Login",
+                new StringContent("{\"username\":\"backspace\",\"password\":\"wrong\"}", System.Text.Encoding.UTF8, "application/json"), timeout.Token);
+            Assert.False(wrong.IsSuccessStatusCode);
+            await sidecar.StopAsync(TimeSpan.Zero, timeout.Token);
+            File.Delete(Path.Combine(sidecar.DataDir, "sidecar-auth.txt"));
+        }
+    }
+
+    [Fact]
     public async Task Wrong_saved_password_stops_the_real_daemon_and_preserves_configuration()
     {
         Assert.True(RealEngineFixture.BinariesPresent, RealEngineFixture.MissingBinariesReason());

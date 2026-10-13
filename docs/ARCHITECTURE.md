@@ -35,6 +35,26 @@ GUI loaded — no `App.Current` references, no Avalonia dispatcher
 assumptions. `ServiceLocator.InitializeCore` brings up only the services
 a backup needs.
 
+## Local engine access
+
+Backrest runs in the background on an ephemeral IPv4 loopback port. Its HTTP
+server carries the API used by Backspace, so stopping that server also stops
+backup and restore operations. Backspace suppresses Backrest's tray icon and
+does not automatically open its browser interface.
+
+Before starting the daemon, Backspace writes a random per-instance password
+and its bcrypt hash into the local credential/configuration files. The daemon
+therefore requires authentication from its first request; there is no open
+setup interval. Backspace signs in and sends a bearer token with API calls.
+Missing credentials are replaced on disk before launch, preserving unrelated
+configuration. Failed sign-in stops startup. Corrupt or newer configuration
+is preserved and rejected, never replaced with an empty repository list.
+
+This protects against unauthenticated local HTTP callers, including websites
+that attempt to reach localhost. It does not isolate Backspace from malware
+already running as the same Windows user or as administrator. The password
+file receives a current-user ACL where the filesystem supports it.
+
 ## Windows release updates
 
 `WindowsUpdateViewModel` owns the Settings update controls and a one-shot timer for the chosen check frequency. Checks use GitHub's latest stable release endpoint; downloads and restarts require a click. `WindowsUpdatePackage` verifies the official asset URL, exact size, GitHub SHA-256 digest, safe archive entries and application version before preparing a complete bundle under `.backspace-updates` beside the executable.
