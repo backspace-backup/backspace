@@ -42,11 +42,21 @@ Read the desk when resuming work; the latest user comment takes precedence.
 There is no Markdown mirror. Do not create or regenerate a second tracker.
 Technical documentation describes app behavior, not issue status or queues.
 
-When an upstream fix may replace local workaround code, keep its follow-up
-date and findings in the existing Review desk issue. Document the removal
+When an upstream fix may replace local workaround code, keep its findings
+in the existing Review desk issue. Document the removal
 conditions in the relevant technical guide. A merged PR alone is not enough:
 the fix must be released, bundled and tested before removing protections.
 For restore bracket matching, see [the cleanup criteria](docs/GOTCHAS.md#reviewing-the-upstream-bracket-fix).
+
+**Next-agent reminder — review Backrest PR #1411 by 12 January 2027.**
+When resuming this project, compare the current date with this deadline and
+check R007 for a recorded review. If the date has arrived or passed and the
+review has not been done, check whether the PR has merged, whether a stable
+release contains it, and whether Backspace bundles that release. Assess which
+remaining local code can safely be simplified using the criteria above,
+then record the findings and review date in R007. This is an instruction for
+the next agent, not a ChatGPT task or other scheduled automation. Do not
+create a scheduler job for it.
 
 The dashboard and its JSON stay Git-excluded at the user's request.
 Copy them separately when moving this checkout. Start the desk with

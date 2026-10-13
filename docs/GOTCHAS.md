@@ -158,8 +158,8 @@ unsafe paths and an engine that does not honor the requested selection.
 A merge of Backrest PR #1411 does not change the binary already bundled
 with Backspace. First identify a stable release containing the fix, then
 verify that the version actually bundled and run by our tests includes it.
-The follow-up date and review results belong to Review desk **R007**, not
-a second schedule or status list in this document.
+The due-date instruction for the next agent is in **AGENTS.md**. Record
+the review results in Review desk **R007**; no scheduled automation is used.
 
 The native restore path already passes literal names to Backrest; Backspace's
 own native bracket substitution was removed during the 1.14.1 upgrade.
