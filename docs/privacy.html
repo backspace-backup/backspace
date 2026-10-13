@@ -4,9 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Privacy — Backspace</title>
-<meta name="description" content="What Backspace does and doesn't collect. Short answer: nothing leaves your machine except the backups you point at the destinations you pick.">
+<meta name="description" content="How Backspace stores your settings, connects to your chosen backup providers, checks for updates and sends optional notifications.">
 <meta name="theme-color" content="#0061FF">
-<link rel="icon" type="image/png" href="favicon.png">
 <style>
 :root {
     --bg:           #FBF8F2;
@@ -98,7 +97,7 @@ footer a { color: var(--fg-dim); }
     <div class="container">
         <h1>Privacy</h1>
         <p class="tagline">What Backspace does and doesn't see.</p>
-        <p class="updated">Last updated 17 May 2026.</p>
+        <p class="updated">Last updated 13 October 2026.</p>
     </div>
 </header>
 
@@ -106,28 +105,26 @@ footer a { color: var(--fg-dim); }
     <div class="container">
 
         <div class="tldr">
-            <strong>TL;DR.</strong> Backspace is a desktop application that
-            runs entirely on your computer. It has no server-side component
-            of any kind. Nothing about your backups, your files, your usage
-            patterns, your destinations, your OAuth tokens, or your existence
-            ever leaves your machine — except the data you have explicitly
-            asked Backspace to copy to the cloud storage destinations
-            <em>you</em> configured, encrypted before it gets there.
+            <strong>Your backups stay under your control.</strong> Backspace
+            runs on your computer and has no Backspace-operated account or
+            backup server. It connects directly to the storage providers you
+            choose. It also contacts GitHub for updates and, when enabled,
+            your notification services. There is no usage analytics or
+            automatic crash-report upload.
         </div>
 
         <h2>What Backspace stores on your computer</h2>
         <p>
-            All Backspace state lives under your operating system's per-user
-            configuration directory (on Windows that's
-            <code>%APPDATA%\Backspace\</code>; portable installs put it
-            next to the executable instead). That directory contains:
+            Backspace normally keeps its settings and working data in
+            <code>Backspace.config</code> beside the application. A custom
+            configuration location can be selected when launching it.
+            The folder contains:
         </p>
         <ul>
             <li>
                 <strong>Your config.</strong> The list of backups you
                 created, the source folders, the destinations, the
-                schedules, the filter rules. Plain JSON, human-readable.
-                Edit it if you like — Backspace reloads on save.
+                schedules and filter rules, stored as readable JSON.
             </li>
             <li>
                 <strong>An encrypted secrets vault.</strong> Cloud OAuth
@@ -139,32 +136,41 @@ footer a { color: var(--fg-dim); }
             </li>
             <li>
                 <strong>Per-run logs.</strong> Each backup run writes a
-                log file capturing what the underlying engine printed
-                (file counts, durations, errors). These never leave
-                your machine. You can delete them whenever you want.
+                log file capturing engine messages, file counts, durations
+                and errors. Logs can contain file paths, backup names and
+                destination details. Backspace does not upload these logs
+                automatically; inspect them before sharing a support report.
             </li>
             <li>
                 <strong>The Backrest sidecar's data.</strong> Backspace
                 bundles <a href="https://github.com/garethgeorge/backrest">Backrest</a>
                 and drives it as a localhost-only RPC sidecar. Its
-                state (operation history, scheduled-task records,
-                cached repo metadata) lives under
+                state (operation history and cached repository metadata) lives under
                 <code>backrest/</code> in the same config directory.
                 The sidecar binds to <code>127.0.0.1</code> only — it
                 is not reachable from any other computer.
             </li>
         </ul>
+        <p>
+            Engine working files can also contain readable cloud credentials
+            and repository passwords while Backspace manages its connections.
+            Keep the whole configuration folder private, not just the encrypted
+            vault. Removing a destination or its local settings does not erase
+            backups already stored with your provider.
+        </p>
 
         <h2>What Backspace sends out</h2>
         <p>
-            Only the data you have explicitly told it to back up, to the
-            destinations <em>you</em> configured. Three sub-cases:
+            Backup, restore, browsing and maintenance connect to the
+            destinations you configured. Their providers receive the
+            authentication needed for those requests, along with normal
+            connection information such as your IP address.
         </p>
         <ul>
             <li>
-                <strong>Local destinations.</strong> No network traffic.
-                Bytes go from your source folder to your external
-                drive / NAS path.
+                <strong>Local drives and network shares.</strong> An internal
+                or directly attached drive does not need a network transfer.
+                A NAS or network share receives the backup across your network.
             </li>
             <li>
                 <strong>S3 destinations.</strong> Restic's S3 driver
@@ -176,54 +182,58 @@ footer a { color: var(--fg-dim); }
                 Drive).</strong> Restic talks to
                 <a href="https://rclone.org">rclone</a>, which talks
                 directly to the provider's API over HTTPS using the
-                OAuth refresh token you authorised. The token stays on
-                your machine; only your backup data crosses the wire,
-                always encrypted client-side before it leaves your
-                computer (AES-256, with a key derived from a password
-                only you know).
+                account access you authorised. Access tokens are sent to the
+                provider's API; refresh tokens are sent to that provider when
+                renewing access. They are not sent to a Backspace-operated
+                server. Restic encrypts repository contents on your computer.
+                Choose a repository password to protect them: a repository
+                created without a password does not provide meaningful
+                confidentiality even though restic still uses its encrypted format.
             </li>
         </ul>
 
-        <h2>What goes through Dropbox specifically</h2>
+        <h2>Which cloud files Backspace can access</h2>
         <p>
-            If you've authorised a Dropbox destination, Backspace requests
-            an OAuth refresh token from Dropbox via their standard
-            authorisation flow. The token is stored locally in the
-            encrypted secrets vault described above and used only to
-            upload your backup data to the folder you chose.
-        </p>
-        <p>
-            Backspace does <strong>not</strong>:
+            You sign in on the provider's own page and choose whether to
+            approve Backspace. Its standard backup connections request access
+            only to the application's own storage area:
         </p>
         <ul>
-            <li>Send your Dropbox token to any Backspace-controlled server (there is no such server).</li>
-            <li>Read the contents of files outside the folder paths you're explicitly backing up.</li>
-            <li>Modify, share, or delete files in your Dropbox other than within the destination folder you picked.</li>
-            <li>Collect or log anything about your Dropbox account beyond the user-visible folder name where your backups land.</li>
+            <li><strong>Dropbox:</strong> the <code>Apps/Backspace</code> folder,
+                plus basic account information used to check the connection.</li>
+            <li><strong>OneDrive:</strong> Backspace's application folder,
+                using Microsoft's delegated app-folder permission.</li>
+            <li><strong>Google Drive:</strong> Backspace's private application-data
+                folder. Google hides it from the normal Drive file list and
+                other applications.</li>
         </ul>
         <p>
-            You can revoke Backspace's Dropbox access at any time from
-            your <a href="https://www.dropbox.com/account/connected_apps">Dropbox connected apps page</a>.
-            Backspace will stop being able to write new backups to that
-            destination; backups already at the destination remain
-            yours and untouched.
+            Backspace uploads, lists, restores and removes repository data
+            within that area according to your backup and retention settings.
+            This access does not let it back up unrelated online-only files
+            elsewhere in your drive. You can revoke the connection in your
+            provider's account settings. Revocation prevents later access;
+            deleting Backspace's application data in Google also deletes the
+            backups stored there.
         </p>
 
         <h2>Telemetry, analytics, crash reporting</h2>
         <p>
-            None. Backspace makes no outbound network calls of its own
-            beyond:
+            Backspace has no usage analytics, advertising identifiers or
+            automatic crash-report uploader. Besides storage and sign-in,
+            these features make network requests:
         </p>
         <ul>
-            <li>The backup / restore traffic described above.</li>
-            <li>An optional Healthchecks.io ping after each run if you
-                turned that feature on yourself. The ping carries the
-                check ID you configured and the run status (<code>ok</code> /
-                <code>fail</code>); no file paths, no file contents,
-                no identifying user data.</li>
-            <li>An optional email via your own Resend or Mailgun
-                account if you set that up yourself. Same scope as
-                Healthchecks: status only, never file contents.</li>
+            <li><strong>Optional monitoring and email.</strong> Healthchecks.io,
+                Resend or Mailgun receive the messages needed for the services
+                you enable. Reports can include your backup name, source paths,
+                computer name, timing, status and error details. Email also
+                includes the sender and recipients you configure. Backspace
+                does not attach the backed-up files to these messages.</li>
+            <li><strong>Update checks and downloads.</strong> Backspace queries
+                GitHub's release service. On Windows, the updater downloads a
+                release when you choose to install it. GitHub receives normal
+                request information, including your IP address.</li>
             <li>A one-time download of release binaries from GitHub
                 (backrest, restic, rclone) the first time you build
                 Backspace from source. Disabled by passing
@@ -242,20 +252,16 @@ footer a { color: var(--fg-dim); }
 
         <h2>Children's privacy</h2>
         <p>
-            Backspace is a developer tool not directed at children. It
-            does not knowingly collect any personal information from
-            anyone — including children — because, as described
-            above, it doesn't collect personal information from any
-            user.
+            Backspace does not operate user accounts or collect usage
+            profiles. The storage and notification providers you choose have
+            their own account requirements and privacy policies.
         </p>
 
         <h2>Changes to this policy</h2>
         <p>
-            If Backspace ever starts collecting any data, this page
-            will be updated to describe it, the "last updated" date
-            at the top will change, and the release notes for that
-            version will call it out prominently. The current intent
-            is to never collect anything.
+            This page is updated when the application's data handling changes.
+            Material changes should also be described in the corresponding
+            release notes. The date above identifies this version of the policy.
         </p>
 
         <h2>Contact</h2>
