@@ -18,9 +18,9 @@ namespace Backspace.Services.OAuth;
 ///     repository) are app-scoped; files outside that scope are
 ///     invisible to us. This is the right scope for a backup tool
 ///     that owns its repository folder.
-///   - <c>drive</c>: full Drive access. Triggers Google's CASA
-///     Tier-2 security audit (~$15-50K). NOT worth it for v1.
-///   Documented decision: BACKSPACE_PORT_DESIGN.md § 6.2.
+///   - <c>drive</c>: full Drive access, a restricted scope with
+///     additional verification requirements. It is not requested here.
+///   Registration and verification guidance: docs/OAUTH_REGISTRATION.md.
 ///
 /// Token response shape (Google docs):
 /// <code>
@@ -62,7 +62,7 @@ public sealed class GoogleDriveOAuthProvider : IOAuthProvider
     public string TokenEndpoint => "https://oauth2.googleapis.com/token";
 
     /// <summary>Per-file Drive scope (NOT full drive). See class
-    /// docstring for the rationale and the CASA cost we're avoiding.</summary>
+    /// docstring for the access boundary.</summary>
     public string Scope => "https://www.googleapis.com/auth/drive.file";
 
     /// <summary><c>access_type=offline</c> requests a refresh_token;

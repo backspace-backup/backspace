@@ -260,8 +260,8 @@ grep -rhF -f /tmp/touched README.md AGENTS.md DESIGN.md docs/*.md \
 #    versions of the check missed DESIGN.md (`Duplicacy CLI` in the
 #    design principles) and tests/Backspace.Tests/Scenarios/README.md
 #    (`Live duplicacy.exe runs`). Both shipped stale until round 5.
-#    Excludes gitignored local-only docs like BACKSPACE_PORT_DESIGN.md
-#    (historical port plan — Duplicacy references are by design there).
+#    Excludes gitignored historical evidence in the local Review desk
+#    (archived migration material may retain Duplicacy references).
 for f in $(git ls-files '*.md'); do
   case "$f" in
     AGENTS.md) continue ;;  # AGENTS.md mentions Duplicacy in this very rule

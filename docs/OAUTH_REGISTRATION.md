@@ -20,14 +20,17 @@ This file is the registration guide. It exists for two audiences:
    enterprise user whose IT policy requires their own client_id in
    their tenant, or a power user who wants to avoid Backspace's
    default rate-limit pool. The BYO path lands in
-   `AppConfig.RcloneOAuthApps` via Settings → OAuth and overrides the
+   `AppConfig.RcloneOAuthApps` via Settings → Cloud OAuth apps and overrides the
    baked-in client_id at runtime
    (see [`OAuthProviderFactory.For`](../src/Backspace/Services/OAuth/OAuthProviderFactory.cs)).
 
 ## OneDrive (Microsoft Identity Platform)
 
-1. Open <https://entra.microsoft.com/> → **Identity** → **Applications**
-   → **App registrations** → **New registration**.
+1. Sign in to <https://entra.microsoft.com/> with the account that will own
+   Backspace's registration. Select its tenant, then **Entra ID** →
+   **App registrations** → **New registration**. The account needs permission
+   to register apps, such as the Application Developer role. See
+   [Microsoft's registration guide](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app).
 2. Name: `Backspace` (or whatever the user wants for BYO).
 3. Supported account types: **Accounts in any organizational
    directory and personal Microsoft accounts**.
@@ -39,14 +42,24 @@ This file is the registration guide. It exists for two audiences:
    [Microsoft's redirect URI rules](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url#localhost-exceptions).
 5. After registration, **Authentication** tab → **Allow public client
    flows = Yes** (PKCE without client secret).
-6. **API permissions** → Add: `Files.ReadWrite.All` (delegated).
-   Grant admin consent for the tenant if BYO; for the official
-   registration, mark for "publisher verified" once enough users
-   sign in.
+6. **API permissions** → **Microsoft Graph** → **Delegated permissions** →
+   add `Files.ReadWrite.All`. The app also requests `offline_access` during
+   sign-in so scheduled backups can refresh access. Delegated file access
+   does not require admin consent by default, but an organization's consent
+   policy can require it. Do not select the application-level permission,
+   which grants access without a signed-in user. See
+   [Microsoft's permission reference](https://learn.microsoft.com/en-us/graph/permissions-reference#filesreadwriteall)
+   and [consent rules](https://learn.microsoft.com/en-us/graph/permissions-overview).
 7. Note the **Application (client) ID**. That's the value for
    `OneDriveClientId`.
 
 No client secret — PKCE flow uses code+verifier only.
+
+For public distribution, review
+[publisher verification](https://learn.microsoft.com/en-us/entra/identity-platform/publisher-verification-overview)
+with the registration owner. It requires eligible Partner Center and domain
+details; it is not unlocked by accumulating users. This is separate from
+creating an app ID and testing a personal account.
 
 ## Google Drive (Google Cloud Console)
 
@@ -54,21 +67,33 @@ No client secret — PKCE flow uses code+verifier only.
    project named `Backspace`.
 2. **APIs & Services** → **Enabled APIs** → enable **Google Drive
    API**.
-3. **OAuth consent screen** → **External**. Add a brand contact, fill
-   the app name `Backspace`. For the official registration, request
+3. **Google Auth Platform** → **Branding**: enter the app name `Backspace`
+   and owner-controlled support and contact details. Under **Audience**, use
+   **External** so consumer accounts can connect, and add the disposable test
+   account while the app is in Testing. Under **Data Access**, request
    the **`https://www.googleapis.com/auth/drive.file`** scope (NOT
    the full `drive` scope). `drive.file` covers files the app created
    or the user explicitly authorized for it. Existing repositories
    created by another OAuth client may be inaccessible; do not
    promise arbitrary full-Drive repository browsing.
-4. **Credentials** → **Create credentials** → **OAuth client ID** →
-   Application type: **Desktop app**. Name: `Backspace`.
+4. **Google Auth Platform** → **Clients** → **Create client** →
+   Application type: **Desktop app**. Name: `Backspace`. In the older console
+   layout, this is under **APIs & Services** → **Credentials**.
 5. Note the **Client ID**. That's the value for `GoogleDriveClientId`.
 
 The code uses Desktop-app PKCE without a client secret at code exchange.
 Google currently documents that parameter as optional for installed
 applications; validate the issued registration with a live account.
 See [Google's installed-app flow](https://developers.google.com/identity/protocols/oauth2/native-app#exchange-authorization-code).
+
+An External app left in **Testing** receives refresh tokens that expire
+after seven days for Drive access. That is suitable for initial checks,
+not unattended backups over the long term. Before release, the registration
+owner must move the app to **In production** and satisfy any branding or
+verification requirements Google presents. `drive.file` is non-sensitive;
+it does not require the same scope review as full-Drive access. See
+[Google's refresh-token limits](https://developers.google.com/identity/protocols/oauth2#expiration)
+and [Drive scope requirements](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
 
 ## Wiring shipped client_ids
 
@@ -116,3 +141,19 @@ For users who want their own client_id, the path is already there:
 
 The BYO infrastructure and provider classes are wired today. An override
 provides the registration identity; the live-account checks above still apply.
+
+## What the registration owner supplies
+
+The owner chooses the Microsoft tenant and Google project, enters the
+publisher/contact details, and completes the provider's sign-in and consent
+screens. The agent can then wire the issued **client IDs** into a build and
+run the remaining checks with an authorized disposable account. Do not put
+account passwords, refresh tokens, or downloaded credential JSON in a Review
+desk comment. Client IDs themselves are public application identifiers.
+
+For each provider, use a new empty test destination. Connect, back up known
+files, close and reopen Backspace, allow the access token to expire so refresh
+is exercised, list the backup, then restore to another folder and compare
+every file's bytes. OneDrive needs separate Personal and Business coverage.
+Google needs a repository created with the intended app registration because
+`drive.file` does not grant access to arbitrary existing repositories.
