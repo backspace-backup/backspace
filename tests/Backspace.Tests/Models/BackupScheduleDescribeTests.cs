@@ -14,19 +14,23 @@ namespace Backspace.Tests.Models;
 /// </summary>
 public class BackupScheduleDescribeTests
 {
-    [Fact]
-    public void DescribePeriod_Daily_includesTimeOfDay()
+    [Theory]
+    [InlineData("en-US", "Daily at 8:00 PM")]
+    [InlineData("en-GB", "Daily at 20:00")]
+    public void DescribePeriod_Daily_includesTimeOfDay(string culture, string expected)
     {
         var s = new BackupSchedule
         {
             Frequency = ScheduleFrequency.Daily,
             TimeOfDay = TimeSpan.FromHours(20),
         };
-        // Period uses the current culture's short-time pattern, so we
-        // just assert the prefix + presence of a time token.
-        var period = s.DescribePeriod();
-        Assert.StartsWith("Daily at ", period);
-        Assert.Contains("20", period); // 24h locales render "20:00"; 12h "8:00 PM" still contains "0".
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+            Assert.Equal(expected, s.DescribePeriod());
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
     }
 
     [Fact]
