@@ -14,6 +14,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# A build launched by PowerShell 7 can pass its module search path to
+# this Windows PowerShell 5.1 child. Restore the child's own modules so
+# Get-FileHash and Expand-Archive resolve on a fresh GitHub runner.
+$env:PSModulePath = (Join-Path $PSHOME 'Modules') + [IO.Path]::PathSeparator + $env:PSModulePath
+
 # Tls12 is the minimum GitHub / rclone downloads accept.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -55,7 +60,7 @@ function Fetch-FromGitHubRelease {
     New-Item -ItemType Directory -Path $tmpDir | Out-Null
     try {
         $archivePath = Join-Path $tmpDir $asset.name
-        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archivePath -Headers $headers -TimeoutSec 600
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archivePath -Headers $headers -TimeoutSec 600 -UseBasicParsing
 
         # Supply-chain check: stamp the downloaded archive's SHA-256
         # to the build log AND compare it against a pinned manifest
@@ -123,7 +128,7 @@ function Fetch-Rclone {
     New-Item -ItemType Directory -Path $tmpDir | Out-Null
     try {
         $archivePath = Join-Path $tmpDir 'rclone.zip'
-        Invoke-WebRequest -Uri $url -OutFile $archivePath -Headers $headers -TimeoutSec 600
+        Invoke-WebRequest -Uri $url -OutFile $archivePath -Headers $headers -TimeoutSec 600 -UseBasicParsing
         Expand-Archive -Path $archivePath -DestinationPath $tmpDir -Force
 
         $inner = Get-ChildItem -Path $tmpDir -Recurse -Filter 'rclone.exe' | Select-Object -First 1
