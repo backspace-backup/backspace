@@ -153,6 +153,36 @@ brackets literally. Keep staging and target-preservation checks when changing
 engine versions or pattern handling; they also protect against partial output,
 unsafe paths and an engine that does not honor the requested selection.
 
+### Reviewing the upstream bracket fix
+
+A merge of Backrest PR #1411 does not change the binary already bundled
+with Backspace. First identify a stable release containing the fix, then
+verify that the version actually bundled and run by our tests includes it.
+The follow-up date and review results belong to Review desk **R007**, not
+a second schedule or status list in this document.
+
+The native restore path already passes literal names to Backrest; Backspace's
+own native bracket substitution was removed during the 1.14.1 upgrade.
+The upstream fix should stop extra, similarly named files from being read
+into staging. It does not by itself unlock a large deletion of local code.
+Review any remaining compatibility branches and the adjustment that reports
+progress for the files actually copied to the destination. Remove them only
+if tests show they no longer serve another purpose. Update obsolete wildcard
+explanations when the bundled engine no longer has that behavior.
+
+Keep the direct-restic bracket escaping: those restores bypass Backrest, so
+its fix cannot replace that helper. Also keep staging, exact selection and
+path checks, overwrite rules, completed-file publication, and cancellation
+ownership. These protect against failures beyond bracket matching.
+
+Before simplifying anything, run real-engine bracket-file and bracket-folder
+restores beside deceptive sibling names, both with empty targets and existing
+files. Check cancellation and both native and direct restore paths. E40–E42
+cover these cases; the restore safety regressions and E48 upgrade rehearsal
+cover the surrounding boundaries. Retain the negative assertions: unrelated
+files must stay absent or unchanged. Attach the results to R007 before
+claiming a workaround is safe to remove.
+
 ## Repository command lifetime and cancellation
 
 Some Backrest RPCs hold their HTTP response until restic finishes.

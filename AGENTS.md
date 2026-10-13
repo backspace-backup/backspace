@@ -42,6 +42,12 @@ Read the desk when resuming work; the latest user comment takes precedence.
 There is no Markdown mirror. Do not create or regenerate a second tracker.
 Technical documentation describes app behavior, not issue status or queues.
 
+When an upstream fix may replace local workaround code, keep its follow-up
+date and findings in the existing Review desk issue. Document the removal
+conditions in the relevant technical guide. A merged PR alone is not enough:
+the fix must be released, bundled and tested before removing protections.
+For restore bracket matching, see [the cleanup criteria](docs/GOTCHAS.md#reviewing-the-upstream-bracket-fix).
+
 The dashboard and its JSON stay Git-excluded at the user's request.
 Copy them separately when moving this checkout. Start the desk with
 `Launch-Audit-Dashboard.bat`; its local README documents recovery and the API.
