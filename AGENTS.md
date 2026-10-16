@@ -1,4 +1,4 @@
-# AGENT.md — working conventions for agents
+# AGENTS.md — working conventions for agents
 
 This file is the entry point for whoever picks up the codebase next,
 human or AI. Read it top-to-bottom before making changes — it captures
@@ -171,6 +171,19 @@ direction.
 
 ## Working conventions
 
+Before publishing any GitHub release, follow [docs/RELEASING.md](docs/RELEASING.md).
+Complete the current release checklist for the exact committed revision,
+including the real 20,000-file round trip, documentation review and current
+screenshots. Save it as `release-checks/<full-commit>.json`; this folder stays
+Git-ignored. Every required box needs actual work and specific findings.
+Use `scripts/release-checklist.cjs` to validate and dispatch it to GitHub.
+No human approval is required: the agent performs and records the review.
+Never bypass the workflow or reuse a checklist after the commit or template
+changes. Do not claim the gate is enforced until its repository settings
+and both passing and rejecting workflow paths have actually been exercised.
+
+
+
 These rules exist because they were learned the hard way during prior
 sessions. Read them once and treat them as load-bearing.
 
@@ -208,7 +221,7 @@ sessions. Read them once and treat them as load-bearing.
 6. **Before every commit, sweep markdown for staleness.** Run the
    pre-commit doc-check below. If anything fails, fix it in the same
    commit — stale docs poison every future read and the cost compounds.
-   The repo has had multiple "Duplicacy still everywhere in AGENT.md"
+   The repo has had multiple "Duplicacy still everywhere in AGENTS.md"
    surprises because past sessions only cleaned the code surface, not
    the prose.
 
@@ -219,7 +232,7 @@ For every `*.md` file that touches anything the current commit changes:
 ```bash
 # 1. Anything you renamed / removed in code that the doc still mentions?
 git diff --cached --name-only | xargs -I{} basename {} .cs | sort -u > /tmp/touched
-grep -rhF -f /tmp/touched README.md AGENT.md DESIGN.md docs/*.md \
+grep -rhF -f /tmp/touched README.md AGENTS.md DESIGN.md docs/*.md \
   tests/Backspace.Tests/Scenarios/README.md 2>/dev/null | head -20
 
 # 2. Engine vocabulary check — these words should ONLY appear in
@@ -235,7 +248,7 @@ grep -rhF -f /tmp/touched README.md AGENT.md DESIGN.md docs/*.md \
 #    (historical port plan — Duplicacy references are by design there).
 for f in $(git ls-files '*.md'); do
   case "$f" in
-    AGENT.md) continue ;;  # AGENT.md mentions Duplicacy in this very rule
+    AGENTS.md) continue ;;  # AGENTS.md mentions Duplicacy in this very rule
   esac
   grep -inE "duplicacy|FetchDuplicacy|DuplicacyRunner|DuplicacyEmbedder" "$f" 2>/dev/null
 done
@@ -246,7 +259,7 @@ done
 #    describing; the test is "does the filename exist at all", not
 #    "at this exact relative path").
 grep -hoE '`[a-zA-Z0-9._/-]+\.(cs|axaml|targets|csproj|json|yml|ps1|bat|sh)`' \
-  README.md AGENT.md DESIGN.md docs/*.md 2>/dev/null \
+  README.md AGENTS.md DESIGN.md docs/*.md 2>/dev/null \
   | tr -d '`' | sed 's|.*/||' | sort -u | while read fn; do
       [ -z "$(find . -name "$fn" -not -path "./bin/*" -not -path "./obj/*" -not -path "*/bin/*" -not -path "*/obj/*" -not -path "./.upstream-prs/*" -print -quit 2>/dev/null)" ] \
         && echo "STALE FILENAME: $fn"
@@ -256,7 +269,7 @@ grep -hoE '`[a-zA-Z0-9._/-]+\.(cs|axaml|targets|csproj|json|yml|ps1|bat|sh)`' \
 #    `-p:Skip*`, and `Backspace --flag` invocation in docs should
 #    match what currently works.
 grep -inE "dotnet (build|test|publish|run)|-p:Skip|Backspace --" \
-  README.md AGENT.md docs/*.md 2>/dev/null
+  README.md AGENTS.md docs/*.md 2>/dev/null
 # Eyeball: do these still match what `dotnet build src/Backspace -h`
 # and Program.cs's argv parser accept?
 ```

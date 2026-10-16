@@ -103,3 +103,6 @@ RELEASE_READINESS.md
 
 # Upstream PR forks (Backrest, restic) — local clones for build/test work
 .upstream-prs/
+
+# Commit-specific release evidence stays local and is sent to the release workflow.
+/release-checks/
