@@ -1,0 +1,29 @@
+name: Release checklist validator
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/release-checklist*'
+      - '.github/workflows/release-checks.yml'
+      - '.github/workflows/release-validator.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/release-checklist*'
+      - '.github/workflows/release-checks.yml'
+      - '.github/workflows/release-validator.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Accept complete fixtures and reject missing, unchecked or stale records
+        run: node --test scripts/release-checklist.test.cjs
