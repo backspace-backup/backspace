@@ -1,0 +1,190 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Backspace.ViewModels"
+             xmlns:v="using:Backspace.Views"
+             x:Class="Backspace.Views.BackupsView"
+             x:DataType="vm:BackupsViewModel"
+             Background="{DynamicResource BS.Brush.BgBase}">
+  <!--
+    Layout: header pinned at the top (page title, description, banner,
+    toolbar) and the card list in its own scrolling region with a
+    VirtualizingStackPanel so a config with N backups only realises the
+    cards currently in view. The previous structure put everything
+    inside a single page-level ScrollViewer, which (a) prevented the
+    ItemsControl from virtualising — its viewport was the entire page,
+    not its own scroller — and (b) meant scrolling through cards
+    pushed the page header off-screen, which was disorienting on long
+    lists. Pinning the header is also closer to how every other tab in
+    the app behaves.
+  -->
+  <Grid RowDefinitions="Auto,*"
+        PointerWheelChanged="OnPagePointerWheelChanged">
+    <!-- Compact header (U030, 29 October 2026): title, count and Add a
+         backup share one row; the subtitle is one quiet line; notices are
+         tinted strips that state their tone before any text is read. The
+         earlier rule, toolbar row and tall white banners pushed the list of
+         backups below the fold. Side gutters match the card scroller. -->
+    <StackPanel Grid.Row="0" Margin="32,4,32,0">
+      <!-- The main action spans title and subtitle; the text wraps a short
+           gap before it rather than running underneath (U040). -->
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock Classes="page-title" Text="Your backups"/>
+            <Border x:Name="BackupCountBadge" Classes="count-badge" IsVisible="{Binding !IsEmpty}"
+                    ToolTip.Tip="Number of backups">
+              <TextBlock Text="{Binding Cards.Count}"/>
+            </Border>
+          </StackPanel>
+          <TextBlock Classes="page-subtitle"
+                     Text="Each backup copies the folders you choose to your destinations, on a schedule."/>
+        </StackPanel>
+        <Button Grid.Column="1" Classes="primary header-action"
+                IsVisible="{Binding !IsEmpty}" Command="{Binding AddNewCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14" Foreground="White"/>
+            <TextBlock Text="Add a backup" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+      </Grid>
+
+      <StackPanel IsVisible="{Binding !IsEmpty}" Spacing="8" Margin="0,12,0,12">
+        <!-- Health notice: message on the left, affected backups as pills on
+             the right. Backup names appear only on the pills. -->
+        <Border x:Name="HealthNotice" IsVisible="{Binding HasHealthBanner}" Classes="notice"
+                Classes.ok="{Binding HealthClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
+                Classes.warn="{Binding HealthClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                Classes.fail="{Binding HealthClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                Classes.skipped="{Binding HealthClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}">
+          <Grid ColumnDefinitions="Auto,12,*,12,Auto" VerticalAlignment="Center">
+            <Border Grid.Column="0" Classes="notice-glyph">
+              <PathIcon Classes="status-icon"
+                        Classes.ok="{Binding HealthClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
+                        Classes.warn="{Binding HealthClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                        Classes.fail="{Binding HealthClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                        Classes.skipped="{Binding HealthClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"
+                        Classes.idle="{Binding HealthClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"/>
+            </Border>
+            <TextBlock Grid.Column="2" Classes="body" VerticalAlignment="Center" TextWrapping="Wrap">
+              <Run Text="{Binding HealthHeadline}" FontSize="13.5" FontWeight="SemiBold"/>
+              <Run Text="   "/>
+              <Run Text="{Binding HealthDetail, Converter={x:Static vm:KeepPhrasesTogether.To}}" Classes="notice-detail"/>
+            </TextBlock>
+            <ItemsControl Grid.Column="4" ItemsSource="{Binding AffectedBackups}"
+                          IsVisible="{Binding AffectedBackups.Count}" VerticalAlignment="Center">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <!-- Pills wrap when the window narrows. -->
+                  <WrapPanel HorizontalAlignment="Right"/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:BackupsViewModel+HealthBackupReference">
+                  <Button Classes="attention-pill"
+                          Classes.fail="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                          Classes.warn="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                          Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"
+                          Classes.idle="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"
+                          Margin="6,2,0,2"
+                          ToolTip.Tip="Click to jump to this backup's card"
+                          Command="{Binding Jump}"
+                          CommandParameter="{Binding Id}">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                      <PathIcon Classes="status-icon" Width="13" Height="13"
+                                Classes.warn="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                                Classes.fail="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                                Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"
+                                Classes.idle="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"/>
+                      <TextBlock Text="{Binding Name}"
+                                 FontSize="12" FontWeight="SemiBold"
+                                 VerticalAlignment="Center"
+                                 MaxWidth="240"
+                                 TextTrimming="CharacterEllipsis"
+                                 ToolTip.Tip="{Binding Name}"/>
+                      <PathIcon Classes="attention-pill-chevron"
+                                Data="{StaticResource Icon.ChevronRight}"
+                                Width="11" Height="11"
+                                VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Grid>
+        </Border>
+
+      </StackPanel>
+    </StackPanel>
+
+    <!-- Cards in their own ScrollViewer so VirtualizingStackPanel can
+         compute its viewport. Side-margins match the header's.
+         IsVisible flips the entire scroller so empty-state can take
+         the same row.
+
+         Trailing space lives as a Margin on the ItemsControl rather
+         than the ScrollViewer's Padding bottom — Avalonia's
+         ScrollViewer applies Padding to the visible viewport AROUND
+         the scrollable region, so a bottom Padding doesn't actually
+         reserve room past the last child when scrolled all the way
+         down (the user reported the last card's action buttons
+         getting clipped). 10px is enough to keep the last card's
+         buttons clear of the viewport edge without leaving a
+         conspicuous empty white band the user reads as wasted
+         space. -->
+    <ScrollViewer Grid.Row="1"
+                  x:Name="CardsScroller"
+                  IsVisible="{Binding !IsEmpty}"
+                  Margin="32,0,32,0"
+                  HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Visible">
+      <!-- Grid.IsSharedSizeScope lets every BackupCard's name column
+           share a SharedSizeGroup so all cards' status columns line up
+           at the same X — the user's exact ask: "The status column
+           should always start at 30px from the end of the longest
+           backup name (and start px should be the same for all
+           backups for visual consistency)." -->
+      <ItemsControl x:Name="CardsList" ItemsSource="{Binding Cards}"
+                    Width="{Binding #CardsScroller.Viewport.Width}"
+                    Margin="0,0,0,10"
+                    Grid.IsSharedSizeScope="True">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <!-- Variable-height card virtualization. At 1-10 backups
+                 the user won't notice the difference; at 50+ this is
+                 what keeps the visual tree small enough that scrolling
+                 doesn't stutter. -->
+            <VirtualizingStackPanel/>
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate DataType="vm:BackupCardViewModel">
+            <v:BackupCard/>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+
+    <!-- Empty state — same copy as the (now-removed) Dashboard had. -->
+    <Border Grid.Row="1"
+            IsVisible="{Binding IsEmpty}"
+            Classes="empty-state"
+            Margin="32,20,32,32"
+            VerticalAlignment="Top">
+      <Grid ColumnDefinitions="Auto,20,*">
+        <Border Grid.Column="0" Classes="empty-state-glyph">
+          <PathIcon Data="{StaticResource Icon.Sparkle}"/>
+        </Border>
+        <StackPanel Grid.Column="2" Spacing="16">
+          <TextBlock Classes="card-title" Text="Let's set up your first backup"/>
+          <TextBlock Classes="body" TextWrapping="Wrap"
+                     Text="Pick a folder that matters: your photos, documents, or anywhere important lives. We'll keep a safe copy somewhere you choose: an external drive, Dropbox, OneDrive, Google Drive, or Amazon S3."/>
+          <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,6,0,0">
+            <Button Classes="primary" Command="{Binding AddNewCommand}">
+              <TextBlock Text="Set up a backup"/>
+            </Button>
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

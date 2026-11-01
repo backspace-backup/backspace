@@ -1,0 +1,25 @@
+{
+  "$schema": "https://xunit.net/schema/current/xunit.runner.schema.json",
+
+  "//comment-parallelization": [
+    "ParallelizeTestCollections=false is also set in the csproj — kept in",
+    "both places so a future xunit upgrade that respects the runner json",
+    "over the csproj setting doesn't silently re-enable parallel runs.",
+    "Several tests mutate process-wide state (env vars, ServiceLocator,",
+    "Avalonia Dispatcher); concurrent execution would interfere."
+  ],
+  "parallelizeAssembly": false,
+  "parallelizeTestCollections": false,
+
+  "//comment-timeout": [
+    "Default per-test timeout of 10 minutes. The slowest E2E test",
+    "(round-trip a snapshot through a real Backrest daemon + restic +",
+    "rclone against a cloud destination) takes 5-8 minutes on the",
+    "author's machine. 10 min is generous enough to absorb CI",
+    "slowdowns without letting a genuinely hung test pin the whole",
+    "suite indefinitely. Individual tests can override with",
+    "[Fact(Timeout=...)] if they need a tighter or looser deadline."
+  ],
+  "methodDisplay": "method",
+  "longRunningTestSeconds": 60
+}

@@ -1,0 +1,283 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cross-platform Avalonia desktop app.
+
+    Multi-targets two TFMs:
+      • net10.0-windows — full Win32 stack: COM-based Task
+        Scheduler, DPAPI secrets, metered-network probe, Explorer
+        shell-extension registry verbs, taskbar flash, app manifest +
+        .ico icon. Deliberately not a versioned Windows 10 TFM: that
+        adds the 24 MB Windows SDK projection, and the metered probe,
+        its only user, calls Windows directly instead (U032).
+      • net10.0         — cross-platform fallback for macOS
+        and Linux. Same UI; Windows-specific services route through
+        per-platform implementations (launchd / systemd schedulers, file-
+        backed secrets vault, no-op shell integration / metered probe).
+
+    Files under Services/Platform/Windows/ compile only on the Windows
+    TFM (Compile Remove below). Cross-platform call sites use the
+    interfaces defined in Services/Platform/.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFrameworks>net10.0-windows;net10.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <RootNamespace>Backspace</RootNamespace>
+    <AssemblyName>Backspace</AssemblyName>
+    <Version>1.0.0</Version>
+    <Company>Backspace</Company>
+    <Product>Backspace</Product>
+    <Description>A friendly cross-platform GUI for restic backups, powered by Backrest.</Description>
+    <Copyright>Copyright (c) 2026 Backspace contributors</Copyright>
+
+    <!--
+      IsWindowsBuild: true when targeting the Windows TFM. Used below
+      to gate Windows-only properties, packages, files, and targets so a
+      `dotnet build -f net10.0` on macOS/Linux produces a clean
+      cross-platform binary with no Win32-only references.
+    -->
+    <IsWindowsBuild Condition="$(TargetFramework.Contains('-windows'))">true</IsWindowsBuild>
+    <IsWindowsBuild Condition="'$(IsWindowsBuild)' == ''">false</IsWindowsBuild>
+
+    <!--
+      CA1416 — "this API is unsupported on platform X". We dispatch
+      between platform-specific code paths via runtime guards
+      (PlatformInfo.IsWindows / IsMacOS / IsLinux), which the analyzer
+      can't trace across the helper. The Windows-only files under
+      Services/Platform/Windows/ are already excluded from the
+      cross-platform TFM via Compile Remove, so the warnings fire on
+      callsite reachability heuristics, not actual runtime risk.
+      Suppress globally; correctness is enforced by the guards.
+    -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsWindowsBuild)' == 'true'">
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Backspace.ico</ApplicationIcon>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <!--
+      Framework-dependent publish: ships the app + Avalonia + our NuGet
+      dependencies, but NOT the .NET 10 runtime itself. The Windows native
+      host handles missing-runtime setup before managed code can run.
+      Avalonia needs Microsoft.NETCore.App, not WindowsDesktop.App.
+      Release scripts must not override this with self-contained publishing.
+    -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!--
+      EnableCompressionInSingleFile is incompatible with SelfContained=false
+      (NETSDK1176 — compression only works on self-contained bundles, because
+      it relies on bundled-runtime initialization). Skipping it; the
+      runtime stays a separately maintained Windows dependency.
+    -->
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <!-- Default RID for a Release publish only when the user didn't pass
+       -r explicitly. Each TFM picks its own platform default; -r osx-arm64
+       / -r linux-x64 / -r win-x64 still overrides on the command line. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' == '' and '$(IsWindowsBuild)' == 'true'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Tests reach into a few internals (Redact, ExtractSnapshotIds) to
+         exercise paths that don't make sense as public API. -->
+    <InternalsVisibleTo Include="Backspace.Tests" />
+  </ItemGroup>
+
+  <!-- Cross-platform packages — Avalonia, MVVM, Serilog. -->
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.1.2" />
+
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <!-- Seed Backrest authentication before its HTTP listener starts. -->
+    <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
+    <PackageReference Include="Serilog" Version="4.2.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.Async" Version="2.1.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.Debug" Version="3.0.0" />
+    <PackageReference Include="Serilog.Enrichers.Environment" Version="3.0.1" />
+    <PackageReference Include="Serilog.Enrichers.Process" Version="3.0.0" />
+    <PackageReference Include="Serilog.Enrichers.Thread" Version="4.0.0" />
+
+    <!-- Keep the DBus bridge aligned with Avalonia 12's required version.
+         Earlier overrides protected against a vulnerable transitive version.
+         This bridge is exercised only by Avalonia.X11 at runtime. -->
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.1" />
+  </ItemGroup>
+
+  <!-- Windows-only packages: COM Task Scheduler, DPAPI, SystemSounds. -->
+  <ItemGroup Condition="'$(IsWindowsBuild)' == 'true'">
+    <PackageReference Include="TaskScheduler" Version="2.12.1" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.13" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+    <PackageReference Include="System.Windows.Extensions" Version="9.0.0" />
+    <!-- WinFsp.Net: managed wrapper for WinFSP, the user-mode file
+         system framework. Used by the snapshot Mount feature to
+         expose a restic snapshot tree as a Windows drive letter
+         WITHOUT WebDAV (the prior WebDAV redirector approach was
+         broken — Windows silently rejects custom-port WebDAV;
+         see GOTCHAS.md and ROADMAP "Mount feature actually
+         working"). WinFsp.Net relies on the WinFSP runtime
+         shipping separately as an MSI; first-mount installs it
+         under an admin elevation prompt, after which all
+         subsequent mounts run unprivileged. -->
+    <PackageReference Include="WinFsp.Net" Version="2.0.23075" />
+  </ItemGroup>
+
+  <!-- Windows-only source files. Skipped on the cross-platform TFM so
+       Win32 P/Invokes, registry calls, COM interop, and the WinFSP
+       mount coordinator never reach the compiler under a Linux/macOS
+       build. -->
+  <ItemGroup Condition="'$(IsWindowsBuild)' != 'true'">
+    <Compile Remove="Services\Platform\Windows\**\*.cs" />
+    <Compile Remove="Services\WebDav\MountedSnapshotRegistry.cs" />
+    <Compile Remove="Services\WinFsp\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embed icons/fonts/etc. as Avalonia resources. EXCLUDE the
+         native engine binaries — those need to land on disk next to
+         Backspace.exe so BackrestSidecar / restic / rclone can spawn
+         them as separate processes. Embedding them inside the
+         managed .dll just buries them in a place the runtime can't
+         execute. -->
+    <AvaloniaResource Include="Assets\**"
+                      Exclude="Assets\backrest;Assets\backrest.exe;Assets\restic;Assets\restic.exe;Assets\rclone;Assets\rclone.exe"/>
+  </ItemGroup>
+
+  <Target Name="IncludeNativeEngineContent" BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="EnsureBackrestBinaries">
+  <ItemGroup>
+    <!-- Evaluate after fetching, so the FIRST build includes newly downloaded
+         binaries rather than requiring a second build of a clean checkout.
+         Native engine binaries (backrest / restic / rclone). They
+         live under Assets/ after FetchBackrest.targets runs (or after
+         you drop them in manually for an offline build); we copy
+         them into the build/publish output directory next to
+         Backspace.exe with Link= stripping the "Assets\" prefix.
+         Condition="Exists(...)" lets a -p:SkipBackrestDownload build
+         succeed even when one or more of the binaries hasn't been
+         fetched yet. -->
+    <Content Include="Assets\backrest.exe"
+             Condition="Exists('Assets\backrest.exe')"
+             Link="backrest.exe"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true"/>
+    <Content Include="Assets\restic.exe"
+             Condition="Exists('Assets\restic.exe')"
+             Link="restic.exe"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true"/>
+    <Content Include="Assets\rclone.exe"
+             Condition="Exists('Assets\rclone.exe')"
+             Link="rclone.exe"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true"/>
+    <!-- Non-Windows variants (no .exe suffix). -->
+    <Content Include="Assets\backrest"
+             Condition="Exists('Assets\backrest')"
+             Link="backrest"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true"/>
+    <Content Include="Assets\restic"
+             Condition="Exists('Assets\restic')"
+             Link="restic"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true"/>
+    <Content Include="Assets\rclone"
+             Condition="Exists('Assets\rclone')"
+             Link="rclone"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true"/>
+  </ItemGroup>
+  </Target>
+
+  <!-- WinFSP runtime MSI. Windows-only; downloaded by
+       FetchWinFsp.targets and embedded in Backspace.exe so the
+       WinFsp installer service can run msiexec /i against a local
+       path on first Mount click (no network needed at runtime). -->
+  <!-- WinFSP assets are EMBEDDED in Backspace.exe as resources.
+       At runtime EnsureRegistered extracts them to
+       Backspace.config\winfsp\ beside the app (persists
+       across launches). This keeps the dist a single portable exe —
+       you ship Backspace.exe and nothing else. The user does NOT
+       need to copy DLLs next to it. -->
+  <Target Name="IncludeWinFspInstaller" BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="EnsureWinFspMsi" Condition="'$(IsWindowsBuild)' == 'true'">
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\winfsp.msi"
+                      Condition="Exists('Assets\winfsp.msi')"
+                      LogicalName="winfsp.msi"/>
+  </ItemGroup>
+  </Target>
+
+  <!-- Add winfsp-msil.dll (WinFsp.Net's managed wrapper) as an
+       embedded resource pulled from the NuGet package cache. -->
+  <Target Name="EmbedWinFspMsil"
+          BeforeTargets="PrepareForBuild;CoreResGen"
+          Condition="'$(IsWindowsBuild)' == 'true'">
+    <PropertyGroup>
+      <_WinFspMsilSrc>$(NuGetPackageRoot)winfsp.net\2.0.23075\lib\netstandard2.0\winfsp-msil.dll</_WinFspMsilSrc>
+    </PropertyGroup>
+    <ItemGroup Condition="Exists('$(_WinFspMsilSrc)')">
+      <EmbeddedResource Include="$(_WinFspMsilSrc)"
+                        LogicalName="winfsp-msil.dll"/>
+    </ItemGroup>
+  </Target>
+
+  <!-- Remove winfsp-msil.dll from the single-file bundle's
+       managed-assembly list. WinFsp.Net's static constructor calls
+         FileVersionInfo.GetVersionInfo(Assembly.GetExecutingAssembly().Location)
+       and Location returns "" for assemblies loaded from a single-
+       file bundle (see IL3000). By keeping it OUT of the bundle and
+       loading it from the EXTRACTED resource path at runtime, the
+       loaded assembly gets a proper on-disk Location and the cctor
+       passes. -->
+  <Target Name="ExcludeWinFspMsilFromSingleFile"
+          AfterTargets="_ComputeFilesToBundle"
+          BeforeTargets="GenerateSingleFileBundle"
+          Condition="'$(IsWindowsBuild)' == 'true' and '$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <FilesToBundle Remove="@(FilesToBundle)"
+                     Condition="'%(Filename)%(Extension)' == 'winfsp-msil.dll'"/>
+    </ItemGroup>
+    <Message Importance="high" Text="[Backspace] winfsp-msil.dll excluded from bundle (embedded as resource)"/>
+  </Target>
+
+  <Import Project="FetchBackrest.targets"/>
+  <!-- WinFSP MSI fetch is Windows-only. The Mount feature is the only
+       consumer, and it doesn't exist on macOS / Linux. -->
+  <Import Project="FetchWinFsp.targets" Condition="'$(IsWindowsBuild)' == 'true'"/>
+  <Import Project="BuildNativeHost.targets" Condition="'$(IsWindowsBuild)' == 'true'"/>
+
+  <Target Name="ExcludeNativeDebugSymbolsFromRelease" BeforeTargets="_ComputeFilesToBundle"
+          Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+
+</Project>

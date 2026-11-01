@@ -1,0 +1,259 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Backspace.ViewModels"
+             xmlns:m="using:Backspace.Models"
+             x:Class="Backspace.Views.LogsView"
+             x:DataType="vm:LogsViewModel"
+             Background="{DynamicResource BS.Brush.BgBase}">
+
+  <UserControl.Styles>
+    <!-- The console stays dark in either app theme. Theme-wide ghost
+         hover colors can be pale, so keep these actions on the console
+         palette instead of washing out their light labels. -->
+    <Style Selector="Button.console-action:pointerover /template/ Border#RootBorder">
+      <Setter Property="Background" Value="#303C4B"/>
+    </Style>
+    <Style Selector="Button.console-action:pressed /template/ Border#RootBorder">
+      <Setter Property="Background" Value="#3A4859"/>
+      <Setter Property="BorderBrush" Value="#6B7C92"/>
+    </Style>
+    <!-- A past run's outcome, tinted on the console palette like LIVE. -->
+    <Style Selector="Border.run-status">
+      <Setter Property="CornerRadius" Value="5"/>
+      <Setter Property="Padding" Value="8,4"/>
+      <Setter Property="Margin" Value="10,0,0,0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Background" Value="#1F2630"/>
+    </Style>
+    <Style Selector="Border.run-status > TextBlock">
+      <Setter Property="FontWeight" Value="700"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Foreground" Value="#C9D1D9"/>
+    </Style>
+    <Style Selector="Border.run-status.ok"><Setter Property="Background" Value="#163D2B"/></Style>
+    <Style Selector="Border.run-status.ok > TextBlock"><Setter Property="Foreground" Value="#86E7AB"/></Style>
+    <Style Selector="Border.run-status.warn"><Setter Property="Background" Value="#3D2E12"/></Style>
+    <Style Selector="Border.run-status.warn > TextBlock"><Setter Property="Foreground" Value="#F5C26B"/></Style>
+    <Style Selector="Border.run-status.fail"><Setter Property="Background" Value="#4A1C1C"/></Style>
+    <Style Selector="Border.run-status.fail > TextBlock"><Setter Property="Foreground" Value="#FF9A9A"/></Style>
+  </UserControl.Styles>
+
+  <Grid Margin="32,4,32,32" RowDefinitions="Auto,Auto,*">
+
+    <StackPanel Grid.Row="0" Margin="0,0,0,24">
+      <TextBlock Classes="page-title" Text="Activity &amp; logs"/>
+      <TextBlock Classes="page-subtitle" MaxWidth="720"
+                 Text="Follow current activity or revisit a past run."/>
+    </StackPanel>
+
+    <Grid Grid.Row="1" ColumnDefinitions="*,16,*" Margin="0,0,0,14"
+          IsVisible="{Binding !HasNoBackups}">
+      <StackPanel Grid.Column="0" Spacing="6">
+        <TextBlock Classes="label-caps" Text="BACKUP"/>
+        <ComboBox x:Name="BackupPicker" ItemsSource="{Binding BackupNames}"
+                  SelectedItem="{Binding SelectedBackup}"
+                  HorizontalAlignment="Stretch"
+                  PlaceholderText="Pick a backup"/>
+      </StackPanel>
+      <StackPanel Grid.Column="2" Spacing="6">
+        <TextBlock Classes="label-caps" Text="RUN"/>
+        <ComboBox x:Name="RunPicker" ItemsSource="{Binding History}"
+                  SelectedItem="{Binding SelectedRun}"
+                  HorizontalAlignment="Stretch"
+                  PlaceholderText="Pick a run">
+          <ComboBox.ItemTemplate>
+            <DataTemplate DataType="m:RunRecord">
+              <!-- Compose the row text from a converter rather than
+                   chained <Run> elements: the in-flight synthetic
+                   RunRecord has Status=Running AND Summary="Running…",
+                   which used to render as "12:34 · Running · Running…"
+                   with the same word duplicated. The converter folds
+                   that case (Summary mirrors Status) into a single
+                   "12:34 · Running…" line. -->
+              <TextBlock Text="{Binding ., Converter={x:Static vm:RunRecordRowText.To}}"
+                         TextTrimming="CharacterEllipsis"/>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+      </StackPanel>
+    </Grid>
+
+    <!-- Empty state: zero configured backups. Without this the user
+         lands on the Logs tab with two empty ComboBoxes above two empty
+         cream surfaces — no guidance on why the page is dead and no
+         way back to setting up a backup. -->
+    <Border Grid.Row="2" Classes="empty-state"
+            IsVisible="{Binding HasNoBackups}"
+            VerticalAlignment="Top">
+      <Grid ColumnDefinitions="Auto,20,*">
+        <Border Grid.Column="0" Classes="empty-state-glyph">
+          <PathIcon Data="{StaticResource Icon.FileText}"/>
+        </Border>
+        <StackPanel Grid.Column="2" Spacing="16">
+          <TextBlock Classes="card-title" Text="No backups yet"/>
+          <TextBlock Classes="body" TextWrapping="Wrap"
+                     Text="Live output and run history will appear here once you set up a backup. The Backups tab is where to start."/>
+          <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,6,0,0">
+            <Button Classes="primary" Command="{Binding GoToBackupsCommand}">
+              <TextBlock Text="Go to Backups"/>
+            </Button>
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- A quiet, full-width console keeps output distinct from the
+         controls. Header space is reserved for state, context and
+         actions; there are no decorative window buttons. -->
+    <Border Grid.Row="2"
+            IsVisible="{Binding !HasNoBackups}"
+            Background="#0E1116"
+            BorderBrush="#1F2630"
+            BorderThickness="1"
+            CornerRadius="10"
+            ClipToBounds="True">
+      <DockPanel LastChildFill="True">
+        <!-- State appears once. Live output combines all operations;
+             only a historical run has a run-specific log. -->
+        <Border DockPanel.Dock="Top"
+                Background="#161B22"
+                BorderBrush="#1F2630"
+                BorderThickness="0,0,0,1"
+                Padding="14,8">
+          <Grid x:Name="ConsoleHeader" ColumnDefinitions="*,Auto,8,Auto" VerticalAlignment="Center">
+            <!-- Grid so a long backup name ellipsizes before running
+                 under the Copy/Clear buttons (horizontal StackPanels
+                 give the label infinite measure width). -->
+            <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto,*" VerticalAlignment="Center" Margin="0,0,14,0">
+              <Grid Grid.Column="0" IsVisible="{Binding !HasNoHistoryForSelected}">
+              <Border x:Name="LiveBadge" Background="#163D2B"
+                      CornerRadius="5"
+                      Padding="8,4" Margin="0,0,10,0"
+                      IsVisible="{Binding IsShowingLive}" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <Ellipse Width="5" Height="5" Fill="#86E7AB"/>
+                  <TextBlock Text="LIVE"
+                             Foreground="#86E7AB"
+                             FontWeight="700" FontSize="11"
+                             LetterSpacing="0.6"/>
+                </StackPanel>
+              </Border>
+              </Grid>
+              <TextBlock x:Name="ConsoleContext" Grid.Column="1" Text="{Binding DisplayContext}"
+                         FontFamily="{DynamicResource BS.Font.Body}"
+                         FontSize="12"
+                         FontWeight="SemiBold"
+                         Foreground="#C9D1D9"
+                         HorizontalAlignment="Left"
+                         TextTrimming="CharacterEllipsis"
+                         ToolTip.Tip="{Binding DisplayLabel}"
+                         VerticalAlignment="Center"/>
+              <Border x:Name="RunStatusChip" Grid.Column="2" Classes="run-status"
+                      HorizontalAlignment="Left"
+                      Classes.ok="{Binding RunStatusIsOk}"
+                      Classes.warn="{Binding RunStatusIsWarn}"
+                      Classes.fail="{Binding RunStatusIsFail}"
+                      IsVisible="{Binding RunStatusLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <TextBlock Text="{Binding RunStatusLabel}"/>
+              </Border>
+            </Grid>
+            <Button x:Name="CopyLog" Grid.Column="1"
+                    Classes="ghost console-action"
+                    Padding="10,7" MinHeight="36"
+                    Background="#1F2630"
+                    BorderBrush="#2A3340"
+                    Foreground="#C9D1D9"
+                    Command="{Binding CopyDisplayedCommand}"
+                    ToolTip.Tip="Copy the displayed log to the clipboard">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{StaticResource Icon.Copy}" Width="12" Height="12"
+                          Foreground="#C9D1D9"/>
+                <TextBlock Text="Copy" VerticalAlignment="Center" Foreground="#C9D1D9" FontSize="12"/>
+              </StackPanel>
+            </Button>
+            <Button x:Name="ClearLog" Grid.Column="3"
+                    Classes="ghost console-action" Content="Clear view"
+                    Padding="10,7" MinHeight="36"
+                    Background="#1F2630"
+                    BorderBrush="#2A3340"
+                    Foreground="#C9D1D9"
+                    FontSize="12"
+                    Command="{Binding ClearLiveCommand}"
+                    ToolTip.Tip="Clear the live display. Saved run history is kept."
+                    IsVisible="{Binding IsShowingLive}"/>
+          </Grid>
+        </Border>
+
+        <Border DockPanel.Dock="Top" Padding="14,10" Background="#161B22">
+          <Border.IsVisible>
+            <MultiBinding Converter="{x:Static vm:BoolAnd.To}">
+              <Binding Path="IsShowingLive"/>
+              <Binding Path="!HasNoHistoryForSelected"/>
+            </MultiBinding>
+          </Border.IsVisible>
+          <TextBlock x:Name="CombinedOutputHint" FontSize="12.5" Foreground="#A8B3C1"
+                     TextWrapping="Wrap"
+                     Text="This combines output from running backups and restores. Select a finished run above to read only that run’s saved log."/>
+        </Border>
+
+        <!-- Explicit ScrollViewer + SelectableTextBlock. The earlier
+             TextBox approach put its OWN ScrollViewer inside the
+             FluentTheme template; that inner viewer sized its
+             scrollbars to the CONTENT extents (very tall on long
+             logs) instead of the parent viewport, parking the
+             horizontal scrollbar mid-pane. The user reported this
+             multiple times as "horizontal scrollbar was not at the
+             bottom but in the middle of the terminal". This pattern
+             takes the scroll layout into our own hands: the
+             ScrollViewer fills the DockPanel's remaining space, the
+             SelectableTextBlock is the content, and the H-bar
+             reliably sits at the actual viewport bottom. -->
+        <Grid>
+          <ScrollViewer x:Name="LogScroll"
+                        HorizontalScrollBarVisibility="Auto"
+                        VerticalScrollBarVisibility="Auto"
+                        AllowAutoHide="False"
+                        Background="Transparent"
+                        ScrollChanged="OnLogScrollChanged">
+            <SelectableTextBlock Text="{Binding DisplayText}"
+                                 Background="Transparent"
+                                 SelectionBrush="#264F78"
+                                 Padding="16,12,16,16"
+                                 FontFamily="{DynamicResource BS.Font.Mono}"
+                                 FontSize="12.5"
+                                 LineHeight="19"
+                                 Foreground="#D7DCE2"
+                                 TextWrapping="NoWrap"/>
+          </ScrollViewer>
+          <!-- "No history for selected backup yet" placeholder.
+               Shown when the user has picked a backup but it has
+               never produced a RunRecord (fresh backup, all runs
+               pruned). Without this the user stared at an empty
+               black terminal pane with no hint that the dropdown
+               was waiting on data they hadn't generated yet. -->
+          <Border IsVisible="{Binding HasNoHistoryForSelected}"
+                  Background="#0E1116"
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch">
+            <StackPanel HorizontalAlignment="Center" Margin="24"
+                        VerticalAlignment="Center"
+                        Spacing="10"
+                        MaxWidth="380">
+              <TextBlock Text="No runs yet for this backup"
+                         HorizontalAlignment="Center"
+                         FontSize="14"
+                         FontWeight="SemiBold"
+                         Foreground="#C9D1D9"/>
+              <TextBlock Text="Output will appear here the next time this backup runs. Click Run now on the backup card to start one."
+                         HorizontalAlignment="Center"
+                         TextAlignment="Center"
+                         TextWrapping="Wrap"
+                         FontSize="12"
+                         Foreground="#A8B3C1"/>
+            </StackPanel>
+          </Border>
+        </Grid>
+      </DockPanel>
+    </Border>
+  </Grid>
+</UserControl>

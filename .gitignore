@@ -1,0 +1,108 @@
+## .NET
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+.vscode/
+
+## Rider
+.idea/
+
+## Avalonia generated
+**/AvaloniaResource/
+**/*.g.cs
+
+## Published output
+publish/
+dist/
+dist-test/
+dist-new/
+*.exe.config
+concept-*.png
+backspace-screenshot.png
+
+## Secrets / local. The patterns are intentionally broad so a
+## contributor who drops a credential file at the repo root with a
+## "normal" name (dropbox.env, aws.pem, .env, ...) can't accidentally
+## commit it before noticing.
+**/appsettings.Local.json
+**/secrets.*
+.env
+*.env
+*.pfx
+*.pem
+*.p12
+*.key
+*.token
+*.credentials.json
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+
+## E2E scenario test secrets — dropbox tokens, OAuth bits.
+## Single dotenv-style file beside the test .csproj.
+tests/Backspace.Tests/secrets.env
+
+## E2E scenario artifacts (regenerated on every run).
+tests/Backspace.Tests/artifacts/scenarios/
+
+## OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Editor / Claude Code state — keep shared settings, ignore local overrides + runtime locks
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+## Backrest sidecar binaries (embedded as resources at build time, fetched
+## by FetchBackrest.targets — too large to commit, change with upstream)
+src/Backspace/Assets/backrest
+src/Backspace/Assets/backrest.exe
+src/Backspace/Assets/restic
+src/Backspace/Assets/restic.exe
+src/Backspace/Assets/rclone
+src/Backspace/Assets/rclone.exe
+
+## Backspace.Stub published output (embedded as resource at build time)
+src/Backspace/Assets/Backspace-stub.exe
+
+## Test backup folders users might accidentally create in repo
+/local_c/
+/local_d/
+/local_dropbox/
+Context.txt
+Backspace.config
+Backspace.exe - Shortcut.lnk
+
+## Local-only design notes (kept on disk for reference, never committed)
+## Context.txt + BACKSPACE_PORT_DESIGN.md + backup-engine-comparison.html
+## are the original port-from-Duplicacy planning docs. AGENT.md is the
+## single source of truth for the current codebase; do not resurrect
+## CLAUDE.md (a prior transient handoff that's been folded into AGENT.md).
+BACKSPACE_PORT_DESIGN.md
+Context.txt
+backup-engine-comparison.html
+CLAUDE.md
+
+# xUnit / trx test logger output — per-run noise.
+tests/**/TestResults/
+
+# .claude/ holds session-local helpers and watchdog state. The
+# script itself is committed (so multiple devs can re-use it) but
+# the per-run heartbeat + log are local noise.
+.claude/continue-watchdog.heartbeat.txt
+.claude/continue-watchdog.log
+
+# RELEASE_READINESS.md is a per-session autonomous-run summary,
+# not part of the public repo.
+RELEASE_READINESS.md
+
+# Upstream PR forks (Backrest, restic) — local clones for build/test work
+.upstream-prs/
+
+# Exact-commit release attestations are transferred to CI, not committed.
+/release-checks/

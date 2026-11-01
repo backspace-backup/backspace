@@ -1,0 +1,296 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    Backspace — default theme.
+    Porcelain structure: cool near-white canvas, white cards on soft shadows,
+    a slightly darker sidebar, filled neutral secondary buttons instead of
+    outlines, and colour reserved for status and the one primary action. Distinctive accents
+    (not generic SaaS blue) and deliberate typography.
+  -->
+
+  <ResourceDictionary.ThemeDictionaries>
+
+    <!-- =============== LIGHT (default) =============== -->
+    <!--
+      Warm-paper palette tuned for WCAG AA on the cream surface. Previous
+      values (#5F5F5F / #989898) were cool-toned and FgDim failed AA at
+      2.83:1. New values are warm grays that pass AA against both #FFFFFF
+      and warm canvas surfaces and read calmly at normal viewing distance.
+    -->
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="BS.Brush.BgBase"           Color="#FFF4F5F7"/>
+      <SolidColorBrush x:Key="BS.Brush.BgSurface"        Color="#FFFFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.Sidebar"          Color="#FFEBEDF0"/>
+      <SolidColorBrush x:Key="BS.Brush.BgElevated"       Color="#FFFFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.FgPrimary"        Color="#FF16181D"/> <!-- inky warm black -->
+      <SolidColorBrush x:Key="BS.Brush.FgSecondary"      Color="#FF454A54"/> <!-- 8.49:1 on the canvas -->
+      <SolidColorBrush x:Key="BS.Brush.FgDim"            Color="#FF646A75"/> <!-- 5.25:1 on the canvas; 4.84:1 on the sidebar -->
+      <!-- Tonal palette anchored to Tailwind scale values, which is a
+           well-tested neutral standard for tonal buttons / callouts in
+           both light and dark themes:
+             • solid Danger / Success / Warn   = -700  (foreground + outline)
+             • light-mode Tint                  = -100  (resting bg)
+             • light-mode TintHover             = -200  (hover bg)
+             • dark-mode Tint                   = -900  (see Dark dictionary)
+             • dark-mode TintHover              = -800  (see Dark dictionary)
+           Aligning to a published scale avoids the "is it filled or
+           translucent?" perception bug the previous bespoke values
+           had — at -100/-900 the button has a clear coloured-fill
+           identity in either mode without shouting. -->
+      <SolidColorBrush x:Key="BS.Brush.Warn"             Color="#FFB45309"/> <!-- amber-700 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnTint"         Color="#FFFFEDD5"/> <!-- amber-100 -->
+      <SolidColorBrush x:Key="BS.Brush.Danger"           Color="#FFB91C1C"/> <!-- red-700 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerTint"       Color="#FFFEE2E2"/> <!-- red-100 -->
+      <SolidColorBrush x:Key="BS.Brush.Success"          Color="#FF15803D"/> <!-- green-700 -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessTint"      Color="#FFDCFCE7"/> <!-- green-100 -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessTintHover" Color="#FFBBF7D0"/> <!-- green-200 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerTintHover"  Color="#FFFECACA"/> <!-- red-200 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnTintHover"    Color="#FFFED7AA"/> <!-- amber-200 -->
+      <!-- "On-tint" foregrounds — the colour used for TEXT (and any
+           icon stroked at text weight) placed ON a Tint background.
+           In light mode this is the same -700 used elsewhere
+           (sufficient contrast on -100 bg). The split is necessary
+           in dark mode (see Dark dictionary), so for symmetry the
+           brushes exist in both themes. -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessTintFg"    Color="#FF15803D"/> <!-- green-700 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerTintFg"     Color="#FFB91C1C"/> <!-- red-700 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnTintFg"       Color="#FFB45309"/> <!-- amber-700 -->
+      <!-- "Solid hover" — the darker tonal shade used when an
+           outlined-at-rest button fills solid on hover (Primer-style
+           danger button). Tailwind -800 in light mode goes darker on
+           hover, the convention used by Bootstrap / shadcn / Primer. -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessHover"     Color="#FF166534"/> <!-- green-800 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerHover"      Color="#FF991B1B"/> <!-- red-800 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnHover"        Color="#FF92400E"/> <!-- amber-800 -->
+      <!-- Mantine v7 "light" variant — light theme. Recipe:
+             bg=shade-1, hover=shade-2, fg=shade-9. Palette is Open
+             Color v8. Values verified against Mantine's resolver
+             source (mantine/core/src/core/MantineProvider/
+              MantineCssVariables/get-css-color-variables.ts) +
+             snapshot tests. Used by the row-level action buttons
+             (Restore files / Delete / Erase / Remove / Prune / Stop /
+             Proceed). -->
+      <SolidColorBrush x:Key="BS.Brush.DangerLightBg"      Color="#FFFFE3E3"/> <!-- red.1 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerLightBgHover" Color="#FFFFC9C9"/> <!-- red.2 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerLightFg"      Color="#FFC92A2A"/> <!-- red.9 -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessLightBg"     Color="#FFD3F9D8"/> <!-- green.1 -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessLightBgHover" Color="#FFB2F2BB"/> <!-- green.2 -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessLightFg"     Color="#FF2B8A3E"/> <!-- green.9 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnLightBg"        Color="#FFFFEDD5"/> <!-- orange.1 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnLightBgHover"   Color="#FFFED7AA"/> <!-- orange.2 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnLightFg"        Color="#FFD9480F"/> <!-- orange.9 -->
+      <!-- Mantine v7 "filled" variant for critical/destructive
+           actions one tier above row-action-danger ("Erase ALL data"
+           vs the gentler "Remove this destination"). Default
+           primaryShade = 6 in light. Hover darkens by one step. -->
+      <SolidColorBrush x:Key="BS.Brush.DangerFilledBg"     Color="#FFFA5252"/> <!-- red.6 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerFilledBgHover" Color="#FFF03E3E"/> <!-- red.7 -->
+      <!-- Faint outline for the light-variant buttons. User asked:
+           "same colour as the inner text" — so hue matches LightFg
+           (shade-9). Alpha 0x40 (~25%) keeps a SOFT visual line — at
+           full alpha a 1px stroke of shade-9 reads as a heavy band
+           against the pale shade-1 fill; ~25% alpha is the same hue
+           but visually a hair-thin line. Dark mode keeps it
+           transparent (the dark-tint bg pops enough on its own). -->
+      <SolidColorBrush x:Key="BS.Brush.DangerLightBorder"  Color="#40C92A2A"/> <!-- red.9 @ ~25% alpha -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessLightBorder" Color="#402B8A3E"/> <!-- green.9 @ ~25% -->
+      <SolidColorBrush x:Key="BS.Brush.WarnLightBorder"    Color="#40D9480F"/> <!-- orange.9 @ ~25% -->
+      <SolidColorBrush x:Key="BS.Brush.BorderSubtle"     Color="#FFE3E5E9"/> <!-- hairline, just visible -->
+      <SolidColorBrush x:Key="BS.Brush.BorderEmphasized" Color="#FF868C82"/> <!-- input border, 3.45:1 on white -->
+      <!-- Neutral hover background — used by ghost / outlined buttons
+           and any control that wants a calm "cursor is over me" cue
+           without invoking the accent colour. ~3% black over the cream
+           surface; visible but doesn't compete with the accent. -->
+      <SolidColorBrush x:Key="BS.Brush.NeutralHover"     Color="#FFEEF0F3"/>
+      <SolidColorBrush x:Key="BS.Brush.NeutralPressed"   Color="#FFE4E7EB"/>
+      <!-- Alpha-zero twin of NeutralHover, used as the REST value of
+           surfaces whose hover wash fades in via BrushTransition.
+           Fading from plain `Transparent` flashes white on dark
+           surfaces: Transparent is #00FFFFFF, so the interpolation
+           passes through visible whitish tones. Resting on the hover
+           hue at alpha 0 makes the fade pure alpha. -->
+      <SolidColorBrush x:Key="BS.Brush.NeutralHoverRest" Color="#00EEF0F3"/>
+      <!-- Card band tint — used by the BackupCard's tinted header /
+           footer bands. ~2.5% darker than BgSurface (#FBF8F2). The
+           prior #F1ECE0 was too yellow ("brownish") and #F7F4ED was
+           too close to BgSurface (the band separators read as
+           "missing borders"); this value sits between them — visible
+           band/body contrast, less yellow tilt than NeutralHover. -->
+      <SolidColorBrush x:Key="BS.Brush.CardBandTint"     Color="#FFF1F2F5"/>
+      <!-- Porcelain refresh (U034, 29 October 2026): cards float on soft
+           shadows with a near-invisible edge; secondary actions are filled
+           neutral tones, not outlines; status bands carry the colour. -->
+      <SolidColorBrush x:Key="BS.Brush.CardBorder"        Color="#0F000000"/>
+      <SolidColorBrush x:Key="BS.Brush.ButtonTonal"       Color="#FFEEF0F3"/>
+      <SolidColorBrush x:Key="BS.Brush.ButtonTonalHover"  Color="#FFE4E7EB"/>
+      <SolidColorBrush x:Key="BS.Brush.ButtonTonalPressed" Color="#FFD9DDE2"/>
+      <SolidColorBrush x:Key="BS.Brush.InkBg"             Color="#FF16181D"/>
+      <SolidColorBrush x:Key="BS.Brush.InkBgHover"        Color="#FF2B2F37"/>
+      <SolidColorBrush x:Key="BS.Brush.InkFg"             Color="#FFFFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.RaisedChip"        Color="#FFFFFFFF"/>
+      <!-- Status band tones: background, label colour, icon colour. -->
+      <SolidColorBrush x:Key="BS.Brush.BandOkBg"     Color="#FFE3F6E9"/>
+      <SolidColorBrush x:Key="BS.Brush.BandOkFg"     Color="#FF166534"/>
+      <SolidColorBrush x:Key="BS.Brush.BandOkIcon"   Color="#FF16A34A"/>
+      <SolidColorBrush x:Key="BS.Brush.BandWarnBg"   Color="#FFFFEDD5"/>
+      <SolidColorBrush x:Key="BS.Brush.BandWarnFg"   Color="#FF9A3412"/>
+      <SolidColorBrush x:Key="BS.Brush.BandWarnIcon" Color="#FFEA580C"/>
+      <SolidColorBrush x:Key="BS.Brush.BandFailBg"   Color="#FFFEE4E2"/>
+      <SolidColorBrush x:Key="BS.Brush.BandFailFg"   Color="#FF991B1B"/>
+      <SolidColorBrush x:Key="BS.Brush.BandFailIcon" Color="#FFDC2626"/>
+      <SolidColorBrush x:Key="BS.Brush.BandIdleBg"   Color="#FFF1F2F5"/>
+      <SolidColorBrush x:Key="BS.Brush.BandIdleFg"   Color="#FF454A54"/>
+      <SolidColorBrush x:Key="BS.Brush.BandIdleIcon" Color="#FF8A909A"/>
+      <SolidColorBrush x:Key="BS.Brush.NoticeGlyph"  Color="#FFFFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.PillOnTint"       Color="#FFFFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.PillOnTintHover"  Color="#FFF8F9FA"/>
+      <!-- Accent brushes (Accent / AccentHover / AccentDeep / AccentTint) come
+           from a separate Accent_*.axaml merged at runtime by App.axaml.cs. -->
+    </ResourceDictionary>
+
+    <!-- =============== DARK =============== -->
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="BS.Brush.BgBase"           Color="#FF121316"/>
+      <SolidColorBrush x:Key="BS.Brush.BgSurface"        Color="#FF1A1B1F"/>
+      <SolidColorBrush x:Key="BS.Brush.Sidebar"          Color="#FF0E0F12"/>
+      <SolidColorBrush x:Key="BS.Brush.BgElevated"       Color="#FF22242A"/>
+      <SolidColorBrush x:Key="BS.Brush.FgPrimary"        Color="#FFEDEEF0"/>
+      <SolidColorBrush x:Key="BS.Brush.FgSecondary"      Color="#FFB4B8C0"/> <!-- lifted for warmth -->
+      <SolidColorBrush x:Key="BS.Brush.FgDim"            Color="#FF8C919B"/> <!-- AA 5.8:1 on BgSurface -->
+      <!-- Dark-mode tonal palette — Tailwind -500 solids paired with
+           -950 resting Tints and -900 hover Tints. The previous
+           -900/-800 pairing produced the "vibrant filled tonal
+           button" Tailwind/Material standard, but the user asked for
+           a "very faint" feel — so dropped one step on the scale.
+           -950 resting + -900 hover matches roughly where Bootstrap
+           5.3's dark-mode alert backgrounds sit
+           (`#051B11`/`#2C0B0E`/`#332701`) — clearly tinted but quiet,
+           with the bg far enough from BgSurface to read as "filled"
+           rather than alpha-translucent. -->
+      <SolidColorBrush x:Key="BS.Brush.Warn"             Color="#FFEAB308"/> <!-- yellow-500 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnTint"         Color="#FF2E2013"/> <!-- yellow-950 -->
+      <SolidColorBrush x:Key="BS.Brush.Danger"           Color="#FFEF4444"/> <!-- red-500 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerTint"       Color="#FF450A0A"/> <!-- red-950 -->
+      <SolidColorBrush x:Key="BS.Brush.Success"          Color="#FF22C55E"/> <!-- green-500 -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessTint"      Color="#FF052E16"/> <!-- green-950 -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessTintHover" Color="#FF14532D"/> <!-- green-900 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerTintHover"  Color="#FF7F1D1D"/> <!-- red-900 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnTintHover"    Color="#FF45301A"/> <!-- yellow-900 -->
+      <!-- "On-tint" foregrounds — the colour used for TEXT placed ON
+           the dark Tint background. The standard Tailwind / Material 3
+           pattern for dark-mode tonal buttons is `bg=-900, text=-300`
+           (NOT `text=-500`). -500 is the saturated colour reserved
+           for icons / dots on the surface; on a -900 / -950 button
+           background it FAILS WCAG contrast badly. -300 is the
+           tonal-light shade meant exactly for this role — ~5:1
+           contrast on -900, ~9:1 on -950. -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessTintFg"    Color="#FF86EFAC"/> <!-- green-300 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerTintFg"     Color="#FFFCA5A5"/> <!-- red-300 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnTintFg"       Color="#FFFDBA74"/> <!-- yellow-300 -->
+      <!-- Solid hover — dark mode goes LIGHTER on hover (Tailwind
+           -400) per Primer's dark-mode convention (the button "lifts
+           forward" rather than "presses in"). -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessHover"     Color="#FF4ADE80"/> <!-- green-400 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerHover"      Color="#FFF87171"/> <!-- red-400 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnHover"        Color="#FFFACC15"/> <!-- yellow-400 -->
+      <!-- Mantine v7 "light" variant — dark theme. Recipe:
+             bg=darken(shade-9, 0.5), hover=darken(shade-9, 0.3),
+             fg=shade-0. Palette is Open Color v8. Values verified
+             against Mantine's resolver source
+             (mantine/core/src/core/MantineProvider/MantineCssVariables/
+              get-css-color-variables.ts) + snapshot tests. -->
+      <SolidColorBrush x:Key="BS.Brush.DangerLightBg"      Color="#FF321718"/> <!-- darken(red.9, 0.5) -->
+      <SolidColorBrush x:Key="BS.Brush.DangerLightBgHover" Color="#FF4A2022"/> <!-- darken(red.9, 0.3) -->
+      <SolidColorBrush x:Key="BS.Brush.DangerLightFg"      Color="#FFFCA5A5"/> <!-- red.0 -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessLightBg"     Color="#FF132A1D"/> <!-- darken(green.9, 0.5) -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessLightBgHover" Color="#FF1B3D29"/> <!-- darken(green.9, 0.3) -->
+      <SolidColorBrush x:Key="BS.Brush.SuccessLightFg"     Color="#FF86EFAC"/> <!-- green.0 -->
+      <SolidColorBrush x:Key="BS.Brush.WarnLightBg"        Color="#FF2E2013"/> <!-- darken(orange.9, 0.5) -->
+      <SolidColorBrush x:Key="BS.Brush.WarnLightBgHover"   Color="#FF45301A"/> <!-- darken(orange.9, 0.3) -->
+      <SolidColorBrush x:Key="BS.Brush.WarnLightFg"        Color="#FFFDBA74"/> <!-- orange.0 -->
+      <!-- Mantine v7 "filled" variant — dark theme uses primaryShade
+           = 8. See light-theme comment for rationale. -->
+      <SolidColorBrush x:Key="BS.Brush.DangerFilledBg"     Color="#FFE03131"/> <!-- red.8 -->
+      <SolidColorBrush x:Key="BS.Brush.DangerFilledBgHover" Color="#FFF03E3E"/> <!-- red.7 (lifts toward cursor in dark) -->
+      <!-- Dark mode: no outline (the dark tint stands out enough
+           against the charcoal surface on its own). Transparent so
+           the button style can set BorderThickness=1 unconditionally
+           without painting anything in dark mode. -->
+      <SolidColorBrush x:Key="BS.Brush.DangerLightBorder"  Color="#00000000"/>
+      <SolidColorBrush x:Key="BS.Brush.SuccessLightBorder" Color="#00000000"/>
+      <SolidColorBrush x:Key="BS.Brush.WarnLightBorder"    Color="#00000000"/>
+      <SolidColorBrush x:Key="BS.Brush.BorderSubtle"     Color="#14FFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.BorderEmphasized" Color="#FF4E4B45"/>
+      <!-- Neutral hover lightens the dark surface ~6% — ghost buttons
+           and outlined controls signal "you're hovering me" by
+           coming forward, mirroring the light-theme darken pattern. -->
+      <SolidColorBrush x:Key="BS.Brush.NeutralHover"     Color="#FF26282D"/>
+      <SolidColorBrush x:Key="BS.Brush.NeutralPressed"   Color="#FF2F3238"/>
+      <!-- Alpha-zero twin of NeutralHover — see the light-theme note:
+           resting hover-fade surfaces here instead of on Transparent
+           kills the white flash at hover start in dark mode. -->
+      <SolidColorBrush x:Key="BS.Brush.NeutralHoverRest" Color="#0026282D"/>
+      <!-- Dark-mode card-band tint — slightly elevated above BgSurface
+           so the header / footer bands feel like a distinct layer. -->
+      <SolidColorBrush x:Key="BS.Brush.CardBandTint"     Color="#FF232529"/>
+      <SolidColorBrush x:Key="BS.Brush.CardBorder"        Color="#0FFFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.ButtonTonal"       Color="#FF26282D"/>
+      <SolidColorBrush x:Key="BS.Brush.ButtonTonalHover"  Color="#FF2F3238"/>
+      <SolidColorBrush x:Key="BS.Brush.ButtonTonalPressed" Color="#FF383B42"/>
+      <SolidColorBrush x:Key="BS.Brush.InkBg"             Color="#FFEDEEF0"/>
+      <SolidColorBrush x:Key="BS.Brush.InkBgHover"        Color="#FFFFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.InkFg"             Color="#FF121316"/>
+      <SolidColorBrush x:Key="BS.Brush.RaisedChip"        Color="#12FFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.BandOkBg"     Color="#FF132A1D"/>
+      <SolidColorBrush x:Key="BS.Brush.BandOkFg"     Color="#FF86EFAC"/>
+      <SolidColorBrush x:Key="BS.Brush.BandOkIcon"   Color="#FF4ADE80"/>
+      <SolidColorBrush x:Key="BS.Brush.BandWarnBg"   Color="#FF2E2013"/>
+      <SolidColorBrush x:Key="BS.Brush.BandWarnFg"   Color="#FFFDBA74"/>
+      <SolidColorBrush x:Key="BS.Brush.BandWarnIcon" Color="#FFFB923C"/>
+      <SolidColorBrush x:Key="BS.Brush.BandFailBg"   Color="#FF321718"/>
+      <SolidColorBrush x:Key="BS.Brush.BandFailFg"   Color="#FFFCA5A5"/>
+      <SolidColorBrush x:Key="BS.Brush.BandFailIcon" Color="#FFF87171"/>
+      <SolidColorBrush x:Key="BS.Brush.BandIdleBg"   Color="#FF232529"/>
+      <SolidColorBrush x:Key="BS.Brush.BandIdleFg"   Color="#FFB4B8C0"/>
+      <SolidColorBrush x:Key="BS.Brush.BandIdleIcon" Color="#FF6B7079"/>
+      <SolidColorBrush x:Key="BS.Brush.NoticeGlyph"  Color="#FF121316"/>
+      <SolidColorBrush x:Key="BS.Brush.PillOnTint"       Color="#14FFFFFF"/>
+      <SolidColorBrush x:Key="BS.Brush.PillOnTintHover"  Color="#22FFFFFF"/>
+    </ResourceDictionary>
+
+  </ResourceDictionary.ThemeDictionaries>
+
+  <!-- Bundled static faces keep the wordmark and large headings consistent.
+       Native Segoe remains the body, card-title, label and control family. -->
+  <FontFamily x:Key="BS.Font.Heading">avares://Backspace/Assets/Fonts#Manrope</FontFamily>
+  <FontFamily x:Key="BS.Font.Display">Segoe UI Variable Display, Segoe UI Variable, Segoe UI, system-ui, sans-serif</FontFamily>
+  <FontFamily x:Key="BS.Font.Body">Segoe UI Variable Text, Segoe UI Variable, Segoe UI, system-ui, sans-serif</FontFamily>
+  <FontFamily x:Key="BS.Font.Mono">Cascadia Mono, Consolas, monospace</FontFamily>
+
+  <CornerRadius x:Key="BS.CornerRadius">10</CornerRadius>
+  <CornerRadius x:Key="BS.CornerRadiusSmall">8</CornerRadius>
+  <CornerRadius x:Key="BS.CornerRadiusButton">8</CornerRadius>
+  <!-- Surface radius for settings expanders + larger panels.
+       Matches the main card radius so groupings read as the same
+       surface vocabulary as backup cards. -->
+  <CornerRadius x:Key="BS.CornerRadiusSurface">10</CornerRadius>
+
+  <!--
+    FluentTheme's TimePicker template uses a static resource key
+    `TimePickerHostPadding` (Thickness) on each segment TextBlock's
+    Padding. Default is asymmetric ("0,3,0,6"-ish) which makes the
+    digits hang low against neighbouring 40px-tall inputs. Our
+    earlier `TimePicker /template/ TextBlock#PART_*` Style overrides
+    can't beat a template-local Padding=StaticResource binding —
+    StaticResource values resolve at template-parse time and aren't
+    affected by downstream Style setters.
+
+    Re-defining the resource key here in App resources changes what
+    the template binds against, so every TimePicker in the app picks
+    up zero padding and the digits sit dead-centre.
+  -->
+  <Thickness x:Key="TimePickerHostPadding">0</Thickness>
+  <Thickness x:Key="TimePickerHostBorderThickness">0</Thickness>
+
+</ResourceDictionary>

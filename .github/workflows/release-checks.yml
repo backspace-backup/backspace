@@ -1,0 +1,207 @@
+name: Release checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish after all automated checks and the commit checklist pass'
+        type: boolean
+        default: false
+      tag:
+        description: 'New release tag, e.g. v1.0.0 (required only when publishing)'
+        type: string
+        default: ''
+      checklist:
+        description: 'Exact JSON from release-checks/<commit>.json, completed using the current template'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-release-checks:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require the complete checklist for this exact commit
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_CHECKLIST: ${{ inputs.checklist }}
+        run: node scripts/release-checklist.cjs receive
+      - name: Verify the checklist validator rejects incomplete and stale records
+        run: node --test scripts/release-checklist.test.cjs
+      - name: Verify required update-test results cannot be skipped or replaced
+        shell: pwsh
+        run: ./scripts/release-update-results.test.ps1
+      - name: Validate release request
+        shell: pwsh
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_REF: ${{ github.ref }}
+        run: |
+          if ($env:PUBLISH -eq 'true') {
+            if ($env:SOURCE_REF -ne 'refs/heads/main') { throw 'Publishing is allowed only from main.' }
+            if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$') { throw 'A valid new version tag is required.' }
+          }
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run unit and interface checks
+        shell: pwsh
+        run: |
+          dotnet test tests/Backspace.Tests -m:1 --filter "FullyQualifiedName!~E2E" --logger "trx;LogFileName=interface.trx" --results-directory release-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check Release service and credential boundaries
+        shell: pwsh
+        run: |
+          dotnet test tests/Backspace.Tests -c Release -f net10.0-windows -m:1 -p:SkipBackrestDownload=true --filter "FullyQualifiedName~ServiceMigrationProtocolTests|FullyQualifiedName~ServiceSetupTests|FullyQualifiedName~ServiceScheduledRunTests|FullyQualifiedName~Secrets" --logger "trx;LogFileName=release-service.trx" --results-directory release-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Back up and restore 20,000 files and 2 GiB with the real engine
+        shell: pwsh
+        env:
+          BACKSPACE_E2E_SCALE: huge
+        run: |
+          dotnet test tests/Backspace.Tests --no-build --filter "FullyQualifiedName~E34_RestoreLongIncludeList" --logger "trx;LogFileName=large-round-trip.trx" --results-directory release-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [xml]$result = [System.IO.File]::ReadAllText((Join-Path $PWD 'release-evidence/large-round-trip.trx'), [System.Text.UTF8Encoding]::new($false))
+          $counts = $result.TestRun.ResultSummary.Counters
+          if ([int]$counts.passed -ne 1 -or [int]$counts.total -ne 1) { throw 'The large round-trip test must run and pass; an empty or skipped run is not sufficient.' }
+          # Scenario-level skips can be successful xUnit returns. Require the
+          # scenario report and the actual 20,000-file comparison as well.
+          $summary = [System.IO.File]::ReadAllText((Join-Path $PWD 'tests/Backspace.Tests/artifacts/scenarios/SUMMARY.md'), [System.Text.UTF8Encoding]::new($false))
+          if ($summary -notmatch '(?m)^### E34-restore-long-include-list — ✓ STEPS COMPLETED ') { throw 'The real-engine scenario did not complete its steps.' }
+          $validation = [System.IO.File]::ReadAllText((Join-Path $PWD 'tests/Backspace.Tests/artifacts/scenarios/E34-restore-long-include-list/restore-validation.md'), [System.Text.UTF8Encoding]::new($false))
+          if ($validation -notmatch 'Full SHA-256 comparison of 20000 files: all match\.') { throw 'The large run did not verify all 20,000 restored files.' }
+      - name: Preserve the revision, checklist and reviewed documentation
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          Write-Host 'Saving revision and documentation'
+          git rev-parse HEAD | Out-File release-evidence/commit.txt -Encoding utf8
+          Copy-Item docs/RELEASING.md release-evidence/RELEASING.md
+          Copy-Item README.md, DESIGN.md release-evidence/
+          Copy-Item docs release-evidence/docs -Recurse
+          Copy-Item "release-checks/${{ github.sha }}.json" release-evidence/
+          ./scripts/record-engine-versions.ps1 -SourceDirectory src/Backspace/Assets -ResultFile release-evidence/engine-versions.txt
+          @"
+          ## Commit-specific release checklist
+          Revision: ${{ github.sha }}. Publish requested: ${{ inputs.publish }}.
+          The completed agent checklist is included in release-evidence-${{ github.sha }}.
+          Every required box, its findings, the exact revision and the template fingerprint were checked.
+          This run separately executes the interface tests, real 20,000-file round trip and update-package checks.
+          Documentation and screenshot accuracy are the agent's recorded review; no human approval is required.
+          "@ | Add-Content $env:GITHUB_STEP_SUMMARY
+      - name: Build the Windows release candidate
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $versionArgs = @()
+          if ($env:RELEASE_TAG) { $versionArgs = @('-p:Version=' + $env:RELEASE_TAG.TrimStart('v')) }
+          dotnet publish src/Backspace -c Release -f net10.0-windows -r win-x64 --self-contained false -m:1 -o release-candidate @versionArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/verify-runtime-package.ps1 -Executable release-candidate/Backspace.exe -ResultFile release-evidence/runtime-package.json
+          Compress-Archive -Path release-candidate/* -DestinationPath release-evidence/Backspace-windows-x64.zip
+          Get-FileHash release-evidence/Backspace-windows-x64.zip -Algorithm SHA256 | Format-List | Out-File release-evidence/SHA256.txt -Encoding utf8
+      - name: Verify the actual Windows update bundle and rollback
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $env:BACKSPACE_UPDATE_CANDIDATE = (Resolve-Path release-candidate).Path
+          dotnet test tests/Backspace.Tests --no-build --filter "FullyQualifiedName~E2E_WindowsUpdateBundle" --logger "trx;LogFileName=update-bundle.trx" --results-directory release-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/release-update-results.ps1 -ResultFile release-evidence/update-bundle.trx
+      - name: Save results and freshly rendered screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: |
+            release-evidence/
+            tests/Backspace.Tests/artifacts/scenarios/
+            tests/Backspace.Tests/artifacts/screenshots/
+          if-no-files-found: error
+
+  rehearse-gate:
+    name: Rehearse the final checklist gate without publishing
+    if: ${{ !inputs.publish }}
+    needs: windows-release-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: reviewed-evidence
+      - name: Validate the preserved checklist at the publication boundary
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          node scripts/release-checklist.cjs validate "reviewed-evidence/release-evidence/$RELEASE_SHA.json" "$RELEASE_SHA"
+          echo 'Checklist and all candidate checks passed. No tag or release was created.' >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish the checked candidate
+    if: ${{ inputs.publish }}
+    needs: windows-release-checks
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: reviewed-evidence
+      - name: Recheck the preserved checklist against the current main template
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/release-checklist.cjs validate "reviewed-evidence/release-evidence/$RELEASE_SHA.json" "$RELEASE_SHA"
+          node scripts/release-checklist.cjs latest-template
+      - name: Publish the reviewed candidate
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$(tr -d '\r\n\357\273\277' < reviewed-evidence/release-evidence/commit.txt)" = "$RELEASE_SHA"
+          # Atomic creation rejects an existing tag, including one created
+          # concurrently. Never reuse a tag pointing to an unreviewed revision.
+          gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$RELEASE_SHA"
+          prerelease_args=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease_args=(--prerelease); fi
+          gh release create "$RELEASE_TAG" reviewed-evidence/release-evidence/Backspace-windows-x64.zip reviewed-evidence/release-evidence/SHA256.txt --verify-tag --title "Backspace $RELEASE_TAG" --generate-notes "${prerelease_args[@]}"

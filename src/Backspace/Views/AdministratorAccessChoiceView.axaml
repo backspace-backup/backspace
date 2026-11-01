@@ -1,0 +1,24 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Backspace.ViewModels"
+             x:Class="Backspace.Views.AdministratorAccessChoiceView"
+             x:DataType="vm:AdministratorAccessChoice"
+             IsVisible="{Binding Offered}">
+  <!-- Shared by the Easy wizard and the Advanced editor while creating a
+       backup. The benefit first, then the choice, then what happens next. -->
+  <Border Classes="notice info" Padding="16,12">
+    <Grid ColumnDefinitions="Auto,12,*">
+      <Border Classes="section-glyph" VerticalAlignment="Top">
+        <PathIcon Data="{StaticResource Icon.Shield}"/>
+      </Border>
+      <StackPanel Grid.Column="2" Spacing="6">
+        <TextBlock Classes="body" FontWeight="SemiBold" Text="Include files that are in use"/>
+        <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
+                   Text="Some apps keep their files open while they run. Backspace needs administrator access to back those up too. It also lets backups run when nobody is signed in."/>
+        <CheckBox x:Name="AllowAdministratorAccess" IsChecked="{Binding Allow}" FontWeight="SemiBold"
+                  Content="Allow administrator access (recommended)"/>
+        <TextBlock x:Name="AdministratorAccessHint" Classes="helper" Margin="28,-4,0,0" TextWrapping="Wrap" Text="{Binding Hint}"/>
+      </StackPanel>
+    </Grid>
+  </Border>
+</UserControl>

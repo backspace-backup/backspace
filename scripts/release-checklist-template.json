@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    { "id": "tests", "label": "The unit and interface tests passed for this exact commit; failures and skips were reviewed." },
+    { "id": "large-round-trip", "label": "The real-engine 20,000-file, approximately 2 GiB backup and restore passed full SHA-256 comparisons for this commit." },
+    { "id": "readme", "label": "README instructions, claims and examples match this build; documented commands were checked." },
+    { "id": "guides", "label": "Architecture, testing, design, release and contributor guides match this build." },
+    { "id": "screenshots", "label": "App and website screenshots and captions were reviewed; screenshots were regenerated where the UX changed." },
+    { "id": "windows-package", "label": "The Windows package, version, engine versions, update installation and rollback checks passed." },
+    { "id": "windows-before-sign-in", "label": "In a disposable Windows VM, this exact candidate completed an encrypted backup and verified restore before the test account signed in, using the production scheduler, launcher and secrets vault, without requesting or storing the owner's Windows password. Passwordless accounts must be supported. Record the Windows build, account type, service/task identity and timing; a password-backed task, password-free repository or run after sign-in does not satisfy this requirement." },
+    { "id": "windows-credential-integrity", "label": "Disposable VM credentials and the encrypted vault remained intact and readable after scheduled startup, both a successful run and a failed startup, and a later password logon. Record before/after file hashes, content checks, audit evidence and the exact candidate tested. No real laptop credentials were used." },
+    { "id": "limitations", "label": "Outstanding native Windows and live-account checks were reviewed and any release-blocking gaps resolved; remaining limits are stated in the release notes." }
+  ]
+}

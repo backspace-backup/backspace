@@ -1,0 +1,416 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Backspace.ViewModels"
+             xmlns:v="using:Backspace.Views"
+             x:Class="Backspace.Views.BackupCard"
+             x:DataType="vm:BackupCardViewModel">
+
+  <UserControl.Styles>
+    <!-- Status band (U035, 29 October 2026): every outcome tints its half,
+         including skipped, running and never run. The small label takes the
+         tone colour; the value stays in ink so it reads at a glance. -->
+    <Style Selector="Border.check-summary">
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.BandIdleBg}"/>
+    </Style>
+    <Style Selector="Border.check-summary.ok">
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.BandOkBg}"/>
+    </Style>
+    <Style Selector="Border.check-summary.warn, Border.check-summary.skipped, Border.check-summary.stale">
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.BandWarnBg}"/>
+    </Style>
+    <Style Selector="Border.check-summary.fail">
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.BandFailBg}"/>
+    </Style>
+    <Style Selector="Border.check-summary.running">
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.AccentTint}"/>
+    </Style>
+    <Style Selector="Border.check-summary TextBlock.band-label">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.BandIdleFg}"/>
+    </Style>
+    <Style Selector="Border.check-summary.ok TextBlock.band-label">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.BandOkFg}"/>
+    </Style>
+    <Style Selector="Border.check-summary.warn TextBlock.band-label, Border.check-summary.skipped TextBlock.band-label, Border.check-summary.stale TextBlock.band-label">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.BandWarnFg}"/>
+    </Style>
+    <Style Selector="Border.check-summary.fail TextBlock.band-label">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.BandFailFg}"/>
+    </Style>
+    <Style Selector="Border.check-summary.running TextBlock.band-label">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.AccentTintFg}"/>
+    </Style>
+    <Style Selector="Border.check-summary.ok PathIcon.status-icon">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.BandOkIcon}"/>
+    </Style>
+    <Style Selector="Border.check-summary.warn PathIcon.status-icon, Border.check-summary.skipped PathIcon.status-icon, Border.check-summary.stale PathIcon.status-icon">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.BandWarnIcon}"/>
+    </Style>
+    <Style Selector="Border.check-summary.fail PathIcon.status-icon">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.BandFailIcon}"/>
+    </Style>
+    <Style Selector="Border.check-summary TextBlock.meta-value">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
+    </Style>
+    <!-- Icon tile beside the backup name. -->
+    <Style Selector="Border.card-tile">
+      <Setter Property="Width" Value="36"/>
+      <Setter Property="Height" Value="36"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.AccentTint}"/>
+    </Style>
+    <!-- Set by style, not on the element, so the jump highlight can override it. -->
+    <Style Selector="Border#CardSurface">
+      <Setter Property="BorderBrush" Value="{DynamicResource BS.Brush.CardBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <Style Selector="Border#CardSurface.jump-highlight">
+      <Setter Property="BorderBrush" Value="{DynamicResource BS.Brush.Accent}"/>
+      <Setter Property="BorderThickness" Value="2"/>
+    </Style>
+  </UserControl.Styles>
+
+  <!-- One activity entry; backup and integrity results share a compact status strip.
+       Spacing tightened on 29 October 2026 so more than one card fits on screen (U030). -->
+  <Border x:Name="CardSurface" Margin="0,0,0,14"
+          Background="{DynamicResource BS.Brush.BgSurface}"
+          CornerRadius="14"
+          BoxShadow="0 1 2 0 #0F101828, 0 4 16 0 #0A101828"
+          ClipToBounds="True">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto">
+      <Border Grid.Row="0" Padding="20,16,20,12">
+        <Grid ColumnDefinitions="36,12,*">
+        <Border Classes="card-tile" VerticalAlignment="Top" Margin="0,2,0,0">
+          <PathIcon Data="{StaticResource Icon.Backup}" Width="18" Height="18" Foreground="{DynamicResource BS.Brush.Accent}"/>
+        </Border>
+        <StackPanel Grid.Column="2" Spacing="1">
+          <Grid ColumnDefinitions="*,16,Auto">
+            <TextBlock Name="BackupName" Text="{Binding Name}" Classes="backup-card-name" FontSize="18" LineHeight="24" FontWeight="SemiBold" LetterSpacing="-0.2"
+                       TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center" ToolTip.Tip="{Binding Name}"/>
+            <Button Grid.Column="2" Name="ActivityHistoryButton" Classes="ghost subtle"
+                    IsVisible="{Binding ShowActions}" VerticalAlignment="Center"
+                    ToolTip.Tip="See backup runs, checks and restore comparisons together."
+                    Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).ShowActivityHistoryCommand}" CommandParameter="{Binding}">
+              <StackPanel Orientation="Horizontal" Spacing="7">
+                <PathIcon Data="{StaticResource Icon.Activity}" Width="14" Height="14"/>
+                <TextBlock Text="Activity" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
+          </Grid>
+          <Grid ColumnDefinitions="12,6,*">
+            <PathIcon Data="{StaticResource Icon.Clock}" Width="12" Height="12" Foreground="{DynamicResource BS.Brush.FgDim}"/>
+            <TextBlock Grid.Column="2" Text="{Binding NextRunLabel, StringFormat='Next: {0}'}" FontSize="12.5" Foreground="{DynamicResource BS.Brush.FgDim}" TextWrapping="Wrap"/>
+          </Grid>
+        </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" Margin="16,0,16,4">
+        <Grid ColumnDefinitions="*,2,*">
+          <Border Name="BackupSummary" Classes="check-summary" Padding="12,9" CornerRadius="12,0,0,12"
+                  Classes.ok="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
+                  Classes.fail="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                  Classes.warn="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                  Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"
+                  Classes.running="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=running}">
+            <StackPanel Spacing="3">
+              <TextBlock Text="Last backup" Classes="band-label"/>
+              <Grid ColumnDefinitions="16,8,*">
+                <PathIcon Classes="status-icon" VerticalAlignment="Center" ToolTip.Tip="{Binding StatusLabel}"
+                        Classes.ok="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
+                        Classes.warn="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                        Classes.fail="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                        Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"
+                        Classes.running="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=running}"
+                        Classes.idle="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"/>
+                <TextBlock Grid.Column="2" Text="{Binding LastRunLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold"
+                           TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding LastRunLabel}"
+                           Classes.fail="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                           Classes.warn="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                           Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"/>
+              </Grid>
+              <WrapPanel>
+                <Button Classes="row-action-warn" IsVisible="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                        Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
+                <Button Classes="row-action-danger" IsVisible="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                        Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
+                <ProgressBar IsVisible="{Binding IsActuallyRunning}" IsIndeterminate="True" Width="88" Height="4" Margin="20,2,0,0"
+                             Foreground="{DynamicResource BS.Brush.Accent}" Background="{DynamicResource BS.Brush.AccentTint}"/>
+                <TextBlock IsVisible="{Binding IsQueued}" Text="Waiting for another operation" FontSize="13"
+                           Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"/>
+              </WrapPanel>
+            </StackPanel>
+
+          </Border>
+          <Border Grid.Column="2" Name="CheckSummary" Classes="check-summary" Padding="12,9" CornerRadius="0,12,12,0"
+                  Classes.ok="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
+                  Classes.fail="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                  Classes.stale="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stale}">
+            <StackPanel Spacing="3">
+              <TextBlock Text="Backup health" Classes="band-label"/>
+            <Grid ColumnDefinitions="16,8,*">
+              <PathIcon Classes="status-icon" VerticalAlignment="Center"
+                      Classes.ok="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
+                      Classes.fail="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                      Classes.stale="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stale}"
+                      Classes.never="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=never}"/>
+              <TextBlock Grid.Column="2" Text="{Binding VerifyLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold"
+                         TextWrapping="Wrap" FontStyle="Normal" ToolTip.Tip="{Binding VerifyDetails}"
+                         Classes.fail="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                         Classes.stale="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stale}"
+                         Classes.never="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=never}"/>
+            </Grid>
+
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Border>
+
+      <!-- ============ BODY ============
+           Sources × Destinations plus the optional running-progress
+           strip. Inherits the parent card's BgSurface — no own
+           background needed. -->
+      <Border Grid.Row="2"
+              Background="Transparent"
+              Padding="20,10,20,6">
+        <StackPanel Spacing="10">
+
+          <Grid ColumnDefinitions="*,18,*">
+            <StackPanel Grid.Column="0" Spacing="6">
+              <TextBlock Classes="label-caps" Text="{Binding SourcesCountLabel}" Margin="0"
+                         ToolTip.Tip="{Binding SourcesTooltip}"/>
+              <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Sources}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:BackupCardViewModel+SourceLine">
+                      <Border Classes="source-pill" Margin="0,0,0,4" CornerRadius="999" Padding="10,5" HorizontalAlignment="Left"
+                              Background="{DynamicResource BS.Brush.AccentTint}"
+                              ToolTip.Tip="{Binding Path}" AutomationProperties.Name="{Binding Path}">
+                      <Grid>
+                        <Border Background="{DynamicResource BS.Brush.AccentTint}"
+                                CornerRadius="6"
+                                Opacity="0.5">
+                          <Border.IsVisible>
+                            <MultiBinding Converter="{x:Static vm:BoolAnd.To}">
+                              <Binding Path="$parent[ItemsControl].((vm:BackupCardViewModel)DataContext).ShowProgress"/>
+                              <Binding Path="$parent[ItemsControl].((vm:BackupCardViewModel)DataContext).IsRunning"/>
+                            </MultiBinding>
+                          </Border.IsVisible>
+                        </Border>
+                        <ProgressBar Minimum="0" Maximum="100"
+                                     Value="{Binding PercentComplete}"
+                                     Height="22"
+                                     Background="Transparent"
+                                     Foreground="{DynamicResource BS.Brush.Accent}"
+                                     IsVisible="{Binding $parent[ItemsControl].((vm:BackupCardViewModel)DataContext).IsRunning}"
+                                     Opacity="0.35"/>
+                        <Grid ColumnDefinitions="18,*,Auto,Auto">
+                          <PathIcon Data="{StaticResource Icon.FolderOpen}" Width="13" Height="13" Foreground="{DynamicResource BS.Brush.AccentTintFg}"/>
+                          <TextBlock FontSize="14" FontWeight="SemiBold"
+                                     Grid.Column="1" Text="{Binding Path}" AutomationProperties.HelpText="{Binding Path}"
+                                     Foreground="{DynamicResource BS.Brush.AccentTintFg}"
+                                     TextTrimming="{x:Static v:BackupCard.SourcePathTrimming}"
+                                     ToolTip.Tip="{Binding Path}"
+                                     VerticalAlignment="Center"/>
+                          <TextBlock Grid.Column="2" FontSize="12"
+                                     Margin="8,0,0,0"
+                                     VerticalAlignment="Center"
+                                     Foreground="{DynamicResource BS.Brush.FgDim}"
+                                     IsVisible="{Binding HasSize}"
+                                     Text="{Binding SizeLabel, StringFormat='({0})'}"/>
+                          <TextBlock Grid.Column="3" FontSize="12"
+                                     Margin="8,0,0,0"
+                                     IsVisible="{Binding $parent[ItemsControl].((vm:BackupCardViewModel)DataContext).IsRunning}"
+                                     VerticalAlignment="Center"
+                                     Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                                     Text="{Binding PercentComplete, StringFormat='{}{0:0}%'}"/>
+                        </Grid>
+                      </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Spacing="6">
+              <TextBlock Classes="label-caps"
+                         Text="{Binding DestinationsCountLabel}"
+                         Margin="0"
+                         ToolTip.Tip="{Binding DestinationsTooltip}"/>
+              <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Destinations}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:BackupCardViewModel+DestinationPill">
+                      <Grid Margin="0,0,0,4" HorizontalAlignment="Stretch">
+                        <Border CornerRadius="999"
+                                Tag="{DynamicResource BS.Brush.Accent}"
+                                IsHitTestVisible="False">
+                          <Border.Background>
+                            <MultiBinding Converter="{x:Static vm:PercentToProgressBrush.To}">
+                              <Binding Path="PercentComplete"/>
+                              <Binding Path="Tag" RelativeSource="{RelativeSource Mode=Self}"/>
+                            </MultiBinding>
+                          </Border.Background>
+                        </Border>
+                        <Button Classes="dest-pill"
+                                HorizontalAlignment="Stretch"
+                                ToolTip.Tip="{Binding Tooltip}"
+                                Command="{Binding $parent[ItemsControl].((vm:BackupCardViewModel)DataContext).EditDestinationCommand}"
+                                CommandParameter="{Binding Id}">
+                          <Button.IsEnabled>
+                            <MultiBinding Converter="{x:Static vm:BoolAnd.To}">
+                              <Binding Path="IsClickable"/>
+                              <Binding Path="$parent[ItemsControl].((vm:BackupCardViewModel)DataContext).CanEditWhileIdle"/>
+                            </MultiBinding>
+                          </Button.IsEnabled>
+                          <Grid ColumnDefinitions="18,*" VerticalAlignment="Center">
+                            <!-- Icon + label use BS.Brush.AccentTintFg —
+                                 the palette's purpose-built "text on
+                                 accent-tint background" brush. The
+                                 prior AccentDeep + Accent pair was
+                                 designed for light mode (dark blue on
+                                 pale tint reads fine) but in dark
+                                 mode AccentDeep is a saturated medium
+                                 blue on a translucent dark-blue tint,
+                                 producing the blue-on-blue
+                                 illegibility the user reported.
+                                 AccentTintFg auto-flips to the
+                                 readable variant per accent. -->
+                            <PathIcon Data="{Binding Kind, Converter={x:Static vm:DestinationKindIcon.To}}"
+                                      Width="14" Height="14"
+                                      Foreground="{DynamicResource BS.Brush.AccentTintFg}"
+                                      VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="{Binding DisplayLabel}"
+                                       FontSize="14" FontWeight="SemiBold"
+                                       TextTrimming="{x:Static v:BackupCard.SourcePathTrimming}"
+                                       ToolTip.Tip="{Binding DisplayLabel}" AutomationProperties.Name="{Binding DisplayLabel}"
+                                       Foreground="{DynamicResource BS.Brush.AccentTintFg}"
+                                       VerticalAlignment="Center"/>
+                          </Grid>
+                        </Button>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </StackPanel>
+          </Grid>
+
+          <!-- Overall progress strip — only while running. -->
+          <Grid ColumnDefinitions="10,14,*,Auto,Auto"
+                IsVisible="{Binding IsRunning}">
+            <Border Grid.Column="0" Classes="status-badge running"/>
+            <ProgressBar Grid.Column="2" Minimum="0" Maximum="100"
+                         Value="{Binding OverallPercent}"
+                         Height="6"
+                         Background="{DynamicResource BS.Brush.AccentTint}"
+                         Foreground="{DynamicResource BS.Brush.Accent}"
+                         VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="3" FontSize="12"
+                       Margin="12,0,0,0"
+                       Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                       VerticalAlignment="Center"
+                       Text="{Binding OverallPercent, StringFormat='{}{0:0}%'}"/>
+            <Border Grid.Column="4"
+                    Margin="10,0,0,0"
+                    Padding="8,2"
+                    CornerRadius="999"
+                    Background="{DynamicResource BS.Brush.AccentTint}"
+                    VerticalAlignment="Center"
+                    IsVisible="{Binding OperationPhaseLabel, Converter={x:Static vm:NotEmpty.To}}">
+              <!-- AccentTintFg, not AccentDeep — same blue-on-blue
+                   contrast fix as the destination pill below. The
+                   palette's AccentTintFg is the purpose-built
+                   "text on accent-tint background" brush that
+                   auto-flips per accent + theme. -->
+              <TextBlock Text="{Binding OperationPhaseLabel}"
+                         FontSize="11" FontWeight="SemiBold"
+                         LetterSpacing="0.4"
+                         Foreground="{DynamicResource BS.Brush.AccentTintFg}"/>
+            </Border>
+          </Grid>
+
+        </StackPanel>
+      </Border>
+
+
+      <!-- Actions remain available at narrow widths by wrapping within the shelf. -->
+      <Border Grid.Row="3" x:Name="ActionShelf" Classes="backup-card-actions"
+              IsVisible="{Binding ShowActions}"
+              Background="Transparent"
+              Padding="20,6,20,10">
+        <Grid VerticalAlignment="Center">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="16"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+
+          <!-- Everyday actions stay visible; setup and removal live in More. -->
+          <WrapPanel Grid.Column="0" x:Name="ActionCluster" Orientation="Horizontal"
+                     VerticalAlignment="Center">
+            <Button Classes="primary"
+                    IsVisible="{Binding !IsRunning}"
+                    IsEnabled="{Binding CanRunNow}"
+                    ToolTip.Tip="{Binding RunNowTooltip}"
+                    ToolTip.ShowOnDisabled="True"
+                    Margin="0,0,8,6"
+                    Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).RunNowCommand}"
+                    CommandParameter="{Binding}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.Play}" Width="12" Height="12" Foreground="White"/>
+                <TextBlock Text="Run now" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
+            <Button Classes="danger"
+                    IsVisible="{Binding IsRunning}"
+                    Margin="0,0,8,6"
+                    Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).CancelRunCommand}"
+                    CommandParameter="{Binding}">
+              <TextBlock Text="Stop" VerticalAlignment="Center"/>
+            </Button>
+            <Button Classes="ghost"
+                    IsEnabled="{Binding !IsRunning}"
+                    IsVisible="{Binding CanMountSnapshot}"
+                    ToolTip.Tip="{Binding MountTooltip}"
+                    ToolTip.ShowOnDisabled="True"
+                    Margin="0,0,8,6"
+                    Command="{Binding MountInExplorerCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.Destinations}" Width="13" Height="13"/>
+                <TextBlock Text="{Binding MountActionLabel}" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
+            <Button Classes="restore-action" Margin="0,0,0,6"
+                    IsEnabled="{Binding !IsRunning}"
+                    ToolTip.Tip="{Binding RestoreFilesTooltip}"
+                    ToolTip.ShowOnDisabled="True"
+                    Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).RestoreFilesCommand}"
+                    CommandParameter="{Binding}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.Restore}" Width="13" Height="13"/>
+                <TextBlock Text="Restore files" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
+            <Button Name="TestRestoreButton" Classes="ghost" HorizontalAlignment="Left" Margin="8,0,0,6"
+                    IsEnabled="{Binding TestRestoreEnabled}" ToolTip.Tip="{Binding TestRestoreTooltip}" ToolTip.ShowOnDisabled="True"
+                    Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).TestRestoreCommand}" CommandParameter="{Binding}">
+              <StackPanel Orientation="Horizontal" Spacing="7">
+                <PathIcon Data="{StaticResource Icon.Check}" Width="14" Height="14"/>
+                <TextBlock Text="{Binding TestRestoreActionLabel}" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
+          </WrapPanel>
+
+          <Button Grid.Column="2" Name="MoreActionsButton" Classes="ghost subtle" VerticalAlignment="Top" Margin="0,0,0,6"
+                  Content="More" Click="OnMoreActions" AutomationProperties.Name="More backup actions"
+                  ToolTip.Tip="Edit settings, browse snapshots, or remove this backup."/>
+        </Grid>
+      </Border>
+
+    </Grid>
+  </Border>
+</UserControl>

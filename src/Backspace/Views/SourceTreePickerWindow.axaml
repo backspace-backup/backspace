@@ -1,0 +1,89 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Backspace.ViewModels"
+        x:Class="Backspace.Views.SourceTreePickerWindow"
+        x:DataType="vm:SourceTreePickerViewModel"
+        Title="Pick folders to back up - Backspace"
+        Width="640" Height="720"
+        MinWidth="480" MinHeight="480"
+        Background="{DynamicResource BS.Brush.BgBase}"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="32,28,32,24">
+
+    <!-- Header -->
+    <StackPanel Grid.Row="0" Spacing="8" Margin="0,0,0,18">
+      <TextBlock Classes="page-title" FontSize="22" Text="Pick folders to back up"/>
+      <TextBlock Classes="page-subtitle" MaxWidth="560"
+                 Text="Tick any combination of drives or folders. Ticking a parent includes everything inside it. Use filters later to refine."/>
+    </StackPanel>
+
+    <!-- Tree -->
+    <Border Grid.Row="1" Classes="surface" Padding="12,10">
+      <TreeView ItemsSource="{Binding Roots}" Background="Transparent" BorderThickness="0">
+        <TreeView.ItemTemplate>
+          <TreeDataTemplate DataType="vm:FileSystemNode" ItemsSource="{Binding Children}">
+            <!-- Row hit-target: clicks anywhere in the row toggle
+                 expand/collapse, EXCEPT clicks on the checkbox
+                 itself (which keeps its tick/clear semantics).
+                 The lenient hit target matches Explorer's pattern —
+                 single-click on the row text expands, just like the
+                 user expects. -->
+            <Grid ColumnDefinitions="Auto,8,*,Auto" VerticalAlignment="Center" Margin="0,2"
+                  Background="Transparent"
+                  PointerPressed="OnTreeRowPointerPressed">
+              <!-- Real node: checkbox + name. Hidden for placeholder
+                   children, which exist only to make TreeViewItem render
+                   its expand chevron before we've lazy-loaded the real
+                   directory entries. -->
+              <CheckBox Grid.Column="0"
+                        IsChecked="{Binding IsChecked}"
+                        IsThreeState="True"
+                        IsEnabled="{Binding IsMounted}"
+                        VerticalAlignment="Center"
+                        IsVisible="{Binding !IsPlaceholder}"/>
+              <TextBlock Grid.Column="2"
+                         Text="{Binding DisplayName}"
+                         VerticalAlignment="Center"
+                         Foreground="{DynamicResource BS.Brush.FgPrimary}"
+                         IsVisible="{Binding !IsPlaceholder}"/>
+
+              <!-- Placeholder: a dim "Loading…" hint in place of the
+                   normal row content. Users rarely see this for more
+                   than a frame on a local disk. -->
+              <TextBlock Grid.Column="2"
+                         Classes="dim" FontStyle="Italic"
+                         Text="Loading…"
+                         VerticalAlignment="Center"
+                         IsVisible="{Binding IsPlaceholder}"/>
+
+              <TextBlock Grid.Column="3"
+                         Classes="dim" FontSize="12"
+                         Text="loading…"
+                         VerticalAlignment="Center"
+                         Margin="10,0,0,0"
+                         IsVisible="{Binding IsLoadingChildren}"/>
+            </Grid>
+          </TreeDataTemplate>
+        </TreeView.ItemTemplate>
+        <TreeView.Styles>
+          <!-- The Setter runs against each TreeViewItem; its DataContext
+               is a FileSystemNode (not the window's VM), so we use
+               ReflectionBinding to bypass the compile-time binding
+               validator which would look at the outer x:DataType. -->
+          <Style Selector="TreeViewItem">
+            <Setter Property="IsExpanded" Value="{ReflectionBinding IsExpanded, Mode=TwoWay}"/>
+          </Style>
+        </TreeView.Styles>
+      </TreeView>
+    </Border>
+
+    <!-- Footer -->
+    <StackPanel Grid.Row="2" Orientation="Horizontal"
+                HorizontalAlignment="Right" Spacing="10" Margin="0,18,0,0">
+      <Button Classes="ghost" Content="Cancel" Click="OnCancel"/>
+      <Button Classes="primary" Content="Use these sources" Click="OnConfirm"/>
+    </StackPanel>
+
+  </Grid>
+</Window>

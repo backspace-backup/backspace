@@ -1,0 +1,44 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:Backspace.Services"
+             x:Class="Backspace.Views.FileWaitPanel">
+  <Border Background="{DynamicResource BS.Brush.BgElevated}"
+          BorderBrush="{DynamicResource BS.Brush.WarnLightBorder}" BorderThickness="0,1,0,0">
+    <ScrollViewer MaxHeight="260" HorizontalScrollBarVisibility="Disabled">
+      <ItemsControl x:Name="Notices" Margin="24,16">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="s:FileWaitNotice">
+            <StackPanel Spacing="8" Margin="0,0,0,6">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="SemiBold"
+                           Foreground="{DynamicResource BS.Brush.FgPrimary}" TextWrapping="Wrap"
+                           VerticalAlignment="Center" Margin="0,0,20,0"/>
+                <Button Grid.Column="1" Content="{Binding StopLabel}" Command="{Binding StopCommand}"
+                        IsEnabled="{Binding CanStop}" Classes="secondary"/>
+              </Grid>
+              <StackPanel IsVisible="{Binding ShowDetails}" Spacing="8">
+                <TextBlock Text="Windows won't let Backspace change this file yet. We'll keep trying and continue automatically when it becomes available."
+                           FontSize="14" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                <TextBlock Text="{Binding Path}" FontSize="12" TextWrapping="Wrap"
+                           Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
+                <TextBlock Text="A sync app such as Dropbox may be using it. You can pause that app to release the file. If the wait continues, check the folder's permissions."
+                           FontSize="14" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{Binding Consequence}" FontSize="14" TextWrapping="Wrap"
+                             Margin="0,0,20,0" Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                  <Button Grid.Column="1" Content="Keep waiting" Command="{Binding KeepWaitingCommand}" Classes="primary"
+                          VerticalAlignment="Bottom"/>
+                </Grid>
+              </StackPanel>
+              <StackPanel IsVisible="{Binding !ShowDetails}" Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Still trying. You can stop at any time." FontSize="14"
+                           Foreground="{DynamicResource BS.Brush.FgSecondary}" VerticalAlignment="Center"/>
+                <Button Classes="text-link" Content="Show details" Command="{Binding DetailsCommand}"/>
+              </StackPanel>
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+  </Border>
+</UserControl>

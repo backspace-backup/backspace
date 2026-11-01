@@ -1,0 +1,64 @@
+<Project>
+
+  <!--
+    Auto-fetches the WinFSP runtime MSI into Assets/ before Avalonia
+    collects embedded resources. Runs exactly once per clean checkout:
+    skipped if winfsp.msi already exists.
+
+    Why bundle the MSI:
+      The Mount feature exposes a restic snapshot as a Windows drive
+      letter through WinFSP (user-mode filesystem framework). WinFSP
+      ships a signed kernel driver that MUST be registered via MSI —
+      no way around that on Windows. The natural alternative would be
+      asking the user to download + install it themselves. We don't:
+      Backspace ships the MSI in its output dir and the WinFsp
+      installer service kicks off msiexec /qb /norestart with UAC
+      elevation the first time the user clicks Mount. After that,
+      every mount is unprivileged and instant.
+
+    Source:
+      • https://github.com/winfsp/winfsp/releases/latest →
+        winfsp-X.Y.ZZZZZ.msi (the signed MSI shipped by upstream).
+      • Currently pinned at v2.1.25156 (matches the WinFsp.Net 2.0
+        managed-side ABI; bumping the runtime past v2.x without
+        verifying ABI is a regression risk).
+
+    Escape hatches:
+      • Set -p:SkipBackrestDownload=true to build offline (mirrors
+        the backrest/restic/rclone fetch policy — Mount degrades to
+        an actionable error toast if the runtime is unavailable).
+      • Drop your own winfsp.msi into Assets/ manually; the target
+        will skip if it's already there.
+
+    Windows-only: imported by Backspace.csproj only on the Windows
+    TFM, because there's no kernel-driver story to ship on macOS or
+    Linux.
+  -->
+
+  <PropertyGroup>
+    <SkipBackrestDownload Condition="'$(SkipBackrestDownload)' == ''">false</SkipBackrestDownload>
+    <WinFspMsiPath>$(MSBuildThisFileDirectory)Assets/winfsp.msi</WinFspMsiPath>
+    <!-- Pin the WinFSP version. WinFsp.Net 2.0.x targets the 2.x
+         runtime ABI; bumping past 2.x risks ABI drift, so the bump
+         is a deliberate ROADMAP item rather than a "latest tag"
+         track. To bump: update both this property AND the
+         WinFsp.Net package version in Backspace.csproj. -->
+    <WinFspMsiUrl>https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi</WinFspMsiUrl>
+  </PropertyGroup>
+
+  <Target Name="EnsureWinFspMsi"
+          BeforeTargets="GenerateAvaloniaResources;PrepareResources;BeforeBuild"
+          Condition="'$(SkipBackrestDownload)' != 'true' and !Exists('$(WinFspMsiPath)')">
+
+    <Message Importance="high"
+             Text="[Backspace] Fetching WinFSP runtime MSI ($(WinFspMsiUrl))..."/>
+
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '$(WinFspMsiUrl)' -OutFile '$(WinFspMsiPath)' -UseBasicParsing -Headers @{ 'User-Agent' = 'Backspace-build' }&quot;"
+          IgnoreExitCode="false"
+          ContinueOnError="false"/>
+
+    <Error Condition="!Exists('$(WinFspMsiPath)')"
+           Text="Failed to fetch winfsp.msi. Either set -p:SkipBackrestDownload=true, or manually download winfsp-X.Y.ZZZZZ.msi from https://github.com/winfsp/winfsp/releases/latest and save it to $(WinFspMsiPath)."/>
+  </Target>
+
+</Project>

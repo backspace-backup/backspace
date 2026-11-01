@@ -1,0 +1,2594 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Backspace.Models;
+using Backspace.Services;
+using Backspace.Views;
+
+namespace Backspace.ViewModels;
+
+/// <summary>
+/// Step-by-step wizard. Each step has its own property visibility; navigation is
+/// linear with Back/Next, and destructive paths (overwriting the original
+/// source) gate on an OVERWRITE-to-confirm dialog before Phase 1 begins.
+/// </summary>
+public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
+{
+    // ---- wizard state ----
+
+    public enum Step { PickBackup, PickSource, PickDestination, PickRevision, PickFiles, PickTarget, Progress, Summary }
+    [ObservableProperty] private Step _currentStep = Step.PickBackup;
+
+    // Step 1 — DEAD STATE. The wizard's only entry point is now
+    // AppNavigator.PreselectRestoreBackup from a BackupCard's
+    // "Restore files" button (the sidebar nav was removed). The
+    // PickBackup step renders a defensive "open a backup card to
+    // start" empty-state placeholder when SelectedBackup is null
+    // (e.g. someone reaches the wizard via a stale shortcut). The
+    // Backups collection survives so OnPreselectRequested can resolve
+    // the inbound id back to a live model.
+    public ObservableCollection<Backup> Backups { get; } = new();
+    [ObservableProperty] private Backup? _selectedBackup;
+
+    // Step 1b (only when backup has >1 source).
+    // SourcesForBackup is the multi-select pick list — each row carries
+    // its own IsSelected flag so the wizard can run a restore for any
+    // subset of the backup's sources in one pass. SelectedSourcePath
+    // stays around as the "currently in-flight" pointer used by the
+    // single-source PickRevision / PickFiles flow; for multi-source
+    // restores we drive that pointer programmatically as the loop
+    // walks each picked source.
+    public ObservableCollection<SourcePickRow> SourcesForBackup { get; } = new();
+    [ObservableProperty] private string? _selectedSourcePath;
+
+    /// <summary>
+    /// True iff the user picked more than one source on the
+    /// PickSource step. The wizard then bypasses per-source revision
+    /// + file picking and runs RestoreEngine for each picked source
+    /// using the latest revision and every file. Reset in
+    /// <see cref="RestartWizard"/>.
+    /// </summary>
+    [ObservableProperty] private bool _multiSourceMode;
+
+    /// <summary>Paths actually checked on the PickSource step
+    /// (multi-select). For single-source backups this is auto-set to
+    /// the lone source.</summary>
+    public IReadOnlyList<string> CheckedSourcePaths =>
+        SourcesForBackup.Where(r => r.IsSelected).Select(r => r.Path).ToList();
+
+    /// <summary>True iff at least one source row is checked — drives
+    /// the PickSource step's Next button enable state.</summary>
+    public bool HasAnyCheckedSource =>
+        SourcesForBackup.Any(r => r.IsSelected);
+
+    /// <summary>
+    /// Label shown next to the "Restore to the original source" radio
+    /// on the PickTarget step. Single-source: "→ &lt;source&gt; …".
+    /// Multi-source: a count + the OVERWRITE warning so the user
+    /// understands every checked folder will be replaced.
+    /// </summary>
+    public string OriginalSourceTargetLabel
+    {
+        get
+        {
+            var behavior = OverwriteExisting
+                ? "existing files will be replaced; type OK to confirm before restoring"
+                : "existing files will stay unchanged";
+            if (MultiSourceMode)
+            {
+                var n = CheckedSourcePaths.Count;
+                return $"→ Each of the {n} selected folders ({behavior})";
+            }
+            return $"→ {SelectedSourcePath} ({behavior})";
+        }
+    }
+
+    /// <summary>
+    /// Re-fire all derived properties that change with multi-source
+    /// state: the original-source target label (singular vs N-folders
+    /// copy), the wizard step counter (file picking is bypassed in
+    /// multi-source so the count contracts), and CanGoBack (PickTarget
+    /// rewinds differently depending on mode).
+    /// </summary>
+    partial void OnMultiSourceModeChanged(bool value)
+    {
+        OnPropertyChanged(nameof(OriginalSourceTargetLabel));
+        OnPropertyChanged(nameof(WizardStepLabel));
+        OnPropertyChanged(nameof(CanGoBack));
+        // Multi-source mode flips the "Next" button labels because
+        // the wizard skips PickFiles in multi-source mode.
+        OnPropertyChanged(nameof(NextLabelAfterSource));
+        OnPropertyChanged(nameof(NextLabelAfterRevision));
+    }
+
+    /// <summary>
+    /// Re-fire Next-label PropertyChanged whenever the backup shape
+    /// changes (different source / destination counts → wizard
+    /// skips different steps → buttons should rename). Called from
+    /// every place that mutates SourcesForBackup or
+    /// DestinationsForBackup.
+    /// </summary>
+    private void RaiseNextLabelsChanged()
+    {
+        OnPropertyChanged(nameof(NextLabelAfterSource));
+        OnPropertyChanged(nameof(NextLabelAfterDestination));
+        OnPropertyChanged(nameof(NextLabelAfterRevision));
+        OnPropertyChanged(nameof(NextLabelAfterFiles));
+    }
+    partial void OnSelectedSourcePathChanged(string? value)
+        => OnPropertyChanged(nameof(OriginalSourceTargetLabel));
+
+    // Step 2
+    /// <summary>
+    /// Per-row VM wrappers for the destination picker. The earlier
+    /// pattern bound RadioButton.IsChecked through
+    /// <c>$parent[ItemsControl].((vm:RestoreViewModel)DataContext).SelectedDestination</c>
+    /// + a RefEq converter, but that chain didn't propagate the
+    /// OnPropertyChanged from <see cref="SelectedDestination"/> back
+    /// to the per-row binding on Avalonia 11 — clicks DID set the VM
+    /// property, the radio dot just never visually updated. The user
+    /// reported "Clicking on Which destination to read from doesn't
+    /// work at all, it won't select the item."
+    ///
+    /// Mirroring the working <see cref="SourcePickRow"/> pattern: wrap
+    /// each Destination in a row VM with its own
+    /// <see cref="DestinationPickRow.IsSelected"/> ObservableProperty
+    /// the radio dot binds to directly. Mutual exclusion is enforced
+    /// in <see cref="PickDestination"/> by toggling every other row's
+    /// flag off.
+    /// </summary>
+    public ObservableCollection<DestinationPickRow> DestinationPickRows { get; } = new();
+    /// <summary>Legacy list — kept for the few internal call sites
+    /// (count checks in <c>WizardStepLabel</c> / <c>CanGoBack</c>).
+    /// Stays in lockstep with <see cref="DestinationPickRows"/>.</summary>
+    public ObservableCollection<Destination> DestinationsForBackup { get; } = new();
+    [ObservableProperty] private Destination? _selectedDestination;
+    [ObservableProperty] private string _selectedStorageName = "default";
+
+    // Step 3
+    public ObservableCollection<RevisionSummary> Revisions { get; } = new();
+    [ObservableProperty] private RevisionSummary? _selectedRevision;
+    [ObservableProperty] private bool _loadingRevisions;
+
+    /// <summary>
+    /// Multi-source restore summary — one read-only row per picked
+    /// source showing its latest revision's number, age, and size. The
+    /// PickRevision step renders this list (instead of the single-
+    /// source ListBox picker) when <see cref="MultiSourceMode"/> is
+    /// true, so the user always SEES which moment-in-time the wizard
+    /// will restore from before clicking forward. Previously multi-
+    /// source mode skipped the revision step entirely, jumping
+    /// straight to PickTarget — which the user reported as "click
+    /// Pick a revision and it goes straight to Step 6, no revision
+    /// selection". The user explicitly asked: "Always show revision
+    /// even if there is only one (helpful for user to see how old
+    /// it is)" — that's what this collection serves.
+    /// </summary>
+    public ObservableCollection<MultiSourceRevisionRow> MultiSourceRevisions { get; } = new();
+    private readonly HashSet<MultiSourceRevisionRow> _watchedRevisionRows = new();
+
+    /// <summary>True iff at least one revision is available to pick. The
+    /// view binds the ListBox visibility to this so an empty list doesn't
+    /// render a hollow border above the action buttons.</summary>
+    public bool HasRevisions => Revisions.Count > 0;
+    /// <summary>True iff the revision pane should display the
+    /// "no revisions yet" empty-state placeholder — i.e., we finished
+    /// loading, no error, and nothing came back. Loading and error
+    /// states are surfaced separately above the list.</summary>
+    public bool ShowNoRevisionsHint =>
+        !LoadingRevisions
+        && string.IsNullOrEmpty(LoadError)
+        && Revisions.Count == 0;
+
+    // Step 4
+    public ObservableCollection<RevisionFileRow> AllFiles { get; } = new();
+    public ObservableCollection<RevisionFileRow> FilteredFiles { get; } = new();
+    [ObservableProperty] private string _fileFilter = "";
+    [ObservableProperty] private bool _loadingFiles;
+    [ObservableProperty] private int _selectedFilesCount;
+    [ObservableProperty] private long _selectedFilesBytes;
+
+    /// <summary>Materialised list of paths currently checked — the wire format for RestoreEngine.</summary>
+    public IReadOnlyList<string> SelectedPaths =>
+        AllFiles.Where(f => f.IsSelected).Select(f => f.File.Path).ToList();
+
+    // Step 5
+    [ObservableProperty] private bool _targetOriginalSource = true;
+
+    /// <summary>Positive-named mirror of <see cref="TargetOriginalSource"/>,
+    /// read One-Way by the second radio of the "target" group and by the
+    /// "different folder" field enables. Deliberately get-only: the
+    /// radios write to the VM through check-only handlers in
+    /// RestoreView.axaml.cs. Two-way radio bindings here ping-ponged
+    /// forever under RadioButtonGroupManager while templates applied
+    /// (every uncheck wrote back and flipped the source, which
+    /// re-flipped the sibling) and hung the visual suite at 100% CPU.</summary>
+    public bool TargetDifferentFolder => !TargetOriginalSource;
+
+    partial void OnTargetOriginalSourceChanged(bool value)
+        => OnPropertyChanged(nameof(TargetDifferentFolder));
+
+    [ObservableProperty] private string _customTargetPath = "";
+    [ObservableProperty] private bool _preserveStructure = true;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(OriginalSourceTargetLabel))]
+    private bool _overwriteExisting = true;
+    [ObservableProperty] private int _threads = 4;
+
+    // Step 6 (progress)
+    [ObservableProperty] private int _totalFiles;
+    [ObservableProperty] private int _restoredCount;
+    [ObservableProperty] private int _failedCount;
+    [ObservableProperty] private int _inFlightCount;
+    [ObservableProperty] private string _progressLog = "";
+    [ObservableProperty] private bool _isRunning;
+
+    // Step 7 (summary)
+    [ObservableProperty] private bool _anyFailures;
+    [ObservableProperty] private string _summaryLine = "";
+    [ObservableProperty] private string _summaryHeading = "Restore complete";
+    [ObservableProperty] private string _summaryDetails = "";
+
+    // Internal
+    private CancellationTokenSource? _cts;
+    private RestoreControl? _control;
+    private bool _cancelRequested;
+    public string PauseLabel => _control?.State == RestoreControlState.Paused ? "Resume" : _control?.State == RestoreControlState.Pausing ? "Pausing…" : "Pause";
+    public bool CanTogglePause => IsRunning && !_cancelRequested && _control?.State is RestoreControlState.Running or RestoreControlState.Paused;
+    public bool CanCancelRestore => IsRunning && !_cancelRequested;
+    public bool IsRestorePaused => _control?.State == RestoreControlState.Paused;
+    public string CancelLabel => _cancelRequested ? "Cancelling…" : "Cancel";
+    public string RestoreProgressExplanation => IsRestorePaused
+        ? "The transfer is paused. Resume continues the same snapshot. Cancel ends this attempt and preserves your existing originals."
+        : "Backspace is restoring your selection. The final result will explain any files left unchanged or not restored.";
+    public string RestorePhaseLabel => _cancelRequested ? "Cancelling…" : _control?.State switch
+    {
+        RestoreControlState.Paused => "Paused",
+        RestoreControlState.Pausing => "Pausing…",
+        RestoreControlState.Finishing => "Finishing…",
+        _ => "Restoring…",
+    };
+    private RestoreRequest? _currentRequest;
+    private RestoreOutcome? _currentOutcome;
+
+    /// <summary>
+    /// Wall-clock instant the user committed to the current restore
+    /// (the moment <c>NextFromTargetCommand</c> kicks off the run).
+    /// Used to populate the persisted <see cref="RunRecord.StartedUtc"/>
+    /// when we drop a Restore-kind entry into the per-backup history
+    /// at end-of-run, so the LogsView's RUN dropdown can interleave
+    /// restore activity with backup runs by start time.
+    /// </summary>
+    private DateTime _restoreRunStartedUtc;
+
+    /// <summary>
+    /// In-flight RunRecord shared between the synthetic Running
+    /// entry registered via <see cref="RunActivityTracker"/> and the
+    /// final persisted record handed to <see cref="LogStore.AppendRun"/>.
+    /// Re-using the same Id means the dropdown row the user clicked
+    /// while the run was in flight stays the same row after the run
+    /// completes — Avalonia's ComboBox SelectedItem keeps tracking
+    /// it across the synth → persisted swap.
+    /// </summary>
+    private RunRecord? _inFlightRunRecord;
+
+    /// <summary>
+    /// Per-listing cancellation source for the revision step's
+    /// background load. A rapid Back→Next sequence used to leave the
+    /// previous listing in flight; both completions then raced to
+    /// populate <see cref="Revisions"/> / <see cref="MultiSourceRevisions"/>,
+    /// occasionally producing duplicate rows or stomping a freshly-
+    /// picked SelectedRevision back to "latest". Cancelled and
+    /// replaced inside <see cref="EnterAfterDestinationAsync"/> and
+    /// in <see cref="Back"/>; the loaders honour the token by
+    /// short-circuiting before mutating bound collections.
+    /// </summary>
+    private CancellationTokenSource? _revisionLoadCts;
+
+    /// <summary>Coalesces a flurry of Config.Changed firings into a
+    /// single Refresh on the UI thread.</summary>
+    private readonly UiThreadDebouncer _refreshDebouncer;
+
+    public RestoreViewModel()
+    {
+        _refreshDebouncer = new UiThreadDebouncer(Refresh);
+        Refresh();
+        // The Restore wizard's only entry point is the per-backup
+        // "Restore files" button on a BackupCard, which fires
+        // AppNavigator.PreselectRestoreBackup. Step 1 (PickBackup)
+        // is now an empty-state placeholder shown when the user
+        // somehow lands here without a preselect (defensive).
+        AppNavigator.RestorePreselectRequested += OnPreselectRequested;
+        ServiceLocator.Config.Changed += OnConfigChanged;
+        Threads = ServiceLocator.Config.Current.Restore.DefaultThreads;
+        PreserveStructure = ServiceLocator.Config.Current.Restore.PreserveStructureByDefault;
+        OverwriteExisting = ServiceLocator.Config.Current.Restore.OverwriteByDefault;
+        // Default the safe-restore target to a /restore subfolder beside
+        // the app exe — always writable, easy to find, never collides
+        // with anything the user cares about.
+        CustomTargetPath = SafeRestoreTargetRoot();
+
+        // Auto-raise HasRevisions / ShowNoRevisionsHint whenever the
+        // backing collections change. The XAML ListBox.IsVisible binds
+        // to HasRevisions; without this hook, any code path that
+        // mutates Revisions without manually calling
+        // OnPropertyChanged(nameof(HasRevisions)) leaves the picker
+        // INVISIBLE even though the data populated. That reproduced
+        // the user's 2026-06-12 report ("Bring Files back doesn't
+        // even offer to pick the revision") — the S14 screenshot
+        // captures the bug: full 5-row collection, blank surface,
+        // no rows. Hooking CollectionChanged makes the notification
+        // automatic so a future loader can't reintroduce the bug
+        // by forgetting the manual raise.
+        Revisions.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasRevisions));
+            OnPropertyChanged(nameof(ShowNoRevisionsHint));
+        };
+        MultiSourceRevisions.CollectionChanged += (_, _) =>
+        {
+            foreach (var row in _watchedRevisionRows.Where(r => !MultiSourceRevisions.Contains(r)).ToArray())
+            { row.PropertyChanged -= OnMultiSourceRevisionChanged; _watchedRevisionRows.Remove(row); }
+            foreach (var row in MultiSourceRevisions.Where(r => _watchedRevisionRows.Add(r)))
+                row.PropertyChanged += OnMultiSourceRevisionChanged;
+            OnPropertyChanged(nameof(HasMultiSourceRevisions));
+            OnPropertyChanged(nameof(CanContinueMultiSource));
+        };
+    }
+
+    private void OnMultiSourceRevisionChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        => OnPropertyChanged(nameof(CanContinueMultiSource));
+
+    private void OnPreselectRequested(Backup b)
+    {
+        if (IsStepProgressOrSummary) return;
+        // Run the whole sequence on the UI thread. The await chain
+        // inside NextFromBackupAsync touches ObservableProperty setters
+        // and Avalonia visual state — must not run on a thread-pool
+        // thread. InvokeAsync schedules the async lambda on the
+        // dispatcher and the continuation after each await stays on
+        // the UI thread (the dispatcher's sync context is captured).
+        // We discard the returned task; exceptions surface via the
+        // try/catch inside.
+        _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            try
+            {
+                var match = Backups.FirstOrDefault(x => x.Id == b.Id);
+                if (match is null) return;
+                SelectedBackup = match;
+                // The user reached Restore by clicking "Restore files"
+                // on a specific backup card — step 1 (pick a backup)
+                // is already satisfied. Auto-advance into the next
+                // applicable step (PickSource for multi-source,
+                // PickDestination for multi-dest, otherwise
+                // PickRevision). NextFromBackupCommand runs the same
+                // gates the explicit Next button uses (running-backup
+                // notice, never-run notice), so the wizard stays on
+                // step 1 with the right error surface if there's
+                // nothing to restore.
+                await NextFromBackupCommand.ExecuteAsync(null);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.For<RestoreViewModel>().Warning(ex,
+                    "Auto-advance from preselect threw for {Backup}", b.Name);
+            }
+        });
+    }
+
+    private void OnConfigChanged(object? sender, EventArgs e)
+    {
+        _refreshDebouncer.Schedule();
+        // Verbose may have just toggled — re-materialize the bound
+        // ProgressLog so the change applies retroactively to whatever
+        // is on screen instead of only to lines that arrive afterwards.
+        // Hot-path safe: ProgressLog flushes are debounced, so this
+        // single materialization on a config event is negligible.
+        if (Dispatcher.UIThread.CheckAccess())
+            ProgressLog = MaterializeProgressLog();
+        else
+            Dispatcher.UIThread.Post(() => ProgressLog = MaterializeProgressLog());
+    }
+
+    public void Dispose()
+    {
+        foreach (var row in _watchedRevisionRows) row.PropertyChanged -= OnMultiSourceRevisionChanged;
+        _watchedRevisionRows.Clear();
+        AppNavigator.RestorePreselectRequested -= OnPreselectRequested;
+        ServiceLocator.Config.Changed -= OnConfigChanged;
+        // Cancel-and-dispose the live restore CTS (if any). Without this
+        // a navigate-away-during-restore leaked the CTS — every restore
+        // also leaked the prior CTS because Run/RetryAll reassigned
+        // _cts without disposing.
+        try { _cts?.Cancel(); } catch { }
+        try { _cts?.Dispose(); } catch { }
+        _cts = null;
+        // Same cancel-and-dispose pattern for the revision-listing CTS
+        // (separate lifetime from the restore-run CTS — listings happen
+        // pre-restore and shouldn't keep the wizard alive past Dispose).
+        try { _revisionLoadCts?.Cancel(); } catch { }
+        try { _revisionLoadCts?.Dispose(); } catch { }
+        _revisionLoadCts = null;
+        _refreshDebouncer.Dispose();
+    }
+
+    public void Refresh()
+    {
+        Backups.Clear();
+        foreach (var b in ServiceLocator.Config.Current.Backups.OrderBy(b => b.Name))
+        {
+            Backups.Add(b);
+        }
+        OnPropertyChanged(nameof(HasAnyBackup));
+
+        // If the backup the wizard was working with has been deleted
+        // (or every backup was), tear the wizard back to step 1. Without
+        // this the user could be stuck on "pick revision" for a backup
+        // that no longer exists, with nothing in the list and the
+        // sidebar showing "0 backups" — visually broken state.
+        if (SelectedBackup is not null && !Backups.Any(b => b.Id == SelectedBackup.Id))
+        {
+            SelectedBackup = null;
+            SelectedDestination = null;
+            SelectedSourcePath = null;
+            SelectedRevision = null;
+            Revisions.Clear();
+            AllFiles.Clear();
+            FilteredFiles.Clear();
+            CurrentStep = Step.PickBackup;
+            OnPropertyChanged(nameof(HasRevisions));
+            OnPropertyChanged(nameof(ShowNoRevisionsHint));
+        }
+
+        // If exactly one backup is configured, pre-pick it. Saves the
+        // user a click on "the only obvious option" — this view's job
+        // is to get them to a restore, not to make them re-prove that
+        // there's only one backup. Don't override an explicit
+        // selection if the user's already on step 1+ for some reason.
+        if (Backups.Count == 1 && SelectedBackup is null)
+            SelectedBackup = Backups[0];
+    }
+
+    /// <summary>
+    /// Path the shell-extension verb passed in (absolute path, as Windows
+    /// gave it to us). Drives the matching-backup lookup; not used for
+    /// filtering — see <see cref="ShellLaunchFilterPath"/> for the value
+    /// that's actually applied to the file list.
+    /// </summary>
+    [ObservableProperty] private string? _shellLaunchPath;
+
+    /// <summary>
+    /// Sticky shell-launch filter. Set only by <see cref="HandleShellLaunchPath"/>;
+    /// cleared only by <see cref="ClearShellLaunchFilterCommand"/>. The
+    /// user-editable <see cref="FileFilter"/> is a separate, additive
+    /// narrow on top of this one — so accidentally clearing the search
+    /// box no longer loses the right-clicked file.
+    /// </summary>
+    [ObservableProperty] private string? _shellLaunchFilterPath;
+
+    /// <summary>True iff the wizard was opened via the shell-extension
+    /// path. Drives a banner at the top of step PickRevision: "You're
+    /// restoring an older version of {file}".</summary>
+    public bool IsShellLaunchMode => !string.IsNullOrEmpty(ShellLaunchPath);
+
+    /// <summary>True while a shell-launch filter is active — drives the
+    /// chip above the file list ("Filtered to: …  Clear").</summary>
+    public bool HasShellLaunchFilter => !string.IsNullOrEmpty(ShellLaunchFilterPath);
+
+    partial void OnShellLaunchPathChanged(string? value) => OnPropertyChanged(nameof(IsShellLaunchMode));
+    partial void OnShellLaunchFilterPathChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasShellLaunchFilter));
+        ApplyFileFilter();
+    }
+
+    /// <summary>
+    /// Drops the sticky shell-launch filter so the user can browse the
+    /// whole revision (e.g. they want a sibling file in the same folder).
+    /// Leaves the user-typed <see cref="FileFilter"/> alone.
+    /// </summary>
+    [RelayCommand]
+    private void ClearShellLaunchFilter() => ShellLaunchFilterPath = null;
+
+    /// <summary>
+    /// Entry point for the right-click "Restore an older version" verb.
+    /// Picks the most-specific configured backup whose source contains
+    /// <paramref name="path"/>, advances the wizard past the picks the
+    /// user can already make for them, and pre-filters the file picker
+    /// to just that path so they see exactly the file they right-clicked.
+    /// </summary>
+    public void HandleShellLaunchPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            ShellLaunchPath = null;
+            return;
+        }
+
+        ShellLaunchPath = path;
+
+        // Find the matching backup + source. Most-specific source wins
+        // (longest source-path prefix match).
+        var match = FindMatchingBackupSource(path);
+        if (match is null)
+        {
+            // No backup includes this path — leave the user on step 1
+            // with a banner. We can't auto-pick, but the message
+            // explains why.
+            CurrentStep = Step.PickBackup;
+            SummaryLine = $"No configured backup includes {path}. Pick one to browse manually.";
+            return;
+        }
+
+        SelectedBackup = match.Value.Backup;
+        SelectedSourcePath = match.Value.SourcePath;
+        // Sticky shell-launch filter — applied in addition to whatever
+        // the user types in the search box. Survives any edit/clear of
+        // FileFilter; only the chip's Clear button removes it.
+        ShellLaunchFilterPath = MakeRelativeUnderSource(match.Value.SourcePath, path);
+        FileFilter = "";
+
+        // Default the restore target to the safe path (NOT original)
+        // so the right-click flow can't surprise-overwrite the user.
+        TargetOriginalSource = false;
+        CustomTargetPath = SafeRestoreTargetRoot();
+
+        // Drive past the source picker (we picked it) and into the
+        // destination + revision flow. Same code path as the manual
+        // wizard from this point on.
+        _ = EnterDestinationPickerAsync();
+    }
+
+    /// <summary>
+    /// Default "restore to a different folder" location for both manual
+    /// and shell-launched flows: a <c>restore</c> subfolder beside the
+    /// app exe. Always-writable, easy to find, and won't accidentally
+    /// overwrite source data.
+    /// </summary>
+    public static string SafeRestoreTargetRoot()
+    {
+        try
+        {
+            var exeDir = Path.GetDirectoryName(Environment.ProcessPath
+                ?? System.Reflection.Assembly.GetExecutingAssembly().Location);
+            if (!string.IsNullOrWhiteSpace(exeDir))
+                return Path.Combine(exeDir, "restore");
+        }
+        catch { /* fall through */ }
+        // Recovered user files are not disposable scratch. Even if the process
+        // path is unavailable, keep the fallback beside the portable data.
+        return Path.Combine(AppPaths.ConfigRoot, "restore");
+    }
+
+    private static (Backup Backup, string SourcePath)? FindMatchingBackupSource(string path)
+    {
+        var pathFull = SafeFullPath(path);
+        if (pathFull is null) return null;
+
+        (Backup, string)? best = null;
+        int bestLen = -1;
+        foreach (var b in ServiceLocator.Config.Current.Backups)
+        {
+            foreach (var s in b.SourcePaths)
+            {
+                var srcFull = SafeFullPath(s);
+                if (srcFull is null) continue;
+                if (!IsPathUnder(pathFull, srcFull)) continue;
+                if (srcFull.Length > bestLen)
+                {
+                    best = (b, s);
+                    bestLen = srcFull.Length;
+                }
+            }
+        }
+        return best;
+    }
+
+    private static string? SafeFullPath(string p)
+    {
+        try { return Path.GetFullPath(p).TrimEnd('\\', '/'); } catch { return null; }
+    }
+
+    private static bool IsPathUnder(string candidate, string root)
+    {
+        if (string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase)) return true;
+        return candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || candidate.StartsWith(root + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string MakeRelativeUnderSource(string sourcePath, string filePath)
+    {
+        var src = SafeFullPath(sourcePath);
+        var file = SafeFullPath(filePath);
+        if (src is null || file is null) return filePath;
+        if (file.StartsWith(src, StringComparison.OrdinalIgnoreCase))
+            return file.Substring(src.Length).TrimStart('\\', '/');
+        return filePath;
+    }
+
+    /// <summary>True when there is at least one configured backup to restore from.</summary>
+    public bool HasAnyBackup => Backups.Count > 0;
+
+    /// <summary>
+    /// Inline notice shown above the Next button on the Pick-backup step.
+    /// Surfaces the reason the user's Next click didn't move them on —
+    /// no selection, the backup never ran, the backup is currently in
+    /// flight, etc. Cleared whenever the user picks a different backup.
+    /// Earlier the Next button silently no-op'd in these cases, which
+    /// looked broken.
+    /// </summary>
+    [ObservableProperty] private string _pickBackupNoticeText = "";
+
+    partial void OnSelectedBackupChanged(Backup? value)
+    {
+        PickBackupNoticeText = "";
+    }
+
+    /// <summary>Jumps the shell to the Backups page so the user can configure one.</summary>
+    [RelayCommand]
+    private void GoToBackups() => AppNavigator.Go(NavItem.Backups);
+
+    // ---- transitions ----
+
+    [RelayCommand]
+    private async Task NextFromBackupAsync()
+    {
+        if (SelectedBackup is null)
+        {
+            PickBackupNoticeText = "Pick a backup first by clicking one of the rows above.";
+            return;
+        }
+
+        // Don't try to restore from a backup that's currently writing
+        // snapshots — the snapshot list is in flux, and the user almost
+        // always wants the LAST FULLY-COMMITTED revision rather than a
+        // half-finished one. Tell them what to do instead.
+        if (ServiceLocator.Orchestrator.IsRunning(SelectedBackup.Id))
+        {
+            PickBackupNoticeText =
+                $"«{SelectedBackup.Name}» is running a backup right now. Wait for it to finish " +
+                "(Activity & logs shows progress) and try again; restoring mid-run can read a " +
+                "half-finished snapshot.";
+            return;
+        }
+
+        // Surface "this backup has nothing to restore from yet" up-front
+        // rather than waiting for the destination/revision steps to
+        // come back empty. NeverRun is the obvious case; a status of
+        // Failed with no successful run also has no usable snapshots.
+        if (SelectedBackup.LastRunStatus == BackupRunStatus.NeverRun
+            || SelectedBackup.LastRunEndUtc is null)
+        {
+            PickBackupNoticeText =
+                $"«{SelectedBackup.Name}» hasn't completed a successful run yet, so there's " +
+                "nothing to restore. Run it first (Backups tab → Run now), then come back here.";
+            return;
+        }
+        PickBackupNoticeText = "";
+
+        // Multi-source backups need the user to pick which source(s)
+        // they want to restore from — each source is its own restic
+        // repo with its own revision timeline. The picker is checkbox-
+        // based so the user can select more than one in a single pass;
+        // every row defaults to checked (the common case is "restore
+        // everything from this backup at the latest revision"). Single-
+        // source skips straight through to destination selection.
+        SourcesForBackup.Clear();
+        foreach (var s in SelectedBackup.SourcePaths)
+            SourcesForBackup.Add(new SourcePickRow(s, this, isSelected: true));
+        OnPropertyChanged(nameof(HasAnyCheckedSource));
+        // Source count just changed → Next labels may differ.
+        RaiseNextLabelsChanged();
+
+        if (SourcesForBackup.Count > 1)
+        {
+            SelectedSourcePath = null;
+            MultiSourceMode = false;
+            CurrentStep = Step.PickSource;
+            return;
+        }
+
+        // Single source: pick it implicitly and continue.
+        SelectedSourcePath = SourcesForBackup.FirstOrDefault()?.Path;
+        MultiSourceMode = false;
+        await EnterDestinationPickerAsync();
+    }
+
+    /// <summary>Called by <see cref="SourcePickRow"/> whenever a
+    /// checkbox toggles. Re-fires the dependent properties so the
+    /// PickSource step's Next button updates its enable state and
+    /// the multi-source target label reflects the current count.</summary>
+    public void OnSourcePickRowToggled()
+    {
+        OnPropertyChanged(nameof(CanContinueMultiSource));
+        OnPropertyChanged(nameof(HasAnyCheckedSource));
+        OnPropertyChanged(nameof(OriginalSourceTargetLabel));
+    }
+
+    [RelayCommand]
+    private async Task NextFromSourceAsync()
+    {
+        if (SelectedBackup is null) return;
+        var picked = CheckedSourcePaths;
+        if (picked.Count == 0) return;
+        if (picked.Count == 1)
+        {
+            // Same path as a single-source backup: pick implicitly,
+            // walk the revision + file picker.
+            SelectedSourcePath = picked[0];
+            MultiSourceMode = false;
+            await EnterDestinationPickerAsync();
+            return;
+        }
+
+        // Multi-source: skip per-source revision + file picking.
+        // The wizard restores the latest revision of every checked
+        // source, all files, into the chosen target. The per-source
+        // SelectedSourcePath gets set during the run loop in
+        // NextFromTargetAsync.
+        MultiSourceMode = true;
+        SelectedSourcePath = picked[0];
+        await EnterDestinationPickerAsync();
+    }
+
+    /// <summary>
+    /// After source is chosen (either implicitly for single-source or
+    /// explicitly in step PickSource), populate destination list and
+    /// either short-circuit (single destination) or show the picker.
+    /// </summary>
+    private Task EnterDestinationPickerAsync()
+    {
+        if (SelectedBackup is null) return Task.CompletedTask;
+
+        DestinationsForBackup.Clear();
+        DestinationPickRows.Clear();
+        foreach (var t in SelectedBackup.Targets)
+        {
+            var d = ServiceLocator.Config.Current.Destinations.FirstOrDefault(x => x.Id == t.DestinationId);
+            if (d is not null)
+            {
+                DestinationsForBackup.Add(d);
+                DestinationPickRows.Add(new DestinationPickRow(d, isSelected: false));
+            }
+        }
+        // Backup shape changed → Next-button labels may flip.
+        RaiseNextLabelsChanged();
+
+        if (DestinationsForBackup.Count == 1)
+        {
+            SelectedDestination = DestinationsForBackup[0];
+            DestinationPickRows[0].IsSelected = true;
+            SelectedStorageName = SelectedBackup.Targets[0].StorageName;
+            // Revision listing fires on the dispatcher inside
+            // EnterAfterDestinationAsync — no await needed; CurrentStep
+            // flips synchronously so the user sees the spinner pane
+            // immediately.
+            EnterAfterDestinationAsync();
+        }
+        else
+        {
+            CurrentStep = Step.PickDestination;
+        }
+        return Task.CompletedTask;
+    }
+
+    [RelayCommand]
+    private void NextFromDestination()
+    {
+        if (SelectedBackup is null || SelectedDestination is null) return;
+        var target = SelectedBackup.Targets.FirstOrDefault(t => t.DestinationId == SelectedDestination.Id);
+        SelectedStorageName = target?.StorageName ?? "default";
+        EnterAfterDestinationAsync();
+    }
+
+    /// <summary>
+    /// Pick a destination from the PickDestination step's row list.
+    /// Each row's Button is bound to this command with the row's
+    /// <see cref="DestinationPickRow"/> as <c>CommandParameter</c>.
+    /// We update the per-row <see cref="DestinationPickRow.IsSelected"/>
+    /// directly (so the radio dot animates) AND mirror the choice
+    /// into the legacy <see cref="SelectedDestination"/> property
+    /// the rest of the wizard reads. Earlier the radio dot was bound
+    /// through a parent-relative RefEq chain that didn't propagate
+    /// SelectedDestination's PropertyChanged back to the row — a
+    /// real interaction test
+    /// (<c>InteractionDestinationClickTests</c>) catches that
+    /// regression now.
+    /// </summary>
+    [RelayCommand]
+    private void PickDestination(DestinationPickRow? row)
+    {
+        if (row is null) return;
+        foreach (var r in DestinationPickRows)
+            r.IsSelected = ReferenceEquals(r, row);
+        SelectedDestination = row.Destination;
+    }
+
+    /// <summary>
+    /// Branch after a destination is chosen. Both single-source and
+    /// multi-source modes now route through PickRevision so the user
+    /// always sees what they're about to restore (and how old it is)
+    /// — the user explicitly asked: "Always show revision even if
+    /// there is only one (helpful for user to see how old it is)".
+    ///
+    /// In single-source mode, PickRevision is a picker (the user can
+    /// choose any historical revision to restore). In multi-source
+    /// mode, it's a read-only summary listing each picked source's
+    /// latest revision; PickFiles is bypassed (the wizard restores
+    /// every file of each source's latest revision in one pass).
+    ///
+    /// CurrentStep advances IMMEDIATELY (not after the listing
+    /// completes) so the user sees the new step with its loading
+    /// spinner instead of staring at a disabled "Next" button while
+    /// the engine binary spawns and lists the storage. The user reported:
+    /// "After I click pick a revision, the button gets disabled and
+    /// it takes a while to go to the next step." The fix is to flip
+    /// the order: navigate first, load second.
+    /// </summary>
+    private void EnterAfterDestinationAsync()
+    {
+        // Set the loading flag eagerly so the spinner is visible the
+        // instant the user lands on the revision step (the actual
+        // load runs on the dispatcher below and would otherwise have
+        // a brief gap where the step is shown but Loading=false).
+        LoadingRevisions = true;
+        if (MultiSourceMode)
+        {
+            MultiSourceRevisions.Clear();
+            OnPropertyChanged(nameof(HasMultiSourceRevisions));
+        }
+        else
+        {
+            Revisions.Clear();
+            OnPropertyChanged(nameof(HasRevisions));
+            OnPropertyChanged(nameof(ShowNoRevisionsHint));
+        }
+
+        CurrentStep = Step.PickRevision;
+
+        // Cancel any previous in-flight revision listing — a rapid
+        // Back→Next sequence used to leave the prior load racing the
+        // new one against the same Revisions collection. Capture the
+        // token BEFORE dispatching so the loader sees this exact
+        // session's cancellation, not a later one's.
+        try { _revisionLoadCts?.Cancel(); _revisionLoadCts?.Dispose(); } catch { }
+        _revisionLoadCts = new CancellationTokenSource();
+        var ct = _revisionLoadCts.Token;
+
+        // Fire-and-forget the listing. Exceptions are caught inside
+        // each loader and surfaced via LoadError; the dispatcher
+        // posts the work back to the UI thread.
+        _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            if (MultiSourceMode) await LoadMultiSourceLatestRevisionsAsync(ct);
+            else                 await LoadRevisionsAsync(ct);
+        });
+    }
+
+    /// <summary>
+    /// Populate <see cref="MultiSourceRevisions"/> with each picked
+    /// source's latest revision summary. Runs every source's revision
+    /// listing in sequence (restic's list command is per-repo, not
+    /// per-storage globally) and takes the head of each. A source
+    /// with no revisions yet lands as a row with null
+    /// <see cref="MultiSourceRevisionRow.RevisionNumber"/> so the UI
+    /// can render "no revisions yet" rather than dropping the row —
+    /// the user still wants to see that source was considered.
+    /// </summary>
+    private async Task LoadMultiSourceLatestRevisionsAsync(CancellationToken ct)
+    {
+        var backup = SelectedBackup;
+        var destination = SelectedDestination;
+        var storageName = SelectedStorageName;
+        var sources = CheckedSourcePaths.ToArray();
+        if (backup is null || destination is null || ct.IsCancellationRequested) return;
+        LoadingRevisions = true;
+        LoadError = null;
+        MultiSourceRevisions.Clear();
+        OnPropertyChanged(nameof(HasMultiSourceRevisions));
+        try
+        {
+            foreach (var path in sources)
+            {
+                if (ct.IsCancellationRequested) return;
+                try
+                {
+                    var list = await ServiceLocator.Revisions.ListRevisionsAsync(
+                        backup, path, destination, storageName, ct);
+                    if (ct.IsCancellationRequested) return;
+                    MultiSourceRevisions.Add(new MultiSourceRevisionRow(path, list));
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception ex)
+                {
+                    if (ct.IsCancellationRequested) return;
+                    // A failed read does not establish that no snapshots
+                    // exist. Keep the source visible and block advancement.
+                    AppLogger.For<RestoreViewModel>().Warning(ex,
+                        "Multi-source latest-revision lookup failed for {Source}", path);
+                    MultiSourceRevisions.Add(MultiSourceRevisionRow.Failed(path));
+                }
+            }
+            OnPropertyChanged(nameof(HasMultiSourceRevisions));
+            if (MultiSourceRevisions.Any(r => r.LoadFailed))
+                LoadError = "Couldn't read snapshots for every selected folder. Go Back to check the selection, then try again.";
+            else if (MultiSourceRevisions.Any(r => !r.HasRevisions))
+                LoadError = "Some selected folders have no saved snapshots at this destination. Go Back and choose another destination or deselect those folders.";
+        }
+        finally
+        {
+            // Only flip Loading off if we're still the active session.
+            // A cancelled load means EnterAfterDestinationAsync fired
+            // a successor that's already set Loading=true; clearing it
+            // here would race with the successor.
+            if (!ct.IsCancellationRequested) LoadingRevisions = false;
+        }
+    }
+
+    /// <summary>True iff at least one multi-source row was populated —
+    /// drives the multi-source list visibility on the PickRevision
+    /// step. False before the load fires or when every source's
+    /// listing failed.</summary>
+    public bool HasMultiSourceRevisions => MultiSourceRevisions.Count > 0;
+
+    public bool CanContinueMultiSource
+    {
+        get
+        {
+            if (LoadingRevisions || !string.IsNullOrEmpty(LoadError)) return false;
+            var sources = CheckedSourcePaths;
+            return sources.Count > 0 && MultiSourceRevisions.Count == sources.Count
+                && sources.All(path => MultiSourceRevisions.Count(r => r.SourcePath == path
+                    && !r.LoadFailed && r.SelectedRevision is { } selected
+                    && r.AvailableRevisions.Contains(selected)) == 1);
+        }
+    }
+
+    [RelayCommand]
+    private async Task NextFromRevisionAsync()
+    {
+        // In multi-source mode the revision step is a read-only
+        // summary, not a picker — there's no SelectedRevision and
+        // file picking is bypassed (every file of each source's
+        // latest revision is restored). Skip straight to PickTarget.
+        if (MultiSourceMode)
+        {
+            if (!CanContinueMultiSource) return;
+            CurrentStep = Step.PickTarget;
+            return;
+        }
+        if (SelectedRevision is null) return;
+        if (await LoadFilesAsync()) CurrentStep = Step.PickFiles;
+    }
+
+    [RelayCommand]
+    private void NextFromFiles()
+    {
+        if (SelectedFilesCount == 0) return;
+        CurrentStep = Step.PickTarget;
+    }
+
+    [RelayCommand]
+    private async Task NextFromTargetAsync()
+    {
+        if (SelectedBackup is null || SelectedDestination is null) return;
+        // Single-source mode: needs a picked revision. Multi-source
+        // mode resolves latest revision per source at run time so
+        // SelectedRevision can be null here.
+        if (!MultiSourceMode && SelectedRevision is null) return;
+
+        if (MultiSourceMode)
+        {
+            await RunMultiSourceRestoreAsync();
+            return;
+        }
+
+        // Snapshot EVERY input the restore depends on BEFORE any await.
+        // The OVERWRITE dialog can sit on screen for an arbitrary amount
+        // of time, during which Config.Changed -> Refresh could rebuild
+        // SelectedBackup/SelectedDestination, and AllFiles could be
+        // cleared (which empties the live SelectedPaths projection).
+        // Resolving any of these AFTER the await would mix the user's
+        // chosen revision with state from a later refresh — wrong files,
+        // wrong destination, or NRE on a cleared SelectedRevision.
+        var capturedBackup = SelectedBackup;
+        var capturedDestination = SelectedDestination;
+        var capturedRevision = SelectedRevision!.Value;
+        var capturedRevisionNumber = capturedRevision.Number;
+        var capturedSourcePath = SelectedSourcePath ?? capturedBackup.SourcePaths.FirstOrDefault() ?? "";
+        var capturedStorageName = SelectedStorageName;
+        var capturedFiles = SelectedPaths.ToList();
+        // Collapse fully-selected folders into single include patterns
+        // before handing the request to the engine. AllFiles is the
+        // full snapshot universe; capturedFiles is the user's leaf
+        // selection. The minimizer walks both and emits the smallest
+        // include pattern set that covers exactly the selection — e.g.
+        // a user picking 2 folders gets 2 patterns, not 2400. Without
+        // this collapse, the engine log says "restoring 2400 files"
+        // when the user picked 2 folders and we'd waste restic match
+        // time enumerating leaves restic already knows belong to the
+        // included folder.
+        var capturedIncludePatterns = RestoreSelectionMinimizer.Compute(
+            AllFiles.Select(r => r.File.Path),
+            capturedFiles);
+        var capturedOverwrite = OverwriteExisting;
+        var capturedPreserveStructure = PreserveStructure;
+        var capturedThreads = Threads;
+        var capturedRetryDelays = ServiceLocator.Config.Current.Restore.RetryDelaysSeconds;
+
+        var target = TargetOriginalSource
+            ? capturedSourcePath
+            : (CustomTargetPath?.Trim() ?? "");
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            ResetProgressLog("Pick a target folder first.\n");
+            return;
+        }
+
+        // Type-OK gate when restoring onto the original source — same
+        // confirm shape used for backup delete + destination wipe so
+        // the user has one mental model for "this is destructive".
+        if (TargetOriginalSource && capturedOverwrite)
+        {
+            var owner = OwnerWindow();
+            if (owner is null) return;
+            // Type-to-confirm uses the single token "OK" (case-insensitive)
+            // app-wide. Subtitle calls out the irreversible effect; the
+            // gating word is the same one used everywhere else so users
+            // don't have to remember per-destructive-action keywords.
+            var dlg = new DestructiveConfirmWindow(
+                title: "Restore will overwrite original files",
+                subtitle:
+                    $"Files under «{target}» will be replaced with their state at revision {capturedRevisionNumber}. " +
+                    "There's no undo.",
+                confirmString: "OK",
+                caseInsensitive: true);
+            var ok = await dlg.ShowDialog<bool>(owner);
+            if (!ok) return;
+        }
+
+        _currentRequest = new RestoreRequest
+        {
+            Control = StartRestoreControl(),
+            CancelOperation = () => _cts?.Cancel(),
+            SessionOwner = this,
+            Backup = capturedBackup,
+            SourcePath = capturedSourcePath,
+            Destination = capturedDestination,
+            StorageName = capturedStorageName,
+            Revision = capturedRevisionNumber,
+            SnapshotId = capturedRevision.SnapshotId,
+            Files = capturedFiles,
+            IncludePatterns = capturedIncludePatterns,
+            TargetPath = target,
+            Overwrite = capturedOverwrite,
+            PreserveStructure = capturedPreserveStructure,
+            Threads = capturedThreads,
+            RetryDelaysSeconds = capturedRetryDelays,
+        };
+
+        TotalFiles = _currentRequest.Files.Count;
+        RestoredCount = 0;
+        FailedCount = 0;
+        InFlightCount = 0;
+        ResetProgressLog();
+        SummaryDetails = "";
+        CurrentStep = Step.Progress;
+
+        // Dispose any prior CTS before reassigning. Each restore-then-
+        // retry cycle previously leaked the prior CancellationTokenSource
+        // (and its WaitHandle).
+        try { _cts?.Dispose(); } catch { }
+        _cts = new CancellationTokenSource();
+        _restoreRunStartedUtc = DateTime.UtcNow;
+        BeginInFlightRestoreRun();
+        IsRunning = true;
+        var engine = new RestoreEngine(ServiceLocator.Config, ServiceLocator.Engine, ServiceLocator.Secrets);
+        engine.Log += OnEngineLog;
+        engine.Progress += OnEngineProgress;
+        // FileFailed / FileRestored engine events removed in 2026-06-12
+        // restore-stack refactor.
+        IDisposable? restoreLease = null;
+        try
+        {
+            restoreLease = await ServiceLocator.Maintenance.AcquireReadAsync(_cts.Token, _cts.Cancel);
+            _currentRequest.MaintenanceLeaseHeld = true;
+            _currentOutcome = await engine.RunAsync(_currentRequest, _cts.Token);
+        }
+        catch (OperationCanceledException) { /* user cancelled */ }
+        catch (ArgumentException ex)
+        {
+            // Most commonly: zero files in the request — possible if the
+            // user clears the selection between PickFiles and Confirm via
+            // a race that bypassed CanExecute. Surface as a real failure
+            // so the Summary screen renders "Restore couldn't run" rather
+            // than the neutral "completed" treatment a null outcome gets.
+            AppLogger.For<RestoreViewModel>().Warning(ex,
+                "Restore aborted before start: {Message}", ex.Message);
+            ProgressLog = (ProgressLog ?? "") + $"[restore] aborted: {ex.Message}\n";
+            _currentOutcome = null;
+            // Show a non-modal error so the user can see WHY they landed
+            // on the Summary with no restored files.
+            try
+            {
+                await ServiceLocator.Notifier.NotifyAsync(
+                    title: "Restore couldn't start",
+                    detail: ex.Message,
+                    severity: NotificationSeverity.Failure);
+            }
+            catch { /* notification failure shouldn't escape */ }
+        }
+        catch (Exception ex)
+        {
+            // Defensive: anything else (engine crash, IO error) lands
+            // here. Without this catch the unhandled exception silently
+            // resets the wizard state and the user sees "Summary"
+            // with no indication of failure.
+            AppLogger.For<RestoreViewModel>().Error(ex,
+                "Restore failed with unexpected exception");
+            ProgressLog = (ProgressLog ?? "") + $"[restore] failed: {ex.Message}\n";
+            _currentOutcome = null;
+            try
+            {
+                await ServiceLocator.Notifier.NotifyAsync(
+                    title: "Restore failed",
+                    detail: ex.Message + " (see Activity & logs for details)",
+                    severity: NotificationSeverity.Failure);
+            }
+            catch { /* notification failure shouldn't escape */ }
+        }
+        finally
+        {
+            engine.Log -= OnEngineLog;
+            engine.Progress -= OnEngineProgress;
+            // FileFailed / FileRestored unsubscribe removed.
+            await FinishRestoreControlAsync();
+            restoreLease?.Dispose();
+            IsRunning = false;
+            EndInFlightRestoreRun();
+        }
+
+        BuildSummary();
+        PersistRestoreRunRecord(RunKind.Restore);
+        CurrentStep = Step.Summary;
+    }
+
+    /// <summary>
+    /// Multi-source restore loop. For each checked source: resolves
+    /// the latest revision via the RevisionBrowser, lists every file
+    /// in that revision, builds a per-source RestoreRequest, and
+    /// runs RestoreEngine sequentially. Restored files are written
+    /// under the user's chosen target preserving each source's
+    /// directory structure (the only sensible default — without
+    /// PreserveStructure two sources containing similarly-named
+    /// files would clobber each other).
+    /// <para>
+    /// "Restore to the original source" means each source restores
+    /// in place; "different folder" means a `&lt;target&gt;\&lt;source-slug&gt;`
+    /// subdir per source so the trees don't collide. The OVERWRITE
+    /// gate fires once for the multi-source restore as a whole when
+    /// any source is restoring in-place.
+    /// </para>
+    /// </summary>
+    private async Task RunMultiSourceRestoreAsync()
+    {
+        if (SelectedBackup is null || SelectedDestination is null) return;
+        if (!CanContinueMultiSource)
+        {
+            CurrentStep = Step.PickRevision;
+            LoadError = "Choose a snapshot for every selected folder before starting the restore.";
+            return;
+        }
+
+        // Snapshot every input BEFORE the OVERWRITE dialog (which can
+        // sit on screen indefinitely) and BEFORE the loop begins.
+        // Includes TargetOriginalSource — the loop's per-source target
+        // formula reads it, and we don't want a Config.Changed-driven
+        // refresh or a wayward UI tick to flip the choice mid-loop and
+        // restore half the sources to one path, half to another.
+        var capturedBackup = SelectedBackup;
+        var capturedDestination = SelectedDestination;
+        var capturedStorageName = SelectedStorageName;
+        var capturedOverwrite = OverwriteExisting;
+        var capturedThreads = Threads;
+        var capturedRetryDelays = ServiceLocator.Config.Current.Restore.RetryDelaysSeconds;
+        var capturedTargetOriginalSource = TargetOriginalSource;
+        var capturedPreserveStructure = PreserveStructure;
+        var perSourcePick = MultiSourceRevisions
+            .Where(r => r.SelectedRevision is not null)
+            .ToDictionary(r => r.SourcePath, r => r.SelectedRevision!.Value);
+        var pickedSources = CheckedSourcePaths;
+        if (pickedSources.Count == 0) return;
+        var targetRoot = capturedTargetOriginalSource ? null : (CustomTargetPath?.Trim() ?? "");
+        if (!capturedTargetOriginalSource && string.IsNullOrWhiteSpace(targetRoot))
+        {
+            ResetProgressLog("Pick a target folder first.\n");
+            return;
+        }
+        if (capturedTargetOriginalSource && capturedOverwrite)
+        {
+            var owner = OwnerWindow();
+            if (owner is null) return;
+            var dlg = new DestructiveConfirmWindow(
+                title: $"Restore will overwrite {pickedSources.Count} source folders",
+                subtitle:
+                    "Each source you ticked will be restored from the snapshot you selected for it. " +
+                    "There's no undo.",
+                confirmString: "OK",
+                caseInsensitive: true);
+            var ok = await dlg.ShowDialog<bool>(owner);
+            if (!ok) return;
+        }
+
+        // Reset progress UI + transition to Progress step.
+        TotalFiles = 0;
+        RestoredCount = 0;
+        FailedCount = 0;
+        InFlightCount = 0;
+        ResetProgressLog();
+        SummaryDetails = "";
+        // Reset multi-source baselines so OnEngineProgress doesn't
+        // inherit counters from a previous wizard pass. They climb
+        // monotonically as iterations finish (see end of loop body).
+        _msBaselineTotal = 0;
+        _msBaselineRestored = 0;
+        _msBaselineFailed = 0;
+        CurrentStep = Step.Progress;
+
+        try { _cts?.Dispose(); } catch { }
+        _cts = new CancellationTokenSource();
+        _restoreRunStartedUtc = DateTime.UtcNow;
+        BeginInFlightRestoreRun();
+        IsRunning = true;
+        StartRestoreControl();
+        var engine = new RestoreEngine(ServiceLocator.Config, ServiceLocator.Engine, ServiceLocator.Secrets);
+        engine.Log += OnEngineLog;
+        engine.Progress += OnEngineProgress;
+        // FileFailed / FileRestored engine events removed in 2026-06-12
+        // restore-stack refactor.
+
+        RestoreOutcome? lastOutcome = null;
+        var sourceOutcomes = new List<RestoreOutcome>();
+        var sourceErrors = new List<string>();
+        IDisposable? restoreLease = null;
+        try
+        {
+            restoreLease = await ServiceLocator.Maintenance.AcquireReadAsync(_cts.Token, _cts.Cancel);
+            // Snapshot the per-source revision picks the user made in
+            // the wizard's PickRevision step. The user can pick any
+            // revision per source (previously hard-coded to "latest"
+            // — fixed 2026-06-12 after the user complaint that
+            // multi-source restore should let them pick the revision
+            // for EACH source).
+            foreach (var src in pickedSources)
+            {
+                if (_cts.Token.IsCancellationRequested) break;
+                _control!.ContinueNextBatch();
+                await _control.WaitWhilePausedAsync(_cts.Token);
+                SelectedSourcePath = src;
+                AppendProgressLine($"=== Source: {src} ===");
+                // Never silently choose a revision the user did not see.
+                if (!perSourcePick.TryGetValue(src, out var picked))
+                {
+                    sourceErrors.Add($"{src}: no snapshot was selected. Return to the snapshot step and choose one.");
+                    continue;
+                }
+                IReadOnlyList<RevisionSummary> revs;
+                try
+                {
+                    revs = await ServiceLocator.Revisions.ListRevisionsAsync(
+                        capturedBackup, src, capturedDestination, capturedStorageName, _cts.Token);
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    AppendProgressLine($"[error] couldn't list revisions for {src}: {ex.Message}");
+                    sourceErrors.Add($"{src}: {ex.Message}");
+                    continue;
+                }
+                if (revs.Count == 0)
+                {
+                    AppendProgressLine($"[skip] no snapshots at this destination for {src}");
+                    sourceErrors.Add($"{src}: no snapshots found");
+                    continue;
+                }
+                var pickedNumber = picked.Number;
+                var latest = revs.FirstOrDefault(r => picked.SnapshotId is not null
+                    ? r.SnapshotId == picked.SnapshotId : r.Number == pickedNumber);
+                if (latest.Number == 0 && pickedNumber != 0)
+                {
+                    sourceErrors.Add($"{src}: selected revision #{pickedNumber} no longer exists; no other revision was substituted.");
+                    continue;
+                }
+                AppendProgressLine($"  using revision #{latest.Number} from {latest.CreatedUtc.ToLocalTime():yyyy-MM-dd HH:mm}");
+
+                // List every file in the picked revision so we can
+                // populate the RestoreRequest. Without an explicit
+                // file list the engine doesn't know what to write to
+                // disk.
+                IReadOnlyList<RevisionFile> files;
+                try
+                {
+                    files = await ServiceLocator.Revisions.ListFilesAsync(
+                        capturedBackup, src, capturedDestination, capturedStorageName, latest.Number, _cts.Token, latest.SnapshotId);
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    AppendProgressLine($"[error] couldn't list files in revision {latest.Number} for {src}: {ex.Message}");
+                    sourceErrors.Add($"{src}: {ex.Message}");
+                    continue;
+                }
+                TotalFiles += files.Count;
+
+                // Per-source target. Original-source mode → write back
+                // to the source path. Custom-target mode → put each
+                // source under its own subfolder under the chosen
+                // root so two sources don't clobber each other's tree.
+                var perSourceTarget = capturedTargetOriginalSource
+                    ? src
+                    : System.IO.Path.Combine(targetRoot!, MultiSourceSubfolderName(src));
+
+                _currentRequest = new RestoreRequest
+                {
+                    Control = _control,
+                    CancelOperation = () => _cts?.Cancel(),
+                    MaintenanceLeaseHeld = true,
+                    SessionOwner = this,
+                    Backup = capturedBackup,
+                    SourcePath = src,
+                    Destination = capturedDestination,
+                    StorageName = capturedStorageName,
+                    Revision = latest.Number,
+                    SnapshotId = latest.SnapshotId,
+                    // Complete source: retain empty folders as well as files.
+                    // The engine supplies final counts from actual output.
+                    IncludePatterns = new[] { "" },
+                    TargetPath = perSourceTarget,
+                    Overwrite = capturedOverwrite,
+                    // Honour the user's "Preserve directory structure"
+                    // toggle from the Target step. Earlier this was
+                    // hard-coded to true and the UI checkbox was
+                    // silently ignored in multi-source mode. With per-
+                    // source target subdirs the toggle is still
+                    // meaningful — false flattens each source's tree
+                    // under its own subfolder, which some users want
+                    // for a quick "give me everything in one place".
+                    PreserveStructure = capturedPreserveStructure,
+                    Threads = capturedThreads,
+                    RetryDelaysSeconds = capturedRetryDelays,
+                };
+                try
+                {
+                    lastOutcome = await engine.RunAsync(_currentRequest, _cts.Token);
+                    sourceOutcomes.Add(lastOutcome);
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    AppendProgressLine($"[error] restore for {src} threw: {ex.Message}");
+                    lastOutcome = null;
+                    sourceErrors.Add($"{src}: {ex.Message}");
+                }
+
+                // Roll the per-iteration outcome into the multi-source
+                // baselines. The next iteration's engine progress
+                // events fire with a fresh outcome (counts reset to 0
+                // inside the engine), so without this the displayed
+                // counters would visibly snap back to whatever the new
+                // source's first chunk reports — losing every prior
+                // source's contribution.
+                //
+                // Total uses the SAME pre-flight files.Count that drove
+                // the running counter at the top of this loop (and that
+                // the engine itself initialised s.Total to). Using
+                // lastOutcome.Files.Count here would diverge if the
+                // engine dropped any files — TotalFiles would visibly
+                // jump backwards on iteration boundaries.
+                if (lastOutcome is not null)
+                {
+                    _msBaselineTotal += files.Count;
+                    _msBaselineRestored += lastOutcome.RestoredCount;
+                    _msBaselineFailed += lastOutcome.FailedCount;
+                }
+            }
+            var restored = sourceOutcomes.Sum(o => o.RestoredCount);
+            var problem = sourceErrors.Count > 0 || sourceOutcomes.Any(o => o.TerminalStatus != RestoreTerminalStatus.Success);
+            _currentOutcome = new RestoreOutcome
+            {
+                TargetPath = targetRoot ?? string.Join("; ", pickedSources),
+                TotalFiles = sourceOutcomes.Sum(o => o.TotalFiles),
+                RestoredCount = restored,
+                FailedCount = sourceOutcomes.Sum(o => o.FailedCount),
+                TotalBytes = sourceOutcomes.Sum(o => o.TotalBytes),
+                BytesRestored = sourceOutcomes.Sum(o => o.BytesRestored),
+                TerminalStatus = _cts.IsCancellationRequested ? RestoreTerminalStatus.Cancelled :
+                    problem ? (restored > 0 ? RestoreTerminalStatus.Warning : RestoreTerminalStatus.Error) :
+                    sourceOutcomes.Count == 0 ? RestoreTerminalStatus.Error : RestoreTerminalStatus.Success,
+                ErrorMessage = string.Join("; ", sourceErrors.Concat(sourceOutcomes
+                    .Where(o => !string.IsNullOrWhiteSpace(o.ErrorMessage)).Select(o => o.ErrorMessage!))),
+            };
+        }
+        finally
+        {
+            engine.Log -= OnEngineLog;
+            engine.Progress -= OnEngineProgress;
+            // FileFailed / FileRestored unsubscribe removed.
+            await FinishRestoreControlAsync();
+            restoreLease?.Dispose();
+            IsRunning = false;
+            EndInFlightRestoreRun();
+        }
+
+        BuildSummary();
+        PersistRestoreRunRecord(RunKind.Restore);
+        CurrentStep = Step.Summary;
+    }
+
+    /// <summary>
+    /// Filesystem-safe subfolder name for a multi-source restore so
+    /// "C:\Users\…\Documents" and "C:\Users\…\Pictures" don't collide
+    /// when restored under the same custom target. Uses the leaf
+    /// directory name + a 6-char hash of the full path so two
+    /// "Documents" folders from different drives stay distinct.
+    /// </summary>
+    private static string MultiSourceSubfolderName(string sourcePath)
+    {
+        try
+        {
+            var leaf = new System.IO.DirectoryInfo(sourcePath.TrimEnd('\\', '/')).Name;
+            if (string.IsNullOrEmpty(leaf)) leaf = "source";
+            var hashBytes = System.Security.Cryptography.SHA1.HashData(
+                System.Text.Encoding.UTF8.GetBytes(sourcePath));
+            var hash = Convert.ToHexString(hashBytes, 0, 3).ToLowerInvariant();
+            // Strip filesystem-illegal chars from leaf as a precaution.
+            foreach (var ch in System.IO.Path.GetInvalidFileNameChars())
+                leaf = leaf.Replace(ch, '_');
+            return $"{leaf}-{hash}";
+        }
+        catch
+        {
+            return "source-" + Math.Abs(sourcePath.GetHashCode()).ToString("x");
+        }
+    }
+
+    [RelayCommand]
+    private void Cancel()
+    {
+        _cancelRequested = true; OnRestoreControlChanged();
+        try { _cts?.Cancel(); } catch { }
+    }
+
+    [RelayCommand]
+    private void TogglePause()
+    {
+        if (!CanTogglePause) return;
+        try { if (IsRestorePaused) _control!.Resume(); else _control!.Pause(); }
+        catch (Exception ex) { AppendProgressLine("Could not change pause state: " + ex.Message); }
+    }
+
+    private RestoreControl StartRestoreControl()
+    {
+        if (_control is not null) _control.Changed -= OnRestoreControlChanged;
+        _control = new RestoreControl(); _cancelRequested = false;
+        _currentOutcome = null;
+        _control.Changed += OnRestoreControlChanged;
+        OnRestoreControlChanged();
+        return _control;
+    }
+
+    private void OnRestoreControlChanged() => Dispatcher.UIThread.Post(() =>
+    {
+        OnPropertyChanged(nameof(PauseLabel)); OnPropertyChanged(nameof(CanTogglePause));
+        OnPropertyChanged(nameof(IsRestorePaused)); OnPropertyChanged(nameof(RestorePhaseLabel));
+        OnPropertyChanged(nameof(CancelLabel)); OnPropertyChanged(nameof(CanCancelRestore));
+        OnPropertyChanged(nameof(RestoreProgressExplanation));
+    });
+
+    partial void OnIsRunningChanged(bool value) => OnRestoreControlChanged();
+
+    private async Task FinishRestoreControlAsync()
+    {
+        if (_control is null) return;
+        try
+        {
+            var cancelled = _cts?.IsCancellationRequested == true || _currentOutcome?.TerminalStatus == RestoreTerminalStatus.Cancelled;
+            await Task.Run(() => _control.Complete(cancelled));
+            if (cancelled || _control.RollbackRequired)
+            {
+                RestoredCount = 0;
+                _currentOutcome ??= new RestoreOutcome { TotalFiles = TotalFiles, TargetPath = _currentRequest?.TargetPath ?? "" };
+                if (_currentOutcome is not null)
+                {
+                    _currentOutcome.RestoredCount = 0; _currentOutcome.BytesRestored = 0;
+                    _currentOutcome.FailedCount = _currentOutcome.TotalFiles;
+                    if (_control.RollbackRequired && !cancelled)
+                    {
+                        _currentOutcome.TerminalStatus = RestoreTerminalStatus.Error;
+                        _currentOutcome.ErrorMessage ??= "Restore could not finish. Files copied by this attempt were removed; open the log for the original error.";
+                    }
+                    if (cancelled && _currentOutcome.TerminalStatus != RestoreTerminalStatus.Error)
+                    {
+                        _currentOutcome.TerminalStatus = RestoreTerminalStatus.Cancelled;
+                        _currentOutcome.ErrorMessage = "Restore cancelled. Its output was removed and existing originals were preserved.";
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendProgressLine(ex.Message);
+            _currentOutcome ??= new RestoreOutcome();
+            _currentOutcome.TerminalStatus = RestoreTerminalStatus.Error; _currentOutcome.ErrorMessage = ex.Message;
+        }
+        finally { _control.Changed -= OnRestoreControlChanged; }
+    }
+
+    [RelayCommand]
+    private void Back()
+    {
+        // Going back from PickRevision (or any step that triggered a
+        // revision listing) means the user is no longer interested in
+        // that listing's result — cancel any in-flight load so a
+        // late completion can't stomp the destination/source picker
+        // they're rewinding into.
+        try { _revisionLoadCts?.Cancel(); } catch { }
+
+        CurrentStep = CurrentStep switch
+        {
+            Step.PickSource      => Step.PickBackup,
+            Step.PickDestination => SourcesForBackup.Count > 1 ? Step.PickSource : Step.PickBackup,
+            // From PickRevision, rewind past whichever steps were skipped
+            // forward: if destination was auto-picked (1 target) and
+            // source was auto-picked (1 source), we go all the way back
+            // to PickBackup; otherwise to the most-recent picker shown.
+            Step.PickRevision    => DestinationsForBackup.Count > 1
+                                        ? Step.PickDestination
+                                        : SourcesForBackup.Count > 1
+                                            ? Step.PickSource
+                                            : Step.PickBackup,
+            Step.PickFiles       => Step.PickRevision,
+            // Both modes route through PickRevision now (single-source:
+            // a picker; multi-source: a read-only latest-revision
+            // summary). Single-source goes via PickFiles; multi-source
+            // skips PickFiles and so rewinds straight to PickRevision.
+            Step.PickTarget      => MultiSourceMode
+                                        ? Step.PickRevision
+                                        : Step.PickFiles,
+            _                    => CurrentStep,
+        };
+    }
+
+    [RelayCommand]
+    private void StartOver()
+    {
+        var backup = SelectedBackup;
+        ShellLaunchFilterPath = null;
+        FileFilter = "";
+        if (!IsStepProgressOrSummary) RestartWizard();
+        AppNavigator.Go(NavItem.Restore);
+        if (backup is not null) AppNavigator.PreselectRestoreBackup(backup);
+    }
+
+    /// <summary>
+    /// Public restart used by the nav layer: clicking "Restore files"
+    /// in the sidebar (or programmatic nav from a card) should always
+    /// land on step 1 with no stale prior selections, even if a
+    /// previous wizard session left mid-flow.
+    /// </summary>
+    public void RestartWizard()
+    {
+        SelectedBackup = null;
+        SelectedDestination = null;
+        SelectedRevision = null;
+        SelectedSourcePath = null;
+        SourcesForBackup.Clear();
+        MultiSourceMode = false;
+        AllFiles.Clear();
+        FilteredFiles.Clear();
+        SelectedFilesCount = 0;
+        SelectedFilesBytes = 0;
+        ResetProgressLog();
+        SummaryDetails = "";
+        ShellLaunchPath = null;
+        ShellLaunchFilterPath = null;
+        FileFilter = "";
+        _currentOutcome = null;
+        _currentRequest = null;
+        CurrentStep = Step.PickBackup;
+    }
+
+    [RelayCommand]
+    private async Task RetryAllFailedAsync()
+    {
+        // Phase-2 per-failed-file retry dropped in the 2026-06-12
+        // restore-stack refactor (match Backrest native semantics).
+        // The Summary screen's "Retry all failed" button now re-runs
+        // the WHOLE restore against the original request — same
+        // semantics restic users get from the CLI when a restore
+        // returns Warning. If the failure was transient, the second
+        // run succeeds; if it's persistent (wrong password, missing
+        // chunks), the same error surfaces and the user has the
+        // information they need.
+        if (_currentRequest is null) return;
+        _currentRequest.Control = StartRestoreControl();
+        CurrentStep = Step.Progress;
+        IsRunning = true;
+        try { _cts?.Dispose(); } catch { }
+        _cts = new CancellationTokenSource();
+        _restoreRunStartedUtc = DateTime.UtcNow;
+        BeginInFlightRestoreRun();
+        AppNavigator.SignalLiveActivity(SelectedBackup?.Name);
+        var engine = new RestoreEngine(ServiceLocator.Config, ServiceLocator.Engine, ServiceLocator.Secrets);
+        engine.Log += OnEngineLog;
+        engine.Progress += OnEngineProgress;
+        IDisposable? restoreLease = null;
+        try
+        {
+            restoreLease = await ServiceLocator.Maintenance.AcquireReadAsync(_cts.Token, _cts.Cancel);
+            _currentRequest.MaintenanceLeaseHeld = true;
+            _currentOutcome = await engine.RunAsync(_currentRequest, _cts.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            AppLogger.For<RestoreViewModel>().Warning(ex,
+                "Restore retry-all threw: {Message}", ex.Message);
+        }
+        finally
+        {
+            engine.Log -= OnEngineLog;
+            engine.Progress -= OnEngineProgress;
+            await FinishRestoreControlAsync();
+            restoreLease?.Dispose();
+            IsRunning = false;
+            EndInFlightRestoreRun();
+        }
+        BuildSummary();
+        PersistRestoreRunRecord(RunKind.Restore);
+        CurrentStep = Step.Summary;
+    }
+
+    [RelayCommand]
+    private async Task BrowseCustomTargetAsync()
+    {
+        var owner = OwnerWindow();
+        if (owner is null) return;
+        var picks = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Pick a folder to restore into",
+            AllowMultiple = false,
+        });
+        if (picks?.Count > 0)
+        {
+            var p = picks[0].TryGetLocalPath();
+            if (!string.IsNullOrEmpty(p)) CustomTargetPath = p;
+        }
+    }
+
+    [RelayCommand]
+    private void OpenTargetFolder()
+    {
+        if (_currentOutcome is null) return;
+        try
+        {
+            using var _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = _currentOutcome.TargetPath,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            AppLogger.For<RestoreViewModel>().Warning(ex,
+                "Open target folder failed for {Path}", _currentOutcome.TargetPath);
+        }
+    }
+
+    // ---- file list helpers ----
+
+    partial void OnFileFilterChanged(string value) => ApplyFileFilter();
+
+    private void ApplyFileFilter()
+    {
+        FilteredFiles.Clear();
+        IEnumerable<RevisionFileRow> src = AllFiles;
+        // Shell-launch filter applies first and is sticky — surviving any
+        // edit to FileFilter so right-click-restored users don't lose the
+        // narrow they were given. The user-typed FileFilter further
+        // narrows on top of it.
+        if (!string.IsNullOrWhiteSpace(ShellLaunchFilterPath))
+        {
+            var sticky = ShellLaunchFilterPath.Trim();
+            src = src.Where(r => r.File.Path.Contains(sticky, StringComparison.OrdinalIgnoreCase));
+        }
+        if (!string.IsNullOrWhiteSpace(FileFilter))
+        {
+            var q = FileFilter.Trim();
+            src = src.Where(r => r.File.Path.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        foreach (var r in src.Take(5000))
+            FilteredFiles.Add(r);
+    }
+
+    [RelayCommand]
+    private void SelectAll()
+    {
+        _suppressSelectionDelta = true;
+        try { foreach (var r in AllFiles) r.IsSelected = true; }
+        finally { _suppressSelectionDelta = false; }
+        RecomputeSelectionTotals();
+    }
+
+    [RelayCommand]
+    private void ClearSelection()
+    {
+        _suppressSelectionDelta = true;
+        try { foreach (var r in AllFiles) r.IsSelected = false; }
+        finally { _suppressSelectionDelta = false; }
+        RecomputeSelectionTotals();
+    }
+
+    /// <summary>
+    /// True while a bulk selection mutation (SelectAll / ClearAll /
+    /// LoadFiles complete) is in progress. RevisionFileRow's
+    /// per-toggle callback skips its delta update during the bulk
+    /// path; the caller does a single RecomputeSelectionTotals at
+    /// the end. Avoids the O(n²) cost of recomputing for every row
+    /// when the user clicks Select All on a 200k-file restore.
+    /// </summary>
+    private bool _suppressSelectionDelta;
+
+    /// <summary>
+    /// Called by RevisionFileRow on its IsSelected change. Updates the
+    /// header counter by delta — O(1) per toggle instead of the O(n)
+    /// LINQ scan a full recompute would cost.
+    /// </summary>
+    internal void OnRowSelectionDelta(RevisionFileRow row, bool nowSelected)
+    {
+        if (_suppressSelectionDelta) return;
+        if (nowSelected)
+        {
+            SelectedFilesCount++;
+            SelectedFilesBytes += row.File.SizeBytes;
+        }
+        else
+        {
+            SelectedFilesCount = Math.Max(0, SelectedFilesCount - 1);
+            SelectedFilesBytes = Math.Max(0, SelectedFilesBytes - row.File.SizeBytes);
+        }
+    }
+
+    /// <summary>
+    /// Full recount of selected files + bytes from <see cref="AllFiles"/>.
+    /// O(n) — used after operations that mutate the row set itself
+    /// (LoadFiles, filter change, SelectAll, ClearAll). For per-toggle
+    /// updates, see <see cref="OnRowSelectionDelta"/>.
+    /// </summary>
+    internal void RecomputeSelectionTotals()
+    {
+        int count = 0;
+        long bytes = 0;
+        foreach (var r in AllFiles)
+        {
+            if (!r.IsSelected) continue;
+            count++;
+            bytes += r.File.SizeBytes;
+        }
+        SelectedFilesCount = count;
+        SelectedFilesBytes = bytes;
+    }
+
+    // ---- loaders ----
+
+    [ObservableProperty] private string? _loadError;
+
+    /// <summary>Re-fire the derived "should I show the empty hint?"
+    /// property whenever any of its inputs change. Without these the
+    /// placeholder/listbox visibility wouldn't toggle as state moves
+    /// between loading → error → loaded-empty → loaded-with-data.</summary>
+    partial void OnLoadingRevisionsChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanContinueMultiSource));
+        OnPropertyChanged(nameof(ShowNoRevisionsHint));
+    }
+    partial void OnLoadErrorChanged(string? value)
+    {
+        OnPropertyChanged(nameof(CanContinueMultiSource));
+        OnPropertyChanged(nameof(ShowNoRevisionsHint));
+    }
+
+    private async Task LoadRevisionsAsync(CancellationToken ct = default)
+    {
+        if (SelectedBackup is null || SelectedDestination is null) return;
+        var source = SelectedSourcePath ?? SelectedBackup.SourcePaths.FirstOrDefault();
+        if (string.IsNullOrEmpty(source))
+        {
+            LoadError = "This backup has no source paths configured.";
+            return;
+        }
+        // Snapshot the previously-selected revision number so we can
+        // restore the selection after the reload — without this, a
+        // Config.Changed-driven refresh during the wizard always jumped
+        // the user back to the latest revision, which is wrong if they
+        // were inspecting an older one.
+        var previousSelection = SelectedRevision;
+        LoadingRevisions = true;
+        LoadError = null;
+        Revisions.Clear();
+        OnPropertyChanged(nameof(HasRevisions));
+        OnPropertyChanged(nameof(ShowNoRevisionsHint));
+        try
+        {
+            var list = await ServiceLocator.Revisions.ListRevisionsAsync(
+                SelectedBackup, source, SelectedDestination, SelectedStorageName, ct);
+            // If the user clicked Back (or re-navigated through the
+            // destination step) while this listing was in flight,
+            // bail before touching the bound collections — a successor
+            // load is already running against a clean Revisions list
+            // and we'd otherwise stomp its in-progress data.
+            if (ct.IsCancellationRequested) return;
+            foreach (var r in list) Revisions.Add(r);
+            // Re-apply the previous selection if the same revision is
+            // still in the list; otherwise default to the latest. If
+            // the list is empty, leave SelectedRevision as null —
+            // RevisionSummary is a struct, so a naïve
+            // Revisions.FirstOrDefault() returns default(RevisionSummary)
+            // (a zero-numbered struct) which the IsNotNull-bound Next
+            // button reads as "selection present" and stays enabled.
+            // The user reported: "If there are no revisions to pick
+            // from, it still offers to click on Next: pick files to
+            // restore."
+            if (Revisions.Count == 0)
+            {
+                SelectedRevision = null;
+            }
+            else
+            {
+                var match = previousSelection is { } previous
+                    ? Revisions.FirstOrDefault(r => previous.SnapshotId is not null
+                        ? r.SnapshotId == previous.SnapshotId : r.Number == previous.Number)
+                    : Revisions[0];
+                SelectedRevision = match.Number > 0 ? match : null;
+                if (SelectedRevision is null)
+                    LoadError = "The snapshot you selected is no longer available. Choose another snapshot to continue.";
+            }
+            // No LoadError on an empty result — the dedicated empty-state
+            // placeholder ("no revisions yet — run the backup once first")
+            // is more informative than a red callout that implies
+            // something is broken when nothing is. LoadError is reserved
+            // for genuine "we couldn't even ask" failures (catch block
+            // below).
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            LoadError = "Something went wrong while reading revisions: " + ex.Message;
+        }
+        finally
+        {
+            // Same successor-race guard as the multi-source loader —
+            // see LoadMultiSourceLatestRevisionsAsync.
+            if (!ct.IsCancellationRequested)
+            {
+                LoadingRevisions = false;
+                OnPropertyChanged(nameof(HasRevisions));
+                OnPropertyChanged(nameof(ShowNoRevisionsHint));
+            }
+        }
+    }
+
+    /// <summary>
+    /// A snapshot with millions of files would blow out memory if we
+    /// added them all to the visible selection list. The mounted browser
+    /// provides access beyond this selection limit; search is local to the list.
+    /// </summary>
+    public const int MaxFilesInRestoreList = 200_000;
+
+    private async Task<bool> LoadFilesAsync()
+    {
+        if (SelectedBackup is null || SelectedDestination is null || SelectedRevision is null) return false;
+        var backup = SelectedBackup;
+        var destination = SelectedDestination;
+        var revision = SelectedRevision.Value;
+        var storage = SelectedStorageName;
+        var step = CurrentStep;
+        var source = SelectedSourcePath ?? SelectedBackup.SourcePaths.FirstOrDefault();
+        if (string.IsNullOrEmpty(source))
+        {
+            LoadError = "This backup has no source paths configured.";
+            return false;
+        }
+        LoadingFiles = true;
+        LoadError = null;
+        AllFiles.Clear();
+        FilteredFiles.Clear();
+        try
+        {
+            var list = await ServiceLocator.Revisions.ListFilesAsync(
+                backup, source, destination, storage,
+                revision.Number, CancellationToken.None, revision.SnapshotId);
+            if (SelectedBackup != backup || SelectedDestination != destination ||
+                SelectedRevision != revision || SelectedStorageName != storage ||
+                (SelectedSourcePath ?? SelectedBackup?.SourcePaths.FirstOrDefault()) != source || CurrentStep != step) return false;
+
+            if (list.Count > MaxFilesInRestoreList)
+            {
+                LoadError = $"This revision has {list.Count:N0} files; showing the first " +
+                            $"{MaxFilesInRestoreList:N0}. Search applies only to those files. Use Browse backup to access files beyond this list.";
+                foreach (var f in list.Take(MaxFilesInRestoreList))
+                    AllFiles.Add(new RevisionFileRow(f, this));
+            }
+            else
+            {
+                foreach (var f in list) AllFiles.Add(new RevisionFileRow(f, this));
+            }
+            ApplyFileFilter();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LoadError = "Something went wrong while reading files: " + ex.Message;
+            return false;
+        }
+        finally { LoadingFiles = false; RecomputeSelectionTotals(); }
+    }
+
+    // ---- engine callbacks (marshaled to UI thread) ----
+
+    private void OnEngineLog(string line) =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            // ALWAYS append every line to the raw buffer — verbose is
+            // a DISPLAY filter, not a recording filter, so the
+            // persisted .log file (written from this same buffer)
+            // captures the full restic output regardless of the
+            // setting. Materialization to the bound ProgressLog
+            // applies the filter (see ScheduleProgressLogFlush).
+            AppendProgressLine(line);
+        });
+
+    // ---- ProgressLog buffer ----
+    // Earlier the code did `ProgressLog += line + "\n"` per line plus a
+    // mid-string slice for trim. That's O(n²) over the run and slices
+    // mid-line on truncation (the surviving leading "line" is a partial
+    // fragment). The buffer below holds the live text in a StringBuilder
+    // and rebuilds the bound string only on a 150ms debounce — same
+    // pattern as LogsViewModel.LiveTail. Trim drops the oldest chunk
+    // aligned to the next newline so the head of the buffer always
+    // starts at a complete line.
+    private const int ProgressLogHardCap = 400_000;
+    private const int ProgressLogKeepAfterTrim = 200_000;
+    private static readonly TimeSpan ProgressLogFlushInterval = TimeSpan.FromMilliseconds(150);
+    private readonly System.Text.StringBuilder _progressLogBuffer = new(capacity: 64 * 1024);
+    private bool _progressLogFlushScheduled;
+
+    /// <summary>
+    /// Append a line to the restore progress log, marshaling to the UI
+    /// thread if necessary. Adds a trailing newline if the caller's
+    /// text doesn't already end with one. Triggers a debounced flush
+    /// of <see cref="ProgressLog"/> so the bound TextBox doesn't
+    /// re-render once per line on a verbose restore (5–10k lines/sec).
+    /// </summary>
+    private void AppendProgressLine(string text)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => AppendProgressLine(text));
+            return;
+        }
+        _progressLogBuffer.Append(text);
+        if (text.Length == 0 || text[^1] != '\n') _progressLogBuffer.Append('\n');
+        TrimProgressLogIfNeeded();
+        ScheduleProgressLogFlush();
+    }
+
+    // ---- test seams (internal so tests can drive the buffer
+    // synchronously without waiting on the 150ms debounced flush) ----
+    internal void AppendProgressLineForTesting(string text) => AppendProgressLine(text);
+    internal string ProgressLogBufferSnapshot() => _progressLogBuffer.ToString();
+    internal int ProgressLogBufferLength => _progressLogBuffer.Length;
+
+    /// <summary>Reset the progress log to <paramref name="initial"/>
+    /// (defaults to empty). Synchronous — clears the SB and flips the
+    /// bound property in one go so the next OnEngineLog starts from a
+    /// clean state. Replaces the previous <c>ProgressLog = ""</c>
+    /// pattern that left the buffer out of sync with the bound
+    /// string.</summary>
+    private void ResetProgressLog(string initial = "")
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => ResetProgressLog(initial));
+            return;
+        }
+        _progressLogBuffer.Clear();
+        if (!string.IsNullOrEmpty(initial)) _progressLogBuffer.Append(initial);
+        _progressLogFlushScheduled = false;
+        ProgressLog = MaterializeProgressLog();
+    }
+
+    /// <summary>Materialize the bound <see cref="ProgressLog"/> from
+    /// the raw <see cref="_progressLogBuffer"/> applying the verbose
+    /// filter. Verbose off → DEBUG/TRACE lines stripped from display
+    /// only; the buffer (and any persistence path that reads it)
+    /// stays untouched.</summary>
+    private string MaterializeProgressLog() =>
+        VerboseLogFilter.FilterForDisplay(_progressLogBuffer.ToString());
+
+    private void TrimProgressLogIfNeeded()
+    {
+        if (_progressLogBuffer.Length <= ProgressLogHardCap) return;
+        var dropFrom = _progressLogBuffer.Length - ProgressLogKeepAfterTrim;
+        // Snap the trim point forward to the next '\n' so the head of
+        // the survivor buffer is always a complete line, never a
+        // half-truncated fragment. Cap the search at +2 KB so a
+        // pathological no-newline blob doesn't scan the whole buffer.
+        var snap = -1;
+        var ceiling = System.Math.Min(_progressLogBuffer.Length, dropFrom + 2048);
+        for (int i = dropFrom; i < ceiling; i++)
+        {
+            if (_progressLogBuffer[i] == '\n') { snap = i + 1; break; }
+        }
+        _progressLogBuffer.Remove(0, snap > 0 ? snap : dropFrom);
+    }
+
+    private void ScheduleProgressLogFlush()
+    {
+        if (_progressLogFlushScheduled) return;
+        _progressLogFlushScheduled = true;
+        _ = System.Threading.Tasks.Task.Delay(ProgressLogFlushInterval).ContinueWith(_ =>
+            Dispatcher.UIThread.Post(() =>
+            {
+                _progressLogFlushScheduled = false;
+                // Materialise once per flush, not once per line.
+                // The verbose filter is applied here so the bound
+                // string hides DEBUG/TRACE while the underlying
+                // buffer keeps every line for persistence.
+                ProgressLog = MaterializeProgressLog();
+            }));
+    }
+
+    /// <summary>Test-friendly facade preserved for back-compat with
+    /// existing tests: returns true iff <paramref name="line"/> would
+    /// be visible in the bound <see cref="ProgressLog"/> at the
+    /// current verbose-logging setting. Delegates to
+    /// <see cref="VerboseLogFilter"/> which is now the single source
+    /// of truth (used by both this view and LogsViewModel).</summary>
+    internal static bool ShouldShowRestoreLogLine(string line) =>
+        VerboseLogFilter.ShouldShow(line);
+
+    /// <summary>Multi-source baselines: counts contributed by sources
+    /// already finished in the current run loop. The engine emits
+    /// per-iteration snapshots (its RestoreOutcome is rebuilt fresh
+    /// each call), so without these baselines a multi-source run
+    /// would visibly RESET the counters every time the loop moved to
+    /// the next source. <see cref="RunMultiSourceRestoreAsync"/>
+    /// increments these between iterations; single-source flows leave
+    /// them at zero and the assignment below is a no-op.</summary>
+    private int _msBaselineTotal;
+    private int _msBaselineRestored;
+    private int _msBaselineFailed;
+
+    private void OnEngineProgress(RestoreProgressSnapshot s) =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            TotalFiles    = _msBaselineTotal    + s.Total;
+            RestoredCount = _msBaselineRestored + s.Restored;
+            FailedCount   = _msBaselineFailed   + s.Failed;
+            InFlightCount = s.InFlight;
+        });
+
+    // Backrest reports overall results rather than a reliable per-file
+    // failure list. Show that result directly; never fabricate file rows.
+
+    // ---- misc ----
+
+    /// <summary>
+    /// Stamp a <see cref="RunRecord"/> for the just-finished restore
+    /// (or test-restore) and append it to the backup's history. Lands
+    /// the record in the same per-backup history.json the LogsView
+    /// reads for backup runs, so the RUN dropdown interleaves
+    /// activity by start time. Writes the buffered ProgressLog to a
+    /// real file under the per-backup logs dir so the
+    /// "Selected run" pane has something to load.
+    /// </summary>
+    private void PersistRestoreRunRecord(RunKind kind)
+    {
+        if (SelectedBackup is null) return;
+        try
+        {
+            var endedUtc = DateTime.UtcNow;
+            var status = ClassifyRestoreStatus();
+            var summary = BuildPersistedSummaryLine();
+
+            // Per-run log file. Mirrors the per-backup-cell layout:
+            // <EngineLogsRoot>/<sanitized-backup-name>/<timestamp>-<kind>.log
+            // The LogsView's "Selected run" pane reads this path.
+            string? logPath = null;
+            try
+            {
+                var dir = AppPaths.LogDirForBackup(SelectedBackup.Name);
+                System.IO.Directory.CreateDirectory(dir);
+                var kindTag = kind == RunKind.TestRestore ? "test-restore" : "restore";
+                logPath = LogStore.NewTranscriptPath(SelectedBackup.Name, kindTag, _restoreRunStartedUtc);
+                // Write from the live StringBuilder, not the bound
+                // ProgressLog property — the latter is updated via a
+                // 150 ms debounced flush, so a fast restore could
+                // finish (and we'd persist) before the final flush
+                // had committed the last lines into the bound
+                // string. The user reported one persisted log was
+                // blank for exactly this reason.
+                System.IO.File.WriteAllText(logPath, _progressLogBuffer.ToString());
+            }
+            catch (Exception ex)
+            {
+                AppLogger.For<RestoreViewModel>().Warning(ex,
+                    "Failed to persist {Kind} log file for {Backup}", kind, SelectedBackup.Name);
+            }
+
+            var rec = new RunRecord
+            {
+                // Re-use the in-flight record's Id when one exists so
+                // the persisted entry IS the same row in the LogsView
+                // RUN dropdown the user clicked while the run was in
+                // flight — clicking it during the run and after the
+                // run lands on the same item. See BackupVerifier for
+                // the symmetrical pattern.
+                Id         = _inFlightRunRecord?.Id ?? Guid.NewGuid().ToString("N"),
+                BackupId   = SelectedBackup.Id,
+                BackupName = SelectedBackup.Name,
+                Kind       = kind,
+                StartedUtc = _restoreRunStartedUtc,
+                EndedUtc   = endedUtc,
+                Status     = status,
+                Summary    = summary,
+                LogPath    = logPath ?? "",
+            };
+            ServiceLocator.Logs.AppendRun(rec);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.For<RestoreViewModel>().Warning(ex,
+                "Failed to persist {Kind} RunRecord for {Backup}", kind, SelectedBackup?.Name);
+        }
+    }
+
+    /// <summary>
+    /// Register a synthetic "Running" RunRecord with
+    /// <see cref="RunActivityTracker"/> so the LogsView's RUN dropdown
+    /// surfaces this restore as a Running entry while it's in flight.
+    /// Mirrors what the orchestrator does for backup runs and what
+    /// <see cref="BackupVerifier.VerifyAsync"/> does for test-restore
+    /// drills. Caller MUST pair this with <see cref="EndInFlightRestoreRun"/>
+    /// in a finally block; otherwise a phantom "Running" entry persists
+    /// in the dropdown forever.
+    /// </summary>
+    private void BeginInFlightRestoreRun()
+    {
+        if (SelectedBackup is null) { _inFlightRunRecord = null; return; }
+        // Both steps wrapped in try/catch so a failure here can NEVER
+        // bubble up into the restore run start path. The three call
+        // sites all sit BEFORE `IsRunning = true` and the engine
+        // event subscriptions; a throw out of Begin would leak the
+        // wizard into a half-armed state (engine.Log etc. never
+        // wired, finally never reached). Registration with the
+        // tracker is purely cosmetic UI plumbing — if it fails,
+        // the run can still proceed without a "Running" row in the
+        // LogsView dropdown. Errors are logged so they're visible
+        // in support reports.
+        try
+        {
+            _inFlightRunRecord = new RunRecord
+            {
+                BackupId   = SelectedBackup.Id,
+                BackupName = SelectedBackup.Name,
+                Kind       = RunKind.Restore,
+                StartedUtc = _restoreRunStartedUtc,
+                Status     = BackupRunStatus.Running,
+                Summary    = "Running…",
+            };
+            ServiceLocator.Activity.Register(_inFlightRunRecord);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.For<RestoreViewModel>().Warning(ex,
+                "BeginInFlightRestoreRun threw — restore proceeds without a Running entry in the dropdown");
+            _inFlightRunRecord = null;
+        }
+    }
+
+    /// <summary>Unregister the in-flight record from the tracker. The
+    /// field stays non-null so <see cref="PersistRestoreRunRecord"/>
+    /// can re-use its Id for ID continuity in the dropdown.</summary>
+    private void EndInFlightRestoreRun()
+    {
+        if (_inFlightRunRecord is null) return;
+        try { ServiceLocator.Activity.Unregister(_inFlightRunRecord.Id); }
+        catch { /* tracker mutations should never break the wizard */ }
+    }
+
+    private BackupRunStatus ClassifyRestoreStatus()
+    {
+        if (_currentOutcome is null) return _cts?.IsCancellationRequested == true ? BackupRunStatus.Skipped : BackupRunStatus.Failed;
+        if (_cts is { IsCancellationRequested: true }) return BackupRunStatus.Skipped;
+        // Map RestoreTerminalStatus → BackupRunStatus. Same semantics
+        // restic itself reports — Success = clean exit, Warning =
+        // exit 1 with some files restored, Error = catastrophic, etc.
+        return _currentOutcome.TerminalStatus switch
+        {
+            RestoreTerminalStatus.Success   => BackupRunStatus.Success,
+            RestoreTerminalStatus.Warning   => BackupRunStatus.Warning,
+            RestoreTerminalStatus.Error     => BackupRunStatus.Failed,
+            RestoreTerminalStatus.Cancelled => BackupRunStatus.Skipped,
+            _ => BackupRunStatus.Skipped,
+        };
+    }
+
+    private string BuildPersistedSummaryLine()
+    {
+        if (_currentOutcome is null) return "no files restored";
+        var ok = _currentOutcome.RestoredCount;
+        var fail = _currentOutcome.FailedCount;
+        var dur  = (DateTime.UtcNow - _restoreRunStartedUtc).TotalSeconds;
+        var durText = dur < 60 ? $"in {dur:F0}s" : $"in {dur / 60:F1}m";
+        return fail == 0
+            ? $"{ok:N0} restored · {durText}"
+            : $"{ok:N0} restored · {fail:N0} not restored · {durText}";
+    }
+
+    private void BuildSummary()
+    {
+        var status = _currentOutcome?.TerminalStatus ??
+            (_cts?.IsCancellationRequested == true ? RestoreTerminalStatus.Cancelled : RestoreTerminalStatus.Error);
+        SummaryHeading = status switch
+        {
+            RestoreTerminalStatus.Success => "Restore complete",
+            RestoreTerminalStatus.Warning => "Restore needs attention",
+            RestoreTerminalStatus.Cancelled => "Restore cancelled",
+            _ => "Restore failed",
+        };
+        AnyFailures = status != RestoreTerminalStatus.Success;
+        if (_currentOutcome is null)
+        {
+            SummaryLine = "No completed restore result. See the log below for details.";
+            SummaryDetails = status == RestoreTerminalStatus.Cancelled
+                ? "The restore was cancelled before a completed result was available. Check the target folder before starting again."
+                : "Backspace could not confirm a completed restore. Read the log for the error and check the target folder before trying again.";
+            return;
+        }
+        TotalFiles = _currentOutcome.TotalFiles;
+        RestoredCount = _currentOutcome.RestoredCount;
+        FailedCount = _currentOutcome.FailedCount;
+        SummaryLine = $"{RestoredCount} restored · {FailedCount} not restored · into {_currentOutcome.TargetPath}";
+        SummaryDetails = !string.IsNullOrWhiteSpace(_currentOutcome.ErrorMessage)
+            ? _currentOutcome.ErrorMessage
+            : status switch
+            {
+                RestoreTerminalStatus.Success => "The restore finished successfully. Open the target folder to review the restored files.",
+                RestoreTerminalStatus.Warning => "Some selected files were not restored. Read the log for details before deciding whether to try again.",
+                RestoreTerminalStatus.Cancelled => "The restore was cancelled. Files already copied remain in the target folder; the remaining files were not restored.",
+                _ => "The restore stopped because of an error. Files already copied remain in the target folder. Read the log for details before trying again.",
+            };
+        if (!string.IsNullOrWhiteSpace(_currentOutcome.ErrorMessage))
+            AppendProgressLine($"[restore] {_currentOutcome.ErrorMessage}");
+        // The summary is a finished result, not another streaming frame. Make
+        // its final explanation visible immediately rather than waiting for
+        // the log's normal 150 ms batching timer.
+        ProgressLog = MaterializeProgressLog();
+    }
+
+    private static Avalonia.Controls.Window? OwnerWindow()
+    {
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime l)
+            return l.MainWindow;
+        return null;
+    }
+
+    public bool IsStepPickBackup       => CurrentStep == Step.PickBackup;
+    public bool IsStepPickSource       => CurrentStep == Step.PickSource;
+    public bool IsStepPickDestination  => CurrentStep == Step.PickDestination;
+    public bool IsStepPickRevision     => CurrentStep == Step.PickRevision;
+    public bool IsStepPickFiles        => CurrentStep == Step.PickFiles;
+    public bool IsStepPickTarget       => CurrentStep == Step.PickTarget;
+    public bool IsStepProgress         => CurrentStep == Step.Progress;
+    public bool IsStepSummary          => CurrentStep == Step.Summary;
+
+    /// <summary>True iff we're on the Progress OR Summary step. Both
+    /// share the same dark-terminal layout; Summary just swaps the
+    /// title + bottom action buttons. Bound by the outer Restore-
+    /// progress Grid's IsVisible so the terminal stays on screen
+    /// after the run finishes — the user reported "when the restore
+    /// completes, don't hide the console". </summary>
+    public bool IsStepProgressOrSummary => CurrentStep is Step.Progress or Step.Summary;
+
+    /// <summary>True iff the wizard is on a step that should live
+    /// INSIDE the outer ScrollViewer (the calm input steps that
+    /// scale with content). Progress / Summary / PickFiles each
+    /// host their own internal scroll surface — the files list and
+    /// the terminal would otherwise drag the whole page along when
+    /// they grow. The user reported this for both: bottom buttons
+    /// scrolling off-screen and "the file selector list … should
+    /// resize dynamically to accommodate". Bound by the input-
+    /// steps ScrollViewer's IsVisible.</summary>
+    public bool IsScrollableInputStep =>
+        CurrentStep is Step.PickBackup or Step.PickSource or Step.PickDestination
+                    or Step.PickRevision or Step.PickTarget or Step.Summary;
+
+    /// <summary>
+    /// Wizard step counter. Computes the effective ordered list of
+    /// USER-VISIBLE steps and reports "STEP 3 OF 5" so users know how
+    /// far in they are. Hidden during Progress/Summary which aren't
+    /// input steps.
+    ///
+    /// PickBackup is deliberately excluded from the count: it's a
+    /// defensive empty-state placeholder — the only entry point into
+    /// the wizard is the per-backup "Restore files" button on a
+    /// BackupCard, which auto-advances past PickBackup. Counting it
+    /// produced the off-by-one bug the user just hit ("starts with
+    /// Step 2 even though we got rid of Step 1").
+    ///
+    /// PickRevision and PickFiles are also skipped in multi-source
+    /// mode — the wizard restores latest revision + every file per
+    /// picked source — so the count contracts to "Step N of 3" or
+    /// similar, mirroring exactly what the user actually sees.
+    /// </summary>
+    public string WizardStepLabel
+    {
+        get
+        {
+            var ordered = new List<Step>();
+            if (SourcesForBackup.Count > 1) ordered.Add(Step.PickSource);
+            if (DestinationsForBackup.Count > 1) ordered.Add(Step.PickDestination);
+            ordered.Add(Step.PickRevision);
+            // In multi-source mode the wizard restores all files of
+            // every picked source — file picking is bypassed.
+            if (!MultiSourceMode) ordered.Add(Step.PickFiles);
+            ordered.Add(Step.PickTarget);
+            var idx = ordered.IndexOf(CurrentStep);
+            if (idx < 0) return "";
+            return $"STEP {idx + 1} OF {ordered.Count}";
+        }
+    }
+
+    /// <summary>True on input steps (PickSource → PickTarget); false on
+    /// PickBackup (empty-state placeholder) and Progress/Summary (where
+    /// a step counter would be misleading).</summary>
+    public bool ShowWizardStepIndicator =>
+        CurrentStep is Step.PickSource or Step.PickDestination
+                    or Step.PickRevision or Step.PickFiles or Step.PickTarget;
+
+    // -----------------------------------------------------------------
+    // Dynamic "Next: …" button labels per from-step. The wizard skips
+    // PickDestination when the backup has only one destination, and
+    // skips PickFiles in multi-source mode — so a hard-coded "Next:
+    // pick destination" lies when the user lands on PickRevision
+    // instead. Each button binds to the property for its from-step,
+    // which inspects the backup shape and names the step the user
+    // will ACTUALLY land on.
+    // -----------------------------------------------------------------
+
+    public string NextLabelAfterSource =>
+        DestinationsForBackup.Count > 1
+            ? "Next: pick destination"
+            : MultiSourceMode
+                ? "Next: pick a revision"          // multi-source goes to PickRevision (summary)
+                : "Next: pick a revision";          // single-source also lands on PickRevision
+
+    public string NextLabelAfterDestination =>
+        "Next: pick a revision";
+
+    public string NextLabelAfterRevision =>
+        MultiSourceMode
+            ? "Next: where to restore"             // multi-source skips PickFiles
+            : "Next: pick files to restore";
+
+    public string NextLabelAfterFiles =>
+        "Next: where to restore";
+
+    /// <summary>
+    /// True iff the current step has a previous USER-VISIBLE step to
+    /// rewind to. Drives the visibility of the per-step Back buttons —
+    /// without this the wizard rendered a Back button on its first
+    /// visible step that, when clicked, would dead-end on PickBackup
+    /// (the empty-state placeholder reachable only through the
+    /// Backups page). Mirrors the rewind switch in <see cref="Back"/>:
+    /// Back is hidden iff that switch would land on PickBackup.
+    /// </summary>
+    public bool CanGoBack => CurrentStep switch
+    {
+        // PickSource is always the first visible step when shown — no
+        // earlier user-visible step exists.
+        Step.PickSource      => false,
+        // PickDestination has a Back target only if PickSource is also
+        // visible (multi-source backup).
+        Step.PickDestination => SourcesForBackup.Count > 1,
+        // PickRevision rewinds to whichever picker came last.
+        Step.PickRevision    => DestinationsForBackup.Count > 1
+                                    || SourcesForBackup.Count > 1,
+        Step.PickFiles       => true,
+        // PickTarget always has a previous visible step: in single-
+        // source mode it rewinds to PickFiles, in multi-source mode
+        // to PickRevision (the new summary view).
+        Step.PickTarget      => true,
+        _ => false,
+    };
+
+    partial void OnCurrentStepChanged(Step value)
+    {
+        OnPropertyChanged(nameof(IsStepPickBackup));
+        OnPropertyChanged(nameof(IsStepPickSource));
+        OnPropertyChanged(nameof(IsStepPickDestination));
+        OnPropertyChanged(nameof(IsStepPickRevision));
+        OnPropertyChanged(nameof(IsStepPickFiles));
+        OnPropertyChanged(nameof(IsStepPickTarget));
+        OnPropertyChanged(nameof(IsStepProgress));
+        OnPropertyChanged(nameof(IsStepSummary));
+        OnPropertyChanged(nameof(IsStepProgressOrSummary));
+        OnPropertyChanged(nameof(IsScrollableInputStep));
+        OnPropertyChanged(nameof(WizardStepLabel));
+        OnPropertyChanged(nameof(ShowWizardStepIndicator));
+        OnPropertyChanged(nameof(CanGoBack));
+
+        // When the wizard enters Progress, signal global live activity
+        // so a LogsViewModel listening on Activity & Logs can flip its
+        // unified pane into Live mode (otherwise the restore output
+        // would be invisible there because the dropdowns are pinned
+        // to past backup runs). The user reported: "Restore logs
+        // should show up in Activity & Logs."
+        // Pass the backup name so the Logs view can switch its
+        // dropdown to that backup before flipping into Live mode —
+        // see BackupVerifier.VerifyAsync for the symmetrical signal.
+        if (value == Step.Progress)
+            AppNavigator.SignalLiveActivity(SelectedBackup?.Name);
+    }
+
+}
+
+/// <summary>
+/// One row in the multi-source revision step: a picked source plus
+/// the full list of revisions available for it, with the user's
+/// current pick exposed as a two-way property. The wizard's
+/// restore loop reads <see cref="SelectedRevision"/> to know which
+/// revision number to restore for this source.
+/// </summary>
+public sealed partial class MultiSourceRevisionRow : ObservableObject
+{
+    public string SourcePath { get; }
+    public string SourceName => Path.GetFileName(SourcePath.TrimEnd('\\', '/')) is { Length: > 0 } name
+        ? name : SourcePath;
+    public bool LoadFailed { get; }
+
+    /// <summary>All revisions available for this source, newest
+    /// first (matches the data layer's ordering). Empty when the
+    /// source has no revisions yet — the picker collapses to a
+    /// "no revisions yet" label in that case.</summary>
+    public IReadOnlyList<Backspace.Services.RevisionSummary> AvailableRevisions { get; }
+
+    /// <summary>The user's pick for THIS source. Defaults to the
+    /// latest revision; the user can change it via the per-row
+    /// ComboBox in the wizard. Null only when
+    /// <see cref="AvailableRevisions"/> is empty.</summary>
+    [ObservableProperty]
+    private Backspace.Services.RevisionSummary? _selectedRevision;
+
+    /// <summary>True iff the row has at least one revision to
+    /// pick — drives the per-row picker visibility (single dot for
+    /// the no-revisions case).</summary>
+    public bool HasRevisions => AvailableRevisions.Count > 0;
+
+    /// <summary>True iff the row has MORE THAN one revision — drives
+    /// the per-row ComboBox visibility (one-revision rows render a
+    /// static label since there's no choice to make).</summary>
+    public bool HasMultipleRevisions => AvailableRevisions.Count > 1;
+
+    /// <summary>"#7 · 2026-04-30 14:21" / "no revisions yet" — the
+    /// short label shown next to the source path. Updates when
+    /// <see cref="SelectedRevision"/> changes.</summary>
+    public string VerdictLabel =>
+        LoadFailed ? "Couldn't read snapshots" : SelectedRevision is { } r
+            ? $"#{r.Number} · {r.CreatedUtc.ToLocalTime():yyyy-MM-dd HH:mm}"
+            : "no revisions yet";
+
+    partial void OnSelectedRevisionChanged(Backspace.Services.RevisionSummary? value)
+        => OnPropertyChanged(nameof(VerdictLabel));
+
+    public MultiSourceRevisionRow(string sourcePath,
+        IReadOnlyList<Backspace.Services.RevisionSummary> availableRevisions, bool loadFailed = false)
+    {
+        SourcePath = sourcePath;
+        LoadFailed = loadFailed;
+        AvailableRevisions = availableRevisions;
+        _selectedRevision = availableRevisions.Count > 0 ? availableRevisions[0] : null;
+    }
+
+    /// <summary>A successful listing that returned no snapshots.</summary>
+    public static MultiSourceRevisionRow Empty(string sourcePath)
+        => new(sourcePath, Array.Empty<Backspace.Services.RevisionSummary>());
+
+    public static MultiSourceRevisionRow Failed(string sourcePath)
+        => new(sourcePath, Array.Empty<Backspace.Services.RevisionSummary>(), loadFailed: true);
+}
+
+/// <summary>
+/// Multi-select row for the PickSource step. Each backup source
+/// becomes one row with its own IsSelected flag; the wizard uses
+/// the set of checked rows to drive single- or multi-source restore
+/// flows. Notifies the parent VM on toggle so the Next button's
+/// enable state and the multi-source banner can recompute.
+/// </summary>
+public sealed partial class SourcePickRow : ObservableObject
+{
+    private readonly RestoreViewModel _parent;
+    public string Path { get; }
+
+    [ObservableProperty] private bool _isSelected;
+
+    public SourcePickRow(string path, RestoreViewModel parent, bool isSelected = true)
+    {
+        Path = path;
+        _parent = parent;
+        _isSelected = isSelected;
+    }
+
+    partial void OnIsSelectedChanged(bool value) => _parent.OnSourcePickRowToggled();
+}
+
+/// <summary>
+/// Wraps a <see cref="Destination"/> for the Restore wizard's
+/// PickDestination radio-group picker. Mirrors <see cref="SourcePickRow"/>:
+/// a row VM lets each RadioButton bind its IsChecked directly to
+/// the row's own <see cref="IsSelected"/> ObservableProperty, which
+/// reliably notifies on change. The earlier
+/// <c>$parent[ItemsControl].DataContext.SelectedDestination</c> +
+/// RefEq pattern silently failed to update the radio dot when
+/// SelectedDestination changed — see
+/// <c>InteractionDestinationClickTests</c> for the regression
+/// guard.
+/// </summary>
+public sealed partial class DestinationPickRow : ObservableObject
+{
+    public Destination Destination { get; }
+    [ObservableProperty] private bool _isSelected;
+
+    public DestinationPickRow(Destination destination, bool isSelected = false)
+    {
+        Destination = destination;
+        _isSelected = isSelected;
+    }
+}
+
+/// <summary>
+/// Wraps a <see cref="RevisionFile"/> with a mutable IsSelected flag so the UI
+/// checkbox can bind two-way and selection totals update via the parent VM.
+/// </summary>
+public sealed partial class RevisionFileRow : ObservableObject
+{
+    private readonly RestoreViewModel _parent;
+    public RevisionFile File { get; }
+
+    [ObservableProperty] private bool _isSelected;
+
+    // Convenience getters for XAML binding (DataType=svc:RevisionFile previously).
+    public string Path => File.Path;
+    public long SizeBytes => File.SizeBytes;
+    public DateTime ModifiedUtc => File.ModifiedUtc;
+
+    public RevisionFileRow(RevisionFile f, RestoreViewModel parent)
+    {
+        File = f;
+        _parent = parent;
+    }
+
+    partial void OnIsSelectedChanged(bool value) => _parent.OnRowSelectionDelta(this, value);
+}

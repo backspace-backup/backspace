@@ -1,0 +1,118 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Backspace.ViewModels"
+             xmlns:svc="using:Backspace.Services"
+             x:Class="Backspace.Views.ActiveRestoresView"
+             x:DataType="vm:ActiveRestoresViewModel">
+  <Border Padding="36,28">
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
+      <TextBlock Grid.Row="0" Classes="page-title" Text="Restores"/>
+      <TextBlock Grid.Row="1" Classes="dim" Margin="0,4,0,18"
+                 TextWrapping="Wrap" Text="Track recovered files and test restores. Open a run to pause, resume, cancel, or review its results."/>
+
+      <!-- Empty state -->
+      <ScrollViewer Grid.Row="3" IsVisible="{Binding HasSelectedSession}" HorizontalScrollBarVisibility="Disabled">
+      <Border
+              Background="{DynamicResource BS.Brush.BgSurface}" CornerRadius="12" Padding="18" Margin="0,0,0,18">
+        <StackPanel Spacing="12">
+        <Button Content="← All restores" Classes="ghost" Command="{Binding BackToListCommand}"/>
+        <StackPanel DataContext="{Binding SelectedSession}" x:DataType="svc:ActiveRestoreSession" Spacing="8">
+          <Border IsVisible="{Binding IsTestRestore}" Background="{DynamicResource BS.Brush.WarnTint}" CornerRadius="6" Padding="10,6" HorizontalAlignment="Left">
+            <TextBlock Text="TEST RESTORE · TEMPORARY COPIES" FontWeight="SemiBold" Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+          </Border>
+          <TextBlock Text="{Binding BackupName}" Classes="section-title"/>
+          <TextBlock Text="{Binding SourcePath}" TextWrapping="Wrap" Classes="body"/>
+          <TextBlock IsVisible="{Binding !IsTestRestore}" Text="{Binding Revision, StringFormat='Snapshot revision {0}'}" Classes="dim"/>
+          <TextBlock Text="{Binding TargetLabel}" TextWrapping="Wrap" Classes="dim"/>
+          <ProgressBar Minimum="0" Maximum="1" Value="{Binding PercentComplete}" IsIndeterminate="{Binding IsProgressIndeterminate}"/>
+          <TextBlock Text="{Binding StatusLabel}" Classes="body"/>
+          <TextBlock Text="{Binding ProgressLabel}" TextWrapping="Wrap"/>
+          <ScrollViewer MaxHeight="230"><TextBlock Text="{Binding Detail}" TextWrapping="Wrap"/></ScrollViewer>
+          <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Classes="dim"/>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+          <Button Classes="ghost" MinWidth="96" Content="{Binding PauseLabel}" IsVisible="{Binding HasPauseControl}" IsEnabled="{Binding CanTogglePause}"
+                  Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).TogglePauseSessionCommand}" CommandParameter="{Binding}"/>
+          <Button Content="{Binding CancelLabel}" Classes="danger" IsVisible="{Binding IsRunning}" IsEnabled="{Binding CanCancel}"
+                  Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).CancelSessionCommand}" CommandParameter="{Binding}" HorizontalAlignment="Left"/>
+          </StackPanel>
+          <TextBlock Text="Pause keeps progress. Cancel ends this restore and removes its temporary copies." TextWrapping="Wrap" Classes="dim" IsVisible="{Binding IsRunning}"/>
+        </StackPanel>
+        </StackPanel>
+      </Border>
+      </ScrollViewer>
+      <Border Grid.Row="3"
+              IsVisible="{Binding HasNone}"
+              Background="{DynamicResource BS.Brush.BgSurface}"
+              CornerRadius="12" Padding="32" HorizontalAlignment="Stretch">
+        <StackPanel Spacing="6" HorizontalAlignment="Center">
+          <TextBlock Classes="body" HorizontalAlignment="Center"
+                     Text="Nothing being restored right now."/>
+          <TextBlock Classes="dim" HorizontalAlignment="Center"
+                     Text="When a restore starts, it'll appear here as a card with live progress."/>
+        </StackPanel>
+      </Border>
+
+      <!-- Cards list -->
+      <ScrollViewer Grid.Row="3"
+                    IsVisible="{Binding !HasSelectedSession}"
+                    HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl ItemsSource="{Binding Sessions}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate DataType="svc:ActiveRestoreSession">
+              <StackPanel>
+              <Button Classes="card ghost" CornerRadius="12" Padding="18,14"
+                      Background="{DynamicResource BS.Brush.BgElevated}"
+                      BorderBrush="{DynamicResource BS.Brush.BorderEmphasized}"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                      Margin="0,0,0,12"
+                      Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).OpenSessionCommand}"
+                      CommandParameter="{Binding}">
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" Margin="6">
+                  <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
+                    <Border IsVisible="{Binding IsTestRestore}" Background="{DynamicResource BS.Brush.WarnTint}" CornerRadius="5" Padding="8,4" HorizontalAlignment="Left" Margin="0,0,0,6">
+                      <TextBlock Text="TEST RESTORE" FontSize="12" FontWeight="SemiBold"/>
+                    </Border>
+                    <TextBlock Classes="body" FontWeight="SemiBold"
+                               Text="{Binding BackupName}"/>
+                    <TextBlock Classes="dim" TextTrimming="CharacterEllipsis" Text="{Binding SourcePath, StringFormat='From {0}'}"/>
+                    <TextBlock Classes="dim" TextTrimming="CharacterEllipsis" Text="{Binding TargetLabel}"/>
+                  </StackPanel>
+                  <StackPanel Grid.Row="0" Grid.Column="1" Spacing="8" Margin="16,0,0,0">
+                  <TextBlock Classes="dim"
+                             MaxWidth="220" TextTrimming="CharacterEllipsis"
+                             VerticalAlignment="Top"
+                             Text="{Binding DestinationName}"/>
+                  <TextBlock Text="{Binding OpenActionLabel}" FontWeight="SemiBold" Foreground="{DynamicResource BS.Brush.Accent}"/>
+                  </StackPanel>
+                  <ProgressBar Grid.Row="1" Grid.ColumnSpan="2"
+                               Margin="0,12,0,6"
+                               Minimum="0" Maximum="1"
+                               IsIndeterminate="{Binding IsProgressIndeterminate}"
+                               Value="{Binding PercentComplete, Mode=OneWay}"/>
+                  <Grid Grid.Row="2" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Classes="dim" FontSize="14" TextWrapping="Wrap" Margin="0,0,12,0"
+                               Text="{Binding ProgressLabel}"/>
+                    <TextBlock Grid.Column="1" Classes="dim" FontSize="14"
+                               Text="{Binding StatusLabel}"/>
+                  </Grid>
+                </Grid>
+              </Button>
+              <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,-8,0,16">
+                <Button Classes="ghost" MinWidth="96" Padding="12,6" Content="{Binding PauseLabel}" IsVisible="{Binding HasPauseControl}" IsEnabled="{Binding CanTogglePause}"
+                        Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).TogglePauseSessionCommand}" CommandParameter="{Binding}"/>
+                <Button Classes="danger" Padding="12,6" Content="{Binding CancelLabel}" IsVisible="{Binding IsRunning}" IsEnabled="{Binding CanCancel}"
+                        Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).CancelSessionCommand}"
+                        CommandParameter="{Binding}"/>
+                <Button Classes="ghost" Padding="12,6" Content="Dismiss result" IsVisible="{Binding IsComplete}"
+                        Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).DismissSessionCommand}"
+                        CommandParameter="{Binding}"/>
+                <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Classes="dim" VerticalAlignment="Center"/>
+              </StackPanel>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Grid>
+  </Border>
+</UserControl>

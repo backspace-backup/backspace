@@ -1,0 +1,27 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Light">
+      <!-- Hover = ~8% darker, Deep = ~20% darker (Graphite is already
+           dark, so the deep step is moderated). AccentTint alpha
+           ramped from 0x14 (~8%) to 0x1A (~26%) so accent-tinted
+           pills + selection-row backgrounds match the visual weight
+           of the other accents on the cream surface (was nearly
+           invisible at 8%). -->
+      <SolidColorBrush x:Key="BS.Brush.Accent"          Color="#FF1F2937"/>
+      <SolidColorBrush x:Key="BS.Brush.AccentHover"     Color="#FF1B2532"/>
+      <SolidColorBrush x:Key="BS.Brush.AccentDeep"      Color="#FF111827"/>
+      <SolidColorBrush x:Key="BS.Brush.AccentTint"      Color="#1A1F2937"/>
+      <SolidColorBrush x:Key="BS.Brush.AccentTintHover" Color="#261F2937"/>
+      <SolidColorBrush x:Key="BS.Brush.AccentTintFg"    Color="#FF111827"/>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="BS.Brush.Accent"          Color="#FFE5E7EB"/>
+      <SolidColorBrush x:Key="BS.Brush.AccentHover"     Color="#FFF3F4F6"/>
+      <SolidColorBrush x:Key="BS.Brush.AccentDeep"      Color="#FFD1D5DB"/>
+      <SolidColorBrush x:Key="BS.Brush.AccentTint"      Color="#22E5E7EB"/>
+      <SolidColorBrush x:Key="BS.Brush.AccentTintHover" Color="#44E5E7EB"/>
+      <SolidColorBrush x:Key="BS.Brush.AccentTintFg"    Color="#FFD1D5DB"/>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

@@ -1,0 +1,34 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Backspace.ViewModels" x:Class="Backspace.Views.RestoreCheckOptions" x:DataType="vm:RestoreCheckOptionsViewModel">
+  <StackPanel Spacing="10">
+    <Border Background="{DynamicResource BS.Brush.BgBase}" BorderBrush="{DynamicResource BS.Brush.BorderSubtle}" BorderThickness="1" Padding="14" CornerRadius="10">
+      <StackPanel Spacing="10">
+        <RadioButton Name="SampleChoice" GroupName="restore-scope" IsChecked="{Binding !Full}" Content="Check a sample" FontSize="16" FontWeight="SemiBold"/>
+        <TextBlock Text="Backspace selects files automatically, starting with those checked least recently. There is no file picker for this check." TextWrapping="Wrap" Classes="helper"/>
+        <Grid ColumnDefinitions="*,16,*" IsVisible="{Binding !Full}">
+          <StackPanel Spacing="6">
+            <TextBlock Text="Percentage of file sizes"/>
+            <NumericUpDown Name="Percentage" Minimum="0.01" Maximum="100" Increment="1" Value="{Binding Percentage}" FormatString="0.##'%'"/>
+          </StackPanel>
+          <StackPanel Grid.Column="2" Spacing="6">
+            <TextBlock Text="Download budget (GiB)"/>
+            <NumericUpDown Name="DownloadBudget" Minimum="0" Maximum="1048576" Increment="1" Value="{Binding DownloadGiB}" FormatString="0.##"/>
+          </StackPanel>
+        </Grid>
+        <TextBlock IsVisible="{Binding !Full}" Classes="helper" TextWrapping="Wrap" Text="Stops at the smaller of these limits, shared across sources and destinations. 0 GiB removes the budget limit. Whole files are recovered, so one large file can exceed it."/>
+      </StackPanel>
+    </Border>
+    <Border Background="{DynamicResource BS.Brush.BgBase}" BorderBrush="{DynamicResource BS.Brush.BorderSubtle}" BorderThickness="1" Padding="14" CornerRadius="10">
+      <StackPanel Spacing="10">
+        <RadioButton Name="FullChoice" GroupName="restore-scope" IsChecked="{Binding Full}" Content="Check every file" FontSize="16" FontWeight="SemiBold"/>
+        <TextBlock Text="Downloads the latest backed-up copy of every file, from every destination. Large cloud backups can take hours or days." TextWrapping="Wrap" Classes="helper"/>
+      </StackPanel>
+    </Border>
+    <StackPanel Spacing="6" Margin="0,4,0,0">
+      <CheckBox Name="CompareOriginals" IsChecked="{Binding CompareOriginals}">
+        <TextBlock Text="Also compare with today's originals" FontWeight="SemiBold" TextWrapping="Wrap"/>
+      </CheckBox>
+      <TextBlock Text="Optional diagnostic. Backspace already checks the saved data for damage. This extra comparison reads originals whose size and date still match the backup; a difference cannot tell which copy changed." Classes="helper" TextWrapping="Wrap" Margin="30,0,0,0"/>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

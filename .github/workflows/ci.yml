@@ -1,0 +1,105 @@
+name: CI
+
+# Build + unit + ViewModel tests on every push + PR. Doesn't run the
+# heavy E2E suite (which spawns the bundled Backrest daemon + restic
+# and takes 10+ minutes) or the Cloud suite (which needs real OAuth
+# tokens stored as repo secrets). Those run on a separate scheduled
+# nightly workflow when one exists.
+#
+# The fetch step downloads restic / Backrest / rclone the first time
+# the runner sees the assets cache miss; subsequent runs reuse it.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - 'LICENSE'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    # Backspace is Windows-first; the main TFM only builds on Windows
+    # runners. A future cross-platform job can run on ubuntu-latest
+    # against the net10.0 TFM once we have meaningful coverage of
+    # the cross-platform fallback paths.
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Cache fetched binaries (restic / Backrest / rclone)
+        uses: actions/cache@v4
+        with:
+          path: src/Backspace/Assets
+          key: backspace-assets-${{ runner.os }}-${{ hashFiles('src/Backspace/fetch-backrest.ps1') }}
+
+      - name: Restore
+        run: dotnet restore Backspace.sln
+
+      - name: Build
+        # Select the supported TFM so its downloader does not race the
+        # fallback build. Let this Release build restore its own RID assets;
+        # the solution restore above uses the default Debug configuration.
+        run: dotnet build src/Backspace/Backspace.csproj -c Release -f net10.0-windows -m:1 --nologo
+
+      # Run unit + main ViewModel tests only — fast (~30 s on the
+      # author's machine), no daemon spawns. The full E2E + Cloud
+      # suites take 30+ min on CI and need their own workflow.
+      - name: Test (unit + main VMs)
+        run: |
+          dotnet test tests/Backspace.Tests/Backspace.Tests.csproj `
+            `
+            -p:SkipBackrestDownload=true `
+            -f net10.0-windows `
+            --filter "(FullyQualifiedName~Services|FullyQualifiedName~Models|FullyQualifiedName~ViewModels.Editor|FullyQualifiedName~ViewModels.BackupsViewModelTests|FullyQualifiedName~ViewModels.DestinationsViewModelTests)&FullyQualifiedName!~E2E_WindowsUpdateBundle" `
+            --nologo `
+            --logger "trx;LogFileName=test-results.trx"
+        shell: pwsh
+
+      # Debug-only tests missed a Release compiler failure that retained a
+      # service migration lock after a rejected request. Exercise the shipping
+      # optimization mode too, including cross-thread failure/retry paths.
+      - name: Test Release service and credential boundaries
+        run: |
+          dotnet test tests/Backspace.Tests/Backspace.Tests.csproj `
+            -c Release `
+            `
+            -p:SkipBackrestDownload=true `
+            -f net10.0-windows `
+            --filter "FullyQualifiedName~ServiceMigrationProtocolTests|FullyQualifiedName~ServiceSetupTests|FullyQualifiedName~ServiceScheduledRunTests|FullyQualifiedName~Secrets" `
+            --nologo `
+            --logger "trx;LogFileName=release-service-results.trx"
+        shell: pwsh
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: tests/Backspace.Tests/TestResults/**/*.trx
+          if-no-files-found: ignore

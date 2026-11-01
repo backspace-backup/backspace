@@ -1,0 +1,24 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:Backspace.Views"
+        x:Class="Backspace.Views.TestRestoreOptionsWindow"
+        Title="Test restore" Width="660" Height="680" MinHeight="420" CanResize="True"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource BS.Brush.BgBase}">
+  <Grid Margin="28" RowDefinitions="*,Auto">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Spacing="18" Margin="0,0,10,0">
+    <StackPanel Spacing="6">
+      <TextBlock Name="Heading" Text="Test your backup" Classes="page-title" TextWrapping="Wrap"/>
+      <TextBlock Text="Recover files from the latest backup into a temporary folder. Backspace checks the saved data for damage and confirms that the recovered files were written successfully. Your originals are never replaced." TextWrapping="Wrap"/>
+      <TextBlock Text="This tests recovery of the files below. It does not check the whole repository catalog or older backup versions. Scheduled checks always check the catalog first." TextWrapping="Wrap"/>
+    </StackPanel>
+    <views:RestoreCheckOptions Name="OptionsUi"/>
+    <TextBlock TextWrapping="Wrap" Classes="dim" Text="Temporary recovered files are removed after checking. Follow progress or stop the check in Restores. If Backspace closes unexpectedly, it resumes from its saved batches."/>
+    </StackPanel>
+    </ScrollViewer>
+    <StackPanel Grid.Row="1" Margin="0,18,0,0" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+      <Button Content="Cancel" Classes="ghost" Padding="14,10" Click="OnCancel"/>
+      <Button Name="StartButton" Content="Start sample check" Classes="primary" Click="OnStart"/>
+    </StackPanel>
+  </Grid>
+</Window>

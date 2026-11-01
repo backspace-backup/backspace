@@ -1,0 +1,17 @@
+<Project>
+  <!-- The SDK still builds the standard managed single-file bundle. Only
+       its native entry point changes; process identity and portable paths
+       stay Backspace.exe, including Service Control Manager invocations. -->
+  <Target Name="BuildBackspaceNativeHost" BeforeTargets="_CreateAppHost"
+          Condition="'$(IsWindowsBuild)' == 'true' and '$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' == 'win-x64'"
+          Inputs="$(MSBuildThisFileDirectory)..\Backspace.Host\host.c;$(MSBuildThisFileDirectory)..\Backspace.Host\runtime.json;$(MSBuildThisFileDirectory)..\..\scripts\build-native-host.ps1"
+          Outputs="$(IntermediateOutputPath)native-host\apphost.exe">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\build-native-host.ps1&quot; -OutputDirectory &quot;$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)native-host', '$(MSBuildProjectDirectory)'))&quot;" />
+  </Target>
+  <Target Name="UseBackspaceNativeHost" BeforeTargets="_CreateAppHost"
+          DependsOnTargets="BuildBackspaceNativeHost"
+          Condition="'$(IsWindowsBuild)' == 'true' and '$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' == 'win-x64'">
+    <Error Condition="'$(SelfContained)' == 'true'" Text="Backspace Windows releases must not bundle .NET. Publish with --self-contained false." />
+    <PropertyGroup><AppHostSourcePath>$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)native-host/apphost.exe', '$(MSBuildProjectDirectory)'))</AppHostSourcePath></PropertyGroup>
+  </Target>
+</Project>

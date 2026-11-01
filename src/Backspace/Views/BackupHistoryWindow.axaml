@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Backspace.ViewModels" x:Class="Backspace.Views.BackupHistoryWindow"
+        x:DataType="vm:BackupHistoryViewModel" Title="{Binding Title}" Width="800" Height="680"
+        MinWidth="520" MinHeight="420" WindowStartupLocation="CenterOwner" Background="{DynamicResource BS.Brush.BgBase}">
+  <Window.Styles>
+    <Style Selector="TextBlock.result.passed"><Setter Property="Foreground" Value="{DynamicResource BS.Brush.Success}"/></Style>
+    <Style Selector="TextBlock.result.failed"><Setter Property="Foreground" Value="{DynamicResource BS.Brush.Danger}"/></Style>
+  </Window.Styles>
+  <Grid Margin="24" RowDefinitions="Auto,Auto,*,Auto">
+    <StackPanel Spacing="6">
+      <TextBlock Text="{Binding Title}" Classes="page-title" TextWrapping="Wrap"/>
+      <TextBlock Text="{Binding Schedule}" TextWrapping="Wrap"/>
+    </StackPanel>
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,16,*" Margin="0,18">
+      <ComboBox Name="HistoryFilter" ItemsSource="{Binding Filters}" SelectedItem="{Binding SelectedFilter}" MinWidth="180"/>
+      <TextBlock Grid.Column="2" Text="Newest first · saved history" Classes="dim" VerticalAlignment="Center"/>
+    </Grid>
+    <Grid Grid.Row="2">
+      <TextBlock IsVisible="{Binding IsEmpty}" Text="No saved activity in this view yet." Margin="0,24"/>
+        <ListBox ItemsSource="{Binding Rows}" Background="Transparent" BorderThickness="0" Padding="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.Styles>
+            <Style Selector="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style>
+          </ListBox.Styles>
+          <ListBox.ItemTemplate>
+            <DataTemplate DataType="vm:BackupHistoryRow">
+              <Border Classes="surface" Padding="18" Margin="0,0,8,12">
+                <StackPanel Spacing="8">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="{Binding Result}" FontWeight="SemiBold" FontSize="17" Classes="result" Classes.passed="{Binding Passed}" Classes.failed="{Binding Failed}"/>
+                      <TextBlock Text="{Binding Kind}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="Open log" Classes="ghost" IsVisible="{Binding HasLog}" Click="OnOpenLog" VerticalAlignment="Top"/>
+                  </Grid>
+                  <TextBlock Text="{Binding Timestamp}" Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
+                  <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="14"/>
+                  <TextBlock IsVisible="{Binding !HasLog}" Text="Detailed log unavailable; the saved result is kept here." Classes="dim" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+    </Grid>
+    <Button Grid.Row="3" Content="Close" Classes="ghost" Click="OnClose" HorizontalAlignment="Right" Margin="0,16,0,0"/>
+  </Grid>
+</Window>
