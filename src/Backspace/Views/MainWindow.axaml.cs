@@ -529,7 +529,19 @@ public partial class MainWindow : Window
         || ServiceLocator.SnapshotMounts?.HasPendingOperations == true
         || ServiceLocator.Maintenance.HasReaders
         || ServiceLocator.Maintenance.IsActive
-        || new SessionTaskControl().HasRunningTasks;
+        || ServiceHasRunningTasks();
+
+    // While background setup is unfinished the service runs nothing, and its
+    // lookup refuses; closing the window crashed the app here (U095).
+    private static bool ServiceHasRunningTasks()
+    {
+        try { return new SessionTaskControl().HasRunningTasks; }
+        catch (Exception ex) when (ex is InvalidOperationException or System.IO.IOException)
+        {
+            AppLogger.For<MainWindow>().Warning(ex, "Could not ask the background service about running tasks");
+            return false;
+        }
+    }
 
     internal static void CancelEverything()
     {

@@ -405,6 +405,10 @@ Removal restores the recorded permissions and skips a program file replaced
 since setup. Setup also creates a new local backup folder whose parent exists,
 as the tray app does on a first run; a folder the service was granted before
 and that is now missing is never recreated empty (its runs report it missing).
+Service records are replaced atomically; a replacement refused while another
+process briefly reads the record is retried for up to 20 seconds
+(`ServiceSetup.ReplaceRetrying`, U094). Removing a backup that never ran, from
+a destination never set up, erases nothing there (`BackupRemoval.NothingStored`).
 No separate application
 installation or external persistent-data folder is authorized. Reinstallable
 system dependencies and reproducible caches may live outside the portable

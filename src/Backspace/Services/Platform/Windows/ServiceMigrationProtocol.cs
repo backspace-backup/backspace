@@ -145,7 +145,7 @@ internal sealed class ServiceMigrationProtocol
                     {
                         using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                         { file.Write(bytes); file.Flush(true); }
-                        File.Move(temporary, accepted, overwrite: true);
+                        ServiceSetup.ReplaceRetrying(() => File.Move(temporary, accepted, overwrite: true));
                     }
                     finally { if (File.Exists(temporary)) File.Delete(temporary); }
                 }

@@ -115,7 +115,7 @@ internal static class ServiceApprovedWorker
             var reportPath = Path.Combine(binding.DataDirectory, "last-service-run.json");
             using (var file = new FileStream(reportPath + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
             { file.Write(report); file.Flush(flushToDisk: true); }
-            File.Move(reportPath + ".tmp", reportPath, overwrite: true);
+            ServiceSetup.ReplaceRetrying(() => File.Move(reportPath + ".tmp", reportPath, overwrite: true));
             return result.Status == BackupRunStatus.Success ? 0 : 4;
         }
         finally

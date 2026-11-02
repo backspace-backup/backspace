@@ -29,6 +29,21 @@ public class BackupRemovalTests
         return record;
     }
 
+    [Fact]
+    public void Only_a_never_run_backup_to_a_destination_never_set_up_has_nothing_to_erase()
+    {
+        // An imported Duplicacy destination: no Dropbox sign-in, no storage password.
+        var imported = new Destination { Name = "Dropbox - local_c", Kind = DestinationKind.DropboxAppScoped, Encrypted = true };
+        var never = new Backup { Name = "local_c" };
+        Assert.True(BackupRemoval.NothingStored(never, imported));
+        // A backup that ran keeps its erase, even if the destination later lost its sign-in.
+        Assert.False(BackupRemoval.NothingStored(new Backup { LastSuccessUtc = DateTime.UtcNow, LastRunStatus = BackupRunStatus.Success }, imported));
+        Assert.False(BackupRemoval.NothingStored(new Backup { LastRunStatus = BackupRunStatus.Failed }, imported));
+        // A destination that is set up is always erased normally.
+        var local = new Destination { Name = "Drive", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"D:\Backups", Encrypted = false };
+        Assert.False(BackupRemoval.NothingStored(never, local));
+    }
+
     private static string UnusedDrive() => Enumerable.Range('D', 23).Select(c => (char)c).First(c => !Directory.Exists(c + ":\\")) + ":";
 
     [Fact]

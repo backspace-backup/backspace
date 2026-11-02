@@ -145,7 +145,13 @@ public sealed class BackupRemoval
         IProgress<string>? progress, IProgress<int?>? percent, CancellationToken ct)
     {
         string? error = null;
-        if (!LooksReachable(destination)) error = $"«{destination.Name}» is not connected.";
+        // A backup that never ran, to a destination never set up (an imported
+        // Duplicacy destination without sign-in or password), stored nothing
+        // there. Erasing tried to create the repository and was retried
+        // forever (U096).
+        if (NothingStored(backup, destination))
+            _log.Information("Nothing to erase for {Backup} at {Destination}: it never ran there", backup.Name, destination.Name);
+        else if (!LooksReachable(destination)) error = $"«{destination.Name}» is not connected.";
         else
         {
             try
@@ -171,6 +177,10 @@ public sealed class BackupRemoval
         if (error is not null) _log.Information("Erase of {Backup} at {Destination} postponed: {Error}", backup.Name, destination.Name, error);
         return error;
     }
+
+    internal static bool NothingStored(Backup backup, Destination destination)
+        => backup.LastSuccessUtc is null && backup.LastRunStatus == BackupRunStatus.NeverRun
+           && DestinationReadiness.Problem(destination, ServiceLocator.Secrets) is not null;
 
     /// <summary>A cheap check before trying: the drive or share must exist.
     /// Cloud destinations are simply tried.</summary>

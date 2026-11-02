@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using System.Security.AccessControl;
@@ -73,5 +74,24 @@ public sealed class ServiceSetupProgramAccessTests
         Assert.Contains(after, r => r.FileSystemRights.HasFlag(FileSystemRights.ReadAndExecute) && r.AccessControlType == AccessControlType.Allow);
         Assert.DoesNotContain(after, r => r.FileSystemRights.HasFlag(FileSystemRights.WriteData));
         pin.SetDacl(before);
+    }
+    [Fact]
+    public void A_record_held_briefly_by_a_reader_is_replaced_after_it_is_released()
+    {
+        // The Backspace window or the service reading the record: Windows says
+        // "Access is denied" until it lets go (U094).
+        var attempts = 0;
+        ServiceSetup.ReplaceRetrying(() =>
+        {
+            if (++attempts < 3) throw new UnauthorizedAccessException("Access to the path is denied.") { HResult = unchecked((int)0x80070005) };
+        });
+        Assert.Equal(3, attempts);
+        // A lasting lock still fails, and other errors are never retried.
+        Assert.Throws<UnauthorizedAccessException>(() => ServiceSetup.ReplaceRetrying(
+            () => throw new UnauthorizedAccessException("Access to the path is denied.") { HResult = unchecked((int)0x80070005) },
+            TimeSpan.FromMilliseconds(600)));
+        var other = 0;
+        Assert.Throws<FileNotFoundException>(() => ServiceSetup.ReplaceRetrying(() => { other++; throw new FileNotFoundException(); }));
+        Assert.Equal(1, other);
     }
 }

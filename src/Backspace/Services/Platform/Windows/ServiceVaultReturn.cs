@@ -55,7 +55,7 @@ internal sealed class ServiceVaultReturnProtocol(string returnId, string receipt
                 {
                     using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                     { file.Write(receipt); file.Flush(true); }
-                    File.Move(temporary, receiptPath, overwrite: true);
+                    ServiceSetup.ReplaceRetrying(() => File.Move(temporary, receiptPath, overwrite: true));
                 }
                 finally { if (File.Exists(temporary)) File.Delete(temporary); }
                 return JsonSerializer.SerializeToUtf8Bytes(new Response(1), ServiceRunAuthorization.Json);

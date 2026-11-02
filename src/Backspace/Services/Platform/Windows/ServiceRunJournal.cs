@@ -55,6 +55,6 @@ internal sealed class ServiceRunJournal(string dataDirectory)
     {
         using (var stream = new FileStream(path + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
         { stream.Write(bytes); stream.Flush(true); }
-        File.Move(path + ".tmp", path, true);
+        ServiceSetup.ReplaceRetrying(() => File.Move(path + ".tmp", path, true));
     }
 }

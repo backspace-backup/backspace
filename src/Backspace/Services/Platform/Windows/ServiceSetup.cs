@@ -252,9 +252,27 @@ internal static class ServiceSetup
         {
             using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             { file.Write(bytes); file.Flush(true); }
-            File.Move(temporary, path, overwrite: true);
+            ReplaceRetrying(() => File.Move(temporary, path, overwrite: true));
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    /// <summary>While the record is open for reading (the Backspace window or
+    /// the service checking setup, a virus scanner), Windows refuses to
+    /// replace it with "Access is denied", and setup stopped half way (U094).
+    /// Readers hold it for milliseconds and records change once per setup
+    /// step, so waiting up to 20 seconds is cheap; a lasting lock still fails.</summary>
+    internal static void ReplaceRetrying(Action replace, TimeSpan? budget = null)
+    {
+        var deadline = DateTime.UtcNow + (budget ?? TimeSpan.FromSeconds(20));
+        while (true)
+        {
+            try { replace(); return; }
+            catch (Exception ex) when (FileReplacementErrors.CanRetry(ex) && DateTime.UtcNow < deadline)
+            {
+                System.Threading.Thread.Sleep(250);
+            }
+        }
     }
 
     /// <summary>Adds read and execute for the service's account to an object's

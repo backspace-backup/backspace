@@ -229,7 +229,9 @@ public class IconAndBadgeAlignmentTests
         {
             cfg.Backups.Clear();
             cfg.Destinations.Clear();
-            cfg.Backups.Add(new Backup { Name = "documents" });
+            // Auto-run off: "Next: Tonight 20:00" depends on the clock and
+            // culture, so the baseline failed whenever CI ran after 20:00 UTC.
+            cfg.Backups.Add(new Backup { Name = "documents", Enabled = false });
             cfg.Destinations.Add(new Destination { Name = "Backup drive", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"D:\Backups" });
         });
         Control view = destinations
