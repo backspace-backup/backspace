@@ -60,10 +60,18 @@ fetch_github_asset() {
     local repo="$1"; local pattern="$2"; local out_archive="$3"; local version="$4"
 
     echo "[fetch-backrest] Querying GitHub for $repo $version..."
+    # GitHub limits anonymous API requests per address, and hosted runners
+    # share addresses. In GitHub Actions, send the workflow's token to the
+    # API host only; asset downloads stay anonymous.
+    local auth=()
+    if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${GITHUB_TOKEN:-}" ]]; then
+        auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
+    fi
     local release_json
     release_json="$(curl -fsSL \
         -H 'User-Agent: Backspace-build' \
         -H 'Accept: application/vnd.github+json' \
+        ${auth[@]+"${auth[@]}"} \
         --connect-timeout 30 --max-time 60 \
         "https://api.github.com/repos/$repo/releases/tags/$version")"
 

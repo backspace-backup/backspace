@@ -188,15 +188,39 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
         {
             var retirement = ServiceRetirement.Read(_root);
             if (retirement?.Stage == "complete") return true;
-            if (retirement?.Stage is not ("removing" or "removed")) Elevated("--service-retire-prepare");
-            retirement = ServiceRetirement.Read(_root) ?? throw new IOException("Background service removal was not prepared.");
-            if (retirement.Stage is "removing" or "removed") Elevated("--service-retire-complete");
-            else
+            Process? removal = null;
+            try
             {
-                var binding = ServiceWorkerBinding.LoadForOwner(_root);
-                ServiceVaultReturn.Transfer(owner, ownerPath, retirement.ReturnId,
-                    request => ServiceVaultReturnProtocol.Exchange(binding, request),
-                    () => Elevated("--service-retire-complete"));
+                if (retirement?.Stage is not ("removing" or "removed"))
+                {
+                    // One approval covers freezing the service and finishing (U050).
+                    if (_elevatedForTest is not null) Elevated("--service-retire-prepare");
+                    else removal = StartApprovedAndWait(ServiceRetirement.PreparedHintFile, "--service-retire");
+                }
+                retirement = ServiceRetirement.Read(_root) ?? throw new IOException("Background service removal was not prepared.");
+                if (retirement.Stage is "removing" or "removed")
+                {
+                    if (removal is not null) WaitForElevated(removal);
+                    else Elevated("--service-retire-complete");
+                }
+                else
+                {
+                    var binding = ServiceWorkerBinding.LoadForOwner(_root);
+                    ServiceVaultReturn.Transfer(owner, ownerPath, retirement.ReturnId,
+                        request => ServiceVaultReturnProtocol.Exchange(binding, request),
+                        () =>
+                        {
+                            if (removal is null) { Elevated("--service-retire-complete"); return; }
+                            File.WriteAllText(Path.Combine(_configuration, ServiceRetirement.ReturnedHintFile), "");
+                            WaitForElevated(removal);
+                        });
+                }
+            }
+            finally
+            {
+                // Release a removal process still waiting for the return.
+                try { File.Delete(Path.Combine(_configuration, ServiceRetirement.PreparedHintFile)); } catch (Exception) { }
+                removal?.Dispose();
             }
             return true;
         }, requireExisting: true);
@@ -208,14 +232,18 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
 
     /// <summary>Starts the approved setup process and returns once it has
     /// prepared the service; it then waits for the sign-in handoff.</summary>
-    private Process StartSetupAndWaitUntilPrepared(string owner)
+    private Process StartSetupAndWaitUntilPrepared(string owner) =>
+        StartApprovedAndWait(ServiceActivation.PreparedHintFile, "--service-setup", owner);
+
+    /// <summary>Starts an approved process and returns once it leaves
+    /// <paramref name="hintFile"/>; it then waits for the desktop's part.</summary>
+    private Process StartApprovedAndWait(string hintFile, params string[] args)
     {
-        var hint = Path.Combine(_configuration, ServiceActivation.PreparedHintFile);
+        var hint = Path.Combine(_configuration, hintFile);
         try { File.Delete(hint); } catch (Exception) { }
         try { File.Delete(FailurePath); } catch (Exception) { }
         var start = new ProcessStartInfo(Executable) { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = _root };
-        start.ArgumentList.Add("--service-setup");
-        start.ArgumentList.Add(owner);
+        foreach (var arg in args) start.ArgumentList.Add(arg);
         Process process;
         try { process = Process.Start(start) ?? throw new IOException("Windows did not start background backup setup."); }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
@@ -223,8 +251,8 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
         var deadline = DateTime.UtcNow.AddMinutes(10);
         while (!File.Exists(hint))
         {
-            if (process.HasExited) { WaitForElevated(process); throw new IOException("Background backup setup stopped before the service was ready."); }
-            if (DateTime.UtcNow > deadline) throw new System.TimeoutException("Preparing the background service is taking unusually long.");
+            if (process.HasExited) { WaitForElevated(process); throw new IOException("The approved Windows process stopped before the background service was ready."); }
+            if (DateTime.UtcNow > deadline) throw new System.TimeoutException("The background service is taking unusually long to get ready.");
             Thread.Sleep(250);
         }
         return process;

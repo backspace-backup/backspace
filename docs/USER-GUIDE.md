@@ -97,7 +97,8 @@ With access on, **Run now** goes through the same service and includes files
 in use without another prompt. Adding, editing or removing a backup later asks
 nothing either: Backspace applies your saved settings to the service itself,
 a minute later if a backup is running at the time. **Settings →
-Administrator access** keeps **Remove access**.
+Administrator access** keeps **Remove access**, which also asks Windows once:
+Backspace takes its saved sign-ins back from the service, then removes it.
 
 Without access, a backup runs without VSS and says so; no Windows prompt
 appears per run. An orange **Files that are open may be skipped** badge at the
@@ -294,8 +295,11 @@ kept only to reach a subfolder are kept. Email and Healthchecks settings are
 not imported; set them up in Settings.
 
 When Backspace's recommended exclusions change, your saved backups keep their
-rules. Editing a backup shows the additions and removals for the groups it
-uses, with **Update recommended exclusions** and **Don't suggest these again**.
+rules. Editing a backup lists the additions and removals for the groups it
+uses, each with a checkbox. **Apply ticked changes** applies the ticked ones;
+the unticked ones are not suggested again for that backup, and
+**Don't suggest these again** declines them all. Declined suggestions are
+counted below the list; **Show hidden suggestions** lists them again, unticked.
 
 ## Command line
 

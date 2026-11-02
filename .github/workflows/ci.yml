@@ -58,6 +58,16 @@ jobs:
           path: src/Backspace/Assets
           key: backspace-assets-${{ runner.os }}-${{ hashFiles('src/Backspace/fetch-backrest.ps1') }}
 
+      - name: Fetch the bundled engines
+        # Authenticated API lookups: hosted runners share an anonymous limit.
+        # Skips any engine the cache already restored.
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File src/Backspace/fetch-backrest.ps1 -BackrestOutPath src/Backspace/Assets/backrest.exe -ResticOutPath src/Backspace/Assets/restic.exe -RcloneOutPath src/Backspace/Assets/rclone.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Restore
         run: dotnet restore Backspace.sln
 

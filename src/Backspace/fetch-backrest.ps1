@@ -23,6 +23,11 @@ $env:PSModulePath = (Join-Path $PSHOME 'Modules') + [IO.Path]::PathSeparator + $
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $headers = @{ 'User-Agent' = 'Backspace-build' }
+# GitHub limits anonymous API requests per address, and hosted runners share
+# addresses. In GitHub Actions, send the workflow's token to the API host only;
+# asset downloads keep the anonymous headers.
+$apiHeaders = $headers.Clone()
+if ($env:GITHUB_ACTIONS -eq 'true' -and $env:GITHUB_TOKEN) { $apiHeaders['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
 $versions = Get-Content (Join-Path $PSScriptRoot 'engine-versions.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 
 # Detect arch. On Windows we support x86_64 + arm64. Default to x86_64
@@ -48,7 +53,7 @@ function Fetch-FromGitHubRelease {
     Write-Host "[fetch-backrest] Querying GitHub for $RepoSlug $ReleaseTag..."
     $release = Invoke-RestMethod `
         -Uri "https://api.github.com/repos/$RepoSlug/releases/tags/$ReleaseTag" `
-        -Headers $headers -TimeoutSec 30
+        -Headers $apiHeaders -TimeoutSec 30
 
     $asset = $release.assets | Where-Object { $_.name -match $AssetPattern } | Select-Object -First 1
     if (-not $asset) {

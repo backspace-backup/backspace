@@ -94,7 +94,13 @@ settings introduced by a later version and invalidate every approval after an
 update. Turning access on is one approval: the elevated `--service-setup`
 process prepares the service, leaves `service-setup-prepared` in the settings
 folder, waits while the desktop hands the saved sign-ins over, then activates
-(`ServiceActivation.ActivateAfterHandoff`). Backups whose destination is a
+(`ServiceActivation.ActivateAfterHandoff`). Turning it off is one approval
+too: the elevated `--service-retire` process freezes the service, leaves
+`service-retire-prepared`, waits until the desktop has taken its sign-ins back
+and written `service-retire-returned`, then removes the service
+(`ServiceRetirement.CompleteAfterReturn`). It waits for the desktop rather than
+the service's receipt, so the service is not stopped mid-reply; `Complete`
+still verifies the receipt and the returned file. Backups whose destination is a
 network share are left to the tray app's schedule (`SchedulePlan.ServiceCanRun`),
 since the service's account cannot sign in to a share; approval checks skip
 them so they do not block the others. External drives run in the service

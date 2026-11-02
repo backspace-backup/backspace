@@ -799,37 +799,64 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     // ---- Recommended lists changed since this backup was set up (U057) ----
     // Saved filters never change on their own; when the person edits the
     // backup, Backspace offers today's additions and removals for the groups
-    // the backup uses. Ignored ones are remembered with the backup.
+    // the backup uses, one checkbox each. Update applies the ticked ones and
+    // remembers the unticked ones with the backup, so they are not offered again.
 
     private readonly List<string> _ignoredRecommendationChanges;
-    private RecommendedFilters.ListUpdate _recommendationUpdate = new(Array.Empty<string>(), Array.Empty<string>());
 
-    public bool HasRecommendationUpdate => !_recommendationUpdate.IsEmpty;
+    public ObservableCollection<RecommendationChangeChoice> RecommendedAdditions { get; } = new();
+    public ObservableCollection<RecommendationChangeChoice> RecommendedRemovals { get; } = new();
 
-    public string RecommendationUpdateText
-    {
-        get
-        {
-            static string List(IReadOnlyList<string> items) =>
-                string.Join(", ", items.Take(6)) + (items.Count > 6 ? $", and {items.Count - 6} more" : "");
-            var parts = new List<string>();
-            if (_recommendationUpdate.Add.Count > 0) parts.Add($"Add {_recommendationUpdate.Add.Count}: {List(_recommendationUpdate.Add)}.");
-            if (_recommendationUpdate.Remove.Count > 0) parts.Add($"Remove {_recommendationUpdate.Remove.Count} no longer recommended: {List(_recommendationUpdate.Remove)}.");
-            return string.Join(" ", parts);
-        }
-    }
+    public bool HasRecommendationUpdate => RecommendedAdditions.Count + RecommendedRemovals.Count > 0;
+    public bool HasRecommendedAdditions => RecommendedAdditions.Count > 0;
+    public bool HasRecommendedRemovals => RecommendedRemovals.Count > 0;
+
+    // Declined suggestions that still apply to this backup (U067).
+    private IReadOnlyList<string> _hiddenRecommendationChanges = Array.Empty<string>();
+
+    public bool HasHiddenRecommendations => _hiddenRecommendationChanges.Count > 0;
+
+    public string HiddenRecommendationsText => _hiddenRecommendationChanges.Count == 1
+        ? "1 suggested change is hidden for this backup."
+        : $"{_hiddenRecommendationChanges.Count} suggested changes are hidden for this backup.";
 
     private void RefreshRecommendationUpdate()
     {
-        _recommendationUpdate = RecommendedFilters.CheckForUpdates(FiltersText, _ignoredRecommendationChanges);
+        var update = RecommendedFilters.CheckForUpdates(FiltersText, _ignoredRecommendationChanges);
+        RecommendedAdditions.Clear();
+        RecommendedRemovals.Clear();
+        foreach (var p in update.Add) RecommendedAdditions.Add(new RecommendationChangeChoice(p));
+        foreach (var p in update.Remove) RecommendedRemovals.Add(new RecommendationChangeChoice(p));
+        var all = RecommendedFilters.CheckForUpdates(FiltersText);
+        _hiddenRecommendationChanges = all.Add.Concat(all.Remove)
+            .Where(p => _ignoredRecommendationChanges.Contains(p, StringComparer.OrdinalIgnoreCase)).ToList();
         OnPropertyChanged(nameof(HasRecommendationUpdate));
-        OnPropertyChanged(nameof(RecommendationUpdateText));
+        OnPropertyChanged(nameof(HasRecommendedAdditions));
+        OnPropertyChanged(nameof(HasRecommendedRemovals));
+        OnPropertyChanged(nameof(HasHiddenRecommendations));
+        OnPropertyChanged(nameof(HiddenRecommendationsText));
+    }
+
+    /// <summary>Lists the declined suggestions again, unticked, so the person
+    /// can pick any of them; nothing changes until they apply (U067).</summary>
+    [RelayCommand]
+    private void ShowHiddenRecommendations()
+    {
+        var shown = _hiddenRecommendationChanges;
+        _ignoredRecommendationChanges.RemoveAll(p => shown.Contains(p, StringComparer.OrdinalIgnoreCase));
+        RefreshRecommendationUpdate();
+        foreach (var choice in RecommendedAdditions.Concat(RecommendedRemovals))
+            if (shown.Contains(choice.Pattern, StringComparer.OrdinalIgnoreCase)) choice.IsSelected = false;
     }
 
     [RelayCommand]
     private void ApplyRecommendationUpdate()
     {
-        FiltersText = RecommendedFilters.ApplyUpdates(FiltersText ?? "", _recommendationUpdate);
+        static List<string> Ticked(IEnumerable<RecommendationChangeChoice> c, bool ticked) =>
+            c.Where(x => x.IsSelected == ticked).Select(x => x.Pattern).ToList();
+        var update = new RecommendedFilters.ListUpdate(Ticked(RecommendedAdditions, true), Ticked(RecommendedRemovals, true));
+        Ignore(Ticked(RecommendedAdditions, false).Concat(Ticked(RecommendedRemovals, false)));
+        FiltersText = RecommendedFilters.ApplyUpdates(FiltersText ?? "", update);
         RefreshRecommendationUpdate();
         _ = ComputeSavingsEstimateAsync();
     }
@@ -837,10 +864,13 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void IgnoreRecommendationUpdate()
     {
-        _ignoredRecommendationChanges.AddRange(_recommendationUpdate.Add.Concat(_recommendationUpdate.Remove)
-            .Where(p => !_ignoredRecommendationChanges.Contains(p, StringComparer.OrdinalIgnoreCase)));
+        Ignore(RecommendedAdditions.Concat(RecommendedRemovals).Select(c => c.Pattern));
         RefreshRecommendationUpdate();
     }
+
+    private void Ignore(IEnumerable<string> patterns) =>
+        _ignoredRecommendationChanges.AddRange(patterns
+            .Where(p => !_ignoredRecommendationChanges.Contains(p, StringComparer.OrdinalIgnoreCase)).ToList());
 
     [RelayCommand]
     private void ApplyRecommendedFilters()
@@ -1866,4 +1896,13 @@ public sealed partial class CloudExcludeChoice : ObservableObject
     public string Path  => Folder.Path;
 
     public CloudExcludeChoice(RecommendedFilters.CloudSyncFolder folder) => Folder = folder;
+}
+
+/// <summary>One suggested change to a backup's recommended exclusions (U057).</summary>
+public sealed partial class RecommendationChangeChoice : ObservableObject
+{
+    public string Pattern { get; }
+    [ObservableProperty] private bool _isSelected = true;
+
+    public RecommendationChangeChoice(string pattern) => Pattern = pattern;
 }

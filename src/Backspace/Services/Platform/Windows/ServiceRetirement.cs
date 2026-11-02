@@ -17,6 +17,17 @@ namespace Backspace.Services.Platform.Windows;
 internal static class ServiceRetirement
 {
     internal const string FileName = "service-retirement.json";
+
+    /// <summary>Left in the settings folder by the approved removal process
+    /// once the service is frozen; the desktop deletes it to cancel.</summary>
+    internal const string PreparedHintFile = "service-retire-prepared";
+
+    /// <summary>Written by the desktop once the service has accepted the
+    /// returned sign-ins and the desktop holds the verified file. Both hints
+    /// only time the steps: <see cref="Complete"/> still checks the receipt
+    /// and the exact returned file.</summary>
+    internal const string ReturnedHintFile = "service-retire-returned";
+
     internal sealed record Record(int Version, string Installation, string ReturnId,
         ServiceWorkerBinding Binding, string ServiceSid, string Stage, string? OwnerCiphertextSha256 = null);
     internal static string ReceiptPath(Record saved) => Path.Combine(saved.Binding.DataDirectory, "return-" + saved.ReturnId + ".accepted");
@@ -120,6 +131,41 @@ internal static class ServiceRetirement
         ServiceRegistration.SetStartMode(binding, executable, automatic: false);
         using var service = new ServiceController(binding.ServiceName);
         service.Start(); service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));
+    }
+
+    /// <summary>
+    /// One Windows approval for removal (U050): after freezing the service,
+    /// the approved process waits here while the desktop, running as the
+    /// owner, takes its saved sign-ins back, then finishes the removal. It
+    /// waits for the desktop's signal rather than the service's receipt, so
+    /// the service is not stopped while it is still answering the desktop.
+    /// </summary>
+    internal static void CompleteAfterReturn(string installation, TimeSpan timeout)
+    {
+        var root = ServiceInstallationSecurity.CanonicalLocalPath(installation);
+        var hint = Path.Combine(ServicePortableLayout.Config(root), PreparedHintFile);
+        var returned = Path.Combine(ServicePortableLayout.Config(root), ReturnedHintFile);
+        TryDelete(returned);
+        File.WriteAllText(hint, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        try
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            while (!File.Exists(returned))
+            {
+                if (!File.Exists(hint))
+                    throw new OperationCanceledException("Backspace stopped the removal before your saved sign-ins were returned. Nothing was removed; turn administrator access off again to finish.");
+                if (DateTime.UtcNow > deadline)
+                    throw new System.TimeoutException("Your saved sign-ins were not returned in time. Nothing was removed; turn administrator access off again to finish.");
+                System.Threading.Thread.Sleep(250);
+            }
+            Complete(root);
+        }
+        finally { TryDelete(hint); TryDelete(returned); }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
     internal static void Complete(string installation, Action<string>? checkpoint = null)
