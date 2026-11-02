@@ -37,7 +37,7 @@ internal static class ServiceCoordinationFiles
         if (ServiceRetirement.Read(root) is { } retirement)
         {
             if (retirement.Stage == "complete" && ownerContext) return null;
-            throw new IOException("Finish background service removal in Settings before starting another operation.");
+            throw new ServiceRemovalPendingException();
         }
         var path = ServicePortableLayout.Record(root, ServiceWorkerBinding.FileName);
         try { _ = File.GetAttributes(path); }

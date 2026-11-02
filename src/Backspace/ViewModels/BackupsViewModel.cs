@@ -795,6 +795,16 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     private async Task RunNow(BackupCardViewModel card)
     {
         if (card is null) return;
+        // A destination without its sign-in or storage password (an imported
+        // Duplicacy one, for example) opens for setup instead of failing (U082).
+        foreach (var target in card.Snapshot.Targets)
+        {
+            if (ServiceLocator.Config.Current.Destinations.FirstOrDefault(d => d.Id == target.DestinationId) is not { } destination
+                || DestinationReadiness.Problem(destination, ServiceLocator.Secrets) is not { } notReady) continue;
+            card.LastRunLabel = notReady;
+            await EditDestinationByIdAsync(destination.Id, $"To back up to «{destination.Name}», first {DestinationReadiness.Steps(destination, ServiceLocator.Secrets)}, then save and run the backup again.");
+            return;
+        }
         card.SetRunning();
         try
         {
@@ -979,13 +989,14 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     /// upsert (the editor returns a Destination instance, possibly
     /// with mutations on the working copy).
     /// </summary>
-    private async Task EditDestinationByIdAsync(string destinationId)
+    private async Task EditDestinationByIdAsync(string destinationId, string? setupNotice = null)
     {
-        var owner = Owner();
+        var owner = TestRestoreOwner?.Invoke() ?? Owner();
         if (owner is null) return;
         var dest = ServiceLocator.Config.Current.Destinations.FirstOrDefault(d => d.Id == destinationId);
         if (dest is null) return;
         var dlg = new DestinationEditorWindow(dest, isNew: false);
+        if (setupNotice is not null && dlg.DataContext is DestinationEditorViewModel editor) editor.SetupNotice = setupNotice;
         var saved = await dlg.ShowDialog<Destination?>(owner);
         if (saved is null) return;
         ServiceLocator.Config.Update(cfg =>

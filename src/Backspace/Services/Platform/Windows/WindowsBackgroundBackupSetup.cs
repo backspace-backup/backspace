@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -105,8 +106,14 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
         Process? setup = null;
         if (!File.Exists(bindingPath) || ServiceRetirement.Read(_root) is { Stage: "complete" })
         {
-            if (ServiceConfigurationComparison.ReadDesktop(_root).Backups.Count == 0)
-                throw new InvalidOperationException("Save a backup first, then turn this on.");
+            // Access can be turned on before any backup exists (U075): the
+            // service is approved for the settings as saved, and backups added
+            // later reach it through the quiet settings update. Setup reads the
+            // settings file and hands the vault over, so both must exist.
+            if (!File.Exists(Path.Combine(_configuration, "config.json"))) ServiceLocator.Config.Save();
+            var vault = Path.Combine(_configuration, "secrets.bin");
+            if (!File.Exists(vault) && !File.Exists(vault + ".bak"))
+                new SecretsStore(new DpapiSecretsEncryption(), vault).ImportIntoNewVault(new Dictionary<string, string>());
             ValidateNewServiceLocation();
             // One approval covers preparing and activating (U050).
             if (_elevatedForTest is not null) Elevated("--service-prepare", owner);

@@ -28,6 +28,12 @@
                   HorizontalScrollBarVisibility="Disabled">
       <StackPanel Spacing="18">
 
+        <!-- Why this opened instead of a backup run (U082): an imported or
+             unfinished destination still needs its sign-in or password. -->
+        <Border Classes="notice info" IsVisible="{Binding SetupNotice, Converter={x:Static vm:NotEmpty.To}}">
+          <TextBlock x:Name="SetupNoticeText" Classes="body" TextWrapping="Wrap" Text="{Binding SetupNotice}"/>
+        </Border>
+
         <!-- Card: Type (always first — drives the rest of the form). -->
         <Border Classes="surface">
           <StackPanel Spacing="8">
@@ -168,9 +174,13 @@
               </StackPanel>
               <StackPanel Grid.Column="2" Spacing="6">
                 <TextBlock Classes="label-caps" Text="PASSWORD"/>
-                <TextBox Text="{Binding NetworkPasswordInput}" PasswordChar="•"/>
+                <TextBox Text="{Binding NetworkPasswordInput}" PasswordChar="•"
+                         Watermark="{Binding NetworkPasswordWatermark}"/>
               </StackPanel>
             </Grid>
+            <!-- U071: the background service reaches the share only with these. -->
+            <TextBlock Classes="helper" TextWrapping="Wrap"
+                       Text="With administrator access on, these let backups to this share run in the background, with snapshots and before you sign in. Without them, they run from the tray app while you're signed in."/>
           </StackPanel>
         </Border>
 

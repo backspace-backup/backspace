@@ -30,15 +30,16 @@ public sealed record SchedulePlan(Backup Backup, ScheduledTaskKind Kind, BackupS
     }
 
     /// <summary>
-    /// Whether the background service can run this backup. Its account cannot
-    /// sign in to a network share, so those backups stay with the tray app,
-    /// while the person is signed in (U058, 31 October 2026). Before, one such
-    /// backup made turning on administrator access and every settings change
-    /// fail for all backups. External drives run in the service (U061).
+    /// Whether the background service can run this backup. Its account reaches
+    /// a network share only with the share's user name and password saved
+    /// (U071); without them those backups stay with the tray app, while the
+    /// person is signed in (U058, 31 October 2026). Before, one such backup
+    /// made turning on administrator access and every settings change fail
+    /// for all backups. External drives run in the service (U061).
     /// </summary>
     public static bool ServiceCanRun(Backup backup, IReadOnlyList<Destination> destinations) =>
-        backup.Targets.All(t => destinations.FirstOrDefault(d => d.Id == t.DestinationId)
-            is not { Kind: DestinationKind.NetworkShare });
+        backup.Targets.All(t => destinations.FirstOrDefault(d => d.Id == t.DestinationId) is not { Kind: DestinationKind.NetworkShare } share
+            || NetworkSharePath.ServiceCanReach(share));
 }
 
 /// <summary>When each plan is next due. Saved beside the settings, so a run

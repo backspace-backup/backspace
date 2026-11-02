@@ -408,6 +408,19 @@ internal sealed class BackupWindowsService : ServiceBase
 
     private string? FailureReason()
     {
+        try
+        {
+            // A worker that stopped on purpose left its reason (a network share
+            // refused or unreachable, U071).
+            var path = Path.Combine(_binding.DataDirectory, ServiceNetworkShares.ReasonFile);
+            if (File.Exists(path) && new FileInfo(path).Length is > 0 and < 2048)
+            {
+                var reason = File.ReadAllText(path).Trim();
+                File.Delete(path);
+                if (reason.Length > 0) return reason;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { AppLogger.For<BackupWindowsService>().Warning(ex, "Could not read the worker's reason"); }
         try { return _approved is { } run ? ServiceApprovedWorker.MissingDestination(run) : null; }
         catch (Exception ex) { AppLogger.For<BackupWindowsService>().Warning(ex, "Could not check the destination of a failed run"); return null; }
     }

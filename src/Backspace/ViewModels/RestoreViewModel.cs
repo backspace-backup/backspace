@@ -666,8 +666,9 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         // rather than waiting for the destination/revision steps to
         // come back empty. NeverRun is the obvious case; a status of
         // Failed with no successful run also has no usable snapshots.
-        if (SelectedBackup.LastRunStatus == BackupRunStatus.NeverRun
-            || SelectedBackup.LastRunEndUtc is null)
+        // Same rule as the backup card's Restore, Mount and Test restore (U079).
+        if (SelectedBackup.LastSuccessUtc is null && (SelectedBackup.LastRunEndUtc is null
+            || SelectedBackup.LastRunStatus is BackupRunStatus.NeverRun or BackupRunStatus.Skipped))
         {
             PickBackupNoticeText =
                 $"«{SelectedBackup.Name}» hasn't completed a successful run yet, so there's " +

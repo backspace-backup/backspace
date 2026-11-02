@@ -123,3 +123,22 @@ public sealed class EngineUnreachableDestinationException : System.Exception, IN
         Reason = reason;
     }
 }
+
+/// <summary>Backrest discarded a queued task without running it: its queue is
+/// reset when the computer wakes from sleep (a clock jump) or its settings
+/// change, and the waiting request then never returns (U093). Nothing is
+/// running, so the run's ordinary retry submits it again.</summary>
+public sealed class EngineTaskDroppedException : System.IO.IOException
+{
+    public EngineTaskDroppedException()
+        : base("The backup engine discarded this task before running it (for example after the computer woke from sleep).") { }
+}
+
+/// <summary>Work refused while removing administrator access is unfinished.
+/// The sidebar and Settings already offer to finish it, so callers that
+/// would otherwise show a dialog stay quiet (U078).</summary>
+public sealed class ServiceRemovalPendingException : System.IO.IOException
+{
+    public ServiceRemovalPendingException()
+        : base("Finish background service removal in Settings before starting another operation.") { }
+}

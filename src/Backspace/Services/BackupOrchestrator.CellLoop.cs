@@ -434,6 +434,17 @@ public sealed partial class BackupOrchestrator
             Status = BackupRunStatus.Running,
         };
 
+        // A destination without its sign-in or storage password cannot
+        // work; say what is missing instead of retrying restic (U082).
+        if (DestinationReadiness.Problem(dest, _secrets) is { } notReady)
+        {
+            lineSink?.Invoke("[orchestrator] " + notReady);
+            cell.Status = BackupRunStatus.Failed;
+            cell.Summary = "destination not set up";
+            cell.LastError = notReady;
+            return cell;
+        }
+
         // First try runs immediately; subsequent tries wait the
         // cascade duration. See CellRetryBackoffs at the top of the
         // class for the cascade rationale.

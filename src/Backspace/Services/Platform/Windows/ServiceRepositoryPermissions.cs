@@ -62,9 +62,15 @@ internal static class ServiceRepositoryPermissions
             // the missing destination instead.
             if (!Directory.Exists(path))
             {
-                // On a connected external drive, a new backup folder is made
-                // here: the service's account may not create it itself.
-                if (external.Contains(path) && Directory.Exists(System.IO.Path.GetDirectoryName(path)))
+                // A new backup folder (a connected external drive, or a local
+                // folder chosen but not created yet, as the tray app would on its
+                // first run) is made here: the service's account may not create
+                // it itself (U078, 2 November 2026). A folder whose parent is
+                // gone too (a disconnected drive) is left alone, and so is a
+                // local folder granted before: it was deleted or moved, and an
+                // empty replacement would hide that and block every later
+                // update (release VM check, 2 November 2026).
+                if (CreatesMissing(path, external.Contains(path), retained.ContainsKey(path)))
                     Directory.CreateDirectory(path);
                 else
                 {
@@ -98,6 +104,9 @@ internal static class ServiceRepositoryPermissions
             finally { for (var i = pins.Count - 1; i >= 0; i--) pins[i].Dispose(); }
         }
     }
+
+    internal static bool CreatesMissing(string path, bool external, bool grantedBefore)
+        => Directory.Exists(System.IO.Path.GetDirectoryName(path)) && (external || !grantedBefore);
 
     internal static IEnumerable<string> RepositoryRoots(string installation, AppConfig config)
     {

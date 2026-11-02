@@ -46,6 +46,44 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private bool _isDownloading;
     [ObservableProperty] private double _progress;
     public bool CanCheck => !IsBusy;
+
+    // ---- Sidebar indicator (U088) ----
+    // Like a browser's update badge: the version shows whether it is up to
+    // date or a newer one is waiting, and opens App updates when clicked.
+    /// <summary>"available", "current" or "unknown" (never checked, or the check failed).</summary>
+    public string FooterState
+    {
+        get
+        {
+            if (HasUpdate || NewerKnown() is not null) return "available";
+            var prefs = ServiceLocator.Config?.Current?.Preferences;
+            return prefs is not null && prefs.LastUpdateCheckUtc > DateTime.UtcNow.AddDays(-45) ? "current" : "unknown";
+        }
+    }
+    public bool FooterUpdateAvailable => FooterState == "available";
+    public bool FooterUpToDate => FooterState == "current";
+    public string FooterTooltip => FooterState switch
+    {
+        "available" => "Backspace " + (NewerKnown() ?? "") + " is available. Click to read what changed and update.",
+        "current" => "Up to date. Last checked " + HumanFormat.Ago(ServiceLocator.Config.Current.Preferences.LastUpdateCheckUtc) + ". Click to check again.",
+        _ => "Click to check for updates.",
+    };
+
+    private string? NewerKnown()
+    {
+        if (_release is { } release) return release.Version.ToString();
+        var saved = ServiceLocator.Config?.Current?.Preferences.AvailableUpdateVersion;
+        return Version.TryParse(saved, out var v) && v > WindowsUpdatePackage.CurrentVersion ? saved : null;
+    }
+
+    internal void RaiseFooter()
+    {
+        OnPropertyChanged(nameof(FooterState));
+        OnPropertyChanged(nameof(FooterUpdateAvailable));
+        OnPropertyChanged(nameof(FooterUpToDate));
+        OnPropertyChanged(nameof(FooterTooltip));
+    }
+
     public bool CanDownload => HasUpdate && !IsBusy && InstallAvailable;
     public bool CanSkip => HasUpdate && !IsBusy;
 
@@ -91,7 +129,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
         if (_started) ScheduleNext();
     }
     partial void OnIsBusyChanged(bool value) => UpdateButtons();
-    partial void OnHasUpdateChanged(bool value) => UpdateButtons();
+    partial void OnHasUpdateChanged(bool value) { UpdateButtons(); RaiseFooter(); }
     private void UpdateButtons()
     {
         OnPropertyChanged(nameof(CanCheck)); OnPropertyChanged(nameof(CanDownload)); OnPropertyChanged(nameof(CanSkip));
@@ -142,7 +180,12 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
             }
             HasUpdate = _release is not null;
             Notes = _release?.Notes ?? ""; AvailableVersion = _release is null ? "" : "Update to " + _release.Version;
-            ServiceLocator.Config.Update(c => c.Preferences.LastUpdateCheckUtc = DateTime.UtcNow);
+            ServiceLocator.Config.Update(c =>
+            {
+                c.Preferences.LastUpdateCheckUtc = DateTime.UtcNow;
+                c.Preferences.AvailableUpdateVersion = _release?.Version.ToString() ?? "";
+            });
+            RaiseFooter();
             if (_release is { } release)
             {
                 var skipped = ServiceLocator.Config.Current.Preferences.SkippedUpdateVersion == release.Version.ToString();

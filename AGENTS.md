@@ -91,6 +91,17 @@ comments, user decisions and earlier wording. Its local README documents
 the API. Record agent replies as Agent, Codex or Claude; the queue label
 is always **With Agent**.
 
+**The desk enforces record consistency (user request of 1 November 2026).**
+Send each reply together with the record changes it implies (`fields` on
+the comment): summary, next step, honest stage. The server refuses a reply
+or update that would leave an open record contradicting itself: a summary
+still saying the request has not been reviewed, work remaining handed to
+the user, or delivered work still filed under planned work. Closed issues
+count only as completed or discarded. A red banner on the desk lists any
+record that still contradicts itself; clear it before ending a session.
+Move a planned item only on the user's go-ahead, quoted in the move's
+`reason`.
+
 **Put the explanation and its proof in the same reply.** Explain the result
 and its limits in the message itself, then attach its screenshots or reports
 to that comment using the API's `proof` field. Do not send the user searching

@@ -26,6 +26,14 @@ public sealed record TrayScheduleStatus(ScheduleReadiness State, string Title, s
             problem.Backup.Name + ": " + problem.Check.Detail);
         if (results.Any(r => r.Check.State != ScheduleReadiness.Ready)) return new(ScheduleReadiness.Unknown,
             "Schedules not verified", "Backspace could not confirm all schedules. Open Backspace to check your backups.");
+        // A ready schedule is not a protected backup: the check mark means the
+        // last runs worked (U084, 2 November 2026).
+        if (active.FirstOrDefault(b => b.LastRunStatus == BackupRunStatus.Failed) is { } failed)
+            return new(ScheduleReadiness.Attention, "Last backup failed",
+                failed.Name + ": " + (string.IsNullOrWhiteSpace(failed.LastRunSummary) ? "the last run failed." : failed.LastRunSummary!.Trim()) + " Open Backspace for details.");
+        var waiting = active.Where(b => b.LastSuccessUtc is null && b.LastRunStatus is BackupRunStatus.NeverRun or BackupRunStatus.Skipped).ToArray();
+        if (waiting.Length > 0) return new(ScheduleReadiness.Unknown, "Not backed up yet",
+            waiting.Length == 1 ? $"{waiting[0].Name} has not completed a backup yet." : $"{waiting.Length} backups have not completed a backup yet.");
         return new(ScheduleReadiness.Ready, paused > 0 ? $"{active.Length} ready · {paused} paused" : "Schedules ready",
             $"Checked at {nowUtc.ToLocalTime():HH:mm}. Drives and sign-in are checked when backups run.");
 

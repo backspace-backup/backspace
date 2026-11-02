@@ -119,6 +119,9 @@ public sealed class AppPreferences
     public string UpdateCheckFrequency { get; set; } = "Monthly";
     public DateTime LastUpdateCheckUtc { get; set; }
     public string SkippedUpdateVersion { get; set; } = "";
+    /// <summary>The newer version the last update check found, or empty when
+    /// it found none; drives the sidebar's update indicator between checks.</summary>
+    public string AvailableUpdateVersion { get; set; } = "";
 
     /// <summary>Default: follow the OS appearance setting. Matches what
     /// every modern desktop app does — most users have already picked

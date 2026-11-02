@@ -790,7 +790,9 @@ the provider's page. The vaults are encrypted for the Windows account that
 created them; copy the configurations separately when moving the checkout, and
 sign in again on another account.
 
-`E58_DropboxScaleBenchmark` times a 20,000-file, 2 GiB backup to Dropbox and an
+`E58_DropboxScaleBenchmark` times a 20,000-file, 2 GiB backup (or another
+`BACKSPACE_BENCHMARK_FILES` count at the same ~105 KiB per file) to Dropbox,
+Google Drive or OneDrive (`BACKSPACE_BENCHMARK_PROVIDER`), and an
 incremental backup after rewriting a quarter of the files. It runs only when
 `BACKSPACE_BENCHMARK_ACTION` is `generate`, `mutate`, `backup` or `tool`; `tool`
 runs the bundled restic or rclone against the same repository for profiling.
@@ -854,6 +856,9 @@ state transitions. Mark the public runner method with `[AvaloniaFact]`.
 Follow the existing E07–E10 credential and interactive gates for live cloud
 tests. Finish or acknowledge cancellation of live operations before disposing
 the UI driver; teardown must not kill an active backend to make a test pass.
+Teardown closes every window the driver showed and disposes its view model,
+including the view model of a view hosted in a plain window: left alive, its
+cards posted work into a later test's dispatcher (U066).
 
 ## Coverage matrix — every user-driven action vs. its scenario
 

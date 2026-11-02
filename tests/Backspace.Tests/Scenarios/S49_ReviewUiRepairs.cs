@@ -26,7 +26,7 @@ public sealed class S49_ReviewUiRepairs : ScenarioBase
     protected override async Task RunAsync(ScenarioContext ctx)
     {
         var registry = new MountFixture();
-        var backup = new Backup { Name = "Travel documents" };
+        var backup = new Backup { Name = "Travel documents", LastRunStatus = BackupRunStatus.Success, LastRunEndUtc = DateTime.UtcNow.AddHours(-1), LastSuccessUtc = DateTime.UtcNow.AddHours(-1) };
         using var card = new BackupCardViewModel(backup, true, false, registry);
         var cardView = new BackupCard { DataContext = card };
         var host = ctx.Driver.Show(new Window { Width = 1100, Height = 540, Content = cardView });

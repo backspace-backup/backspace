@@ -190,9 +190,18 @@ internal static class ServiceRetirement
             // Pin and identify every object before removal or any ACL change.
             pins.Add(".", new(root, workingFolder: true)); pins.Add(AppPaths.AppFolderName, new(ServicePortableLayout.Config(root), workingFolder: true));
             foreach (var name in ServiceSetup.PermissionFiles(journal.Permissions)) pins.Add(name, new(Path.Combine(root, name), directory: false));
+            // A program file replaced since setup (a newer Backspace.exe copied in,
+            // or an update) carries the permissions its writer gave it; it is
+            // left as it is rather than blocking the removal (U078, 2 November
+            // 2026). A replaced folder still stops it: that is not this copy.
+            var replaced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in pins)
                 if (pair.Value.Identity != journal.Identities[pair.Key])
-                    throw new SecurityException("A program file or folder was replaced after setup. Its permissions were not changed: " + pair.Key);
+                {
+                    if (pair.Key is "." || pair.Key == AppPaths.AppFolderName)
+                        throw new SecurityException("The program folder was replaced after setup. Its permissions were not changed: " + pair.Key);
+                    replaced.Add(pair.Key);
+                }
             using var servicePin = new ServiceObjectPermissions(ServicePortableLayout.Service(root));
             using var controlPin = new ServiceObjectPermissions(ServicePortableLayout.Control(root));
             ServiceInstallationSecurity.ValidateDescriptor(new RawSecurityDescriptor(controlPin.Read()), true, ServiceInstallationSecurity.IsTrustedInstallerIdentity);
@@ -235,6 +244,7 @@ internal static class ServiceRetirement
             // object remains pinned against replacement throughout this loop.
             foreach (var permission in journal.Permissions.OrderBy(p => p.RelativePath == "." ? 0 : p.RelativePath == AppPaths.AppFolderName ? 1 : 2))
             {
+                if (replaced.Contains(permission.RelativePath)) continue;
                 try { pins[permission.RelativePath].Set(permission.Sddl); }
                 catch (Exception ex) { throw new IOException("Could not restore the original permissions of " + permission.RelativePath + ". Retained data was preserved.", ex); }
             }

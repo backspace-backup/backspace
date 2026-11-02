@@ -225,6 +225,11 @@
                                  Foreground="#D7DCE2"
                                  TextWrapping="NoWrap"/>
           </ScrollViewer>
+          <!-- Shown while the reader has scrolled away from the end (U083):
+               new lines no longer pull them back; this returns and follows again. -->
+          <Button x:Name="JumpToLatest" Classes="ghost" IsVisible="False"
+                  HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,24"
+                  Content="Jump to latest" Click="OnJumpToLatest"/>
           <!-- "No history for selected backup yet" placeholder.
                Shown when the user has picked a backup but it has
                never produced a RunRecord (fresh backup, all runs

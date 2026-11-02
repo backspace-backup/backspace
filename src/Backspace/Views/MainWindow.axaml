@@ -263,9 +263,22 @@
                             Data="{StaticResource Icon.GitHub}"
                             Width="16" Height="16"/>
                 </Button>
-                <TextBlock x:Name="FooterVersionText" Grid.Column="2"
-                           Classes="dim" FontSize="11"
-                           VerticalAlignment="Center"/>
+                <!-- Version: opens App updates; a small badge says whether a
+                     newer version is waiting or this one is current (U088). -->
+                <Button x:Name="FooterVersionButton" Grid.Column="2" Classes="text-link"
+                        VerticalAlignment="Center" Click="OnOpenAppUpdates"
+                        ToolTip.Tip="{Binding Settings.Updates.FooterTooltip}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock x:Name="FooterVersionText" Classes="dim" FontSize="11" VerticalAlignment="Center"/>
+                    <Border x:Name="FooterUpdateBadge" IsVisible="{Binding Settings.Updates.FooterUpdateAvailable}"
+                            Background="{DynamicResource BS.Brush.Accent}" CornerRadius="8" Padding="6,1" VerticalAlignment="Center">
+                      <TextBlock Text="Update" FontSize="10" FontWeight="SemiBold" Foreground="White"/>
+                    </Border>
+                    <PathIcon x:Name="FooterUpToDateMark" IsVisible="{Binding Settings.Updates.FooterUpToDate}"
+                              Data="{StaticResource Icon.Check}" Width="9" Height="9"
+                              Foreground="{DynamicResource BS.Brush.Success}" VerticalAlignment="Center"/>
+                  </StackPanel>
+                </Button>
               </Grid>
               <!-- "Powered by Backrest" with the engine name as a
                    clickable link to the Backrest GitHub repo. -->

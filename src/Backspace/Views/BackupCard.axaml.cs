@@ -42,10 +42,10 @@ public partial class BackupCard : UserControl
         var backups = this.GetVisualAncestors().OfType<ItemsControl>()
             .Select(c => c.DataContext).OfType<BackupsViewModel>().FirstOrDefault();
         if (backups is null) return;
-        MenuItem Action(string label, ICommand command, object? parameter = null)
+        MenuItem Action(string label, ICommand command, object? parameter = null, string enabledWhen = nameof(BackupCardViewModel.CanEditWhileIdle))
         {
             var item = new MenuItem { Header = label, Command = command, CommandParameter = parameter };
-            item.Bind(IsEnabledProperty, new Binding(nameof(BackupCardViewModel.CanEditWhileIdle)) { Source = card });
+            item.Bind(IsEnabledProperty, new Binding(enabledWhen) { Source = card });
             return item;
         }
         var menu = new MenuFlyout
@@ -53,7 +53,7 @@ public partial class BackupCard : UserControl
             Items =
             {
                 Action("Edit backup settings", backups.EditCommand, card),
-                Action("Browse snapshots in browser", card.BrowseSnapshotsCommand),
+                Action("Browse snapshots in browser", card.BrowseSnapshotsCommand, enabledWhen: nameof(BackupCardViewModel.CanUseSnapshots)),
                 new Separator(),
                 Action("Remove backup…", backups.DeleteCommand, card),
             },

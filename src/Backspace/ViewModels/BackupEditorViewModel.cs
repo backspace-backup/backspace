@@ -828,7 +828,11 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         foreach (var p in update.Add) RecommendedAdditions.Add(new RecommendationChangeChoice(p));
         foreach (var p in update.Remove) RecommendedRemovals.Add(new RecommendationChangeChoice(p));
         var all = RecommendedFilters.CheckForUpdates(FiltersText);
-        _hiddenRecommendationChanges = all.Add.Concat(all.Remove)
+        var current = all.Add.Concat(all.Remove).ToList();
+        // A declined change that today's lists no longer suggest is stale:
+        // never shown again, and dropped so a later return is offered afresh.
+        _ignoredRecommendationChanges.RemoveAll(p => !current.Contains(p, StringComparer.OrdinalIgnoreCase));
+        _hiddenRecommendationChanges = current
             .Where(p => _ignoredRecommendationChanges.Contains(p, StringComparer.OrdinalIgnoreCase)).ToList();
         OnPropertyChanged(nameof(HasRecommendationUpdate));
         OnPropertyChanged(nameof(HasRecommendedAdditions));

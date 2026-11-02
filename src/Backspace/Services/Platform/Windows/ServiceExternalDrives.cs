@@ -16,8 +16,8 @@ namespace Backspace.Services.Platform.Windows;
 /// its backup folder yet (a drive formatted elsewhere, or a folder made with
 /// the owner's permissions only), the service starts the "Apply saved
 /// settings" task, which as SYSTEM creates the folder and grants access.
-/// Network shares stay with the tray app: the service's account cannot sign
-/// in to a share.
+/// Network shares are connected with their saved credentials
+/// (ServiceNetworkShares, U071).
 /// </summary>
 internal static class ServiceExternalDrives
 {

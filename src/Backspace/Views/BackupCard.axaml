@@ -373,7 +373,7 @@
               <TextBlock Text="Stop" VerticalAlignment="Center"/>
             </Button>
             <Button Classes="ghost"
-                    IsEnabled="{Binding !IsRunning}"
+                    IsEnabled="{Binding CanUseSnapshots}"
                     IsVisible="{Binding CanMountSnapshot}"
                     ToolTip.Tip="{Binding MountTooltip}"
                     ToolTip.ShowOnDisabled="True"
@@ -385,7 +385,7 @@
               </StackPanel>
             </Button>
             <Button Classes="restore-action" Margin="0,0,0,6"
-                    IsEnabled="{Binding !IsRunning}"
+                    IsEnabled="{Binding CanUseSnapshots}"
                     ToolTip.Tip="{Binding RestoreFilesTooltip}"
                     ToolTip.ShowOnDisabled="True"
                     Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).RestoreFilesCommand}"

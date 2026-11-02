@@ -437,6 +437,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
             var previousIds = before.Select(op => op.Id).ToHashSet(StringComparer.Ordinal);
             ct.ThrowIfCancellationRequested();
             submission = client.CallAsync<T, BackrestScheduledOperationResponse>(endpoint, request, transport.Token);
+            var submitted = DateTime.UtcNow;
+            DateTime? goneSince = null;
             DateTime? recoveryDeadline = null;
             string lastStatus = "";
             while (true)
@@ -465,6 +467,17 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     ownedId = submission.Result.OperationId;
                 var owned = operations?.FirstOrDefault(op => ownedId is not null ? op.Id == ownedId :
                     discoverWhileRunning && !previousIds.Contains(op.Id) && matches(op));
+                // Backrest records a queued task's operation when scheduling it
+                // and deletes it, without ever answering, when its queue is
+                // reset (waking from sleep, a settings change). Only queued
+                // tasks are discarded, so nothing is left running (U093).
+                if (operations is not null && !ct.IsCancellationRequested
+                    && Dropped(ownedId is not null && owned is null, ref goneSince, submitted,
+                        neverSeen: endpoint == "/v1.Backrest/Backup" && ownedId is null && !submission.IsCompleted))
+                {
+                    acknowledged = true;
+                    throw new EngineTaskDroppedException();
+                }
                 if (owned is not null)
                 {
                     ownedId = owned.Id;
@@ -526,6 +539,20 @@ public sealed class ResticBackrestEngine : IBackupEngine
             if (submission is not null) try { await submission.ConfigureAwait(false); } catch { }
             gate.Release();
         }
+    }
+
+    /// <summary>How long an operation seen once may stay missing, and how long
+    /// a Backup may go without its queued operation appearing, before the task
+    /// counts as discarded by the engine (U093). Tests shorten them.</summary>
+    internal static TimeSpan DroppedGrace = TimeSpan.FromSeconds(15);
+    internal static TimeSpan NeverQueuedGrace = TimeSpan.FromSeconds(60);
+
+    internal static bool Dropped(bool gone, ref DateTime? goneSince, DateTime submitted, bool neverSeen)
+    {
+        var now = DateTime.UtcNow;
+        if (gone) { goneSince ??= now; return now - goneSince.Value >= DroppedGrace; }
+        goneSince = null;
+        return neverSeen && now - submitted >= NeverQueuedGrace;
     }
 
     private async Task DrainFollowUpOperationsAsync(BackrestClient client, string repoGuid,
@@ -1828,6 +1855,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         // Lifetime is owned by the caller, not a five-minute wall clock. Large
         // restores may legitimately run for hours. RPC calls remain cancellable.
         string lastStatus = "";
+        DateTime? goneSince = null;
         while (true)
         {
             ct.ThrowIfCancellationRequested();
@@ -1835,6 +1863,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 "/v1.Backrest/GetOperations",
                 new GetOperationsRequest { Selector = new OpSelector { Ids = new[] { opIdString } } }, ct).ConfigureAwait(false);
             var operation = response.Operations?.FirstOrDefault(o => o.Id == opIdString);
+            // A queued operation deleted by an engine queue reset never ends (U093).
+            if (Dropped(operation is null, ref goneSince, DateTime.UtcNow, neverSeen: false))
+                throw new EngineTaskDroppedException();
             if (operation is not null)
             {
                 observed?.Invoke(operation);

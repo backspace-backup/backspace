@@ -162,7 +162,13 @@ public class MultiSourceBackupRestoreTests
             S3Bucket = "does-not-exist",
             PathOrSubpath = "none",
             Encrypted = false,
+            // Keys present, so the run reaches restic (an unfinished
+            // destination now stops before it, U082).
+            S3AccessKeyRef = "test:broken:s3ak",
+            S3SecretKeyRef = "test:broken:s3sk",
         };
+        ServiceLocator.Secrets.Set("test:broken:s3ak", "AKIAEXAMPLE");
+        ServiceLocator.Secrets.Set("test:broken:s3sk", "example-secret");
         var backup = new Backup
         {
             Name = "cell_iso",

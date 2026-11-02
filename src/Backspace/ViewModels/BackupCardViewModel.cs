@@ -33,7 +33,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     private string? _mountedDrive;
     public string MountActionLabel => MountedDrive is null ? "Mount" : "Unmount";
     public string MountTooltip => MountedDrive is null
-        ? "Browse your snapshots as a read-only drive in Explorer."
+        ? HasRestorableRun ? "Browse your snapshots as a read-only drive in Explorer." : NothingToRestoreTooltip
         : $"Unmount {MountedDrive}. Your snapshots stay safely in the backup.";
 
     public string Id { get; }
@@ -118,7 +118,32 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// split as <see cref="EditTooltip"/>.</summary>
     public string RestoreFilesTooltip => IsRunning
         ? RunningActionTooltip
+        : !HasRestorableRun ? NothingToRestoreTooltip
         : "Restore files from a previous revision of this backup to a folder you choose.";
+
+    /// <summary>Whether this backup has stored anything to restore, mount or
+    /// browse: a run that ended other than skipped, or an earlier success.
+    /// A backup that never ran has nothing yet (U079, 2 November 2026).</summary>
+    public bool HasRestorableRun => Snapshot.LastSuccessUtc is not null
+        || (DisplayedRunEndUtc is not null && DisplayedRunStatus is not (BackupRunStatus.NeverRun or BackupRunStatus.Skipped));
+
+    /// <summary>Mount, Restore files and Browse snapshots: idle and with something stored.</summary>
+    public bool CanUseSnapshots => !IsRunning && HasRestorableRun;
+
+    public const string NothingToRestoreTooltip = "Nothing to restore yet: this backup hasn't run. Run it first.";
+
+    partial void OnDisplayedRunEndUtcChanged(DateTime? value) => RaiseSnapshotAvailability();
+    partial void OnDisplayedRunStatusChanged(BackupRunStatus value) => RaiseSnapshotAvailability();
+
+    private void RaiseSnapshotAvailability()
+    {
+        OnPropertyChanged(nameof(HasRestorableRun));
+        OnPropertyChanged(nameof(CanUseSnapshots));
+        OnPropertyChanged(nameof(RestoreFilesTooltip));
+        OnPropertyChanged(nameof(MountTooltip));
+        OnPropertyChanged(nameof(TestRestoreEnabled));
+        OnPropertyChanged(nameof(TestRestoreTooltip));
+    }
 
     /// <summary>Hover hint for the Delete button. Earlier the button bound
     /// to <see cref="RunningActionTooltip"/> directly — empty when idle,
@@ -171,12 +196,13 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     /// <summary>A running backup blocks starting a separate check, but
     /// its automatic restore comparison can always be opened to view progress.</summary>
-    public bool TestRestoreEnabled => !IsRunning || IsVerifying;
+    public bool TestRestoreEnabled => IsVerifying || (!IsRunning && HasRestorableRun);
     public string TestRestoreActionLabel => IsVerifying ? "View test restore" : "Test restore";
     public string TestRestoreTooltip => IsVerifying
         ? "View the current test restore, follow its progress, or pause or stop it."
         : IsRunning
         ? "This backup is currently running. Stop it first to run a test restore."
+        : !HasRestorableRun ? NothingToRestoreTooltip
         : "Download and recover files into a temporary folder, then compare their contents with eligible originals. This also tests the recovery process. Your originals are never replaced.";
 
     /// <summary>Positive-named negation of <see cref="IsRunning"/>. The
@@ -200,6 +226,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     partial void OnIsRunningChanged(bool value)
     {
         OnPropertyChanged(nameof(CanEditWhileIdle));
+        OnPropertyChanged(nameof(CanUseSnapshots));
         OnPropertyChanged(nameof(RunningActionTooltip));
         OnPropertyChanged(nameof(EditTooltip));
         OnPropertyChanged(nameof(RestoreFilesTooltip));

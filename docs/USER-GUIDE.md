@@ -49,8 +49,16 @@ off in **Settings → Startup and tray**.
   schedule. It starts with Windows, so backups also run before anyone signs
   in. The tray icon appears when you sign in. Backups to an external drive
   run in the service too, whenever the drive is plugged in, and are skipped
-  while it is not. Backups to a network share stay with the tray app, which
-  runs them while you are signed in: the service cannot sign in to a share.
+  while it is not. Backups to a network share run in the service when the
+  share's user name and password are saved with the destination: the service
+  runs under its own Windows account, so it cannot use your mapped drive
+  letters or the password Windows remembers for you. Without them, those
+  backups stay with the tray app, which runs them while you are signed in.
+
+The tray icon's check mark means the backups ran successfully; a backup that
+failed shows an exclamation mark, and one that hasn't completed a run yet a
+grey dash. A backup that has never run has nothing to restore yet, so its
+Mount, Restore files, Test restore and Browse snapshots are greyed out.
 
 Closing the window keeps Backspace in the tray, so schedules keep running.
 **Quit** from the tray menu stops active work and stops automatic backups
@@ -89,9 +97,12 @@ VSS needs Backspace's administrator access. Creating a backup includes
 it when you save, before the first run (a standard account enters an
 administrator's password). That installs Backspace's
 background service, which runs the portable `Backspace.exe` from wherever you
-keep it, so there is no second copy. Backspace doesn't change that folder's
-permissions, so where it lives and who may change it is your call. Network
-drives can't be used for this.
+keep it, so there is no second copy. Backspace only lets the service read and
+run the program from that folder, which matters when it lives somewhere only
+you may read, such as your Dropbox or Downloads folder. Who may change it stays
+your call, and removing access restores its permissions. Network drives can't
+be used for this. You can turn access on in Settings before creating any
+backup; backups added later run in the service too.
 
 With access on, **Run now** goes through the same service and includes files
 in use without another prompt. Adding, editing or removing a backup later asks
@@ -283,8 +294,10 @@ Backspace imports storage URLs, repository paths, filters, and per-storage
 threads, keep, prune and check settings. Your Duplicacy storage is **left
 untouched**: Backspace starts a fresh restic repository beside it (a
 `Duplicacy` folder in the path becomes `Backspace`; Dropbox uses Backspace's
-own app folder). Cloud tokens aren't imported, so Backspace asks you to sign in
-the first time it uses each destination. Older versions stay in Duplicacy.
+own app folder). Cloud sign-ins and storage passwords aren't imported: until a
+destination has them, **Run now** opens it with a note saying what to finish
+(connect the account, choose a storage password), and a scheduled run stops
+with the same reason instead of retrying. Older versions stay in Duplicacy.
 
 Filters keep Duplicacy's meaning: `e:` and `i:` lines, and the first matching
 line wins. Rules that are exactly one of Backspace's recommended exclusions
@@ -299,7 +312,8 @@ rules. Editing a backup lists the additions and removals for the groups it
 uses, each with a checkbox. **Apply ticked changes** applies the ticked ones;
 the unticked ones are not suggested again for that backup, and
 **Don't suggest these again** declines them all. Declined suggestions are
-counted below the list; **Show hidden suggestions** lists them again, unticked.
+counted below the list; **Show hidden suggestions** lists them again, unticked. A declined suggestion
+that Backspace no longer recommends is dropped, so it never comes back.
 
 ## Command line
 

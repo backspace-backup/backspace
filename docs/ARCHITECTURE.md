@@ -100,10 +100,15 @@ too: the elevated `--service-retire` process freezes the service, leaves
 and written `service-retire-returned`, then removes the service
 (`ServiceRetirement.CompleteAfterReturn`). It waits for the desktop rather than
 the service's receipt, so the service is not stopped mid-reply; `Complete`
-still verifies the receipt and the returned file. Backups whose destination is a
-network share are left to the tray app's schedule (`SchedulePlan.ServiceCanRun`),
-since the service's account cannot sign in to a share; approval checks skip
-them so they do not block the others. External drives run in the service
+still verifies the receipt and the returned file. A network share runs in the service when its
+destination has a network path and a saved user name and password
+(`NetworkSharePath.ServiceCanReach`): before the run the worker connects to
+the share (`\\server\share`) with them in the service's private logon session
+(`ServiceNetworkShares`, WNetAddConnection2) and disconnects after; a refused or
+unreachable share stops the worker with a reason file the host reports. The
+editor saves a mapped letter as its network path. Shares without credentials
+are left to the tray app's schedule (`SchedulePlan.ServiceCanRun`); approval
+checks skip them so they do not block the others. External drives run in the service
 (`ServiceExternalDrives`): an unplugged drive is left out of the run, which
 skips it; when a connected drive's folder is not writable for the service, the
 worker starts the settings task (its folder and task allow the service to read
@@ -392,7 +397,15 @@ that driver to be installed with administrator approval. Normal restore
 does not require it. A service can point at a local executable outside
 Program Files. The service protects only its own records and private vault
 (the windows-service folder); the program folder and its files keep whatever
-permissions the owner gave them. No separate application
+permissions the owner gave them, plus read and execute for the service's
+account on the folder, its program files and files later placed directly in it
+(`ServiceSetup.GrantServiceRead`). Without it a copy under the user profile
+(Dropbox, Downloads) could not start the service: "Access is denied" (U077).
+Removal restores the recorded permissions and skips a program file replaced
+since setup. Setup also creates a new local backup folder whose parent exists,
+as the tray app does on a first run; a folder the service was granted before
+and that is now missing is never recreated empty (its runs report it missing).
+No separate application
 installation or external persistent-data folder is authorized. Reinstallable
 system dependencies and reproducible caches may live outside the portable
 folder, provided missing dependencies are detected and can be recreated on a
@@ -952,6 +965,14 @@ test harness to give each test its own isolated config dir.
   `SetConfig` and the migration path in `EnsurePlanAndRepoCoreAsync` is
   the only thing that lets users recover without manually editing
   Backrest's config.
+- A destination missing its sign-in, S3 keys or storage password
+  (`DestinationReadiness`, typically imported from Duplicacy) never reaches
+  restic: Run now opens it for setup, and a run's cell fails at once with the
+  reason instead of retrying (U082).
+- `BackupOrchestrator` raises `RunStarted` and `RunEnded` to each subscriber
+  separately (`RaiseRunStarted`, `RaiseRunEnded`). A multicast invoke stops at
+  the first handler that throws, which left the tray, cards and history
+  showing a finished run as still running (U069).
 - Cross-platform code paths under `Services/Platform/`: never call a
   Windows API directly from `src/Backspace/Services/*.cs` — go through
   the `IScheduler` / `ISecretsEncryption` interface or the

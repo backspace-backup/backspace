@@ -96,6 +96,20 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         Assert.True(reopened.HasHiddenRecommendations);
         Assert.Equal("2 suggested changes are hidden for this backup.", reopened.HiddenRecommendationsText);
 
+        // A change declined under an earlier version that today's lists no
+        // longer suggest is stale: not counted, not shown, dropped on save.
+        const string NoLongerSuggested = "Users/*/AppData/Local/RetiredApp/Cache/";
+        var olderDecline = new Backup { Name = "declined-earlier", FiltersText = saved.FiltersText };
+        olderDecline.SourcePaths.Add(System.IO.Path.Combine(ctx.RootDir, "src"));
+        olderDecline.IgnoredRecommendationChanges.AddRange(saved.IgnoredRecommendationChanges.Append(NoLongerSuggested));
+        var older = new BackupEditorViewModel(olderDecline, isNew: false);
+        Assert.Equal("2 suggested changes are hidden for this backup.", older.HiddenRecommendationsText);
+        older.ShowHiddenRecommendationsCommand.Execute(null);
+        Assert.DoesNotContain(older.RecommendedAdditions.Concat(older.RecommendedRemovals), c => c.Pattern == NoLongerSuggested);
+        Assert.Equal(2, older.RecommendedAdditions.Count + older.RecommendedRemovals.Count);
+        Assert.DoesNotContain(NoLongerSuggested, older.CommitToWorking()!.IgnoredRecommendationChanges);
+        older.Dispose();
+
         // U067: the declined suggestions can be shown again, unticked.
         Assert.True(ctx.Driver.WaitFor(() => Button(win, "Show hidden suggestions") is { IsEffectivelyVisible: true }),
             "Nothing offered to show the declined suggestions again.");

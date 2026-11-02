@@ -76,6 +76,10 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     [ObservableProperty] private string _s3AccessKeyInput = "";
     [ObservableProperty] private string _s3SecretKeyInput = "";
 
+    /// <summary>Shown at the top when Run now opened this destination to finish
+    /// its setup first (U082).</summary>
+    [ObservableProperty] private string _setupNotice = "";
+
     // Network
     [ObservableProperty] private string? _networkUsername;
     [ObservableProperty] private string _networkPasswordInput = "";
@@ -271,6 +275,8 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     public bool ShowLocalPath => Kind is DestinationKind.LocalFolder or DestinationKind.ExternalDrive;
     public bool ShowNetworkPath => Kind == DestinationKind.NetworkShare;
     public bool ShowNetworkCreds => Kind == DestinationKind.NetworkShare;
+    /// <summary>Says a password is already saved; leaving the box empty keeps it.</summary>
+    public string NetworkPasswordWatermark => string.IsNullOrEmpty(Working.NetworkPasswordRef) ? "" : "Saved; type to replace";
     /// <summary>
     /// Expected-drive-letter + expected-volume-label only meaningfully
     /// apply to ExternalDrive destinations — a removable drive can land
@@ -1386,6 +1392,12 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
             : Name.Trim();
         Working.Kind = Kind!.Value;
         Working.PathOrSubpath = PathOrSubpath?.Trim() ?? "";
+#if WINDOWS
+        // A mapped drive letter exists only in this sign-in; the background
+        // service reaches the share by its network path (U071).
+        if (Kind == DestinationKind.NetworkShare)
+            Working.PathOrSubpath = Services.Platform.Windows.ServiceNetworkShares.ToNetworkPath(Working.PathOrSubpath);
+#endif
         // ExpectedDriveLetter + ExpectedVolumeLabel only apply to
         // ExternalDrive — they're hidden in the editor for other
         // kinds, so we don't persist stale values inherited from

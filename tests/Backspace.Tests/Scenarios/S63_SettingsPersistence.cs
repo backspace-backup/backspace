@@ -126,7 +126,7 @@ public sealed class S63_SettingsPersistence : ScenarioBase
             Assert.True(vm.TestEmailFailed);
             Assert.Contains("key", vm.TestEmailStatus, StringComparison.OrdinalIgnoreCase);
 
-            await OpenSection("Watchdog (Healthchecks.io)");
+            await OpenSection("Watchdog");
             await Type("HealthchecksApiKeyField", "");
             Assert.Null(ReadSaved().Monitoring.HealthchecksApiKeyRef);
             ServiceLocator.Config.Update(c => c.RcloneOAuthApps.Clear());

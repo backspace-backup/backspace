@@ -80,10 +80,19 @@ public sealed class ServiceWorkerTests
     }
 
     // External drives run in the service since U061 (ServiceExternalDrivesTests);
-    // a network share is still refused.
+    // a network share without saved credentials is still refused (U071).
     [Fact]
     public void NetworkShareAdmissionFailsClosed()
         => Assert.Throws<NotSupportedException>(() => ServiceApprovedWorker.LocalPathsFor(Run(DestinationKind.NetworkShare)).ToArray());
+
+    [Fact]
+    public void A_network_share_with_saved_credentials_holds_no_local_path()
+    {
+        var run = Run(DestinationKind.NetworkShare);
+        var share = run.Configuration.Destinations.Single(d => d.Kind == DestinationKind.NetworkShare);
+        share.PathOrSubpath = @"\\nas\backups\pc"; share.NetworkUsername = "backup"; share.NetworkPasswordRef = "dest:x:netpw";
+        Assert.Equal(new[] { @"C:\Approved" }, ServiceApprovedWorker.LocalPathsFor(run).ToArray());
+    }
 
     [Fact]
     public void WorkerDoesNotTreatNetworkSourcesAsLocalPaths()

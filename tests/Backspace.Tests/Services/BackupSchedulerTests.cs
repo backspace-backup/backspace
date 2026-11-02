@@ -319,4 +319,21 @@ public sealed class BackupSchedulerTests : IDisposable
         backup.Targets.Add(new BackupTarget { DestinationId = other.Id });
         Assert.Equal(inService, SchedulePlan.ServiceCanRun(backup, new[] { cloud, other }));
     }
+
+    /// <summary>U071: a network share runs in the service only by its network
+    /// path with a saved user name and password; otherwise the tray app keeps it.</summary>
+    [Theory]
+    [InlineData(@"\\nas\backups\pc", "backup", "dest:x:netpw", true)]
+    [InlineData(@"\\nas\backups", "backup", "dest:x:netpw", true)]
+    [InlineData(@"\\nas\backups\pc", null, "dest:x:netpw", false)]
+    [InlineData(@"\\nas\backups\pc", "backup", null, false)]
+    [InlineData(@"Z:\pc", "backup", "dest:x:netpw", false)]
+    [InlineData(@"\\nas", "backup", "dest:x:netpw", false)]
+    public void A_network_share_runs_in_the_service_only_with_saved_credentials(string path, string? user, string? passwordRef, bool inService)
+    {
+        var share = new Destination { Kind = DestinationKind.NetworkShare, PathOrSubpath = path, NetworkUsername = user, NetworkPasswordRef = passwordRef };
+        var backup = new Backup { Name = "b" };
+        backup.Targets.Add(new BackupTarget { DestinationId = share.Id });
+        Assert.Equal(inService, SchedulePlan.ServiceCanRun(backup, new[] { share }));
+    }
 }

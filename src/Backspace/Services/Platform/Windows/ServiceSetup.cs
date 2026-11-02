@@ -84,7 +84,8 @@ internal static class ServiceSetup
             WriteRecord(root, "permissions-before.json", JsonSerializer.SerializeToUtf8Bytes(prior, ServiceRunAuthorization.Json));
             checkpoint?.Invoke("journal-saved");
             // The program folder, Backspace.config and the program files keep
-            // the permissions the owner gave them (decision, 28 October 2026).
+            // the permissions the owner gave them (decision, 28 October 2026),
+            // plus the service's read and execute added below (U077).
             // Their recorded permissions and identities still let removal
             // restore copies prepared by earlier builds, which did protect them.
             checkpoint?.Invoke("permissions-protected");
@@ -93,6 +94,15 @@ internal static class ServiceSetup
             serviceCreated = true;
             var serviceSid = binding.ServiceSid;
             ServiceRegistration.SetBackupMembership(serviceSid, enabled: true); membershipAdded = true;
+            // The service runs Backspace and its engines from this folder. In a
+            // folder only its owner may read (anywhere under the user profile,
+            // such as Dropbox) Windows refused to start it: "Access is denied"
+            // (U077, 2 November 2026). Read and execute only, for this folder,
+            // its program files and files later placed directly in it (an
+            // update); the recorded permissions are restored on removal.
+            GrantServiceRead(rootPermissions, serviceSid, directory: true);
+            GrantServiceRead(configPermissions, serviceSid, directory: true, inheritToFiles: false);
+            foreach (var pin in codeLocks.Values) GrantServiceRead(pin, serviceSid, directory: false);
             CreateProtectedDirectory(binding.DataDirectory, $"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{serviceSid})");
             ServiceCoordinationFiles.Prepare(root, binding, config);
             var migration = Guid.NewGuid().ToString("N");
@@ -245,6 +255,25 @@ internal static class ServiceSetup
             File.Move(temporary, path, overwrite: true);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    /// <summary>Adds read and execute for the service's account to an object's
+    /// current permissions, leaving every existing entry as it is.</summary>
+    internal static void GrantServiceRead(ServiceObjectPermissions pin, string serviceSid, bool directory, bool inheritToFiles = true)
+        => pin.SetDacl(WithServiceRead(pin.Read(), serviceSid, directory, inheritToFiles));
+
+    internal static string WithServiceRead(string sddl, string serviceSid, bool directory, bool inheritToFiles = true)
+    {
+        var descriptor = new CommonSecurityDescriptor(directory, false, sddl);
+        var sid = new SecurityIdentifier(serviceSid);
+        const int readAndExecute = 0x1200a9;
+        descriptor.DiscretionaryAcl.AddAccess(AccessControlType.Allow, sid, readAndExecute, InheritanceFlags.None, PropagationFlags.None);
+        // Files placed directly in the folder later (an updated program) get
+        // it too; subfolders and their contents do not.
+        if (directory && inheritToFiles)
+            descriptor.DiscretionaryAcl.AddAccess(AccessControlType.Allow, sid, readAndExecute,
+                InheritanceFlags.ObjectInherit, PropagationFlags.NoPropagateInherit | PropagationFlags.InheritOnly);
+        return descriptor.GetSddlForm(AccessControlSections.Owner | AccessControlSections.Access);
     }
 
     private static string ProtectedDescriptor(string ownerSid, bool directory, bool container)

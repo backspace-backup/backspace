@@ -13,7 +13,9 @@ Running while signed out is the background service's job. Windows could launch
 the old S4U tasks while the account was signed out, without saving its password.
 That does not give them access to every user's files. Local permissions,
 locked drives and EFS encryption still matter; mapped network drives from
-an interactive desktop are not a dependable unattended destination.
+an interactive desktop are not a dependable unattended destination. The
+background service reaches a share only by its network path with the user
+name and password saved for the destination (ServiceNetworkShares, U071).
 
 Microsoft documents that S4U tasks have no access to the network or encrypted
 files. In particular, do not promise access to a Windows-authenticated network
@@ -344,6 +346,16 @@ token, and hold the operation's read lease until terminal acknowledgement.
 If ownership cannot be resolved, fail closed until restart rather than
 unlocking maintenance over a possibly live writer. GetLogs returns a
 protobuf BytesValue: decode its base64 payload before parsing restic JSON.
+
+Backrest (1.14.1) also resets its task queue when it detects a clock jump
+(the computer waking from sleep) or applies a settings change. Queued tasks
+that had not started are removed and their pending operations deleted, but
+their callbacks are never called, so a `Backup` request waiting on such a
+task never answers. Backspace treats an operation that disappears for 15
+seconds, or a `Backup` whose queued operation never appears within 60
+seconds, as discarded (`EngineTaskDroppedException`); nothing is running,
+so the run's ordinary retry submits it again (U093). Found when the PC
+hibernated during the two-cloud test and the test waited for hours.
 
 ## Password changes and test restore
 

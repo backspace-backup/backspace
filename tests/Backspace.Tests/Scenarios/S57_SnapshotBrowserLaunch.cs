@@ -31,7 +31,7 @@ public sealed class S57_SnapshotBrowserLaunch : ScenarioBase
         Assert.True(RealEngineFixture.BinariesPresent, RealEngineFixture.MissingBinariesReason());
         var destination = new Destination { Name = "Local browser fixture", Kind = DestinationKind.LocalFolder,
             PathOrSubpath = ctx.MakeLocalDestination("browser") };
-        var backup = new Backup { Name = "Documents browser proof", LastRunStatus = BackupRunStatus.Success };
+        var backup = new Backup { Name = "Documents browser proof", LastRunStatus = BackupRunStatus.Success, LastRunEndUtc = DateTime.UtcNow.AddHours(-1), LastSuccessUtc = DateTime.UtcNow.AddHours(-1) };
         backup.SourcePaths.Add(ctx.MakeSource("browser-source", 62, 4096));
         backup.Targets.Add(new BackupTarget { DestinationId = destination.Id, StorageName = "archive" });
         ServiceLocator.Config.Update(c => { c.Destinations.Add(destination); c.Backups.Add(backup); });

@@ -76,8 +76,16 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         RefreshStartAtSignInDetail();
     }
 
+    /// <summary>With administrator access on, the service runs the backups
+    /// whether or not the tray app starts, so the box only decides the tray
+    /// icon (U085, 2 November 2026).</summary>
+    public string StartAtSignInLabel => DesktopSchedule.ServiceOwnsSchedules
+        ? "Show Backspace in the tray when I sign in"
+        : "Start Backspace when I sign in";
+
     private void RefreshStartAtSignInDetail()
     {
+        OnPropertyChanged(nameof(StartAtSignInLabel));
         var service = DesktopSchedule.ServiceOwnsSchedules;
         string? registered = null;
         try { registered = ServiceLocator.SignInStart.RegisteredExecutable(); }

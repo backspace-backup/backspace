@@ -61,6 +61,17 @@ internal static class ServiceApprovedWorker
         // A connected external drive the service cannot write yet is prepared
         // by the settings task first (U061).
         ServiceExternalDrives.EnsureAccess(binding, run.Backup, run.Configuration, TimeSpan.FromMinutes(2), stop);
+        var reasonPath = Path.Combine(binding.DataDirectory, ServiceNetworkShares.ReasonFile);
+        try { File.Delete(reasonPath); } catch (IOException) { }
+        IDisposable shares;
+        try { shares = ServiceNetworkShares.Connect(run.Backup, run.Configuration, vault); }
+        catch (ShareConnectionException ex)
+        {
+            // The host explains the failed run with this (FailureReason).
+            File.WriteAllText(reasonPath, ex.Message);
+            throw;
+        }
+        using var _shares = shares;
         using var paths = ServicePathLease.Acquire(LocalPathsFor(run), stop);
         // These are this operation's own temporary guard files, not user data.
         // Keep them out of snapshots, including VSS snapshots taken while held.
@@ -154,8 +165,15 @@ internal static class ServiceApprovedWorker
         foreach (var target in run.Backup.Targets)
         {
             var destination = run.Configuration.Destinations.Single(d => d.Id == target.DestinationId);
+            // A network share has no local path to hold; the worker connects to
+            // it with its saved credentials (U071). Without them it stays with
+            // the tray app and is never approved for the service.
             if (destination.Kind == DestinationKind.NetworkShare)
-                throw new NotSupportedException("Backups to a network share run from the tray app, not the background service.");
+            {
+                if (!NetworkSharePath.ServiceCanReach(destination))
+                    throw new NotSupportedException("Backups to a network share without a saved user name and password run from the tray app, not the background service.");
+                continue;
+            }
             // An unplugged drive is left out; its part of the run is skipped.
             if (destination.Kind == DestinationKind.ExternalDrive && ServiceExternalDrives.ConnectedPath(destination) is { } external)
                 yield return external;

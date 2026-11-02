@@ -8,7 +8,27 @@ namespace Backspace.Tests.Services;
 
 public sealed class TrayScheduleStatusTests
 {
-    private static Backup Backup() => new() { Name = "Documents", SourcePaths = { "C:\\Documents" }, Targets = { new BackupTarget() } };
+    private static Backup Backup() => new() { Name = "Documents", SourcePaths = { "C:\\Documents" }, Targets = { new BackupTarget() },
+        LastRunStatus = BackupRunStatus.Success, LastRunEndUtc = DateTime.UtcNow.AddHours(-1), LastSuccessUtc = DateTime.UtcNow.AddHours(-1) };
+
+    /// <summary>U084: ready schedules alone never earn the check mark; a failed
+    /// or never-run backup shows on the tray icon.</summary>
+    [Fact] public void A_failed_or_never_run_backup_is_not_shown_as_ready()
+    {
+        var scheduler = new Scheduler(ScheduleReadiness.Ready);
+        var failed = Backup(); failed.LastRunStatus = BackupRunStatus.Failed; failed.LastRunSummary = "The destination refused the password.";
+        var status = TrayScheduleStatus.Inspect([Backup(), failed], scheduler, "app.exe", DateTime.UtcNow);
+        Assert.Equal(ScheduleReadiness.Attention, status.State);
+        Assert.Equal("Last backup failed", status.Title);
+        Assert.Contains("refused the password", status.Detail);
+        var never = new Backup { Name = "Photos", SourcePaths = { "C:\\Photos" }, Targets = { new BackupTarget() } };
+        status = TrayScheduleStatus.Inspect([Backup(), never], scheduler, "app.exe", DateTime.UtcNow);
+        Assert.Equal(ScheduleReadiness.Unknown, status.State);
+        Assert.Equal("Not backed up yet", status.Title);
+        // A skipped run after an earlier success is still protected.
+        var skipped = Backup(); skipped.LastRunStatus = BackupRunStatus.Skipped;
+        Assert.Equal(ScheduleReadiness.Ready, TrayScheduleStatus.Inspect([skipped], scheduler, "app.exe", DateTime.UtcNow).State);
+    }
     private sealed class Scheduler(ScheduleReadiness result) : IScheduler
     {
         public int Reads;

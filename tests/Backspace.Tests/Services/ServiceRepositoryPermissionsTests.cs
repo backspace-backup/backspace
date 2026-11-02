@@ -115,6 +115,19 @@ public sealed class ServiceRepositoryPermissionsTests
         Assert.Equal(new[] { @"D:\Backups" }, ServiceRepositoryPermissions.RepositoryRoots(@"C:\Backspace", config));
     }
 
+    [Fact]
+    public void Only_a_new_or_external_backup_folder_is_created_when_missing()
+    {
+        using var ws = new TempWorkspace();
+        var path = Path.Combine(ws.Root, "repository");
+        Assert.True(ServiceRepositoryPermissions.CreatesMissing(path, external: false, grantedBefore: false));
+        Assert.True(ServiceRepositoryPermissions.CreatesMissing(path, external: true, grantedBefore: true));
+        // Granted before and now gone: deleted or moved, not recreated empty.
+        Assert.False(ServiceRepositoryPermissions.CreatesMissing(path, external: false, grantedBefore: true));
+        // Its parent is gone too (a disconnected drive).
+        Assert.False(ServiceRepositoryPermissions.CreatesMissing(Path.Combine(ws.Root, "gone", "repository"), external: true, grantedBefore: false));
+    }
+
     private static string WithoutService(string sddl)
     {
         var descriptor = new RawSecurityDescriptor(sddl);

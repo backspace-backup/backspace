@@ -399,6 +399,45 @@ public sealed class RestoreSafetyRegressionTests
     }
 
     [Theory]
+    [InlineData(3)] // queued, then discarded by a queue reset after waking from sleep
+    [InlineData(0)] // discarded before the first poll saw it
+    public async Task A_backup_the_engine_discards_unanswered_fails_instead_of_waiting_forever(int vanishAfterPolls)
+    {
+        var (dropped, neverQueued) = (ResticBackrestEngine.DroppedGrace, ResticBackrestEngine.NeverQueuedGrace);
+        ResticBackrestEngine.DroppedGrace = TimeSpan.FromMilliseconds(300);
+        ResticBackrestEngine.NeverQueuedGrace = TimeSpan.FromMilliseconds(600);
+        try
+        {
+            using var fixture = new ProtocolFixture("STATUS_SUCCESS");
+            fixture.Handler.ProgressPolls = int.MaxValue;
+            fixture.Handler.VanishAfterPolls = vanishAfterPolls;
+            var run = fixture.Track("/v1.Backrest/Backup", TestContext.Current.CancellationToken);
+            Assert.Same(run, await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken)));
+            await Assert.ThrowsAsync<EngineTaskDroppedException>(() => run);
+            // Nothing was running, so no cancel was sent and the app is not blocked.
+            Assert.Equal(0, fixture.Handler.CancelRequests);
+        }
+        finally { (ResticBackrestEngine.DroppedGrace, ResticBackrestEngine.NeverQueuedGrace) = (dropped, neverQueued); }
+    }
+
+    [Fact]
+    public async Task A_backup_that_stays_queued_behind_other_work_is_not_counted_as_discarded()
+    {
+        var (dropped, neverQueued) = (ResticBackrestEngine.DroppedGrace, ResticBackrestEngine.NeverQueuedGrace);
+        ResticBackrestEngine.DroppedGrace = TimeSpan.FromMilliseconds(300);
+        ResticBackrestEngine.NeverQueuedGrace = TimeSpan.FromMilliseconds(300);
+        try
+        {
+            using var fixture = new ProtocolFixture("STATUS_SUCCESS");
+            fixture.Handler.SynchronousRequest = true;
+            fixture.Handler.ProgressPolls = 15; // about 2 s still pending, well past both graces
+            var terminal = await fixture.Track("/v1.Backrest/Backup", TestContext.Current.CancellationToken);
+            Assert.Equal("STATUS_SUCCESS", terminal.Status);
+        }
+        finally { (ResticBackrestEngine.DroppedGrace, ResticBackrestEngine.NeverQueuedGrace) = (dropped, neverQueued); }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task RepositoryFollowups_DrainBeforeReturn_WithoutTouchingOtherOperations(bool cancelFollowup)
@@ -502,6 +541,10 @@ public sealed class RestoreSafetyRegressionTests
         public List<string> ListedPaths { get; } = new();
         public bool NestedListing { get; set; }
         public int DiscoveryDelayPolls { get; set; }
+        /// <summary>The engine queue reset (U093): Backup never answers and its
+        /// operation disappears after this many polls (0: never recorded).</summary>
+        public int VanishAfterPolls { get; set; } = -1;
+        private int _vanishPolls;
         public bool IncludeOtherMatchingOperation { get; set; }
         public bool DelayAcknowledgement { get; set; }
         public bool DelayNativeAcknowledgement { get; set; }
@@ -574,6 +617,7 @@ public sealed class RestoreSafetyRegressionTests
                 case "/v1.Backrest/DoRepoTask":
                 case "/v1.Backrest/RunCommand":
                     _endpoint = path;
+                    if (VanishAfterPolls >= 0) await Task.Delay(Timeout.Infinite, cancellationToken);
                     if (DelayAcknowledgement) await _acknowledgement.Task.WaitAsync(cancellationToken);
                     if (SynchronousRequest)
                     {
@@ -586,6 +630,7 @@ public sealed class RestoreSafetyRegressionTests
                 case "/v1.Backrest/GetOperations":
                     if (_endpoint is null) { response = "{\"operations\":[{\"id\":\"41\",\"status\":\"STATUS_SUCCESS\",\"operationCheck\":{}}]}"; break; }
                     if (DelayAcknowledgement && ++_acknowledgementPolls >= 2) _acknowledgement.TrySetResult();
+                    if (VanishAfterPolls >= 0 && _vanishPolls++ >= VanishAfterPolls) { response = "{\"operations\":[]}"; break; }
                     if (FailPolls-- > 0) return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
                         { Content = new StringContent("{\"code\":\"unavailable\",\"message\":\"temporary fixture fault\"}") };
                     var recorded = new List<object>();

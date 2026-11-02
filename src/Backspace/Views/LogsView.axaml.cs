@@ -2,14 +2,29 @@ using System;
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Backspace.ViewModels;
 
 namespace Backspace.Views;
 
+/// <summary>
+/// The log follows its last line the way a terminal does (U083, 2 November
+/// 2026): while the reader is at the end, new lines keep it there; once they
+/// scroll up (to read or select), new lines never pull them back, and "Jump to
+/// latest" appears. Scrolling back to the end, the button, or opening another
+/// run resumes following. Before, every refresh scrolled to the bottom, even
+/// with nothing running.
+/// </summary>
 public partial class LogsView : UserControl
 {
     private LogsViewModel? _boundVm;
+    // Whether new text should keep the view at its last line.
+    private bool _follow = true;
+    // Set while this view moves the offset itself, so that move is not
+    // mistaken for the reader scrolling.
+    private bool _scrollingProgrammatically;
+    private string? _shown;
 
     public LogsView()
     {
@@ -17,6 +32,8 @@ public partial class LogsView : UserControl
         DataContextChanged += OnDataContextChanged;
         DetachedFromVisualTree += (_, _) => UnhookViewModel();
     }
+
+    internal bool IsFollowing => _follow;
 
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
@@ -37,43 +54,52 @@ public partial class LogsView : UserControl
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        // Always auto-scroll to the bottom when DisplayText changes,
-        // both for the live tail (so streaming lines remain visible
-        // without user intervention) AND for past-run loads (so the
-        // user lands on the most recent / final lines, which is
-        // typically where the verdict and any warning/error sits).
-        // The user reported: "in the logs, always auto-scroll to
-        // the bottom if new lines are appended" — explicitly
-        // overriding the prior smart-follow behaviour that yielded
-        // when they scrolled up. If the user scrolls up to read,
-        // the next flush will scroll them back down; that's the
-        // contract they asked for.
-        if (e.PropertyName != nameof(LogsViewModel.DisplayText)) return;
-
-        // Defer the scroll until after layout has measured the new
-        // text. Loaded priority runs after Layout, so Extent.Height
-        // reflects the just-arrived chunk.
+        // Another run or backup: start at its last line, where the verdict is.
+        // The history refresh every few seconds re-selects the same run; that
+        // is not a new run and must not pull the reader back.
+        if (e.PropertyName is nameof(LogsViewModel.SelectedRun) or nameof(LogsViewModel.SelectedBackup) && sender is LogsViewModel vm)
+        {
+            var shown = vm.SelectedBackup + "|" + (vm.SelectedRun?.Id ?? "live");
+            if (shown != _shown) { _shown = shown; SetFollow(true); }
+        }
+        if (e.PropertyName != nameof(LogsViewModel.DisplayText) || !_follow) return;
+        // Defer until layout has measured the new text (Loaded runs after Layout).
         Dispatcher.UIThread.Post(ScrollLogToBottom, DispatcherPriority.Loaded);
     }
 
     private void ScrollLogToBottom()
     {
-        if (LogScroll is null) return;
-        var extent = LogScroll.Extent;
-        // Push the offset to the maximum scrollable Y. The ScrollViewer
-        // clamps to (Extent - Viewport) internally, so passing the raw
-        // Extent.Height is safe and idempotent.
-        LogScroll.Offset = new Vector(LogScroll.Offset.X, extent.Height);
+        if (LogScroll is null || !_follow) return;
+        _scrollingProgrammatically = true;
+        try
+        {
+            // The ScrollViewer clamps to (Extent - Viewport).
+            LogScroll.Offset = new Vector(LogScroll.Offset.X, LogScroll.Extent.Height);
+        }
+        finally { _scrollingProgrammatically = false; }
     }
 
     private void OnLogScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        // No-op: kept so the XAML's ScrollChanged="OnLogScrollChanged"
-        // wiring still resolves. Earlier this method tracked "did the
-        // user scroll away from the bottom?" to gate auto-follow; the
-        // user explicitly asked us to always follow, so the gate is
-        // gone and there's nothing to track here. Removing the XAML
-        // attribute would require a one-line edit on every refactor —
-        // keeping the empty handler is cheaper.
+        if (LogScroll is null || _scrollingProgrammatically) return;
+        // Only the reader's own vertical moves change following; growing text
+        // or a resized window does not.
+        if (e.OffsetDelta.Y == 0 || e.ExtentDelta.Y != 0 || e.ViewportDelta.Y != 0) return;
+        SetFollow(IsAtBottom());
+    }
+
+    private bool IsAtBottom()
+        => LogScroll.Offset.Y >= LogScroll.Extent.Height - LogScroll.Viewport.Height - 4;
+
+    private void SetFollow(bool follow)
+    {
+        _follow = follow;
+        if (JumpToLatest is not null) JumpToLatest.IsVisible = !follow;
+    }
+
+    private void OnJumpToLatest(object? sender, RoutedEventArgs e)
+    {
+        SetFollow(true);
+        ScrollLogToBottom();
     }
 }

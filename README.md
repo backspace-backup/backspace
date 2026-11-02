@@ -155,7 +155,7 @@ and scheduled backups before sign-in in an isolated Windows 11 virtual machine.
 | **Windows 10** | Not tested yet |
 | **macOS, Linux** | Builds, never launched yet. Field reports welcome |
 | **OneDrive for Business** | Not supported yet |
-| **Network shares** | Backed up while you are signed in, without Windows snapshots, even with administrator access |
+| **Network shares** | With administrator access and the share's user name and password saved, backed up in the background like other destinations; otherwise while you are signed in, without Windows snapshots |
 
 > [!WARNING]
 > **No warranty.** Backup software is provided "as is" and may fail to run,

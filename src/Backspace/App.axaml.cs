@@ -225,6 +225,9 @@ public partial class App : Application
                 // locked file can then be explained and cancelled in the UI.
                 try { if (!startedInBackground) await System.Threading.Tasks.Task.Run(() => new SessionTaskControl().ResumeOnGuiLaunch(taskResume.Token)); }
                 catch (OperationCanceledException) { /* The waiting panel explains that tasks stay paused. */ }
+                // Unfinished removal of administrator access: the sidebar offers to
+                // finish it; a second dialog about paused tasks only confused (U078).
+                catch (ServiceRemovalPendingException ex) { AppLogger.For<App>().Information(ex.Message); }
                 catch (Exception ex)
                 {
                     AppLogger.For<App>().Error(ex, "Could not resume scheduled tasks");

@@ -19,7 +19,9 @@ namespace Backspace.Tests.Scenarios.E2E;
 ///
 ///   BACKSPACE_BENCHMARK_ACTION = generate | mutate | backup | tool
 ///   BACKSPACE_BENCHMARK_DIR    = scratch folder holding source/ and results
-///   BACKSPACE_BENCHMARK_REMOTE = subfolder inside Backspace's Dropbox app folder
+///   BACKSPACE_BENCHMARK_REMOTE = subfolder inside Backspace's cloud folder
+///   BACKSPACE_BENCHMARK_PROVIDER = Dropbox (default), GoogleDrive or OneDrive,
+///                                using that provider's saved test sign-in
 ///   BACKSPACE_BENCHMARK_FILES  = optional file count for generate (default
 ///                                20,000), at the same ~105 KiB per file
 ///   BACKSPACE_BENCHMARK_SOURCE = optional source tree (default DIR\source)
@@ -120,8 +122,9 @@ public sealed class E58_DropboxScaleBenchmark
     {
         var remote = Environment.GetEnvironmentVariable("BACKSPACE_BENCHMARK_REMOTE");
         Assert.False(string.IsNullOrWhiteSpace(remote), "Set BACKSPACE_BENCHMARK_REMOTE.");
-        var cred = CloudCredentialsLoader.TryGet(CloudCredentialsLoader.Provider.Dropbox);
-        Assert.True(cred is not null, CloudCredentialsLoader.SkipReason(CloudCredentialsLoader.Provider.Dropbox));
+        var provider = Enum.Parse<CloudCredentialsLoader.Provider>(Environment.GetEnvironmentVariable("BACKSPACE_BENCHMARK_PROVIDER") is { Length: > 0 } named ? named : "Dropbox", ignoreCase: true);
+        var cred = CloudCredentialsLoader.TryGet(provider);
+        Assert.True(cred is not null, CloudCredentialsLoader.SkipReason(provider));
 
         // One vault and engine folder per benchmark so the repository password
         // and engine state survive between invocations.
@@ -129,8 +132,8 @@ public sealed class E58_DropboxScaleBenchmark
         Directory.CreateDirectory(Path.Combine(dir, "vault"));
         const string passwordRef = "benchmark-repository-password";
         if (!secrets.TryGet(passwordRef, out _)) secrets.Set(passwordRef, "benchmark-" + Guid.NewGuid().ToString("N"));
-        var destination = CloudCredentialsLoader.BuildDestination(CloudCredentialsLoader.Provider.Dropbox, cred! with { Folder = remote! }, secrets);
-        destination.Id = "benchmark-dropbox";
+        var destination = CloudCredentialsLoader.BuildDestination(provider, cred! with { Folder = remote! }, secrets);
+        destination.Id = "benchmark-" + provider.ToString().ToLowerInvariant();
         destination.StoragePasswordRef = passwordRef;
         return (secrets, destination, cred!);
     }
@@ -141,7 +144,7 @@ public sealed class E58_DropboxScaleBenchmark
         var (secrets, destination, cred) = BenchmarkDestination(dir);
         var backup = new Backup
         {
-            Id = "benchmark-backup", Name = "Dropbox benchmark", SourcePaths = { source },
+            Id = "benchmark-backup", Name = destination.Kind + " benchmark", SourcePaths = { source },
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
             AbortOnMeteredNetwork = false, UseVss = false, VssDisabledAcknowledged = true,
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } },
@@ -158,7 +161,7 @@ public sealed class E58_DropboxScaleBenchmark
         CloudCredentialsLoader.SaveRefreshedToken(cred, destination, secrets);
         File.AppendAllText(Path.Combine(dir, "backspace-results.jsonl"), JsonSerializer.Serialize(new
         {
-            finishedUtc = DateTime.UtcNow, engineStartSeconds = Math.Round(engineSeconds, 1), seconds = Math.Round(watch.Elapsed.TotalSeconds, 1),
+            provider = destination.Kind.ToString(), finishedUtc = DateTime.UtcNow, engineStartSeconds = Math.Round(engineSeconds, 1), seconds = Math.Round(watch.Elapsed.TotalSeconds, 1),
             status = record.Status.ToString(), summary = record.Summary, errors = record.Errors,
         }) + Environment.NewLine);
         Assert.True(record.Status is BackupRunStatus.Success or BackupRunStatus.Warning, string.Join(" | ", record.Errors));

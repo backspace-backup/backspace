@@ -557,6 +557,18 @@ public partial class MainWindow : Window
     private void OnOpenBackrest(object? sender, RoutedEventArgs e) =>
         OpenExternal("https://github.com/garethgeorge/backrest", "Backrest");
 
+    /// <summary>The sidebar version opens Settings at App updates (U088).</summary>
+    private void OnOpenAppUpdates(object? sender, RoutedEventArgs e)
+    {
+        AppNavigator.Go(ViewModels.NavItem.Settings);
+        // The Settings page is built on navigation; scroll once it is laid out.
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            var card = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(this).OfType<SettingsView>().FirstOrDefault()?.FindControl<Border>("AppUpdatesCard");
+            card?.BringIntoView();
+        }, Avalonia.Threading.DispatcherPriority.Loaded);
+    }
+
     private void OnClosed(object? sender, EventArgs e)
     {
         try { if (!WasClosedToTray) (DataContext as MainWindowViewModel)?.Dispose(); }
