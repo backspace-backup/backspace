@@ -339,6 +339,28 @@ public class RecommendedFiltersTests
     }
 
     [Fact]
+    public void A_declined_essential_addition_is_not_brought_back_by_the_essentials_block()
+    {
+        // An essentials-only block from an earlier version, missing one essential.
+        var missing = RecommendedFilters.EssentialPatterns.Last();
+        var saved = string.Join("\n", new[] { RecommendedFilters.EssentialBlockHeader }
+            .Concat(RecommendedFilters.EssentialPatterns.Where(p => p != missing))
+            .Append(RecommendedFilters.EssentialBlockFooter));
+        var all = RecommendedFilters.CheckForUpdates(saved);
+        Assert.Contains(missing, all.Add);
+
+        // Declining it (U057 checkbox unticked) keeps it out.
+        var declined = RecommendedFilters.ApplyUpdates(saved, new(all.Add.Where(p => p != missing).ToList(), all.Remove));
+        Assert.DoesNotContain(missing, declined.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()));
+        Assert.True(RecommendedFilters.CheckForUpdates(declined, new[] { missing }).IsEmpty);
+
+        // Accepting it still renders the standard essentials block.
+        var accepted = RecommendedFilters.ApplyUpdates(saved, all);
+        Assert.Contains(RecommendedFilters.EssentialBlockHeader, accepted);
+        Assert.Contains(missing, accepted.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()));
+    }
+
+    [Fact]
     public void A_backup_without_a_recommended_block_is_never_offered_changes()
         => Assert.True(RecommendedFilters.CheckForUpdates("e:(?i)^Windows/\nfoo/").IsEmpty);
 }

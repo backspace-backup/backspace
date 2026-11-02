@@ -83,6 +83,12 @@ public sealed class S60_ReviewFeedback : ScenarioBase
             Click(confirm, confirm.GetVisualDescendants().OfType<Button>().Single(b => b.Content?.ToString() == "Stop work and quit"));
             await ctx.Driver.PumpAsync(100);
             Assert.True(window.IsVisible); Assert.False(Backspace.App.QuitRequested);
+            // Quit first saves its pause on a worker thread and force quit
+            // waits for that; on GitHub's runner it can take longer than a pump
+            // (the 1.0.1 rehearsal failed here on 1 November 2026).
+            var savingPause = typeof(MainWindow).GetField("_savingQuitPause",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            Assert.True(ctx.Driver.WaitFor(() => !(bool)savingPause.GetValue(window)!), "Quit never finished saving its pause.");
             var forceWhileStopping = window.RequestForceQuitAsync();
             // GitHub's runner can need more than one pump to open the dialog.
             Assert.True(ctx.Driver.WaitFor(() => window.OwnedWindows.OfType<DestructiveConfirmWindow>().Any()), "The force-quit confirmation never opened.");

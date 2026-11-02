@@ -213,6 +213,12 @@ public sealed class UiDriver : IDisposable
             if (window is not Backspace.Views.MainWindow && window.DataContext is IDisposable context
                 && disposedContexts.Add(context))
                 try { context.Dispose(); } catch (Exception ex) { failures.Add(ex); }
+            // A view hosted in a plain window carries its own view model. Left
+            // alive, its cards posted work that ran in a later test's
+            // dispatcher reset and failed there (U066, 1 November 2026).
+            if (window is not Backspace.Views.MainWindow && window.Content is Control { DataContext: IDisposable hosted }
+                && disposedContexts.Add(hosted))
+                try { hosted.Dispose(); } catch (Exception ex) { failures.Add(ex); }
         }
     }
 

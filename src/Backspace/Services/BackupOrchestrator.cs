@@ -376,6 +376,22 @@ public sealed partial class BackupOrchestrator
     /// can refresh history listings without reloading from disk.</summary>
     public event Action<string, RunRecord>? RunEnded;
 
+    // Each subscriber is called on its own: one that throws must not keep
+    // the others (tray, cards, history) from hearing about the run.
+    private void RaiseRunStarted(string backupId)
+    {
+        foreach (var handler in RunStarted?.GetInvocationList() ?? Array.Empty<Delegate>())
+            try { ((Action<string>)handler)(backupId); }
+            catch (Exception ex) { _log.Warning(ex, "RunStarted handler threw for {Id}", backupId); }
+    }
+
+    private void RaiseRunEnded(string backupId, RunRecord record)
+    {
+        foreach (var handler in RunEnded?.GetInvocationList() ?? Array.Empty<Delegate>())
+            try { ((Action<string, RunRecord>)handler)(backupId, record); }
+            catch (Exception ex) { _log.Warning(ex, "RunEnded handler threw for {Id}", backupId); }
+    }
+
     /// <summary>
     /// Fired when a run's queued-status changes — empty string means
     /// "no longer queued / now running", non-empty is a human-readable
@@ -549,8 +565,7 @@ public sealed partial class BackupOrchestrator
 
         try { _progress.ReportRunFinished(backupId); }
         catch (Exception ex) { _log.Warning(ex, "ReportRunFinished threw for force-finalise of {Id}", backupId); }
-        try { RunEnded?.Invoke(backupId, record); }
-        catch (Exception ex) { _log.Warning(ex, "RunEnded handler threw for force-finalise of {Id}", backupId); }
+        RaiseRunEnded(backupId, record);
     }
 
     /// <summary>
@@ -703,8 +718,7 @@ public sealed partial class BackupOrchestrator
             }
             using var _syncing = AppStatus.BeginSyncing();
             ct = localCts.Token;
-            try { RunStarted?.Invoke(backup.Id); }
-            catch (Exception ex) { _log.Warning(ex, "RunStarted handler threw for {Name}", backup.Name); }
+            RaiseRunStarted(backup.Id);
 
             // Per-destination QUEUEING. Two backups whose targets
             // overlap on a (DestId, StorageName) pair would otherwise
@@ -823,8 +837,7 @@ public sealed partial class BackupOrchestrator
         {
             try { UpdateBackupLastRun(backup, result); }
             catch (Exception ex) { _log.Warning(ex, "Could not save backup status after admission failure"); }
-            try { RunEnded?.Invoke(backup.Id, result); }
-            catch (Exception ex) { _log.Warning(ex, "RunEnded handler failed after admission failure"); }
+            RaiseRunEnded(backup.Id, result);
             try { await SendAlertsAsync(backup, result); }
             catch (Exception ex) { _log.Warning(ex, "Could not notify about the admission failure"); }
         }
@@ -877,8 +890,7 @@ public sealed partial class BackupOrchestrator
         catch (Exception ex) { _log.Warning(ex, "UpdateBackupLastRun threw for {Name}", backup.Name); }
         try { _progress.ReportRunFinished(backup.Id); }
         catch (Exception ex) { _log.Warning(ex, "ReportRunFinished threw for {Name}", backup.Name); }
-        try { RunEnded?.Invoke(backup.Id, result); }
-        catch (Exception ex) { _log.Warning(ex, "RunEnded handler threw for {Name}", backup.Name); }
+        RaiseRunEnded(backup.Id, result);
         try { await SendAlertsAsync(backup, result); }
         catch (Exception ex) { _log.Warning(ex, "SendAlertsAsync threw for {Name}", backup.Name); }
     }

@@ -82,6 +82,37 @@ public class BackupOrchestratorConcurrencyTests
     }
 
     [Fact]
+    public async Task A_throwing_subscriber_does_not_keep_others_from_run_events()
+    {
+        // The 1.0.1 publishing run failed RunBackupAsync_firesRunStartedAndRunEnded
+        // with no RunEnded at all: one subscriber throwing used to stop the rest.
+        ResetConfig();
+        var backup = new Backup { Name = "throwing-subscriber" };
+        var started = 0; var ended = 0;
+        void ThrowStarted(string id) { if (id == backup.Id) throw new InvalidOperationException("subscriber failure"); }
+        void ThrowEnded(string id, RunRecord _) { if (id == backup.Id) throw new InvalidOperationException("subscriber failure"); }
+        void OnStarted(string id) { if (id == backup.Id) Interlocked.Increment(ref started); }
+        void OnEnded(string id, RunRecord _) { if (id == backup.Id) Interlocked.Increment(ref ended); }
+        ServiceLocator.Orchestrator.RunStarted += ThrowStarted;
+        ServiceLocator.Orchestrator.RunEnded += ThrowEnded;
+        ServiceLocator.Orchestrator.RunStarted += OnStarted;
+        ServiceLocator.Orchestrator.RunEnded += OnEnded;
+        try
+        {
+            await ServiceLocator.Orchestrator.RunBackupAsync(backup, CancellationToken.None);
+            Assert.Equal(1, started);
+            Assert.Equal(1, ended);
+        }
+        finally
+        {
+            ServiceLocator.Orchestrator.RunStarted -= ThrowStarted;
+            ServiceLocator.Orchestrator.RunEnded -= ThrowEnded;
+            ServiceLocator.Orchestrator.RunStarted -= OnStarted;
+            ServiceLocator.Orchestrator.RunEnded -= OnEnded;
+        }
+    }
+
+    [Fact]
     public async Task RunBackupAsync_firesRunStartedAndRunEnded()
     {
         ResetConfig();

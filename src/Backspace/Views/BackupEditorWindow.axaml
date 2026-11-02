@@ -766,16 +766,50 @@
                   <StackPanel Spacing="10">
                     <TextBlock Classes="section-title" Text="Updated recommendations" Margin="0"/>
                     <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
-                               Text="Backspace's recommended exclusions changed since this backup was set up. Your backup keeps its current rules unless you update them."/>
-                    <TextBlock Classes="mono" FontSize="12" TextWrapping="Wrap"
-                               Foreground="{DynamicResource BS.Brush.FgSecondary}"
-                               Text="{Binding RecommendationUpdateText}"/>
+                               Text="Backspace's recommended exclusions changed since this backup was set up. Your backup keeps its current rules unless you update them. Untick any change you don't want; it won't be suggested again for this backup."/>
+                    <StackPanel IsVisible="{Binding HasRecommendedAdditions}" Spacing="2">
+                      <TextBlock Classes="label-caps" Text="{Binding RecommendedAdditions.Count, StringFormat='NOW RECOMMENDED: ADD ({0})'}"/>
+                      <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding RecommendedAdditions}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:RecommendationChangeChoice">
+                              <CheckBox IsChecked="{Binding IsSelected}" Margin="0,1"
+                                        Foreground="{DynamicResource BS.Brush.FgPrimary}">
+                                <TextBlock Classes="mono" FontSize="12" Text="{Binding Pattern}"/>
+                              </CheckBox>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </ScrollViewer>
+                    </StackPanel>
+                    <StackPanel IsVisible="{Binding HasRecommendedRemovals}" Spacing="2">
+                      <TextBlock Classes="label-caps" Text="{Binding RecommendedRemovals.Count, StringFormat='NO LONGER RECOMMENDED: REMOVE ({0})'}"/>
+                      <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding RecommendedRemovals}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:RecommendationChangeChoice">
+                              <CheckBox IsChecked="{Binding IsSelected}" Margin="0,1"
+                                        Foreground="{DynamicResource BS.Brush.FgPrimary}">
+                                <TextBlock Classes="mono" FontSize="12" Text="{Binding Pattern}"/>
+                              </CheckBox>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </ScrollViewer>
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="10">
-                      <Button Classes="primary" Content="Update recommended exclusions" Command="{Binding ApplyRecommendationUpdateCommand}"/>
+                      <Button Classes="primary" Content="Apply ticked changes" Command="{Binding ApplyRecommendationUpdateCommand}"/>
                       <Button Content="Don't suggest these again" Command="{Binding IgnoreRecommendationUpdateCommand}"/>
                     </StackPanel>
                   </StackPanel>
                 </Border>
+
+                <!-- Suggestions declined earlier stay available (U067). -->
+                <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding HasHiddenRecommendations}">
+                  <TextBlock Classes="helper" Margin="0" VerticalAlignment="Center"
+                             Text="{Binding HiddenRecommendationsText}"/>
+                  <Button Classes="ghost" Content="Show hidden suggestions" Command="{Binding ShowHiddenRecommendationsCommand}"/>
+                </StackPanel>
 
                 <!-- Recommended exclusions card. The block is bracketed
                      by marker comments so re-applying replaces it in

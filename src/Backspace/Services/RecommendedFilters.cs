@@ -632,7 +632,11 @@ public static class RecommendedFilters
         // Rules the person added inside the block that are in no list stay too.
         var known = new HashSet<string>(Groups.SelectMany(g => g.Patterns), StringComparer.OrdinalIgnoreCase);
         var own = patterns.Where(p => !known.Contains(p)).ToList();
-        var rendered = (block.EssentialsOnly && update.Add.All(EssentialPatterns.Contains) ? RenderEssentialBlock() : RenderBlock(patterns, cloud))
+        // The fixed essentials block fits only when the result is exactly the
+        // essentials list: the person may have declined some additions (U057).
+        var essentialBlock = block.EssentialsOnly && cloud.Count == 0
+            && new HashSet<string>(patterns.Where(known.Contains), StringComparer.OrdinalIgnoreCase).SetEquals(EssentialPatterns);
+        var rendered = (essentialBlock ? RenderEssentialBlock() : RenderBlock(patterns, cloud))
             .TrimEnd('\r', '\n').Replace("\r\n", "\n").Split('\n').ToList();
         if (own.Count > 0) rendered.InsertRange(rendered.Count - 1, new[] { "# Your own rules kept from this block." }.Concat(own).Append(""));
         var result = lines.Take(block.Start).Concat(rendered).Concat(lines.Skip(block.End + 1));

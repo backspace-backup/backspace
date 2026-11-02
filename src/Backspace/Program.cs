@@ -83,6 +83,18 @@ internal static class Program
             }
             catch (Exception ex) { ReportSetupFailure("Background backup removal needs attention; retained data was preserved: " + ex.Message); return 4; }
         }
+        if (args.Length > 0 && args[0] == "--service-retire")
+        {
+            if (args.Length != 1) return 2;
+            try
+            {
+                var root = Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\'));
+                Services.Platform.Windows.ServiceRetirement.Prepare(root);
+                Services.Platform.Windows.ServiceRetirement.CompleteAfterReturn(root, TimeSpan.FromMinutes(10));
+                return 0;
+            }
+            catch (Exception ex) { ReportSetupFailure("Background backup removal needs attention; retained data was preserved: " + ex.Message, ex); return 4; }
+        }
         if (args.Length > 0 && args[0] == "--service-refresh")
         {
             if (args.Length is not (1 or 2)) return 2;
