@@ -28,7 +28,10 @@ internal static class EngineInstallation
 {
     /// <param name="Release">True for a Release build: its engines run from
     /// <see cref="Root"/>. Development builds keep them beside the exe.</param>
-    internal sealed record Manifest(string Version, Dictionary<string, string> Files, bool Release = false);
+    /// <param name="Engines">The pinned upstream versions (engine-versions.json):
+    /// each engine is fetched from its own project, not from Backspace's release.</param>
+    internal sealed record Manifest(string Version, Dictionary<string, string> Files, bool Release = false,
+        Dictionary<string, string>? Engines = null);
 
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly Lazy<Manifest?> Embedded = new(ReadEmbedded);
@@ -125,35 +128,59 @@ internal static class EngineInstallation
         finally { Gate.Release(); }
     }
 
-    /// <summary>BACKSPACE_ENGINE_SOURCE (a folder or base URL) replaces the
-    /// release download, for checking a release candidate before it is published.</summary>
-    internal static string Source(Manifest manifest, string name)
-        => Environment.GetEnvironmentVariable("BACKSPACE_ENGINE_SOURCE") is { Length: > 0 } source
-            ? (source.Contains("://", StringComparison.Ordinal) ? source.TrimEnd('/') + "/" + name : Path.Combine(source, name))
-            : $"https://github.com/backspace-backup/backspace/releases/download/v{manifest.Version}/{name}";
+    /// <summary>Where an engine comes from: its own project's official Windows
+    /// download (U102, 3 November 2026: Backspace's release offers Backspace.exe
+    /// alone), with the file to take from that archive. BACKSPACE_ENGINE_SOURCE
+    /// (a folder or base URL of plain engine files) replaces it for checks.</summary>
+    internal static (string Url, string? Entry) Origin(Manifest manifest, string name)
+    {
+        if (Environment.GetEnvironmentVariable("BACKSPACE_ENGINE_SOURCE") is { Length: > 0 } source)
+            return (source.Contains("://", StringComparison.Ordinal) ? source.TrimEnd('/') + "/" + name : Path.Combine(source, name), null);
+        string? Pinned(string engine) => manifest.Engines?.GetValueOrDefault(engine) is { Length: > 1 } v && v.StartsWith('v') ? v : null;
+        return name switch
+        {
+            "backrest.exe" when Pinned("backrest") is { } v
+                => ($"https://github.com/garethgeorge/backrest/releases/download/{v}/backrest_Windows_x86_64.zip", "backrest.exe"),
+            "restic.exe" when Pinned("restic") is { } v
+                => ($"https://github.com/restic/restic/releases/download/{v}/restic_{v[1..]}_windows_amd64.zip", $"restic_{v[1..]}_windows_amd64.exe"),
+            "rclone.exe" when Pinned("rclone") is { } v
+                => ($"https://downloads.rclone.org/{v}/rclone-{v}-windows-amd64.zip", $"rclone-{v}-windows-amd64/rclone.exe"),
+            // Builds before 1.1.1 published the engines with the release.
+            _ => ($"https://github.com/backspace-backup/backspace/releases/download/v{manifest.Version}/{name}", null),
+        };
+    }
 
     private static async Task FetchAsync(HttpClient http, Manifest manifest, string name, string hash, string target, CancellationToken ct)
     {
-        var source = Source(manifest, name);
+        var (source, entry) = Origin(manifest, name);
         var temporary = target + "." + Guid.NewGuid().ToString("N") + ".download";
+        var archive = entry is null ? null : temporary + ".zip";
         try
         {
             try
             {
-                await using var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                if (source.Contains("://", StringComparison.Ordinal))
+                await using (var output = new FileStream(archive ?? temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
-                    using var response = await http.GetAsync(source, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-                    response.EnsureSuccessStatusCode();
-                    await using var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-                    await input.CopyToAsync(output, ct).ConfigureAwait(false);
+                    if (source.Contains("://", StringComparison.Ordinal))
+                    {
+                        using var response = await http.GetAsync(source, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                        response.EnsureSuccessStatusCode();
+                        await using var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                        await input.CopyToAsync(output, ct).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await using var input = File.OpenRead(source);
+                        await input.CopyToAsync(output, ct).ConfigureAwait(false);
+                    }
+                    output.Flush(flushToDisk: true);
                 }
-                else
-                {
-                    await using var input = File.OpenRead(source);
-                    await input.CopyToAsync(output, ct).ConfigureAwait(false);
-                }
-                output.Flush(flushToDisk: true);
+                if (archive is not null) TakeFromArchive(archive, entry!, temporary);
+            }
+            catch (InvalidDataException ex)
+            {
+                throw new EngineBinaryMissingException(
+                    $"The download of the backup engine ({name}) was not the expected archive: {ex.Message}", target);
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException && !ct.IsCancellationRequested)
             {
@@ -170,7 +197,25 @@ internal static class EngineInstallation
                     | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
             File.Move(temporary, target, overwrite: true);
         }
-        finally { try { if (File.Exists(temporary)) File.Delete(temporary); } catch (IOException) { } }
+        finally
+        {
+            foreach (var leftover in new[] { temporary, archive })
+                try { if (leftover is not null && File.Exists(leftover)) File.Delete(leftover); } catch (IOException) { }
+        }
+    }
+
+    /// <summary>Copies one named file out of a downloaded archive; nothing else
+    /// in it is written anywhere.</summary>
+    internal static void TakeFromArchive(string archive, string entryName, string destination)
+    {
+        using var zip = System.IO.Compression.ZipFile.OpenRead(archive);
+        var entry = zip.Entries.SingleOrDefault(e => string.Equals(e.FullName.Replace('\\', '/'), entryName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidDataException("it does not contain " + entryName + ".");
+        if (entry.Length is <= 0 or > 1024L * 1024 * 1024) throw new InvalidDataException("its " + entryName + " has an unexpected size.");
+        using var input = entry.Open();
+        using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        input.CopyTo(output);
+        output.Flush(flushToDisk: true);
     }
 
     /// <summary>Removes every other engine set as soon as this one is ready.

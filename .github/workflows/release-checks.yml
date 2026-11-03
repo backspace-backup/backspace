@@ -123,19 +123,16 @@ jobs:
           dotnet publish src/Backspace -c Release -f net10.0-windows -r win-x64 --self-contained false -m:1 -o release-candidate @versionArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/verify-runtime-package.ps1 -Executable release-candidate/Backspace.exe -ResultFile release-evidence/runtime-package.json
-          # U100: people download Backspace.exe alone; it fetches these engine
-          # files from the same release on first start, checked by SHA-256.
-          $engines = "backrest.exe", "restic.exe", "rclone.exe"
+          # U100, U102: the release offers Backspace.exe alone. On first start
+          # it downloads restic, Backrest and rclone from their own projects at
+          # the pinned versions and checks them against hashes built into it.
           if (Get-ChildItem release-candidate -File | Where-Object Name -ne "Backspace.exe") { throw "The published app must be Backspace.exe alone." }
           Copy-Item release-candidate/Backspace.exe release-evidence/Backspace.exe
-          foreach ($e in $engines) { Copy-Item "src/Backspace/Assets/$e" "release-evidence/$e" }
-          # In-app updaters of 1.0.2 and earlier download this archive.
+          (Get-FileHash release-evidence/Backspace.exe -Algorithm SHA256).Hash | Out-File release-evidence/Backspace.exe.sha256 -Encoding utf8
+          # The update test installs the candidate beside engines, as a test fixture only.
           New-Item -ItemType Directory -Force update-candidate | Out-Null
           Copy-Item release-candidate/Backspace.exe update-candidate/
-          foreach ($e in $engines) { Copy-Item "src/Backspace/Assets/$e" update-candidate/ }
-          Compress-Archive -Path update-candidate/* -DestinationPath release-evidence/Backspace-windows-x64.zip
-          Get-FileHash (@("Backspace.exe", "Backspace-windows-x64.zip") + $engines | ForEach-Object { "release-evidence/$_" }) -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } | Out-File release-evidence/SHA256.txt -Encoding utf8
+          foreach ($e in "backrest.exe", "restic.exe", "rclone.exe") { Copy-Item "src/Backspace/Assets/$e" update-candidate/ }
       - name: Verify the actual Windows update bundle and rollback
         shell: pwsh
         timeout-minutes: 5
@@ -225,4 +222,4 @@ jobs:
           prerelease_args=()
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease_args=(--prerelease); fi
           cd reviewed-evidence/release-evidence
-          gh release create "$RELEASE_TAG" Backspace.exe backrest.exe restic.exe rclone.exe Backspace-windows-x64.zip SHA256.txt --verify-tag --title "Backspace $RELEASE_TAG" --generate-notes "${prerelease_args[@]}"
+          gh release create "$RELEASE_TAG" Backspace.exe --verify-tag --title "Backspace $RELEASE_TAG" --generate-notes "${prerelease_args[@]}"

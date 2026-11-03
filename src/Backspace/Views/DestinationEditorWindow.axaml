@@ -411,7 +411,7 @@
                  toggle row. Tells the user what the toggle does and
                  — importantly — what OFF means. -->
             <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
-                       Text="The backup engine encrypts everything regardless. The password is what gates access to it. ON: anyone copying the storage files needs the password to read your data. The password lives only on this PC. OFF: anyone who can read the storage files can read your data. Recommended ON for cloud destinations; up to you for local drives you physically control."/>
+                       Text="ON: only someone who knows the storage password can read your backups. It is saved only on this PC, so keep a copy somewhere safe: without it the backups can't be restored. OFF: the backups are stored in the same encrypted format but with an empty password, so anyone who can open the storage files can read them. Recommended ON for cloud storage; your choice for a drive you keep with you."/>
             <StackPanel Spacing="6" IsVisible="{Binding Encrypted}" Margin="0,4,0,0">
               <TextBlock Classes="label-caps" Text="STORAGE PASSWORD"/>
               <!-- IsEnabled gates editing: for an already-encrypted
@@ -460,7 +460,7 @@
                   Command="{Binding ToggleOptionsCommand}">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <TextBlock Text="{Binding OptionsToggleLabel}" VerticalAlignment="Center"/>
-              <TextBlock Text="(name, folder override, S3 region…)"
+              <TextBlock Text="{Binding OptionsHint}"
                          Classes="dim" FontSize="12" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>

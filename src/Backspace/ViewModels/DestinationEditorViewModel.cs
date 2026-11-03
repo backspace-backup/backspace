@@ -306,6 +306,8 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         or DestinationKind.GoogleDrive;
     public bool ShowOAuth => Working.NeedsOAuth;
     public bool ShowS3 => Kind == DestinationKind.S3Compatible;
+    /// <summary>What Options holds for this kind, shown beside its toggle.</summary>
+    public string OptionsHint => ShowS3 ? "(name, region, bucket prefix)" : "(name)";
 
     /// <summary>
     /// Cloud / S3 destinations send data outside the user's physical
@@ -385,6 +387,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         OnPropertyChanged(nameof(ShowCloudSubpath));
         OnPropertyChanged(nameof(ShowOAuth));
         OnPropertyChanged(nameof(ShowS3));
+        OnPropertyChanged(nameof(OptionsHint));
         OnPropertyChanged(nameof(ShowCloudSubfolderField));
         OnPropertyChanged(nameof(ShowEncryptionRecommendedBadge));
         OnPropertyChanged(nameof(OAuthScopeExplanation));

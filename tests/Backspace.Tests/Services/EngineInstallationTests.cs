@@ -124,4 +124,39 @@ public sealed class EngineInstallationTests
         Assert.NotNull(EngineInstallation.Current);
         Assert.Equal(3, EngineInstallation.Current!.Files.Count);
     }
+
+    /// <summary>U102: each engine comes from its own project's Windows archive
+    /// at the pinned version, and only that one file is taken from it.</summary>
+    [Fact]
+    public void Engines_come_from_their_own_projects_at_the_pinned_versions()
+    {
+        var manifest = new EngineInstallation.Manifest("1.1.1", new Dictionary<string, string>(), true,
+            new Dictionary<string, string> { ["backrest"] = "v1.14.1", ["restic"] = "v0.19.1", ["rclone"] = "v1.74.1" });
+        Assert.Equal(("https://github.com/garethgeorge/backrest/releases/download/v1.14.1/backrest_Windows_x86_64.zip", "backrest.exe"),
+            EngineInstallation.Origin(manifest, "backrest.exe"));
+        Assert.Equal(("https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_windows_amd64.zip", "restic_0.19.1_windows_amd64.exe"),
+            EngineInstallation.Origin(manifest, "restic.exe"));
+        Assert.Equal(("https://downloads.rclone.org/v1.74.1/rclone-v1.74.1-windows-amd64.zip", "rclone-v1.74.1-windows-amd64/rclone.exe"),
+            EngineInstallation.Origin(manifest, "rclone.exe"));
+        // A build without pinned versions (1.1.0) still uses its own release.
+        Assert.Equal(("https://github.com/backspace-backup/backspace/releases/download/v1.1.0/restic.exe", (string?)null),
+            EngineInstallation.Origin(new EngineInstallation.Manifest("1.1.0", new Dictionary<string, string>(), true), "restic.exe"));
+    }
+
+    [Fact]
+    public void Only_the_engine_file_is_taken_from_its_archive()
+    {
+        using var ws = new TempWorkspace();
+        var archive = Path.Combine(ws.Root, "rclone.zip");
+        using (var zip = System.IO.Compression.ZipFile.Open(archive, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            using (var w = zip.CreateEntry("rclone-v1.74.1-windows-amd64/README.txt").Open()) w.Write("readme"u8);
+            using (var w = zip.CreateEntry("rclone-v1.74.1-windows-amd64/rclone.exe").Open()) w.Write("MZ rclone"u8);
+        }
+        var target = Path.Combine(ws.Root, "rclone.exe");
+        EngineInstallation.TakeFromArchive(archive, "rclone-v1.74.1-windows-amd64/rclone.exe", target);
+        Assert.Equal("MZ rclone", File.ReadAllText(target));
+        Assert.Single(Directory.GetFiles(ws.Root, "*.exe"));
+        Assert.Throws<InvalidDataException>(() => EngineInstallation.TakeFromArchive(archive, "restic.exe", Path.Combine(ws.Root, "x.exe")));
+    }
 }

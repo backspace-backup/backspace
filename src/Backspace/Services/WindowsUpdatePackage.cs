@@ -19,13 +19,16 @@ namespace Backspace.Services;
 /// under an exclusive process-lifetime gate shared by scheduled runs.</summary>
 internal static class WindowsUpdatePackage
 {
+    /// <summary>Releases from 1.1.1 on offer Backspace.exe alone (U102); the
+    /// archive is what earlier releases offered.</summary>
+    internal const string ExecutableAssetName = "Backspace.exe";
     internal const string AssetName = "Backspace-windows-x64.zip";
     internal const string ReleasesUrl = "https://github.com/backspace-backup/backspace/releases/latest";
     internal const string ApiUrl = "https://api.github.com/repos/backspace-backup/backspace/releases/latest";
     private const long MaxDownload = 2L * 1024 * 1024 * 1024;
     private const long MaxExpanded = 4L * 1024 * 1024 * 1024;
     internal sealed record Release(Version Version, string Tag, string Url, string Notes,
-        string AssetUrl, string Digest, long Size);
+        string AssetUrl, string Digest, long Size, bool Executable = false);
     internal sealed record FileEntry(string Name, long Size, string Sha256);
     internal sealed class Plan
     {
@@ -52,12 +55,13 @@ internal static class WindowsUpdatePackage
             || !Version.TryParse(tag.TrimStart('v'), out var version) || Normalize(version) <= Normalize(current)) return null;
         var url = r.GetProperty("html_url").GetString() ?? "";
         if (!IsReleaseUrl(url)) throw new InvalidDataException("The release link is not from the Backspace repository.");
-        var matches = r.GetProperty("assets").EnumerateArray()
-            .Where(a => a.GetProperty("name").GetString() == AssetName).ToArray();
+        var assets = r.GetProperty("assets").EnumerateArray().ToArray();
+        var assetName = assets.Any(a => a.GetProperty("name").GetString() == ExecutableAssetName) ? ExecutableAssetName : AssetName;
+        var matches = assets.Where(a => a.GetProperty("name").GetString() == assetName).ToArray();
         if (matches.Length != 1) throw new InvalidDataException("This release does not contain one compatible Windows update. Open the release page to update manually.");
         var asset = matches[0];
         var assetUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
-        var expectedPath = "/backspace-backup/backspace/releases/download/" + tag + "/" + AssetName;
+        var expectedPath = "/backspace-backup/backspace/releases/download/" + tag + "/" + assetName;
         if (!Uri.TryCreate(assetUrl, UriKind.Absolute, out var uri) || uri.Scheme != "https"
             || uri.Host != "github.com" || uri.UserInfo.Length != 0 || uri.Port != 443
             || uri.AbsolutePath != expectedPath || uri.Query.Length != 0 || uri.Fragment.Length != 0)
@@ -68,7 +72,7 @@ internal static class WindowsUpdatePackage
         var size = asset.GetProperty("size").GetInt64();
         if (size <= 0 || size > MaxDownload) throw new InvalidDataException("The update size is outside the supported limit.");
         var notes = r.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() ?? "" : "";
-        return new Release(Normalize(version), tag, url, notes, assetUrl, digest[7..], size);
+        return new Release(Normalize(version), tag, url, notes, assetUrl, digest[7..], size, assetName == ExecutableAssetName);
     }
 
     internal static bool IsReleaseUrl(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri)
@@ -102,7 +106,7 @@ internal static class WindowsUpdatePackage
         if (available < checked(release.Size * 5 + 256L * 1024 * 1024))
             throw new IOException("There is not enough free space to download and safely replace this update. Free some space and try again.");
         var work = CreateWorkDirectory(root);
-        var archive = Path.Combine(work, "download.zip");
+        var archive = Path.Combine(work, release.Executable ? "download.exe" : "download.zip");
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, release.AssetUrl);
@@ -126,7 +130,9 @@ internal static class WindowsUpdatePackage
             }
             if (!Hash(archive).Equals(release.Digest, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("The downloaded update failed its checksum check. Your installed version has not changed.");
-            var plan = Extract(archive, root, work, Path.GetFileName(exe), release.Version.ToString(), ct);
+            var plan = release.Executable
+                ? Stage(archive, root, work, Path.GetFileName(exe), release.Version.ToString())
+                : Extract(archive, root, work, Path.GetFileName(exe), release.Version.ToString(), ct);
             ValidateApplicationVersion(plan, release.Version);
             progress?.Report(1);
             return plan;
@@ -149,6 +155,22 @@ internal static class WindowsUpdatePackage
         var productVersion = FileVersionInfo.GetVersionInfo(versionPath).ProductVersion?.Split('+')[0];
         if (!Version.TryParse(productVersion, out var builtVersion) || Normalize(builtVersion) != expected)
             throw new InvalidDataException("The application version inside the download does not match the release. Your installed version has not changed.");
+    }
+
+    /// <summary>A release that is Backspace.exe alone: the new program replaces
+    /// this one; its engines come from %LOCALAPPDATA%\Backspace\bin.</summary>
+    internal static Plan Stage(string download, string root, string work, string exeName, string version)
+    {
+        var plan = new Plan { Root = Path.GetFullPath(root), Work = Path.GetFullPath(work), ExeName = exeName, Version = version };
+        ValidateLocation(plan);
+        var incoming = Path.Combine(work, "incoming"); Directory.CreateDirectory(incoming);
+        var path = Path.Combine(incoming, exeName);
+        File.Copy(download, path);
+        using (var pe = File.OpenRead(path))
+            if (pe.ReadByte() != 'M' || pe.ReadByte() != 'Z') throw new InvalidDataException("Backspace.exe is not a Windows executable.");
+        plan.Files.Add(new FileEntry(exeName, new FileInfo(path).Length, Hash(path)));
+        SavePlan(plan);
+        return plan;
     }
 
     internal static Plan Extract(string archive, string root, string work, string exeName, string version, CancellationToken ct, bool serviceUpdate = false)

@@ -28,6 +28,37 @@ public sealed class WindowsUpdateTests
             browser_download_url = assetUrl ?? "https://github.com/backspace-backup/backspace/releases/download/" + tag + "/" + WindowsUpdatePackage.AssetName } }
     });
 
+    /// <summary>U102 (3 November 2026): releases offer Backspace.exe alone; the
+    /// updater installs that file, and still reads a release with the archive.</summary>
+    [Fact]
+    public void A_release_offering_Backspace_exe_is_installed_from_that_file()
+    {
+        const string tag = "v99.0.0";
+        var json = JsonSerializer.Serialize(new
+        {
+            tag_name = tag, draft = false, prerelease = false,
+            html_url = "https://github.com/backspace-backup/backspace/releases/tag/" + tag, body = "",
+            assets = new[] { new { name = "Backspace.exe", size = 20L, digest = "sha256:" + new string('b', 64),
+                browser_download_url = "https://github.com/backspace-backup/backspace/releases/download/" + tag + "/Backspace.exe" } },
+        });
+        var release = WindowsUpdatePackage.ParseRelease(json, new Version(1, 0))!;
+        Assert.True(release.Executable);
+        Assert.EndsWith("/Backspace.exe", release.AssetUrl);
+        Assert.False(WindowsUpdatePackage.ParseRelease(ReleaseJson(), new Version(1, 0))!.Executable);
+
+        using var ws = new TempWorkspace();
+        var root = ws.Sub("portable");
+        var work = WindowsUpdatePackage.CreateWorkDirectory(root);
+        var download = Path.Combine(work, "download.exe");
+        File.WriteAllBytes(download, "MZnew Backspace"u8.ToArray());
+        var plan = WindowsUpdatePackage.Stage(download, root, work, "Backspace.exe", "99.0.0");
+        Assert.Equal("Backspace.exe", Assert.Single(plan.Files).Name);
+        File.WriteAllBytes(Path.Combine(work, "not-a-program.exe"), "PK zip"u8.ToArray());
+        var other = WindowsUpdatePackage.CreateWorkDirectory(root);
+        File.WriteAllBytes(Path.Combine(other, "download.exe"), "PK zip"u8.ToArray());
+        Assert.Throws<InvalidDataException>(() => WindowsUpdatePackage.Stage(Path.Combine(other, "download.exe"), root, other, "Backspace.exe", "99.0.0"));
+    }
+
     [Fact]
     public void Release_requires_a_new_stable_version_and_preserves_notes()
     {

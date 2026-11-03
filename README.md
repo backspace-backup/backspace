@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/backspace-backup/backspace/releases/latest"><strong>Download for Windows</strong></a>
+  <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace.exe"><strong>Download for Windows</strong></a>
   &nbsp;·&nbsp;
   <a href="https://backspace-backup.github.io">Website</a>
   &nbsp;·&nbsp;
@@ -114,13 +114,12 @@ puts your original files back.
 
 ## Get started
 
-1. Download `Backspace.exe` from the
-   [latest release](https://github.com/backspace-backup/backspace/releases/latest)
-   and check it against `SHA256.txt`.
+1. [Download `Backspace.exe`](https://github.com/backspace-backup/backspace/releases/latest/download/Backspace.exe). The
+   [release page](https://github.com/backspace-backup/backspace/releases/latest) shows its SHA-256.
 2. Put it in the folder where you want to keep Backspace, such as your Documents
    folder. Its settings are created beside it.
 3. Open `Backspace.exe`. On first start it downloads its engines (restic,
-   Backrest, rclone) from the same release into `%LOCALAPPDATA%\Backspace\bin`,
+   Backrest, rclone) from their own projects into `%LOCALAPPDATA%\Backspace\bin`,
    checked against fingerprints built into `Backspace.exe`. The wizard then sets
    up your first backup.
 

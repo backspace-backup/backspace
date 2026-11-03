@@ -584,9 +584,9 @@
                      in flight. Grouped at the bottom so the list reads
                      as "starting rules, then stopping rules". -->
                 <Border Classes="rule" Margin="0,4"/>
-                <CheckBox IsChecked="{Binding StopOnBattery}"      Content="Stop mid-run if switched to battery"
+                <CheckBox IsChecked="{Binding StopOnBattery}"      Content="Stop mid-run if the computer switches to battery"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                <CheckBox IsChecked="{Binding AbortOnMeteredNetwork}" Content="Stop the backup if the connection becomes metered mid-run"
+                <CheckBox IsChecked="{Binding AbortOnMeteredNetwork}" Content="Stop mid-run if the connection becomes metered"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
 
                 <!-- ===== Grace period for skipped runs =====

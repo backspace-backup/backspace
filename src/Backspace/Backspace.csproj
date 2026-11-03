@@ -189,11 +189,17 @@
     <ItemGroup>
       <_EngineManifestLine Include="&quot;%(_EngineHash.Filename)%(_EngineHash.Extension)&quot;: &quot;%(_EngineHash.FileHash)&quot;" />
     </ItemGroup>
+    <!-- The pinned upstream versions: release builds fetch each engine from
+         its own project (U102), then check it against the hashes above. -->
+    <ReadLinesFromFile File="engine-versions.json">
+      <Output TaskParameter="Lines" ItemName="_EngineVersionLine" />
+    </ReadLinesFromFile>
     <PropertyGroup>
       <_EngineManifestFiles>@(_EngineManifestLine, ', ')</_EngineManifestFiles>
+      <_EngineVersions>@(_EngineVersionLine, ' ')</_EngineVersions>
     </PropertyGroup>
     <WriteLinesToFile File="$(_EngineManifestPath)" Overwrite="true" WriteOnlyWhenDifferent="true"
-                      Lines="{ &quot;version&quot;: &quot;$(_EngineVersion)&quot;, &quot;release&quot;: $(_EngineRelease), &quot;files&quot;: { $(_EngineManifestFiles) } }" />
+                      Lines="{ &quot;version&quot;: &quot;$(_EngineVersion)&quot;, &quot;release&quot;: $(_EngineRelease), &quot;engines&quot;: $(_EngineVersions), &quot;files&quot;: { $(_EngineManifestFiles) } }" />
     <ItemGroup>
       <EmbeddedResource Include="$(_EngineManifestPath)" LogicalName="engine-manifest.json" />
       <FileWrites Include="$(_EngineManifestPath)" />

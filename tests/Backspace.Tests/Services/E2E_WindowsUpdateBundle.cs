@@ -80,12 +80,12 @@ public sealed class E2E_WindowsUpdateBundle
             Assert.NotEqual(original["Backspace.exe"], WindowsUpdatePackage.Hash(Path.Combine(candidate!, "Backspace.exe")));
         var config = Path.Combine(root, "Backspace.config"); Directory.CreateDirectory(config);
         File.WriteAllText(Path.Combine(config, "secrets.bin"), "untouched encrypted fixture");
-        var archive = Path.Combine(ws.Root, "candidate.zip");
-        ZipFile.CreateFromDirectory(candidate!, archive, CompressionLevel.Fastest, false);
+        // The release offers Backspace.exe alone (U102).
+        var archive = Path.Combine(candidate!, "Backspace.exe");
         using var http = new HttpClient(new FileHandler(archive));
         var release = new WindowsUpdatePackage.Release(version, "v" + version,
             WindowsUpdatePackage.ReleasesUrl, "test fixture", "https://github.com/test-fixture",
-            WindowsUpdatePackage.Hash(archive), new FileInfo(archive).Length);
+            WindowsUpdatePackage.Hash(archive), new FileInfo(archive).Length, Executable: true);
         if (product.Contains('-'))
         {
             await Assert.ThrowsAsync<InvalidDataException>(() => WindowsUpdatePackage.DownloadAsync(http, release, Path.Combine(root, "Backspace.exe"), null, default));

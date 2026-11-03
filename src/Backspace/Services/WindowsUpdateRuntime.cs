@@ -145,8 +145,11 @@ internal static class WindowsUpdateRuntime
         {
             WindowsUpdatePackage.ValidateLocation(current);
             if (current.State != "Installed") return;
-            var archive = Path.Combine(current.Work, "download.zip");
-            if (File.Exists(archive)) { WindowsUpdatePackage.RejectReparse(archive); File.Delete(archive); }
+            foreach (var download in new[] { "download.zip", "download.exe" })
+            {
+                var archive = Path.Combine(current.Work, download);
+                if (File.Exists(archive)) { WindowsUpdatePackage.RejectReparse(archive); File.Delete(archive); }
+            }
             foreach (var work in Directory.EnumerateDirectories(Path.GetDirectoryName(current.Work)!))
             {
                 if (work.Equals(current.Work, StringComparison.OrdinalIgnoreCase)
