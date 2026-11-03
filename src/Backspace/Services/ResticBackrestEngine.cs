@@ -441,6 +441,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             DateTime? goneSince = null;
             DateTime? recoveryDeadline = null;
             string lastStatus = "";
+            var liveProgress = new BackupLiveProgress();
             while (true)
             {
                 // Prefer the daemon's exact id over a similar concurrently
@@ -455,13 +456,19 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 IReadOnlyList<BackrestOperation>? operations = null;
                 try
                 {
-                    using var probe = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    using var probe = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                     operations = await GetRepoOperationsAsync(client, repoGuid, probe.Token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
                     _log.Debug(ex, "Could not poll repository operation");
-                    recoveryDeadline ??= DateTime.UtcNow + (uncertaintyTimeout ?? TimeSpan.FromSeconds(30));
+                    // A busy engine (restic scanning a whole drive) can answer
+                    // slowly for minutes while the task runs and its request is
+                    // still open: keep waiting. Only an ended request or a stop
+                    // makes an unanswered poll an uncertainty (U111, 3 November
+                    // 2026: a C: backup was cancelled after 30 s of slow polls).
+                    if (ct.IsCancellationRequested || submission.IsCompleted)
+                        recoveryDeadline ??= DateTime.UtcNow + (uncertaintyTimeout ?? TimeSpan.FromSeconds(30));
                 }
                 if (submission.IsCompletedSuccessfully && IsOperationId(submission.Result.OperationId))
                     ownedId = submission.Result.OperationId;
@@ -489,6 +496,11 @@ public sealed class ResticBackrestEngine : IBackupEngine
                         var line = $"[backrest] op={owned.Id} status={owned.Status} {owned.DisplayMessage}".TrimEnd();
                         RaiseLineWritten(line);
                         lineSink?.Invoke(line);
+                    }
+                    if (owned.Status == "STATUS_INPROGRESS" && liveProgress.Next(owned.OperationBackup, DateTime.UtcNow) is { } progressLine)
+                    {
+                        RaiseLineWritten(progressLine);
+                        lineSink?.Invoke(progressLine);
                     }
                     if (IsTerminalStatus(owned.Status))
                     {

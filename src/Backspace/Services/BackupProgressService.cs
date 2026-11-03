@@ -565,6 +565,7 @@ public sealed class BackupProgressService
     /// </summary>
     private static string? TryParseHumanDetail(string line)
     {
+        if (BackupLiveProgress.Detail(line) is { } live) return live;
         if (line.Contains("Uploaded chunk", StringComparison.OrdinalIgnoreCase))
             return "Uploading chunks…";
         if (line.Contains("Listing all chunks", StringComparison.OrdinalIgnoreCase))

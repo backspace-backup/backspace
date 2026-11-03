@@ -117,6 +117,8 @@ internal static class ServiceConfigurationUpdate
             return Parse(bytes, binding.ServiceName, binding.OwnerSid);
         }
         catch (FileNotFoundException) { return null; }
+        // The version-3 service has no such folder (U100).
+        catch (DirectoryNotFoundException) { return null; }
     }
 
     internal static Pending Parse(byte[] bytes, string serviceName, string ownerSid)

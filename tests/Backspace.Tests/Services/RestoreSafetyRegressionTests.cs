@@ -398,6 +398,22 @@ public sealed class RestoreSafetyRegressionTests
         Assert.Equal(0, fixture.Handler.CancelRequests);
     }
 
+    /// <summary>U111 (3 November 2026): while restic scanned all of C:, the
+    /// engine answered the status poll too slowly for 30 s, and Backspace
+    /// cancelled the user's running backup because it "could not confirm" it.
+    /// A busy engine whose task is still running must be waited for.</summary>
+    [Fact]
+    public async Task A_running_operation_survives_a_long_stretch_of_unanswered_status_polls()
+    {
+        using var fixture = new ProtocolFixture("STATUS_SUCCESS");
+        fixture.Handler.SynchronousRequest = true;
+        fixture.Handler.FailPolls = 12; // well past the 100 ms uncertainty limit below
+        fixture.Handler.ProgressPolls = 2;
+        var terminal = await fixture.Track("/v1.Backrest/RunCommand", default, TimeSpan.FromMilliseconds(100));
+        Assert.Equal("STATUS_SUCCESS", terminal.Status);
+        Assert.Equal(0, fixture.Handler.CancelRequests);
+    }
+
     [Theory]
     [InlineData(3)] // queued, then discarded by a queue reset after waking from sleep
     [InlineData(0)] // discarded before the first poll saw it
