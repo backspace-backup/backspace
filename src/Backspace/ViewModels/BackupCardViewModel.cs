@@ -91,6 +91,14 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// <see cref="ApplyProgressSnapshot"/>.
     /// </summary>
     [ObservableProperty] private string _currentPhaseLabel = "";
+    /// <summary>What the running backup is doing, shown beside its progress
+    /// bar and in its tooltip: bytes and files done of the totals found so far,
+    /// and the speed (U114, 3 November 2026).</summary>
+    [ObservableProperty] private string _progressDetail = "";
+    public string ProgressTooltip => OverallPercent.ToString("0.0", System.Globalization.CultureInfo.CurrentCulture) + "% done"
+        + (ProgressDetail.Length > 0 ? "\n" + ProgressDetail.Replace(" · ", "\n") : "");
+    partial void OnOverallPercentChanged(double value) => OnPropertyChanged(nameof(ProgressTooltip));
+    partial void OnProgressDetailChanged(string value) => OnPropertyChanged(nameof(ProgressTooltip));
     public string OperationPhaseLabel => IsRunning && IsVerifying ? "Testing restored files" : CurrentPhaseLabel;
     partial void OnCurrentPhaseLabelChanged(string value) => OnPropertyChanged(nameof(OperationPhaseLabel));
 
@@ -626,6 +634,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         {
             OverallPercent = 0;
             CurrentPhaseLabel = "";
+            ProgressDetail = "";
             foreach (var s in Sources) { s.PercentComplete = 0; s.IsRunning = false; s.Detail = ""; }
             foreach (var d in Destinations) d.PercentComplete = 0;
             return;
@@ -658,6 +667,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             .FirstOrDefault(c => c.IsRunning && !string.IsNullOrEmpty(c.Phase))
             ?.Phase ?? "";
         CurrentPhaseLabel = livePhase;
+        ProgressDetail = Sources.FirstOrDefault(s => s.IsRunning && s.Detail.Length > 0)?.Detail ?? "";
     }
 
     /// <summary>Volatile so the read in <see cref="OnProgressUpdated"/>
@@ -696,6 +706,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             foreach (var destination in Destinations)
                 destination.PercentComplete = progress?.Destinations.FirstOrDefault(d => string.Equals(d.Name, destination.Name, StringComparison.OrdinalIgnoreCase))?.Percent ?? 0;
             CurrentPhaseLabel = progress?.Sources.FirstOrDefault(s => s.Running && s.Phase.Length > 0)?.Phase ?? "";
+            ProgressDetail = progress?.Sources.FirstOrDefault(s => s.Running && s.Detail.Length > 0)?.Detail ?? "";
             return;
         }
         if (error is not null || activity.RunId == _lastBackgroundResult) return;

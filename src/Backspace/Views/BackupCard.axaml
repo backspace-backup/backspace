@@ -136,8 +136,17 @@
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
                 <Button Classes="row-action-danger" IsVisible="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
-                <ProgressBar IsVisible="{Binding IsActuallyRunning}" IsIndeterminate="True" Width="88" Height="4" Margin="20,2,0,0"
-                             Foreground="{DynamicResource BS.Brush.Accent}" Background="{DynamicResource BS.Brush.AccentTint}"/>
+                <!-- A real percentage, not a looping animation: the looping bar
+                     kept the GPU at 10-12% while a backup ran (U109, U114). The
+                     text beside it changes every few seconds, so a long scan
+                     still visibly moves; the tooltip has bytes, files and speed. -->
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="20,2,0,0" IsVisible="{Binding IsActuallyRunning}"
+                            Background="Transparent" ToolTip.Tip="{Binding ProgressTooltip}">
+                  <ProgressBar Minimum="0" Maximum="100" Value="{Binding OverallPercent}" Width="96" Height="6" VerticalAlignment="Center"
+                               Foreground="{DynamicResource BS.Brush.Accent}" Background="{DynamicResource BS.Brush.AccentTint}"/>
+                  <TextBlock FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                             Text="{Binding OverallPercent, StringFormat='{}{0:0}%'}"/>
+                </StackPanel>
                 <TextBlock IsVisible="{Binding IsQueued}" Text="Waiting for another operation" FontSize="13"
                            Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"/>
               </WrapPanel>
@@ -332,6 +341,15 @@
                          Foreground="{DynamicResource BS.Brush.AccentTintFg}"/>
             </Border>
           </Grid>
+          <TextBlock FontSize="12" Margin="24,-4,0,0" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextTrimming="CharacterEllipsis"
+                     Text="{Binding ProgressDetail}" ToolTip.Tip="{Binding ProgressTooltip}">
+            <TextBlock.IsVisible>
+              <MultiBinding Converter="{x:Static vm:BoolAnd.To}">
+                <Binding Path="IsRunning"/>
+                <Binding Path="ProgressDetail" Converter="{x:Static vm:NotEmpty.To}"/>
+              </MultiBinding>
+            </TextBlock.IsVisible>
+          </TextBlock>
 
         </StackPanel>
       </Border>
