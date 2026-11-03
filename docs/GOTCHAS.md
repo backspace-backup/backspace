@@ -396,3 +396,21 @@ On a Backrest upgrade, exercise E54/E55 and the delayed/negative completion
 tests against the actual new binary. Do not remove this compatibility handling
 until the bundled daemon supplies a tested, cancellable completion record for
 its index task. U012 in the local Review desk holds the measured cloud evidence.
+
+## A stopped Windows service and Fast Startup
+
+"Shut down" with Fast Startup (the Windows default) hibernates Windows' own
+session instead of ending it, so services come back as they were: a service
+stopped by Quit stays stopped, and automatic start does not apply. The
+background service therefore also starts on Winlogon and Kernel-Boot events
+(`SystemServiceTriggers`). They fire after a full start and after a resume
+from hibernation, and also at shutdown and on lock and unlock; the service
+then decides from `service\quit.json` whether the owner's Quit still holds (the
+same sign-in session in the same boot) and stops again within a fraction of a
+second if so (`SystemServiceLifetime`). Measured in the lab VM on 2 November
+2026, which could not produce a true Fast Startup start (it has no hibernation
+file and falls back to a full start). Do not use Microsoft-Windows-Kernel-Power
+or the User Profile Service as triggers: they fire thousands of times or every
+two minutes. `ServiceController.Stop` also lists dependent services; the owner
+may only stop and query, so `SystemService.StopAndWait` calls `ControlService`
+directly.

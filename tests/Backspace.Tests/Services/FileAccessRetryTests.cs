@@ -52,8 +52,13 @@ public sealed class FileAccessRetryTests
         });
         try
         {
-            await Task.Delay(10_500, stop.Token);
-            Assert.False(pending.IsCompleted, "A ten-second lock must still be waiting, not failed or reported successful.");
+            // One variant proves a lock past ten seconds still waits (no hidden
+            // deadline); the others only need the visible wait, shown sooner (U092).
+            var proveLongWait = operation == "engine";
+            if (!proveLongWait) FileAccessRetry.NoticeDelay = TimeSpan.FromMilliseconds(300);
+            try { await Task.Delay(proveLongWait ? 10_500 : 1_500, stop.Token); }
+            finally { FileAccessRetry.NoticeDelay = TimeSpan.FromSeconds(5); }
+            Assert.False(pending.IsCompleted, "A held lock must still be waiting, not failed or reported successful.");
             Assert.Equal(previous, File.ReadAllBytes(path));
             var notice = Assert.Single(FileAccessRetry.Snapshot(), n => n.Path == (operation == "cleanup" ? stage : path));
             Assert.True(notice.CanStop);

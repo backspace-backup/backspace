@@ -724,6 +724,22 @@
         </Expander>
       </Border>
 
+      <Border Classes="settings-card" Padding="20" IsVisible="{Binding CanRemoveFromPc}">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="section-title" Text="Remove Backspace from this PC" Margin="0"/>
+          <TextBlock Classes="helper" TextWrapping="Wrap"
+                     Text="Removes the background service, the sign-in entry, the Explorer menu entry and Backspace's engines and caches, then quits. Your settings, saved sign-ins and backups are kept."/>
+          <CheckBox IsChecked="{Binding AlsoUninstallWinFsp}"
+                    Content="Also uninstall WinFsp, the driver that mounts backups as drives (other apps may use it)"/>
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <Button Classes="danger" Content="Remove from this PC…" Command="{Binding RemoveFromPcCommand}"
+                    IsEnabled="{Binding !RemovingFromPc}"/>
+            <TextBlock Classes="helper" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding RemoveFromPcStatus}"
+                       IsVisible="{Binding RemoveFromPcStatus, Converter={x:Static vm:NotEmpty.To}}"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
       <Border x:Name="AppUpdatesCard" Classes="settings-card" Padding="20" IsVisible="{Binding Updates.Supported}">
         <StackPanel Spacing="16" DataContext="{Binding Updates}" x:DataType="vm:WindowsUpdateViewModel">
           <Grid ColumnDefinitions="*,Auto">

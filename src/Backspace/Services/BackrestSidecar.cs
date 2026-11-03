@@ -146,15 +146,18 @@ public sealed class BackrestSidecar : IAsyncDisposable
             throw new InvalidOperationException("The backup engine is already running.");
         if (_dataLease is not null)
             await StopCoreAsync(TimeSpan.Zero, CancellationToken.None).ConfigureAwait(false);
+        // Releases fetch the engines on first start, and again on a new
+        // computer (U100); a development build keeps them beside the exe.
+        await EngineInstallation.EnsureAsync(null, ct).ConfigureAwait(false);
         if (!File.Exists(BackrestBinaryPath))
             throw new EngineBinaryMissingException(
-                "A required backup component is missing. Download the full Backspace release archive " +
-                "and extract its files together. Keep your existing Backspace.config folder.",
+                "A required backup component is missing. Restart Backspace while online to download it again. " +
+                "Your Backspace.config folder is not affected.",
                 BackrestBinaryPath);
         if (!File.Exists(ResticBinaryPath))
             throw new EngineBinaryMissingException(
-                "A required backup component is missing. Download the full Backspace release archive " +
-                "and extract its files together. Keep your existing Backspace.config folder.",
+                "A required backup component is missing. Restart Backspace while online to download it again. " +
+                "Your Backspace.config folder is not affected.",
                 ResticBinaryPath);
 
         Directory.CreateDirectory(DataDir);

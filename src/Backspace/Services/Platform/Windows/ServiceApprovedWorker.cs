@@ -42,14 +42,23 @@ internal static class ServiceApprovedWorker
         var binding = ServiceWorkerBinding.Load(installation);
         binding.ValidateWorkerIdentity();
         if (!binding.CanRun) throw new SecurityException("Credential handoff and service setup must finish before a backup starts.");
-        // Inspect every shipped dependency, not just the apphost. The installed
-        // directory and all ancestors must prevent replacement by an ordinary user.
-        ServiceInstallationSecurity.ValidateCodeTree(installation, binding.DataDirectory, binding.ServiceSid);
-        foreach (var binary in new[] { "Backspace.exe", "backrest.exe", "restic.exe", "rclone.exe" })
-            ServiceInstallationSecurity.ValidateCodeFile(Path.Combine(installation, binary), installation);
-        var policy = ServiceRunAuthorization.Load(ServicePortableLayout.ExistingRecord(installation, "service-approval.json"), installation, binding.OwnerSid);
-        var run = policy.Authorize(JsonSerializer.SerializeToUtf8Bytes(
-            new ServiceRunAuthorization.Request(1, revision, backupId, operation), ServiceRunAuthorization.Json), ownerCommand);
+        ServiceRunAuthorization.AuthorizedRun run;
+        if (binding.IsSystem)
+        {
+            // Version 3 (U100): the owner's settings as saved, read now.
+            run = SystemServiceRuns.Authorize(installation, backupId, operation, ownerCommand);
+        }
+        else
+        {
+            // Inspect every shipped dependency, not just the apphost. The installed
+            // directory and all ancestors must prevent replacement by an ordinary user.
+            ServiceInstallationSecurity.ValidateCodeTree(installation, binding.DataDirectory, binding.ServiceSid);
+            foreach (var binary in new[] { "Backspace.exe", "backrest.exe", "restic.exe", "rclone.exe" })
+                ServiceInstallationSecurity.ValidateCodeFile(Path.Combine(installation, binary), installation);
+            var policy = ServiceRunAuthorization.Load(ServicePortableLayout.ExistingRecord(installation, "service-approval.json"), installation, binding.OwnerSid);
+            run = policy.Authorize(JsonSerializer.SerializeToUtf8Bytes(
+                new ServiceRunAuthorization.Request(1, revision, backupId, operation), ServiceRunAuthorization.Json), ownerCommand);
+        }
 
         // Serialize workers across sessions using a private file, not the
         // interactive user's Local\\ mutex namespace. No automatic replay.
@@ -60,7 +69,8 @@ internal static class ServiceApprovedWorker
         ServiceWorkerPrivileges.EnableExistingBackupRights();
         // A connected external drive the service cannot write yet is prepared
         // by the settings task first (U061).
-        ServiceExternalDrives.EnsureAccess(binding, run.Backup, run.Configuration, TimeSpan.FromMinutes(2), stop);
+        // Windows' own account can already write there (version 3).
+        if (!binding.IsSystem) ServiceExternalDrives.EnsureAccess(binding, run.Backup, run.Configuration, TimeSpan.FromMinutes(2), stop);
         var reasonPath = Path.Combine(binding.DataDirectory, ServiceNetworkShares.ReasonFile);
         try { File.Delete(reasonPath); } catch (IOException) { }
         IDisposable shares;
@@ -72,11 +82,15 @@ internal static class ServiceApprovedWorker
             throw;
         }
         using var _shares = shares;
-        using var paths = ServicePathLease.Acquire(LocalPathsFor(run), stop);
+        // Version 3 (U100) trusts the owner's folders as the owner does: no
+        // guard files are placed in them, and a missing source is reported by
+        // the run itself instead of stopping the worker (lab VM, 2 November 2026).
+        using var paths = binding.IsSystem ? null : ServicePathLease.Acquire(LocalPathsFor(run), stop);
         // These are this operation's own temporary guard files, not user data.
         // Keep them out of snapshots, including VSS snapshots taken while held.
-        foreach (var approvedBackup in run.Configuration.Backups)
-            approvedBackup.FiltersText += "\n" + string.Join("\n", paths.MarkerNames);
+        if (paths is not null)
+            foreach (var approvedBackup in run.Configuration.Backups)
+                approvedBackup.FiltersText += "\n" + string.Join("\n", paths.MarkerNames);
 
         // All process-local state and engine scratch belongs to the service.
         // A caller's inherited portable-config/TEMP overrides cannot redirect it.

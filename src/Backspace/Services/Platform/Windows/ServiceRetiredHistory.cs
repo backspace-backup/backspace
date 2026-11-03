@@ -10,6 +10,11 @@ internal static class ServiceRetiredHistory
     internal static List<RunRecord> Read(string root, string backupId)
     {
         var all = new List<RunRecord>();
+        // History of a version-3 service that was turned off (U100): its
+        // files stay in Backspace.config\service, readable as they are.
+        var system = Path.Combine(SystemService.DataDirectoryFor(root), "logs", "engine");
+        if (Directory.Exists(system) && SystemService.ForCopy(root) is null)
+            all.AddRange(new LogStore(system).LoadHistoryByBackupId(backupId));
         if (ServiceRetirement.Read(root) is { Stage: "complete" } retired)
             all.AddRange(ReadData(ServicePortableLayout.Data(root), retired, backupId));
         var config = ServicePortableLayout.Config(root);

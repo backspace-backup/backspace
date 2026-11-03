@@ -20,6 +20,22 @@ internal sealed class ServiceOwnerSecrets(string installation, SecretsStore loca
     private T WithAuthority<T>(Func<SecretsStore, T> action)
     {
         using var transaction = StateFileLock.Acquire(_vaultPath);
+        // Version 3 (U100): once the service has verified its copy, it keeps
+        // the sign-ins; until then, and after it is removed, this vault does.
+        if (SystemService.ForCopy(installation) is { } system)
+        {
+            if (!system.Activated) { _usingService = false; return action(local); }
+            _usingService = true;
+            _serviceName = system.ServiceName;
+            SystemService.Start(system.ServiceName, TimeSpan.FromSeconds(30));
+            return action(new SecretsStore(new ServiceSecretsBackend(system.ServiceName + "-secrets", SystemService.LocalSystemSid)));
+        }
+        if (_usingService && _serviceName is { } previous && previous == SystemService.NameFor(SystemService.CurrentOwnerSid()))
+        {
+            // Removed while this window was open: its sign-ins came back here first.
+            _usingService = false;
+            return action(local);
+        }
         if (ServiceRetirement.Read(installation) is { Stage: "complete" } retirement)
         {
             using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();

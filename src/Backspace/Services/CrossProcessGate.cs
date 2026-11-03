@@ -24,6 +24,11 @@ internal sealed class CrossProcessGate(string name) : IDisposable
                 Platform.Windows.ServiceCoordinationFiles.Name(name), exclusive: true);
             return _held = _file is not null;
         }
+        if (Platform.Windows.SystemServiceLocks.Directory() is { } shared)
+        {
+            _file = Platform.Windows.SystemServiceLocks.TryOpen(shared, Platform.Windows.ServiceCoordinationFiles.Name(name), exclusive: true);
+            return _held = _file is not null;
+        }
 #endif
         _semaphore ??= new Semaphore(1, 1, name);
         return _held = _semaphore.WaitOne(0);

@@ -24,7 +24,8 @@ internal static class ServiceScheduleRegistration
     /// <summary>True while this copy has background-service setup files,
     /// unless a completed removal returned the schedules to the tray app.</summary>
     internal static bool OwnsSchedules(string root)
-        => File.Exists(ServicePortableLayout.Record(root, ServiceWorkerBinding.FileName))
+        => SystemService.ForCopy(root) is { Activated: true }
+            || File.Exists(ServicePortableLayout.Record(root, ServiceWorkerBinding.FileName))
             && ServiceRetirement.Read(root) is not { Stage: "complete" };
 
     /// <summary>The service starts with Windows. After an update, a settings
@@ -32,6 +33,12 @@ internal static class ServiceScheduleRegistration
     /// owner may start it but not change it.</summary>
     internal static void StartIfStopped(string root)
     {
+        if (SystemService.ForCopy(root) is { } system)
+        {
+            // Opening Backspace ends a Quit (U100).
+            SystemServiceLifetime.Resume(system, TimeSpan.FromSeconds(30));
+            return;
+        }
         if (ServiceRetirement.Read(root) is not null || ServiceProgramUpdate.IsPending(root)) return;
         var binding = ServiceWorkerBinding.LoadForOwner(root);
         if (!binding.CanRun) return;
@@ -46,6 +53,11 @@ internal static class ServiceScheduleRegistration
     /// <summary>A saved backup runs on schedule once the service has its settings.</summary>
     internal static void RequireApplied(string root)
     {
+        if (SystemService.ForCopy(root) is { } system)
+        {
+            if (!system.Activated) throw new NotSupportedException("Finish setting up scheduled backups in Settings before this schedule can run.");
+            return;
+        }
         var binding = ServiceWorkerBinding.LoadForOwner(root);
         if (!binding.Activated)
             throw new NotSupportedException("Finish setting up scheduled backups in Settings before this schedule can run.");
@@ -55,6 +67,13 @@ internal static class ServiceScheduleRegistration
 
     internal static ScheduleCheck Inspect(string root, string executable, string backupId)
     {
+        if (SystemService.ForCopy(root) is { } system)
+        {
+            if (!system.Activated) return new(ScheduleReadiness.Attention, "Finish setup in Settings → Administrator access.");
+            return SystemService.Status(system.ServiceName) == ServiceControllerStatus.Running
+                ? new(ScheduleReadiness.Ready, "The background service runs this backup on schedule.")
+                : new(ScheduleReadiness.Attention, "The background service isn't running. Open Settings → Administrator access.");
+        }
         if (ServiceRetirement.Read(root) is not null)
             return new(ScheduleReadiness.Attention, "Running all the time is being switched off. Check Settings → Administrator access.");
         var binding = ServiceWorkerBinding.LoadForOwner(root);

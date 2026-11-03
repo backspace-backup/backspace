@@ -36,6 +36,25 @@ backups in Backspace. Your account tokens stay in your local encrypted vault.
 See the [registration guide](OAUTH_REGISTRATION.md) for provider setup and
 testing requirements.
 
+### How long backups take
+
+One measurement on a home connection (2 November 2026), backing up 10,000
+files totalling 1 GiB, then again after rewriting a quarter of them, then once
+more with nothing changed:
+
+| Destination | First backup | 25% rewritten | Nothing changed |
+|---|---|---|---|
+| Local SSD | 14 s | 8 s | 7 s |
+| Google Drive | 7 min 2 s | 2 min 32 s | 39 s |
+| OneDrive | 9 min 45 s | 3 min 36 s | 1 min 28 s |
+| Dropbox | 10 min 49 s | 4 min 51 s | 41 s |
+
+The first backup to a cloud is mostly upload time, so your connection's upload
+speed sets the pace; later backups send only what changed. A backup with
+nothing new still has to list the cloud copy, which is why it takes tens of
+seconds rather than the local disk's few. Treat these figures as a guide,
+give or take 20%.
+
 ## Schedules, the tray icon and Quit
 
 Backspace works like Dropbox and other sync apps. It starts when you sign in
@@ -51,9 +70,9 @@ off in **Settings → Startup and tray**.
   run in the service too, whenever the drive is plugged in, and are skipped
   while it is not. Backups to a network share run in the service when the
   share's user name and password are saved with the destination: the service
-  runs under its own Windows account, so it cannot use your mapped drive
-  letters or the password Windows remembers for you. Without them, those
-  backups stay with the tray app, which runs them while you are signed in.
+  runs as Windows itself, so it cannot use your mapped drive letters or the
+  password Windows remembers for you. Without them, those backups stay with
+  the tray app, which runs them while you are signed in.
 
 The tray icon's check mark means the backups ran successfully; a backup that
 failed shows an exclamation mark, and one that hasn't completed a run yet a
@@ -61,14 +80,14 @@ grey dash. A backup that has never run has nothing to restore yet, so its
 Mount, Restore files, Test restore and Browse snapshots are greyed out.
 
 Closing the window keeps Backspace in the tray, so schedules keep running.
-**Quit** from the tray menu stops active work and stops automatic backups
-until you open Backspace again, sign out, or restart Windows. Sleep,
-hibernation and locking the screen don't end the pause.
+**Quit** from the tray menu stops Backspace completely, including the
+background service: active work stops and nothing runs until you open
+Backspace again, sign in again, or start Windows again (a restart, or
+switching the computer on after **Shut down**, Fast Startup included). Sleep,
+hibernation and locking the screen don't bring it back.
 
-Backspace registers no Windows scheduled task for backups. Between runs it
-only waits for the next due time, so it uses no CPU while idle. With
-administrator access, one Windows task without a schedule remains: Backspace
-starts it to apply your saved changes to the background service (see below).
+Backspace registers no Windows scheduled task. Between runs it only waits for
+the next due time, so it uses no CPU while idle.
 
 Each schedule has conditions that also apply to its standalone check and
 prune:
@@ -95,21 +114,32 @@ programs have open and captures everything at one point in time.
 VSS needs Backspace's administrator access. Creating a backup includes
 **Allow administrator access**, ticked by default; Windows asks you to approve
 it when you save, before the first run (a standard account enters an
-administrator's password). That installs Backspace's
-background service, which runs the portable `Backspace.exe` from wherever you
-keep it, so there is no second copy. Backspace only lets the service read and
-run the program from that folder, which matters when it lives somewhere only
-you may read, such as your Dropbox or Downloads folder. Who may change it stays
-your call, and removing access restores its permissions. Network drives can't
-be used for this. You can turn access on in Settings before creating any
-backup; backups added later run in the service too.
+administrator's password). That installs Backspace's background service, one
+per Windows account. It runs as Windows itself, from the portable
+`Backspace.exe` wherever you keep it, so there is no second copy, and Backspace
+changes no file or folder permission anywhere. Its working files stay in
+`Backspace.config\service`. Like other backup programs it uses Windows' backup
+rights, so it reads every file you choose whatever its permissions. Network
+drives can't hold Backspace for this. You can turn access on in Settings before
+creating any backup; backups added later run in the service too.
+
+Because the service runs `Backspace.exe` as Windows itself, anyone who can
+replace that file can run programs with full control of this computer. Keep
+Backspace in a folder only you (or administrators) can change, as your user
+profile and Dropbox folder are.
 
 With access on, **Run now** goes through the same service and includes files
-in use without another prompt. Adding, editing or removing a backup later asks
-nothing either: Backspace applies your saved settings to the service itself,
-a minute later if a backup is running at the time. **Settings →
-Administrator access** keeps **Remove access**, which also asks Windows once:
-Backspace takes its saved sign-ins back from the service, then removes it.
+in use without another prompt. Adding, editing or removing a backup asks
+nothing either: the service reads your saved settings within a minute. Updating
+Backspace asks nothing too: the service stops while `Backspace.exe` is
+replaced and starts again. **Settings → Administrator access** keeps **Remove
+access**, which asks Windows once: Backspace takes its saved sign-ins back from
+the service, then removes it. The service's history stays in Backspace.
+
+Backspace 1.0 installed an earlier service that changed some folder
+permissions. Settings offers a one-time upgrade (Windows asks once): the
+earlier service hands your sign-ins back and restores every permission it
+changed, then the new service takes over with your history.
 
 Without access, a backup runs without VSS and says so; no Windows prompt
 appears per run. An orange **Files that are open may be skipped** badge at the
@@ -279,7 +309,24 @@ vault is bound to the computer (DPAPI on Windows, an AES-GCM key file on macOS
 and Linux), so it doesn't travel.
 
 Settings outside that folder are ones Backspace can recreate: the sign-in start
-entry, the optional background service, and the WinFsp driver for mounting.
+entry, the optional background service, the WinFsp driver for mounting, and
+`%LOCALAPPDATA%\Backspace`, which holds the engines (downloaded from the same
+GitHub release and checked against fingerprints built into `Backspace.exe`)
+and caches.
+
+Backspace keeps one copy per Windows account. Opening another copy, such as a
+new download, while Backspace is set up elsewhere offers **Update that copy**
+(this version replaces the other `Backspace.exe`), **Move Backspace here**
+(settings, history and saved sign-ins move to this folder and the other
+`Backspace.exe` is deleted; the background service stops and starts again from
+here, which Windows approves once) or **Cancel**.
+
+**Settings → Remove Backspace from this PC** removes everything Backspace
+added to Windows: the background service (after it hands your sign-ins back),
+the sign-in entry, the Explorer menu entry, `%LOCALAPPDATA%\Backspace` and tasks
+left by older versions. WinFsp is uninstalled only if you tick it, since other
+apps may use it. Backspace then quits; `Backspace.exe`, your settings and your
+backups stay, so deleting that folder removes the rest.
 
 ## Importing from Duplicacy
 

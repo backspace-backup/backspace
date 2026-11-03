@@ -38,8 +38,11 @@ public sealed class BackupServicePipeTests
         }
     }
 
+    // Windows' own account (S-1-5-18) is the version-3 service (U100); an
+    // administrators group or another person's account never is.
     [Theory]
-    [InlineData("S-1-5-18", OwnerSid)]
+    [InlineData("S-1-5-32-544", OwnerSid)]
+    [InlineData("S-1-5-21-101-202-303-1002", OwnerSid)]
     [InlineData(ServiceSid, "S-1-1-0")]
     [InlineData(ServiceSid, ServiceSid)]
     public void RejectsUnsafeIdentities(string service, string owner) =>

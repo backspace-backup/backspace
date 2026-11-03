@@ -238,9 +238,36 @@ public sealed class SingleInstanceCoordinator : IDisposable
         return text.Split('\n');
     }
 
-    internal static string HashConfigRoot()
+    /// <summary>Sent by another copy that is updating or moving this one.</summary>
+    internal const string QuitArgument = "--quit-for-another-copy";
+
+    private static string MutexNameFor(string hash) => PlatformInfo.IsWindows ? $@"Local\Backspace-Single-{hash}" : $"Backspace-Single-{hash}";
+
+    /// <summary>True while a window of the copy using <paramref name="configRoot"/> runs.</summary>
+    internal static bool IsRunning(string configRoot)
     {
-        var path = Path.GetFullPath(AppPaths.ConfigRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!Mutex.TryOpenExisting(MutexNameFor(HashConfigRoot(configRoot)), out var mutex)) return false;
+        mutex.Dispose();
+        return true;
+    }
+
+    internal static bool Forward(string configRoot, string[] args)
+    {
+        try
+        {
+            using var client = new NamedPipeClientStream(".", $"Backspace-Pipe-{HashConfigRoot(configRoot)}", PipeDirection.Out);
+            client.Connect(2000);
+            var bytes = Encoding.UTF8.GetBytes(SerializeArgs(args));
+            client.Write(bytes, 0, bytes.Length);
+            client.WaitForPipeDrain();
+            return true;
+        }
+        catch (Exception ex) { _log.Warning(ex, "Could not reach the other copy"); return false; }
+    }
+
+    internal static string HashConfigRoot(string? configRoot = null)
+    {
+        var path = Path.GetFullPath(configRoot ?? AppPaths.ConfigRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (OperatingSystem.IsWindows()) path = path.ToUpperInvariant();
         var h = System.Security.Cryptography.SHA1.HashData(Encoding.UTF8.GetBytes(path));
         // 16 hex chars is plenty of entropy and keeps the mutex name short.

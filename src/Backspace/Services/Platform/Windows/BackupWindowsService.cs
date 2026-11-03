@@ -544,7 +544,7 @@ internal sealed record ServiceHostRequest(int Version, string Command, string? R
             ?? throw new JsonException("Empty request.");
         if (request.Version != 1 || (request.Command switch
         {
-            "status" or "activity" => request.Revision is not null || request.BackupId is not null || request.Operation is not null || request.RunId is not null,
+            "status" or "activity" or "freeze" or "thaw" => request.Revision is not null || request.BackupId is not null || request.Operation is not null || request.RunId is not null,
             "cancel" or "heartbeat" => !Guid.TryParseExact(request.RunId, "N", out _) || request.Revision is not null || request.BackupId is not null || request.Operation is not null,
             "start" or "start-cli" => !Guid.TryParseExact(request.Revision, "N", out _) || string.IsNullOrWhiteSpace(request.BackupId)
                 || request.Operation is not ("backup" or "check" or "prune") || request.RunId is not null,

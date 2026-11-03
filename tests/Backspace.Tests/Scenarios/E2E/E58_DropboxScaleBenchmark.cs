@@ -20,7 +20,8 @@ namespace Backspace.Tests.Scenarios.E2E;
 ///   BACKSPACE_BENCHMARK_ACTION = generate | mutate | backup | tool
 ///   BACKSPACE_BENCHMARK_DIR    = scratch folder holding source/ and results
 ///   BACKSPACE_BENCHMARK_REMOTE = subfolder inside Backspace's cloud folder
-///   BACKSPACE_BENCHMARK_PROVIDER = Dropbox (default), GoogleDrive or OneDrive,
+///   BACKSPACE_BENCHMARK_PROVIDER = Dropbox (default), GoogleDrive, OneDrive or
+///                                Local (REMOTE is then a folder on this disk),
 ///                                using that provider's saved test sign-in
 ///   BACKSPACE_BENCHMARK_FILES  = optional file count for generate (default
 ///                                20,000), at the same ~105 KiB per file
@@ -113,13 +114,26 @@ public sealed class E58_DropboxScaleBenchmark
         }
         finally
         {
-            CloudCredentialsLoader.SaveRefreshedToken(cred, destination, secrets);
+            if (cred is not null) CloudCredentialsLoader.SaveRefreshedToken(cred, destination, secrets);
             File.Delete(conf);
         }
     }
 
-    private static (SecretsStore Secrets, Destination Destination, CloudCredentialsLoader.Credential Credential) BenchmarkDestination(string dir)
+    private static (SecretsStore Secrets, Destination Destination, CloudCredentialsLoader.Credential? Credential) BenchmarkDestination(string dir)
     {
+        // BACKSPACE_BENCHMARK_PROVIDER=Local: a repository on this computer's
+        // disk (BACKSPACE_BENCHMARK_REMOTE is then a folder), the baseline
+        // the cloud timings are compared with (U074).
+        if (string.Equals(Environment.GetEnvironmentVariable("BACKSPACE_BENCHMARK_PROVIDER"), "Local", StringComparison.OrdinalIgnoreCase))
+        {
+            var folder = Environment.GetEnvironmentVariable("BACKSPACE_BENCHMARK_REMOTE");
+            Assert.False(string.IsNullOrWhiteSpace(folder), "Set BACKSPACE_BENCHMARK_REMOTE to a local folder.");
+            var localSecrets = new SecretsStore(new Backspace.Services.Platform.Windows.DpapiSecretsEncryption(), Path.Combine(dir, "vault", "secrets.bin"));
+            Directory.CreateDirectory(Path.Combine(dir, "vault"));
+            const string localRef = "benchmark-repository-password";
+            if (!localSecrets.TryGet(localRef, out _)) localSecrets.Set(localRef, "benchmark-" + Guid.NewGuid().ToString("N"));
+            return (localSecrets, new Destination { Id = "benchmark-local", Name = "Local SSD", Kind = DestinationKind.LocalFolder, PathOrSubpath = folder!, StoragePasswordRef = localRef }, null);
+        }
         var remote = Environment.GetEnvironmentVariable("BACKSPACE_BENCHMARK_REMOTE");
         Assert.False(string.IsNullOrWhiteSpace(remote), "Set BACKSPACE_BENCHMARK_REMOTE.");
         var provider = Enum.Parse<CloudCredentialsLoader.Provider>(Environment.GetEnvironmentVariable("BACKSPACE_BENCHMARK_PROVIDER") is { Length: > 0 } named ? named : "Dropbox", ignoreCase: true);
@@ -158,7 +172,7 @@ public sealed class E58_DropboxScaleBenchmark
         watch.Restart();
         var record = await engine.BackupPruneCheckAsync(backup, source, destination, "default", CancellationToken.None);
         watch.Stop();
-        CloudCredentialsLoader.SaveRefreshedToken(cred, destination, secrets);
+        if (cred is not null) CloudCredentialsLoader.SaveRefreshedToken(cred, destination, secrets);
         File.AppendAllText(Path.Combine(dir, "backspace-results.jsonl"), JsonSerializer.Serialize(new
         {
             provider = destination.Kind.ToString(), finishedUtc = DateTime.UtcNow, engineStartSeconds = Math.Round(engineSeconds, 1), seconds = Math.Round(watch.Elapsed.TotalSeconds, 1),

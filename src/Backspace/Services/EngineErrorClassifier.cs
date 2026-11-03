@@ -248,6 +248,11 @@ public static class EngineErrorClassifier
         // VolumeDetector skip path threw EngineUnreachableDestination).
         if (ex is ITolerable) return Verdict.Tolerable;
         if (ex is EngineAuthFailedException) return Verdict.Intolerable;
+        // The engine itself could not be fetched (offline after its files
+        // were removed): its own message says so; the "no such host" inside
+        // is GitHub, not the destination (lab VM, 2 November 2026).
+        for (Exception? e = ex; e is not null; e = e.InnerException)
+            if (e is EngineBinaryMissingException) return Verdict.Intolerable;
 
         var sb = new System.Text.StringBuilder();
         for (Exception? e = ex; e is not null; e = e.InnerException)

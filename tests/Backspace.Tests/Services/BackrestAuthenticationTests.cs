@@ -42,9 +42,11 @@ public sealed class BackrestAuthenticationTests
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         stop.CancelAfter(TimeSpan.FromSeconds(40));
         var start = sidecar.StartAsync(stop.Token);
+        FileAccessRetry.NoticeDelay = TimeSpan.FromMilliseconds(300); // U092: shown sooner, same behaviour
         try
         {
-            await Task.Delay(10_500, stop.Token);
+            await Task.Delay(1_500, stop.Token);
+            FileAccessRetry.NoticeDelay = TimeSpan.FromSeconds(5);
             // The notice appears five seconds after startup first reaches the
             // locked file; on a busy machine startup can take longer to get there.
             for (var waited = 0; waited < 20_000 && !FileAccessRetry.Snapshot().Any(n => n.Path == path); waited += 250)
@@ -57,7 +59,7 @@ public sealed class BackrestAuthenticationTests
             Assert.True(sidecar.IsRunning); Assert.NotNull(sidecar.Client);
             Assert.DoesNotContain(FileAccessRetry.Snapshot(), n => n.Path == path);
         }
-        finally { held.Dispose(); stop.Cancel(); try { await start; } catch (OperationCanceledException) { } }
+        finally { FileAccessRetry.NoticeDelay = TimeSpan.FromSeconds(5); held.Dispose(); stop.Cancel(); try { await start; } catch (OperationCanceledException) { } }
     }
 
     [Theory]

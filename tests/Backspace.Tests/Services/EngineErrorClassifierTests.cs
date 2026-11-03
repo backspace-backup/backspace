@@ -146,6 +146,20 @@ public class EngineErrorClassifierTests
         Assert.Equal(expected, EngineErrorClassifier.Classify(error));
     }
 
+    /// <summary>An engine that could not be downloaded is not an offline
+    /// destination: the "no such host" in its message is GitHub (lab VM,
+    /// 2 November 2026). The same text from the destination stays tolerable.</summary>
+    [Fact]
+    public void Classify_MissingEngine_IsAFailure_NotAnOfflineDestination()
+    {
+        var missing = new EngineBinaryMissingException(
+            "Backspace couldn't download its backup engine (backrest.exe): No such host is known. (github.com:443) It downloads automatically once this computer is online.",
+            @"C:\Users\me\AppData\Local\Backspace\bin\x\backrest.exe");
+        Assert.Equal(EngineErrorClassifier.Verdict.Intolerable, EngineErrorClassifier.Classify(missing));
+        Assert.Equal(EngineErrorClassifier.Verdict.Intolerable, EngineErrorClassifier.Classify(new System.IO.IOException("wrapped", missing)));
+        Assert.Equal(EngineErrorClassifier.Verdict.Tolerable, EngineErrorClassifier.Classify(new System.Net.Http.HttpRequestException("No such host is known. (s3.example.com:443)")));
+    }
+
     [Fact]
     public void Classify_ITolerable_Exception_ShortCircuitsToTolerable()
     {

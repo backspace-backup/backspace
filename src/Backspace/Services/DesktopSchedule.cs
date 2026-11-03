@@ -96,7 +96,17 @@ internal static class DesktopSchedule
         var config = JsonSerializer.Deserialize<AppConfig>(JsonSerializer.Serialize(ServiceLocator.Config.Current))!;
         var plans = SchedulePlan.From(config);
         // With the service on, the tray app keeps only what the service cannot run.
-        return ServiceOwnsSchedules ? plans.Where(p => !SchedulePlan.ServiceCanRun(p.Backup, config.Destinations)).ToList() : plans;
+        return ServiceOwnsSchedules ? plans.Where(p => !ServiceRuns(p.Backup, config)).ToList() : plans;
+    }
+
+    /// <summary>A backup the background service runs, so the tray app does not.</summary>
+    private static bool ServiceRuns(Backup backup, AppConfig config)
+    {
+#if WINDOWS
+        if (OperatingSystem.IsWindows() && Platform.Windows.SystemService.ForCopy(AppContext.BaseDirectory.TrimEnd('\\')) is not null)
+            return Platform.Windows.SystemServiceRuns.CanRun(backup, config);
+#endif
+        return SchedulePlan.ServiceCanRun(backup, config.Destinations);
     }
 
     private static string? Blocked(SchedulePlan plan)

@@ -26,9 +26,12 @@ internal sealed class ServiceMigrationProtocol
     private readonly SecretsStore _vault;
     private readonly object _gate = new();
     private readonly Func<IDisposable>? _beginRefresh;
+    private readonly Action? _accepted;
 
-    internal ServiceMigrationProtocol(Grant grant, string receipt, SecretsStore vault, Func<IDisposable>? beginRefresh = null)
-    { _grant = grant; _receipt = receipt; _vault = vault; _beginRefresh = beginRefresh; }
+    /// <param name="accepted">Runs once the verified copy is accepted: the
+    /// version-3 service then keeps the sign-ins (U100).</param>
+    internal ServiceMigrationProtocol(Grant grant, string receipt, SecretsStore vault, Func<IDisposable>? beginRefresh = null, Action? accepted = null)
+    { _grant = grant; _receipt = receipt; _vault = vault; _beginRefresh = beginRefresh; _accepted = accepted; }
 
     internal static ServiceMigrationProtocol? Load(string installation, ServiceWorkerBinding binding, SecretsStore vault)
     {
@@ -148,6 +151,7 @@ internal sealed class ServiceMigrationProtocol
                         ServiceSetup.ReplaceRetrying(() => File.Move(temporary, accepted, overwrite: true));
                     }
                     finally { if (File.Exists(temporary)) File.Delete(temporary); }
+                    _accepted?.Invoke();
                 }
                 return new Response(1, digest, map.Count);
             }, requireExisting: true);

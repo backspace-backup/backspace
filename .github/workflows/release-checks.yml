@@ -123,13 +123,24 @@ jobs:
           dotnet publish src/Backspace -c Release -f net10.0-windows -r win-x64 --self-contained false -m:1 -o release-candidate @versionArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/verify-runtime-package.ps1 -Executable release-candidate/Backspace.exe -ResultFile release-evidence/runtime-package.json
-          Compress-Archive -Path release-candidate/* -DestinationPath release-evidence/Backspace-windows-x64.zip
-          Get-FileHash release-evidence/Backspace-windows-x64.zip -Algorithm SHA256 | Format-List | Out-File release-evidence/SHA256.txt -Encoding utf8
+          # U100: people download Backspace.exe alone; it fetches these engine
+          # files from the same release on first start, checked by SHA-256.
+          $engines = "backrest.exe", "restic.exe", "rclone.exe"
+          if (Get-ChildItem release-candidate -File | Where-Object Name -ne "Backspace.exe") { throw "The published app must be Backspace.exe alone." }
+          Copy-Item release-candidate/Backspace.exe release-evidence/Backspace.exe
+          foreach ($e in $engines) { Copy-Item "src/Backspace/Assets/$e" "release-evidence/$e" }
+          # In-app updaters of 1.0.2 and earlier download this archive.
+          New-Item -ItemType Directory -Force update-candidate | Out-Null
+          Copy-Item release-candidate/Backspace.exe update-candidate/
+          foreach ($e in $engines) { Copy-Item "src/Backspace/Assets/$e" update-candidate/ }
+          Compress-Archive -Path update-candidate/* -DestinationPath release-evidence/Backspace-windows-x64.zip
+          Get-FileHash (@("Backspace.exe", "Backspace-windows-x64.zip") + $engines | ForEach-Object { "release-evidence/$_" }) -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } | Out-File release-evidence/SHA256.txt -Encoding utf8
       - name: Verify the actual Windows update bundle and rollback
         shell: pwsh
         timeout-minutes: 5
         run: |
-          $env:BACKSPACE_UPDATE_CANDIDATE = (Resolve-Path release-candidate).Path
+          $env:BACKSPACE_UPDATE_CANDIDATE = (Resolve-Path update-candidate).Path
           dotnet test tests/Backspace.Tests --no-build --filter "FullyQualifiedName~E2E_WindowsUpdateBundle" --logger "trx;LogFileName=update-bundle.trx" --results-directory release-evidence
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/release-update-results.ps1 -ResultFile release-evidence/update-bundle.trx
@@ -213,4 +224,5 @@ jobs:
           gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$RELEASE_SHA"
           prerelease_args=()
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease_args=(--prerelease); fi
-          gh release create "$RELEASE_TAG" reviewed-evidence/release-evidence/Backspace-windows-x64.zip reviewed-evidence/release-evidence/SHA256.txt --verify-tag --title "Backspace $RELEASE_TAG" --generate-notes "${prerelease_args[@]}"
+          cd reviewed-evidence/release-evidence
+          gh release create "$RELEASE_TAG" Backspace.exe backrest.exe restic.exe rclone.exe Backspace-windows-x64.zip SHA256.txt --verify-tag --title "Backspace $RELEASE_TAG" --generate-notes "${prerelease_args[@]}"

@@ -30,11 +30,13 @@ internal sealed class BackgroundServiceNotifications : IDisposable
         if (!ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot)) return null;
         var monitor = new BackgroundServiceNotifications(async (request, token) =>
         {
-            if (ServiceRetirement.Read(root) is not null || !File.Exists(ServicePortableLayout.Record(root, ServiceWorkerBinding.FileName))) return new(1);
-            var binding = ServiceWorkerBinding.LoadForOwner(root);
+            if (ServiceWorkerBinding.ForDesktop(root) is not { } binding) return new(1);
             if (!binding.CanRun || ServiceConfigurationUpdate.IsPending(root, binding) || ServiceProgramUpdate.IsPending(root)) return new(1);
             using var service = new ServiceController(binding.ServiceName);
-            ServiceRegistration.EnsureRunning(service, TimeSpan.FromSeconds(15));
+            // The version-3 service is started by opening Backspace and
+            // stopped by Quit (U100); polling never starts it again.
+            if (binding.IsSystem) { if (service.Status != ServiceControllerStatus.Running) return new(1); }
+            else ServiceRegistration.EnsureRunning(service, TimeSpan.FromSeconds(15));
             return await ServiceNotificationProtocol.SendAsync(binding, request, token).ConfigureAwait(false);
         }, async (notice, token) =>
         {

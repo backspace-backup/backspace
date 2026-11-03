@@ -208,10 +208,10 @@ public class BackrestSidecarTests
 
         // EngineBinaryMissingException inherits from FileNotFoundException;
         // Keep the exact filename in diagnostic metadata, while the ordinary
-        // message explains how to repair a portable release without an installer.
+        // message explains the engines are downloaded again (U100).
         var ex = await Assert.ThrowsAnyAsync<FileNotFoundException>(() => sidecar.StartAsync());
-        Assert.Contains("full Backspace release archive", ex.Message);
-        Assert.Contains("Keep your existing Backspace.config folder", ex.Message);
+        Assert.Contains("Restart Backspace while online", ex.Message);
+        Assert.Contains("Backspace.config folder is not affected", ex.Message);
         Assert.DoesNotContain("backrest", ex.Message, System.StringComparison.OrdinalIgnoreCase);
         Assert.Equal(nonexistent, ex.FileName);
         Assert.IsType<Backspace.Services.EngineBinaryMissingException>(ex);

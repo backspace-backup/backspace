@@ -29,6 +29,15 @@ public sealed class SessionTaskControl
         else if (_usedService) throw new IOException("The background service registration is missing. The local task-pause record was not used.");
         return client;
     }
+
+    /// <summary>The version-3 background service of this copy (U100). Quit
+    /// stops it; opening Backspace or signing in starts it again.</summary>
+    private Platform.Windows.SystemService.Registration? SystemService()
+    {
+        if (!_resolveService || !OperatingSystem.IsWindows()) return null;
+        var root = AppContext.BaseDirectory.TrimEnd('\\');
+        return Platform.Windows.ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot) ? Platform.Windows.SystemService.ForCopy(root) : null;
+    }
 #endif
     public const string PausedMessage = "Backspace was quit for this Windows sign-in session. Open Backspace to resume tasks, or sign out of Windows.";
 
@@ -85,6 +94,13 @@ public sealed class SessionTaskControl
     {
 #if WINDOWS
         if (Service() is { } service) return service.Pause(force, ct);
+        if (SystemService() is { } system)
+        {
+            var generation = _sessions.Supported && _sessions.Current() is { } current ? PauseForSession(current, force, ct) : Guid.NewGuid().ToString("N");
+            // Quit stops the background service too, ending any run it has.
+            Platform.Windows.SystemServiceLifetime.Quit(system, TimeSpan.FromSeconds(force ? 20 : 60));
+            return generation;
+        }
 #endif
         if (!_sessions.Supported) return null;
         var session = _sessions.Current()
@@ -113,6 +129,7 @@ public sealed class SessionTaskControl
     {
 #if WINDOWS
         if (Service() is { } service) { service.Resume(ct); return; }
+        if (SystemService() is { } system) Platform.Windows.SystemServiceLifetime.Resume(system, TimeSpan.FromSeconds(30));
 #endif
         if (!_sessions.Supported) return;
         FileAccessRetry.Run(() =>
@@ -130,6 +147,7 @@ public sealed class SessionTaskControl
     {
 #if WINDOWS
         if (Service() is { } service) { if (generation is not null) service.CancelQuit(generation, ct); return; }
+        if (generation is not null && SystemService() is { } system) Platform.Windows.SystemServiceLifetime.Resume(system, TimeSpan.FromSeconds(30));
 #endif
         if (!_sessions.Supported || generation is null) return;
         FileAccessRetry.Run(() =>
@@ -172,6 +190,7 @@ public sealed class SessionTaskControl
         {
 #if WINDOWS
             if (Service() is { } service) return service.HasRunningTasks();
+            if (SystemService() is { Activated: true } system && SystemServiceRunning(system)) return true;
 #endif
             if (!_sessions.Supported || !Directory.Exists(Path.GetDirectoryName(_runsPath))) return false;
             // Serialize this momentary exclusive probe with new task admission;
@@ -187,6 +206,16 @@ public sealed class SessionTaskControl
             catch (IOException) { return true; }
         }
     }
+
+#if WINDOWS
+    private static bool SystemServiceRunning(Platform.Windows.SystemService.Registration system)
+    {
+        if (Platform.Windows.SystemService.Status(system.ServiceName) != System.ServiceProcess.ServiceControllerStatus.Running) return false;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var activity = Platform.Windows.ServiceActivity.ReadAsync(system.Binding, timeout.Token).GetAwaiter().GetResult();
+        return activity.State is "starting" or "running" or "stopping";
+    }
+#endif
 
     public bool TryBeginUnattended(out UnattendedLease? lease, Func<Task>? forceStop = null)
     {

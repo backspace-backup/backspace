@@ -935,6 +935,51 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     //     (href="#"). Both /signup/ and /accounts/signup/ return 405,
     //     so the homepage is the only sane destination.
 
+    // ---- Remove Backspace from this PC (U101) ----
+
+    public bool CanRemoveFromPc => OperatingSystem.IsWindows();
+    public string RemoveFromPcSummary =>
+#if WINDOWS
+        Services.Platform.Windows.WindowsPcRemoval.Summary;
+#else
+        "";
+#endif
+    [ObservableProperty] private bool _alsoUninstallWinFsp;
+    [ObservableProperty] private string _removeFromPcStatus = "";
+    [ObservableProperty] private bool _removingFromPc;
+
+    [RelayCommand]
+    private async Task RemoveFromPc()
+    {
+#if WINDOWS
+        if (RemovingFromPc || SettingsOwner() is not { } owner) return;
+        if (!await Views.DestructiveConfirmWindow.ShowConfirmAsync(owner, "Remove Backspace from this PC?",
+                RemoveFromPcSummary, "Remove from this PC", "Keep")) return;
+        RemovingFromPc = true;
+        try
+        {
+            await Services.Platform.Windows.WindowsPcRemoval.RunAsync(AppContext.BaseDirectory.TrimEnd('\\'), AlsoUninstallWinFsp,
+                BackgroundBackupViewModel.DefaultSetup(), text => Avalonia.Threading.Dispatcher.UIThread.Post(() => RemoveFromPcStatus = text));
+            RemoveFromPcStatus = "Removed. Backspace is quitting.";
+            Services.Platform.Windows.WindowsPcRemoval.StartForgettingLocalFiles();
+            App.QuitRequested = true;
+            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) desktop.Shutdown();
+        }
+        catch (OperationCanceledException ex) { RemoveFromPcStatus = ex.Message.Length > 0 ? ex.Message : "Cancelled. Nothing more was removed."; }
+        catch (Exception ex)
+        {
+            AppLogger.For<SettingsViewModel>().Warning(ex, "Removing Backspace from this PC did not finish");
+            RemoveFromPcStatus = "Not finished: " + ex.Message + " Try again; what was already removed stays removed.";
+        }
+        finally { RemovingFromPc = false; }
+#else
+        await Task.CompletedTask;
+#endif
+    }
+
+    private static Avalonia.Controls.Window? SettingsOwner()
+        => Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime l ? l.MainWindow : null;
+
     [RelayCommand]
     private void OpenResendSignup() => SafeOpen("https://resend.com/signup");
 

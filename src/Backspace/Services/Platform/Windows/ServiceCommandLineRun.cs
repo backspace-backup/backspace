@@ -16,6 +16,8 @@ internal static class ServiceCommandLineRun
     internal static ServiceWorkerBinding? FindBinding(string root, string configuration)
     {
         if (!ServiceOwnerSecrets.Applies(root, configuration)) return null;
+        if (SystemService.ForCopy(root) is { } system)
+            return system.Activated ? system.Binding : null;
         if (ServiceRetirement.Read(root) is { Stage: "complete" }) return null;
         var path = ServicePortableLayout.Record(root, ServiceWorkerBinding.FileName);
         try { _ = File.GetAttributes(path); }
@@ -51,13 +53,23 @@ internal static class ServiceCommandLineRun
         try
         {
             if (FindBinding(root, AppPaths.ConfigRoot) is not { } found) return false;
-            var approval = ServiceRunAuthorization.Load(ServicePortableLayout.Record(root, "service-approval.json"), root, found.OwnerSid).Snapshot();
-            if (File.Exists(ServicePortableLayout.Record(root, ServiceConfigurationUpdate.FileName))
-                || !ServiceConfigurationComparison.Equivalent(approval.Configuration, ServiceConfigurationComparison.ReadDesktop(root))
-                || approval.Configuration.Backups.SingleOrDefault(b => b.Id == backup.Id) is not { Enabled: true } approved
-                || !SchedulePlan.ServiceCanRun(approved, approval.Configuration.Destinations))
-                return false;
-            (binding, revision) = (found, approval.Revision);
+            if (found.IsSystem)
+            {
+                // Version 3 (U100): the saved settings are what the service runs.
+                var saved = ServiceConfigurationComparison.ReadDesktop(root);
+                if (saved.Backups.SingleOrDefault(b => b.Id == backup.Id) is not { } current || !SystemServiceRuns.CanRun(current, saved)) return false;
+                (binding, revision) = (found, Guid.NewGuid().ToString("N"));
+            }
+            else
+            {
+                var approval = ServiceRunAuthorization.Load(ServicePortableLayout.Record(root, "service-approval.json"), root, found.OwnerSid).Snapshot();
+                if (File.Exists(ServicePortableLayout.Record(root, ServiceConfigurationUpdate.FileName))
+                    || !ServiceConfigurationComparison.Equivalent(approval.Configuration, ServiceConfigurationComparison.ReadDesktop(root))
+                    || approval.Configuration.Backups.SingleOrDefault(b => b.Id == backup.Id) is not { Enabled: true } approved
+                    || !SchedulePlan.ServiceCanRun(approved, approval.Configuration.Destinations))
+                    return false;
+                (binding, revision) = (found, approval.Revision);
+            }
         }
         catch (Exception ex) when (ex is IOException or System.Security.SecurityException or InvalidDataException or UnauthorizedAccessException)
         {
@@ -84,9 +96,16 @@ internal static class ServiceCommandLineRun
     {
         if (operation is not ("backup" or "check" or "prune") || name is null && operation != "backup")
             throw new ArgumentException("Unsupported command-line operation.");
-        var approval = ServiceRunAuthorization.Load(ServicePortableLayout.Record(root, "service-approval.json"), root, binding.OwnerSid).Snapshot();
-        ServiceConfigurationComparison.RequireCurrent(root, approval.Configuration);
-        var backups = SelectBackups(approval.Configuration, name);
+        AppConfig configuration;
+        string revision;
+        if (binding.IsSystem) { configuration = ServiceConfigurationComparison.ReadDesktop(root); revision = Guid.NewGuid().ToString("N"); }
+        else
+        {
+            var approval = ServiceRunAuthorization.Load(ServicePortableLayout.Record(root, "service-approval.json"), root, binding.OwnerSid).Snapshot();
+            ServiceConfigurationComparison.RequireCurrent(root, approval.Configuration);
+            (configuration, revision) = (approval.Configuration, approval.Revision);
+        }
+        var backups = SelectBackups(configuration, name);
         if (backups.Count == 0)
         {
             await output.WriteLineAsync(name is null ? "No enabled backups." : $"No backup named '{name}' found.").ConfigureAwait(false);
@@ -102,7 +121,7 @@ internal static class ServiceCommandLineRun
             {
                 stop.Token.ThrowIfCancellationRequested();
                 await output.WriteLineAsync($"=== {backup.Name} :: {operation} ===").ConfigureAwait(false);
-                var code = await ServiceScheduledRun.RunApprovedAsync(root, binding, approval.Revision, backup.Id,
+                var code = await ServiceScheduledRun.RunApprovedAsync(root, binding, revision, backup.Id,
                     operation, stop.Token, output.WriteLine).ConfigureAwait(false);
                 if (code != 0) result = code;
             }

@@ -75,9 +75,19 @@ internal static class WindowsUpdateRuntime
         if (plan is null) return;
         bool installed = false;
         string message;
+#if WINDOWS
+        // The background service runs this Backspace.exe (U100): the owner may
+        // stop it without a prompt, and it starts again on the new version.
+        Platform.Windows.SystemService.Registration? system = null;
+        try { system = Platform.Windows.SystemService.ForCopy(plan.Root); }
+        catch (Exception ex) { AppLogger.For(nameof(WindowsUpdateRuntime)).Warning(ex, "Could not look up the background service before updating"); }
+#endif
         try
         {
             if (!enginesStopped) throw new IOException("The backup engine could not stop safely. The update was not installed.");
+#if WINDOWS
+            if (system is not null) Platform.Windows.SystemService.StopAndWait(system.ServiceName, TimeSpan.FromSeconds(90));
+#endif
             using var gate = TryExclusive(plan.Root);
             if (gate is null) throw new IOException("Another Backspace process is still using this app. The update was not installed. Try again after its backup finishes.");
             WriteRecoveryLauncher(plan);
@@ -93,6 +103,11 @@ internal static class WindowsUpdateRuntime
             return; // Never start a partially replaced bundle.
         }
         WriteResult(plan.Root, message, installed);
+#if WINDOWS
+        if (system is not null)
+            try { Platform.Windows.SystemService.Start(system.ServiceName, TimeSpan.FromSeconds(60)); }
+            catch (Exception ex) { AppLogger.For(nameof(WindowsUpdateRuntime)).Warning(ex, "The background service starts with the reopened app instead"); }
+#endif
         try { Launch(Path.Combine(plan.Root, plan.ExeName)); }
         catch (Exception ex)
         {

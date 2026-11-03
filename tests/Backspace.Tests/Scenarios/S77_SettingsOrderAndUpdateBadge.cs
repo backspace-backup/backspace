@@ -49,7 +49,7 @@ public sealed class S77_SettingsOrderAndUpdateBadge : ScenarioBase
             var titles = settings.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.Classes.Contains("section-title") && t.IsEffectivelyVisible).Select(t => t.Text).ToList();
             Assert.Equal(new[] { "Appearance", "Startup and tray", "Notifications", "Watchdog", "Logs & diagnostics",
-                "Cloud OAuth apps", "Import existing backups", "App updates" }, titles.Where(t => t != "Administrator access").ToArray());
+                "Cloud OAuth apps", "Import existing backups", "Remove Backspace from this PC", "App updates" }, titles.Where(t => t != "Administrator access").ToArray());
             var card = settings.FindControl<Border>("AppUpdatesCard")!;
             var scroller = settings.GetVisualDescendants().OfType<ScrollViewer>().First();
             Assert.True(scroller.Offset.Y > 0, "Settings should have scrolled down to App updates.");

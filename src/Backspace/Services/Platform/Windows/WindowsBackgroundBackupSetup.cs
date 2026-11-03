@@ -37,6 +37,17 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
     public Task<BackgroundBackupStatus> InspectAsync() => Task.Run(() =>
     {
         RequirePortableCopy();
+        if (SystemService.ForCopy(_root) is { } system)
+        {
+            if (!system.Activated)
+                return new BackgroundBackupStatus(BackgroundBackupState.SetupPending,
+                    "Setup stopped before your saved sign-ins were handed over. Your backups and sign-ins are unchanged.", true);
+            return new BackgroundBackupStatus(BackgroundBackupState.Ready,
+                "Backups also run on schedule when nobody is signed in. Quit stops them until you next sign in or restart.", true);
+        }
+        if (LegacyServiceActive)
+            return new BackgroundBackupStatus(BackgroundBackupState.SetupPending,
+                "The background service needs a one-time upgrade: it will no longer change any folder's permissions, and Quit will stop it completely. Your backups, history and sign-ins are kept.", true);
         if (ServiceRetirement.Read(_root) is { } retirement)
             return retirement.Stage == "complete"
                 ? OffOrUnsuitable()
@@ -80,7 +91,9 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
     private BackgroundBackupStatus OffOrUnsuitable()
     {
         const string off = "Without administrator access, backups can't include files other apps have open. They run on schedule only while you're signed in.";
-        try { ServiceInstallationSecurity.ValidateServiceLocation(_root); ServiceSetup.ValidateContents(_root); }
+        // The engines live in %LOCALAPPDATA%\Backspace\bin now (U100), not
+        // beside Backspace.exe: only the folder itself can rule access out.
+        try { ServiceInstallationSecurity.ValidateServiceLocation(_root); }
         catch (Exception ex) when (ex is SecurityException or IOException)
         {
             return new BackgroundBackupStatus(BackgroundBackupState.Unavailable, off + "\n" + ex.Message);
@@ -96,62 +109,127 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
         finally { Gate.Release(); }
     }
 
+    /// <summary>The background service of Backspace 1.0 (a virtual account
+    /// that changed folder permissions) is set up for this copy.</summary>
+    private bool LegacyServiceActive => File.Exists(ServicePortableLayout.Record(_root, ServiceWorkerBinding.FileName))
+        && ServiceRetirement.Read(_root) is not { Stage: "complete" };
+
     private void Apply()
     {
         RequirePortableCopy();
+        if (LegacyServiceActive && ServiceRetirement.Read(_root) is null && ServiceWorkerBinding.LoadForOwner(_root) is { Activated: true })
+        { Upgrade(); return; }
+        if (!LegacyServiceActive) { ApplySystem(); return; }
         if (ServiceRetirement.Read(_root) is { Stage: not "complete" }) { Remove(); return; }
-        using var identity = WindowsIdentity.GetCurrent();
-        var owner = identity.User?.Value ?? throw new IOException("Windows could not identify this account.");
-        var bindingPath = ServicePortableLayout.Record(_root, ServiceWorkerBinding.FileName);
-        Process? setup = null;
-        if (!File.Exists(bindingPath) || ServiceRetirement.Read(_root) is { Stage: "complete" })
+        // An earlier setup that never finished: take it back, then set up anew.
+        Elevated("--service-abort-prepare");
+        ApplySystem();
+    }
+
+    private string EngineRoot => EngineInstallation.Root;
+
+    /// <summary>Version 3 (U100): one Windows approval creates the service,
+    /// then the saved sign-ins are handed over without another prompt.</summary>
+    private void ApplySystem()
+    {
+        var owner = SystemService.CurrentOwnerSid();
+        if (SystemService.ForCopy(_root) is null)
         {
-            // Access can be turned on before any backup exists (U075): the
-            // service is approved for the settings as saved, and backups added
-            // later reach it through the quiet settings update. Setup reads the
-            // settings file and hands the vault over, so both must exist.
             if (!File.Exists(Path.Combine(_configuration, "config.json"))) ServiceLocator.Config.Save();
-            var vault = Path.Combine(_configuration, "secrets.bin");
-            if (!File.Exists(vault) && !File.Exists(vault + ".bak"))
-                new SecretsStore(new DpapiSecretsEncryption(), vault).ImportIntoNewVault(new Dictionary<string, string>());
             ValidateNewServiceLocation();
-            // One approval covers preparing and activating (U050).
-            if (_elevatedForTest is not null) Elevated("--service-prepare", owner);
-            else setup = StartSetupAndWaitUntilPrepared(owner);
+            Elevated("--system-service-setup", owner, EngineRoot);
         }
-        var binding = ServiceWorkerBinding.LoadForOwner(_root);
-        if (!binding.Activated)
+        Handoff();
+        TaskSchedulerService.NotifyChanged();
+    }
+
+    /// <summary>Moves Backspace 1.0's service to version 3 with one Windows
+    /// approval: it returns the saved sign-ins, restores every permission it
+    /// changed and goes; the new service is created and receives them.</summary>
+    private void Upgrade()
+    {
+        var owner = SystemService.CurrentOwnerSid();
+        var ownerPath = Path.Combine(_configuration, "secrets.bin");
+        var vault = new SecretsStore(new DpapiSecretsEncryption(), ownerPath);
+        vault.WithMigrationSnapshot(_ =>
         {
-            using var service = new ServiceController(binding.ServiceName);
-            ServiceRegistration.EnsureRunning(service, TimeSpan.FromSeconds(20));
-            var path = ServicePortableLayout.Record(_root, ServiceMigrationProtocol.GrantFileName);
-            ServiceInstallationSecurity.ValidateProtectedRecord(path, _root);
-            var grant = JsonSerializer.Deserialize<ServiceMigrationProtocol.Grant>(File.ReadAllBytes(path), ServiceRunAuthorization.Json)
-                ?? throw new IOException("The credential handoff record is missing.");
-            if (grant.OwnerSid != owner) throw new IOException("This setup belongs to another Windows account.");
-            var source = new SecretsStore(new DpapiSecretsEncryption(), Path.Combine(ServicePortableLayout.Config(_root), "secrets.bin"));
+            var upgrade = StartApprovedAndWait(ServiceRetirement.PreparedHintFile, "--system-service-upgrade", owner, EngineRoot);
             try
             {
-                ServiceVaultHandoff.TransferVerifyAndActivate(source, binding.ServiceName + "-migration", binding.ServiceSid,
-                    grant.MigrationId, () => { if (setup is not null) WaitForElevated(setup); else Elevated("--service-activate"); });
+                var retirement = ServiceRetirement.Read(_root) ?? throw new IOException("The earlier background service was not prepared for the upgrade.");
+                var binding = ServiceWorkerBinding.LoadForOwner(_root);
+                ServiceVaultReturn.Transfer(vault, ownerPath, retirement.ReturnId,
+                    request => ServiceVaultReturnProtocol.Exchange(binding, request),
+                    () =>
+                    {
+                        File.WriteAllText(Path.Combine(_configuration, ServiceRetirement.ReturnedHintFile), "");
+                        WaitForElevated(upgrade);
+                    });
             }
             finally
             {
-                // Release a setup process still waiting for the handoff.
-                try { File.Delete(Path.Combine(_configuration, ServiceActivation.PreparedHintFile)); } catch (Exception) { }
-                setup?.Dispose();
+                try { File.Delete(Path.Combine(_configuration, ServiceRetirement.PreparedHintFile)); } catch (Exception) { }
+                upgrade.Dispose();
+            }
+            return true;
+        }, requireExisting: true);
+        Handoff();
+        TaskSchedulerService.NotifyChanged();
+    }
+
+    /// <summary>Copies this copy's saved sign-ins to the new service and
+    /// waits until it has verified them; from then on it keeps them.</summary>
+    private void Handoff()
+    {
+        var system = SystemService.ForCopy(_root) ?? throw new IOException("The background service was not set up. Try again.");
+        if (system.Activated) return;
+        var vaultPath = Path.Combine(_configuration, "secrets.bin");
+        if (!File.Exists(vaultPath) && !File.Exists(vaultPath + ".bak"))
+            new SecretsStore(new DpapiSecretsEncryption(), vaultPath).ImportIntoNewVault(new Dictionary<string, string>());
+        SystemService.Start(system.ServiceName, TimeSpan.FromSeconds(60));
+        var source = new SecretsStore(new DpapiSecretsEncryption(), vaultPath);
+        ServiceVaultHandoff.TransferVerifyAndActivate(source, system.ServiceName + "-migration", SystemService.LocalSystemSid,
+            system.MigrationId, () =>
+            {
+                var deadline = DateTime.UtcNow.AddSeconds(30);
+                while (SystemService.ForCopy(_root) is not { Activated: true })
+                {
+                    if (DateTime.UtcNow > deadline) throw new IOException("The background service did not confirm your saved sign-ins. Try again.");
+                    Thread.Sleep(200);
+                }
+            });
+    }
+
+    /// <summary>Turning administrator access off: the service hands the saved
+    /// sign-ins back and stops changing them, then one Windows approval
+    /// deletes it. Its history stays in Backspace.config.</summary>
+    private void RemoveSystem(SystemService.Registration system)
+    {
+        var owner = SystemService.CurrentOwnerSid();
+        var ownerPath = Path.Combine(_configuration, "secrets.bin");
+        var vault = new SecretsStore(new DpapiSecretsEncryption(), ownerPath);
+        if (system.Activated)
+        {
+            SystemService.Start(system.ServiceName, TimeSpan.FromSeconds(60));
+            var returnId = SystemServiceClient.Freeze(system);
+            try
+            {
+                vault.WithMigrationSnapshot(_ =>
+                {
+                    ServiceVaultReturn.Transfer(vault, ownerPath, returnId,
+                        request => ServiceVaultReturnProtocol.Exchange(system.Binding, request),
+                        () => Elevated("--system-service-remove", owner));
+                    return true;
+                }, requireExisting: true);
+            }
+            catch
+            {
+                try { SystemServiceClient.Thaw(system); } catch (Exception) { }
+                throw;
             }
         }
-        else
-        {
-            // Finish a saved update before approving any newer edits.
-            if (File.Exists(ServicePortableLayout.Record(_root, ServiceConfigurationUpdate.FileName))) Elevated("--service-refresh");
-            var current = ServiceConfigurationComparison.ReadDesktop(_root);
-            var approval = ServiceRunAuthorization.Load(ServicePortableLayout.Record(_root, "service-approval.json"), _root, binding.OwnerSid).Snapshot();
-            if (!ServiceConfigurationComparison.Equivalent(approval.Configuration, current))
-                Elevated("--service-refresh", ServiceRunAuthorization.Digest(current));
-            else Elevated("--service-activate");
-        }
+        else Elevated("--system-service-remove", owner);
+        SystemServiceClient.ForgetVault(system.DataDirectory);
         TaskSchedulerService.NotifyChanged();
     }
 
@@ -163,6 +241,10 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
             return await Task.Run(async () =>
             {
                 RequirePortableCopy();
+                // Version 3 reads the saved settings itself, within a minute.
+                if (SystemService.ForCopy(_root) is { Activated: true }) return new QuietApplyOutcome(QuietApplyResult.Applied);
+                if (SystemService.ForCopy(_root) is not null || LegacyServiceActive && ServiceRetirement.Read(_root) is null)
+                    return new QuietApplyOutcome(QuietApplyResult.NeedsApproval);
                 var binding = ServiceWorkerBinding.LoadForOwner(_root);
                 if (!binding.Activated) return new QuietApplyOutcome(QuietApplyResult.NeedsApproval);
                 var failure = Path.Combine(_configuration, Program.SetupFailureFile);
@@ -189,6 +271,7 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
     private void Remove()
     {
         RequirePortableCopy();
+        if (SystemService.ForCopy(_root) is { } system) { RemoveSystem(system); return; }
         var ownerPath = Path.Combine(_configuration, "secrets.bin");
         var owner = new SecretsStore(new DpapiSecretsEncryption(), ownerPath);
         owner.WithMigrationSnapshot(_ =>
@@ -236,11 +319,6 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
     }
 
     private string FailurePath => Path.Combine(_configuration, Program.SetupFailureFile);
-
-    /// <summary>Starts the approved setup process and returns once it has
-    /// prepared the service; it then waits for the sign-in handoff.</summary>
-    private Process StartSetupAndWaitUntilPrepared(string owner) =>
-        StartApprovedAndWait(ServiceActivation.PreparedHintFile, "--service-setup", owner);
 
     /// <summary>Starts an approved process and returns once it leaves
     /// <paramref name="hintFile"/>; it then waits for the desktop's part.</summary>

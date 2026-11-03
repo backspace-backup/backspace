@@ -59,7 +59,7 @@ public sealed partial class BackgroundBackupViewModel : ViewModelBase
     /// error instead of the normal first-run state.</summary>
     internal static Func<IBackgroundBackupSetup>? SetupOverride { get; set; }
 
-    private static IBackgroundBackupSetup DefaultSetup()
+    internal static IBackgroundBackupSetup DefaultSetup()
     {
         if (SetupOverride is { } setupOverride) return setupOverride();
 #if WINDOWS

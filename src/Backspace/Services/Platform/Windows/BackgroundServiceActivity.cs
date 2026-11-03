@@ -26,12 +26,9 @@ internal sealed class BackgroundServiceActivity : IDisposable
         if (!ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot)) return null;
         var monitor = new BackgroundServiceActivity(async token =>
         {
-            if (ServiceRetirement.Read(root) is not null) return null;
-            var path = ServicePortableLayout.Record(root, ServiceWorkerBinding.FileName);
-            try { _ = File.GetAttributes(path); }
-            catch (FileNotFoundException) { return null; }
-            catch (DirectoryNotFoundException) { return null; }
-            var binding = ServiceWorkerBinding.LoadForOwner(root);
+            if (ServiceWorkerBinding.ForDesktop(root) is not { } binding) return null;
+            // A stopped version-3 service (after Quit) has nothing running.
+            if (binding.IsSystem && SystemService.Status(binding.ServiceName) != System.ServiceProcess.ServiceControllerStatus.Running) return null;
             return binding.CanRun ? await ServiceActivity.ReadAsync(binding, token).ConfigureAwait(false) : null;
         }, (id, token) => ServiceActivity.CancelAsync(ServiceWorkerBinding.LoadForOwner(root), id, token));
         _ = monitor.PollAsync();

@@ -162,6 +162,44 @@
                       Exclude="Assets\backrest;Assets\backrest.exe;Assets\restic;Assets\restic.exe;Assets\rclone;Assets\rclone.exe"/>
   </ItemGroup>
 
+  <!-- U100: the SHA-256 of each Windows engine, built into Backspace.exe.
+       Releases ship Backspace.exe alone and fetch the engines from the same
+       GitHub release; EngineInstallation accepts only these exact files. -->
+  <!-- U100: a Windows release publishes Backspace.exe alone; its engines are
+       separate release assets fetched on first start. -->
+  <PropertyGroup>
+    <_EnginePublishCopy>PreserveNewest</_EnginePublishCopy>
+    <_EnginePublishCopy Condition="'$(Configuration)' == 'Release'">Never</_EnginePublishCopy>
+  </PropertyGroup>
+
+  <Target Name="EmbedEngineManifest" BeforeTargets="AssignTargetPaths;PrepareResources"
+          DependsOnTargets="EnsureBackrestBinaries"
+          Condition="Exists('Assets\backrest.exe') and Exists('Assets\restic.exe') and Exists('Assets\rclone.exe')">
+    <GetFileHash Files="Assets\backrest.exe;Assets\restic.exe;Assets\rclone.exe" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_EngineHash" />
+    </GetFileHash>
+    <PropertyGroup>
+      <_EngineManifestPath>$(IntermediateOutputPath)engine-manifest.json</_EngineManifestPath>
+      <_EngineVersion>$(Version.Split('+')[0])</_EngineVersion>
+      <!-- Release builds run their engines from LocalAppData; development
+           builds keep them beside the exe for tests. -->
+      <_EngineRelease>false</_EngineRelease>
+      <_EngineRelease Condition="'$(Configuration)' == 'Release'">true</_EngineRelease>
+    </PropertyGroup>
+    <ItemGroup>
+      <_EngineManifestLine Include="&quot;%(_EngineHash.Filename)%(_EngineHash.Extension)&quot;: &quot;%(_EngineHash.FileHash)&quot;" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_EngineManifestFiles>@(_EngineManifestLine, ', ')</_EngineManifestFiles>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_EngineManifestPath)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="{ &quot;version&quot;: &quot;$(_EngineVersion)&quot;, &quot;release&quot;: $(_EngineRelease), &quot;files&quot;: { $(_EngineManifestFiles) } }" />
+    <ItemGroup>
+      <EmbeddedResource Include="$(_EngineManifestPath)" LogicalName="engine-manifest.json" />
+      <FileWrites Include="$(_EngineManifestPath)" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="IncludeNativeEngineContent" BeforeTargets="AssignTargetPaths"
           DependsOnTargets="EnsureBackrestBinaries">
   <ItemGroup>
@@ -179,19 +217,19 @@
              Condition="Exists('Assets\backrest.exe')"
              Link="backrest.exe"
              CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest"
+             CopyToPublishDirectory="$(_EnginePublishCopy)"
              ExcludeFromSingleFile="true"/>
     <Content Include="Assets\restic.exe"
              Condition="Exists('Assets\restic.exe')"
              Link="restic.exe"
              CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest"
+             CopyToPublishDirectory="$(_EnginePublishCopy)"
              ExcludeFromSingleFile="true"/>
     <Content Include="Assets\rclone.exe"
              Condition="Exists('Assets\rclone.exe')"
              Link="rclone.exe"
              CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest"
+             CopyToPublishDirectory="$(_EnginePublishCopy)"
              ExcludeFromSingleFile="true"/>
     <!-- Non-Windows variants (no .exe suffix). -->
     <Content Include="Assets\backrest"

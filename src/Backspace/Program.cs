@@ -159,6 +159,48 @@ internal static class Program
             }
             catch (Exception ex) { ReportSetupFailure("Background backup setup could not finish: " + ex.Message); return 4; }
         }
+        if (args.Length == 2 && args[0] == Services.Platform.Windows.WindowsPcRemoval.ForgetArgument)
+            return int.TryParse(args[1], out var parent) ? Services.Platform.Windows.WindowsPcRemoval.ForgetLocalFiles(parent) : 2;
+        if (args.Length > 0 && args[0] == Services.Platform.Windows.SystemService.HostArgument)
+        {
+            if (args.Length != 2) return 2;
+            try { return Services.Platform.Windows.SystemBackupService.RunInstalled(args[1]); }
+            catch (Exception ex) { Console.Error.WriteLine("The background service could not start: " + ex.Message); return 4; }
+        }
+        // Version-3 setup, upgrade and removal (U100): each is one Windows approval.
+        if (args.Length == 3 && args[0] == Services.Platform.Windows.InstallationHandover.MoveArgument)
+            return int.TryParse(args[2], out var window) ? Services.Platform.Windows.InstallationHandover.Move(args[1], window) : 2;
+        if (args.Length == 2 && args[0] == "--system-service-move")
+        {
+            try
+            {
+                var root = Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\'));
+                var existing = Services.Platform.Windows.SystemService.Find(args[1]) ?? throw new System.IO.IOException("There is no background service to move.");
+                Services.Platform.Windows.SystemService.Install(root, args[1], existing.EngineRoot, moved: true);
+                return 0;
+            }
+            catch (Exception ex) { ReportSetupFailure("The background service could not be moved: " + ex.Message, ex); return 4; }
+        }
+        if (args.Length > 0 && args[0] is "--system-service-setup" or "--system-service-upgrade" or "--system-service-remove")
+        {
+            if (args.Length != (args[0] == "--system-service-remove" ? 2 : 3)) return 2;
+            try
+            {
+                var root = Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\'));
+                if (args[0] == "--system-service-upgrade")
+                {
+                    // The earlier service returns the saved sign-ins and puts
+                    // back every permission it changed, then goes.
+                    Services.Platform.Windows.ServiceRetirement.Prepare(root);
+                    Services.Platform.Windows.ServiceRetirement.CompleteAfterReturn(root, TimeSpan.FromMinutes(10));
+                    Services.Platform.Windows.SystemServiceUpgrade.MoveRetiredData(root);
+                }
+                if (args[0] == "--system-service-remove") Services.Platform.Windows.SystemService.Uninstall(args[1]);
+                else Services.Platform.Windows.SystemService.Install(root, args[1], args[2]);
+                return 0;
+            }
+            catch (Exception ex) { ReportSetupFailure("Administrator access could not be changed: " + ex.Message, ex); return 4; }
+        }
         if (args.Length > 0 && args[0] == "--service-host")
         {
             if (args.Length != 1) return 2;

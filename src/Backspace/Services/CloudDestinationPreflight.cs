@@ -22,8 +22,9 @@ internal sealed class CloudDestinationPreflight(SecretsStore secrets)
     {
         if (!RcloneConfigBuilder.NeedsRcloneRemote(destination)) return false;
         ct.ThrowIfCancellationRequested();
+        await EngineInstallation.EnsureAsync(null, ct).ConfigureAwait(false);
         if (!File.Exists(AppPaths.RcloneBinary))
-            throw new EngineBinaryMissingException("Backspace cannot find its bundled cloud connection tool. Repair the installation and try again.", AppPaths.RcloneBinary);
+            throw new EngineBinaryMissingException("Backspace cannot find its cloud connection tool. Restart Backspace while online to download it again.", AppPaths.RcloneBinary);
 
         var builder = new RcloneConfigBuilder(secrets);
         var path = builder.MaterialiseDestination(destination, ServiceLocator.Config?.Current?.RcloneOAuthApps);

@@ -25,9 +25,11 @@ public sealed class RestorePublicationLockTests
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         var transaction = new RestoreOutputTransaction();
         var publish = Task.Run(() => transaction.Publish(staged, output, target, true, timeout.Token), timeout.Token);
+        FileAccessRetry.NoticeDelay = TimeSpan.FromMilliseconds(300); // U092: shown sooner, same behaviour
         try
         {
-            await Task.Delay(10_500, timeout.Token);
+            await Task.Delay(1_500, timeout.Token);
+            FileAccessRetry.NoticeDelay = TimeSpan.FromSeconds(5);
             Assert.False(publish.IsCompleted);
             var notice = Assert.Single(FileAccessRetry.Snapshot(), n => n.Path == staged);
             Assert.Equal("Waiting to place a restored file", notice.Title);
@@ -55,6 +57,7 @@ public sealed class RestorePublicationLockTests
         }
         finally
         {
+            FileAccessRetry.NoticeDelay = TimeSpan.FromSeconds(5);
             held.Dispose(); timeout.Cancel();
             try { await publish; } catch (OperationCanceledException) { }
         }

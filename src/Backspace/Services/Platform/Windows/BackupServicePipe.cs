@@ -29,13 +29,17 @@ internal static class BackupServicePipe
     {
         var service = new SecurityIdentifier(serviceSid);
         var owner = new SecurityIdentifier(ownerSid);
-        if (!service.Value.StartsWith("S-1-5-80-", StringComparison.Ordinal)
-            || service.Equals(owner) || !owner.IsAccountSid())
-            throw new ArgumentException("A separate virtual service identity and account owner are required.");
+        if (!IsServiceIdentity(service) || service.Equals(owner) || !owner.IsAccountSid())
+            throw new ArgumentException("A separate service identity and account owner are required.");
         // Only the configured account can connect as an ordinary user. The
         // service and SYSTEM are trusted; no Everyone/Authenticated Users ACE.
         return $"O:{service.Value}G:{service.Value}D:P(A;;GA;;;{service.Value})(A;;GA;;;SY)(A;;0x{ClientAccess:x};;;{owner.Value})";
     }
+
+    /// <summary>A virtual service account (versions 1 and 2) or Windows' own
+    /// account (version 3, U100). No ordinary account can own a pipe as either.</summary>
+    internal static bool IsServiceIdentity(SecurityIdentifier sid)
+        => sid.Value.StartsWith("S-1-5-80-", StringComparison.Ordinal) || sid.Value == SystemService.LocalSystemSid;
 
     internal static NamedPipeServerStream CreateListener(string name, string serviceSid, string ownerSid)
     {
@@ -68,8 +72,8 @@ internal static class BackupServicePipe
     {
         var fullName = PipePath(name);
         var expected = new SecurityIdentifier(serviceSid);
-        if (!expected.Value.StartsWith("S-1-5-80-", StringComparison.Ordinal))
-            throw new ArgumentException("A virtual service identity is required.");
+        if (!IsServiceIdentity(expected))
+            throw new ArgumentException("A service identity is required.");
         using var deadline = Deadline(timeout, cancellationToken);
         while (true)
         {

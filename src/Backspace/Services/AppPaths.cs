@@ -82,14 +82,13 @@ public static class AppPaths
     public static string SecretsFile => Path.Combine(ConfigRoot, "secrets.bin");
 
     /// <summary>
-    /// Paths to the Backrest sidecar binaries. Match the names the
-    /// FetchBackrest.targets script produces under src/Backspace/Assets/
-    /// at build time. The sibling-to-exe layout is what
-    /// <see cref="BackrestSidecar"/> uses at runtime.
+    /// Paths to the engine binaries: beside Backspace.exe in development
+    /// builds, otherwise the engine set under %LOCALAPPDATA%Backspacein
+    /// (<see cref="EngineInstallation"/>, U100).
     /// </summary>
-    public static string BackrestBinary => Path.Combine(ExeDirectory, "backrest" + (PlatformInfo.IsWindows ? ".exe" : ""));
-    public static string ResticBinary => Path.Combine(ExeDirectory, "restic" + (PlatformInfo.IsWindows ? ".exe" : ""));
-    public static string RcloneBinary => Path.Combine(ExeDirectory, "rclone" + (PlatformInfo.IsWindows ? ".exe" : ""));
+    public static string BackrestBinary => Path.Combine(EngineInstallation.Directory, "backrest" + EngineInstallation.Extension);
+    public static string ResticBinary => Path.Combine(EngineInstallation.Directory, "restic" + EngineInstallation.Extension);
+    public static string RcloneBinary => Path.Combine(EngineInstallation.Directory, "rclone" + EngineInstallation.Extension);
 
     /// <summary>Per-installation data directory the Backrest daemon
     /// uses for its sqlite oplog and per-operation log store. Lives

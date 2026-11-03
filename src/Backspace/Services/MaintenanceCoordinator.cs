@@ -177,6 +177,8 @@ public sealed class MaintenanceCoordinator
         if (context is not null)
             return Platform.Windows.ServiceCoordinationFiles.TryOpen(context,
                 Platform.Windows.ServiceCoordinationFiles.OperationFile, exclusive);
+        if (Platform.Windows.SystemServiceLocks.Directory() is { } shared)
+            return Platform.Windows.SystemServiceLocks.TryOpen(shared, "operations.lock", exclusive);
 #endif
         Directory.CreateDirectory(AppPaths.ConfigRoot);
         var path = Path.Combine(AppPaths.ConfigRoot, "operations.lock");

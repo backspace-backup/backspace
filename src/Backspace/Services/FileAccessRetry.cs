@@ -43,6 +43,9 @@ internal static class FileAccessRetry
 {
     private static readonly ConcurrentDictionary<Guid, FileWaitNotice> Waiting = new();
     internal static event Action? Changed;
+    /// <summary>How long a wait stays silent before it is shown and can be
+    /// stopped. Tests shorten it (U092).</summary>
+    internal static TimeSpan NoticeDelay = TimeSpan.FromSeconds(5);
     internal static FileWaitNotice[] Snapshot() => Waiting.Values.OrderBy(n => n.Started).ToArray();
 
     internal static async Task RunAsync(Func<CancellationToken, Task> action, string path, FileWaitReason reason,
@@ -59,7 +62,7 @@ internal static class FileAccessRetry
                 try { await action(stop.Token).ConfigureAwait(false); return; }
                 catch (Exception ex) when (retryable(ex))
                 {
-                    if (notice is null && elapsed.Elapsed >= TimeSpan.FromSeconds(5))
+                    if (notice is null && elapsed.Elapsed >= NoticeDelay)
                     {
                         notice = new FileWaitNotice(path, reason, stop); Waiting[notice.Id] = notice; Changed?.Invoke();
                         AppLogger.For("FileAccessRetry").Warning("{Reason}: {Path}. Retrying until access returns or the operation is stopped.", reason.Title, path);
@@ -86,7 +89,7 @@ internal static class FileAccessRetry
                 try { action(); return; }
                 catch (Exception ex) when (IsAccessConflict(ex, path, directoryCleanup))
                 {
-                    if (notice is null && elapsed.Elapsed >= TimeSpan.FromSeconds(5))
+                    if (notice is null && elapsed.Elapsed >= NoticeDelay)
                     {
                         notice = new FileWaitNotice(path, reason, stop);
                         Waiting[notice.Id] = notice;

@@ -60,64 +60,88 @@ file receives a current-user ACL where the filesystem supports it.
 
 New backups enable Windows snapshots (VSS) by default. The desktop stays at
 normal privilege so Explorer can see its mounted drives. VSS comes from
-administrator access, a one-time grant that installs the background service
-(29 October 2026, U026). Creating a backup offers it as a ticked choice; the
-wizard applies it right after saving and before the first run, and the
-advanced editor's caller does the same. `DesktopBackupRun` sends Run now and
-Save and run to that service through the owner's `start-cli` request when
-the service is active and the saved settings are approved; the card follows
+administrator access, a one-time approval that installs the background
+service.
+
+**The background service (version 3, U100, 2 November 2026).** One Windows
+service per Windows account, named `Backspace-<12 hex of the owner SID's
+SHA-256>`, runs as LocalSystem with the command `"<copy>\Backspace.exe"
+--system-service <name>` (`SystemService`). Nothing changes any file or
+folder permission. Its record (version 3, owner SID, the owner's engine
+folder, the handoff ID, whether the sign-ins were handed over) lives in
+`HKLM\SYSTEM\CurrentControlSet\Services\<name>\Parameters`, which only
+administrators can change; the installation is the folder of the registered
+command. Its working files (its vault, schedule state, run status, worker
+logs and history) are in `Backspace.config\service`, an ordinary folder.
+The service's security descriptor lets the owner query, start and stop it.
+
+`SystemBackupService` reads the owner's `config.json` as saved, every minute
+and before each run (`SystemServiceRuns`): there is no approval record and no
+settings task. Whoever can change those settings can already replace
+`Backspace.exe`, which the service runs as Windows; the user guide says so.
+Backups with custom engine arguments, or network shares without saved
+credentials, stay with the tray app. The service enables the backup and
+restore rights of its token before starting workers, so restic reads every
+selected file whatever its permissions; workers inherit the enabled rights.
+It sets `BACKSPACE_ENGINE_ROOT` to the owner's `%LOCALAPPDATA%\Backspace\bin`.
+Window and service share operation locks in the owner's
+`%LOCALAPPDATA%\Backspace\locks` (`SystemServiceLocks`), outside any synced
+folder.
+
+Setup is one approval: `--system-service-setup` creates or repoints the
+service and starts it; the desktop then hands the saved sign-ins over
+(`ServiceVaultHandoff`, unchanged), and the service records the hand-over
+itself (`SystemService.MarkActivated`). From then on the service's vault,
+encrypted for Windows' own account, is the only authority; the desktop reads
+and writes through the `-secrets` pipe (`ServiceOwnerSecrets`). Pipes are
+owned by `S-1-5-18` and open only to the owner; clients verify the owner of
+the pipe object. Removal freezes the vault (`freeze` on the runs pipe),
+takes the sign-ins back (`ServiceVaultReturn`), then one approval runs
+`--system-service-remove`; the history stays readable from
+`Backspace.config\service`.
+
+Quit stops the service without a prompt (`SystemServiceLifetime`): the desktop
+records its sign-in session and boot in `service\quit.json`, then stops it.
+The service starts again at a restart (automatic, delayed start), when the
+owner opens Backspace or signs in (the sign-in start resumes it), and after
+"Shut down" with Fast Startup, which resumes services as they were, through a
+start trigger (`SystemServiceTriggers`). On every start the service keeps the
+Quit while the same sign-in session exists in the same boot, which covers
+waking from sleep or hibernation, and otherwise deletes it. Updates stop the
+service, replace `Backspace.exe` like any portable copy and start it again
+(`WindowsUpdateRuntime.ApplyPendingAfterExit`).
+
+**Upgrade from the 1.0 service.** Backspace 1.0 installed a virtual-account
+service with protected records in `Backspace.config\windows-service` and
+permission changes recorded at setup. Its code remains only to retire it:
+`--system-service-upgrade` (one approval) freezes it, waits for the desktop to
+take the sign-ins back, restores every recorded permission
+(`ServiceRetirement.Complete`), copies its history and transcripts into
+`Backspace.config\service` (`SystemServiceUpgrade`), deletes the protected
+folders, then installs version 3. Until then that service keeps running from
+the engines beside `Backspace.exe` (`EngineInstallation.LegacyServiceInUse`).
+
+**One copy per Windows account** (`InstallationHandover`): a GUI started from a
+folder other than the one the service or the sign-in entry uses offers to
+update that copy (stop its service, replace its `Backspace.exe`, open it), to
+move here (a helper waits for the window to close, moves `Backspace.config`,
+deletes the other program files, repoints the sign-in entry and, with one
+approval, the service), or to cancel. **Remove Backspace from this PC**
+(`WindowsPcRemoval`) turns access off, removes the sign-in entry, the Explorer
+verb and older versions' tasks, optionally uninstalls WinFsp, and a helper
+deletes `%LOCALAPPDATA%\Backspace` after the app exits.
+
+`DesktopBackupRun` sends Run now and Save and run to the service through the
+owner's `start-cli` request when the service runs the backup; the card follows
 the run through the service's activity. Otherwise the desktop runs the backup
-itself. The service runs the configuration recorded in its protected
-approval; a saved change makes scheduled runs wait until it is applied
-(`ServiceConfigurationComparison.RequireCurrent`). The owner no longer
-approves each change (31 October 2026, U043): activation registers an
-"Apply saved settings" task in the service's task folder that runs as
-SYSTEM with one fixed argument (`ServiceSettingsTask`). Its access list
-lets the owner start it but not change it. The desktop starts it after any
-saved change (`BackupsViewModel.ApproveChangesInFlowAsync`, debounced, and
-retried a minute later while a run holds the operations lock). It applies
-the owner's current `config.json` through `ServiceConfigurationUpdate.Apply`,
-so the same validation, schedules, coordination files and repository access
-apply as for an approval. Trusting the owner's saved settings follows the
-accepted risk below: whoever can change them can already replace the
-executable in a folder they control. A setup made before this task existed
-asks Windows once, which registers it; a failure to apply shows its reason
-with Try again and no prompt. The task first finishes any update left
-unfinished, including one interrupted after its policy was saved; otherwise
-every later change would be refused. The update's record is read with shared
-deletion, and the service may be started by the owner's app at the same time
-as by the update (`ServiceRegistration.EnsureRunning`); both happened in the
-release VM check of 31 October 2026.
-An approval is verified against its configuration exactly as saved
-(`ServiceRunAuthorization.SavedDigest`): serializing it again would add
-settings introduced by a later version and invalidate every approval after an
-update. Turning access on is one approval: the elevated `--service-setup`
-process prepares the service, leaves `service-setup-prepared` in the settings
-folder, waits while the desktop hands the saved sign-ins over, then activates
-(`ServiceActivation.ActivateAfterHandoff`). Turning it off is one approval
-too: the elevated `--service-retire` process freezes the service, leaves
-`service-retire-prepared`, waits until the desktop has taken its sign-ins back
-and written `service-retire-returned`, then removes the service
-(`ServiceRetirement.CompleteAfterReturn`). It waits for the desktop rather than
-the service's receipt, so the service is not stopped mid-reply; `Complete`
-still verifies the receipt and the returned file. A network share runs in the service when its
-destination has a network path and a saved user name and password
+itself. A network share runs in the service when its destination has a
+network path and a saved user name and password
 (`NetworkSharePath.ServiceCanReach`): before the run the worker connects to
-the share (`\\server\share`) with them in the service's private logon session
-(`ServiceNetworkShares`, WNetAddConnection2) and disconnects after; a refused or
-unreachable share stops the worker with a reason file the host reports. The
-editor saves a mapped letter as its network path. Shares without credentials
-are left to the tray app's schedule (`SchedulePlan.ServiceCanRun`); approval
-checks skip them so they do not block the others. External drives run in the service
-(`ServiceExternalDrives`): an unplugged drive is left out of the run, which
-skips it; when a connected drive's folder is not writable for the service, the
-worker starts the settings task (its folder and task allow the service to read
-and run them), which creates the folder and grants access as SYSTEM.
-`VssElevationPolicy.PromptAllowed` is off, so no run asks Windows for
-approval: a run that cannot use VSS backs up without it, records a warning
-naming the fix (allow access, or approve changes), and keeps the saved VSS
-setting. The per-run elevated helper (`VssElevationCoordinator`) remains
-behind that switch until this is validated, then it can be removed.
+the share with them (`ServiceNetworkShares`, WNetAddConnection2) and
+disconnects after. External drives run in the service; an unplugged drive is
+left out of the run. `VssElevationPolicy.PromptAllowed` is off, so no run asks
+Windows for approval: a run that cannot use VSS backs up without it and
+records a warning naming the fix.
 
 Disabling snapshots requires an explicit acknowledgement in the advanced
 backup editor. Older configurations with snapshots off and no acknowledgement
@@ -301,8 +325,11 @@ can be exceeded by the last whole file selected for each source/destination.
 
 Only portable Windows x64 single-file builds in non-linked folders support installation. Ordinary copies require a writable folder; an activated service copy uses Windows administrator approval as described below. Other builds keep the manual release-page action. The internal `--recover-update` path runs before engine/configuration initialization. Each update keeps a separate recovery executable in its work folder, so rollback never moves the file that is running recovery. The launcher waits for that process and preserves its exit code, including after the failure prompt. Recovery opens the restored app through the Windows shell to keep its output separate from the launcher's captured output; the launcher can then finish while the restored app stays open.
 
-`ServiceProgramUpdate` provides the separate protected replacement transaction
-for an activated Windows service. It accepts a stable release tag and a staging
+With the version-3 service an update is an ordinary portable update: the
+service is stopped while `Backspace.exe` is replaced, then started again. Only
+a service set up by Backspace 1.0 still uses the protected transaction below.
+`ServiceProgramUpdate` provides that separate protected replacement transaction
+for an activated 1.0 Windows service. It accepts a stable release tag and a staging
 ID, then fetches that exact release from the official GitHub API after elevation.
 It pins the owner's staged archive against replacement, verifies the official
 size and checksum again, and extracts only the four portable executables into
@@ -366,8 +393,14 @@ Backspace/                          ← repo root (folder name may vary locally)
 ## Storage locations (on the user's machine)
 
 Everything is **portable**: the app keeps all state in one folder next to
-the executable. There is **no** install footprint under `%APPDATA%` or
-`%LOCALAPPDATA%`.
+the executable. Settings, history and credentials never live elsewhere.
+Reproducible caches do, in `%LOCALAPPDATA%\Backspace`: `bin` (the engines, checked
+against the fingerprints built into Backspace.exe and fetched again when
+missing), `winfsp` (the WinFsp installer and library extracted from
+Backspace.exe), `verify` (scratch for restore checks) and `locks` (operation
+locks shared with the background service). All are recreated when missing.
+Optional system changes are listed in the user guide: the background service
+(administrator access), the sign-in start entry, and the WinFsp driver.
 
 - `<exe-dir>/Backspace.config/config.json` — app settings, backups, destinations
 - `<exe-dir>/Backspace.config/secrets.bin` — encrypted secrets (API keys, OAuth tokens, storage passwords)
@@ -391,25 +424,15 @@ If the entire portable folder moves, its sign-in start entry points at the
 old location until Backspace is opened from the new one, which rewrites it.
 
 Portable files do not eliminate Windows integration: the sign-in start
-entry, service registration and its settings task, Explorer integration and the optional WinFsp driver
-use Windows-managed registrations. Mounting a snapshot as a drive requires
-that driver to be installed with administrator approval. Normal restore
-does not require it. A service can point at a local executable outside
-Program Files. The service protects only its own records and private vault
-(the windows-service folder); the program folder and its files keep whatever
-permissions the owner gave them, plus read and execute for the service's
-account on the folder, its program files and files later placed directly in it
-(`ServiceSetup.GrantServiceRead`). Without it a copy under the user profile
-(Dropbox, Downloads) could not start the service: "Access is denied" (U077).
-Removal restores the recorded permissions and skips a program file replaced
-since setup. Setup also creates a new local backup folder whose parent exists,
-as the tray app does on a first run; a folder the service was granted before
-and that is now missing is never recreated empty (its runs report it missing).
-Service records are replaced atomically; a replacement refused while another
-process briefly reads the record is retried for up to 20 seconds
-(`ServiceSetup.ReplaceRetrying`, U094). Removing a backup that never ran, from
-a destination never set up, erases nothing there (`BackupRemoval.NothingStored`).
-No separate application
+entry, the service registration, Explorer integration and the optional WinFsp
+driver use Windows-managed registrations. Mounting a snapshot as a drive
+requires that driver to be installed with administrator approval. Normal
+restore does not require it. The service points at the portable executable
+wherever it is and changes no permission (see Windows snapshot protection).
+Records written while another process briefly reads them are replaced with
+retries for up to 20 seconds (`ServiceSetup.ReplaceRetrying`, U094). Removing a
+backup that never ran, from a destination never set up, erases nothing there
+(`BackupRemoval.NothingStored`).No separate application
 installation or external persistent-data folder is authorized. Reinstallable
 system dependencies and reproducible caches may live outside the portable
 folder, provided missing dependencies are detected and can be recreated on a

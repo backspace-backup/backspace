@@ -105,6 +105,18 @@ public partial class App : Application
         {
             ApplyAccentFromConfig();
             ApplyThemeFromConfig();
+#if WINDOWS
+            // One copy per Windows account (U100): another copy is set up.
+            if (!Program.StartedInBackground && OtherInstallation() is { } other)
+            {
+                QuitRequested = true;
+                if (TrayIcon.GetIcons(this) is { } icons) foreach (var icon in icons) icon.IsVisible = false;
+                desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                Dispatcher.UIThread.Post(() => _ = HandOverAsync(desktop, other));
+                base.OnFrameworkInitializationCompleted();
+                return;
+            }
+#endif
             ApplyTrayVisibility();
             // Defer via Dispatcher.UIThread.Post: Config.Changed fires
             // synchronously from the call site that mutated config, which
@@ -294,6 +306,68 @@ public partial class App : Application
             RestoreMainWindow();
     }
 
+    /// <summary>Runs made by the background service are in its history, not
+    /// in these settings: the tray showed "Not backed up yet" after a
+    /// successful background run (lab VM, 2 November 2026).</summary>
+    private static void WithLatestRuns(System.Collections.Generic.List<Backup> backups)
+    {
+        foreach (var backup in backups)
+        {
+            RunRecord? latest;
+            try { latest = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).FirstOrDefault(r => r.Status != BackupRunStatus.Running); }
+            catch (Exception ex) { AppLogger.For<App>().Debug(ex, "History unavailable for the tray status"); continue; }
+            if (latest is null || backup.LastRunStartUtc is { } known && known >= latest.StartedUtc) continue;
+            backup.LastRunStartUtc = latest.StartedUtc;
+            backup.LastRunStatus = latest.Status;
+            backup.LastRunSummary = latest.Summary;
+            if (latest.Status == BackupRunStatus.Success) backup.LastSuccessUtc = latest.EndedUtc ?? latest.StartedUtc;
+        }
+    }
+
+#if WINDOWS
+    private static Services.Platform.Windows.InstallationHandover.Other? OtherInstallation()
+    {
+        try
+        {
+            var root = AppContext.BaseDirectory.TrimEnd('\\');
+            if (!OperatingSystem.IsWindows() || !string.Equals(Environment.ProcessPath, System.IO.Path.Combine(root, "Backspace.exe"), StringComparison.OrdinalIgnoreCase)
+                || !Services.Platform.Windows.ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot)) return null;
+            return Services.Platform.Windows.InstallationHandover.Find(root);
+        }
+        catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Could not look for another copy of Backspace"); return null; }
+    }
+
+    private static async System.Threading.Tasks.Task HandOverAsync(IClassicDesktopStyleApplicationLifetime desktop,
+        Services.Platform.Windows.InstallationHandover.Other other)
+    {
+        var thisVersion = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "";
+        var reason = other.ThisCopyHasSettings ? "Moving isn't offered because this folder has backups of its own."
+            : other.HasLegacyService ? "Moving isn't offered until that copy's administrator access is upgraded: open it and choose Finish setup in Settings."
+            : null;
+        var window = new Views.InstallationChoiceWindow(other.Installation, other.Version, thisVersion, reason is null, reason);
+        desktop.MainWindow = window;
+        var choice = await window.AskAsync();
+        try
+        {
+            if (choice == Views.InstallationChoiceWindow.Choice.Update)
+                await System.Threading.Tasks.Task.Run(() => Services.Platform.Windows.InstallationHandover.UpdateOther(other));
+            else if (choice == Views.InstallationChoiceWindow.Choice.Move)
+                Services.Platform.Windows.InstallationHandover.StartMove(other);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.For<App>().Warning(ex, "Handing over to the other copy did not finish");
+            var info = new DestructiveConfirmWindow("Backspace could not do that", ex.Message, "");
+            var closed = new System.Threading.Tasks.TaskCompletionSource();
+            info.Closed += (_, _) => closed.TrySetResult();
+            desktop.MainWindow = info;
+            info.Show();
+            await closed.Task;
+        }
+        desktop.Shutdown();
+    }
+#endif
+
     internal TrayWindowHost AttachDesktopWindows(IClassicDesktopStyleApplicationLifetime desktop)
     {
         if (_windowHost is not null) return _windowHost;
@@ -308,7 +382,10 @@ public partial class App : Application
         if (Program.Coordinator is { } coordinator)
             coordinator.SecondInstanceForwarded += args => Dispatcher.UIThread.Post(() =>
             {
-                if (!QuitRequested) { Program.OpenFromBackground(); _windowHost.Show().HandleForwardedArgs(args); }
+                if (QuitRequested) return;
+                // Another copy is taking over (InstallationHandover, U100).
+                if (args is [SingleInstanceCoordinator.QuitArgument]) { _windowHost.GetOrCreate().RequestQuit(); return; }
+                Program.OpenFromBackground(); _windowHost.Show().HandleForwardedArgs(args);
             });
         return _windowHost;
     }
@@ -356,7 +433,10 @@ public partial class App : Application
                 var scheduler = ServiceLocator.Scheduler;
                 var executable = Environment.ProcessPath ?? "";
                 var query = System.Threading.Tasks.Task.Run(() =>
-                    TrayScheduleStatus.Inspect(backups, scheduler, executable, DateTime.UtcNow));
+                {
+                    WithLatestRuns(backups);
+                    return TrayScheduleStatus.Inspect(backups, scheduler, executable, DateTime.UtcNow);
+                });
                 try { _trayStatus = await query.WaitAsync(TimeSpan.FromSeconds(5)); }
                 catch (TimeoutException)
                 {

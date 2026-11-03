@@ -46,10 +46,12 @@ public sealed class DropboxAuthProbe
         if (string.IsNullOrWhiteSpace(tokenJson))
             return ProbeResult.Fail("Connect your Dropbox account first.");
 
+        try { await EngineInstallation.EnsureAsync(null, ct).ConfigureAwait(false); }
+        catch (EngineBinaryMissingException ex) { return ProbeResult.Fail(ex.Message); }
         if (!File.Exists(AppPaths.RcloneBinary))
             return ProbeResult.Fail(
-                "A required cloud component is missing. Download the full Backspace release archive " +
-                "and extract its files together. Keep your existing Backspace.config folder.");
+                "A required cloud component is missing. Restart Backspace while online to download it again. " +
+                "Your Backspace.config folder is not affected.");
 
         _log.Information("Dropbox token health-check starting (token blob length={Len})", tokenJson.Length);
 

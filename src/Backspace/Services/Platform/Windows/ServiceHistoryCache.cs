@@ -34,14 +34,8 @@ internal sealed class ServiceHistoryCache
         if (!ServiceOwnerSecrets.Applies(installation, configurationRoot)) return null;
         return new(Path.Combine(configurationRoot, "logs", "service-history"), async (request, token) =>
         {
-            if (ServiceRetirement.Read(installation) is { Stage: "complete" })
-                return new(1, Array.Empty<RunRecord>());
-            var path = ServicePortableLayout.Record(installation, ServiceWorkerBinding.FileName);
-            try { _ = File.GetAttributes(path); }
-            catch (FileNotFoundException) { return new(1, Array.Empty<RunRecord>()); }
-            catch (DirectoryNotFoundException) { return new(1, Array.Empty<RunRecord>()); }
-            var binding = ServiceWorkerBinding.LoadForOwner(installation);
-            if (!binding.CanRun) return new(1, Array.Empty<RunRecord>());
+            if (ServiceWorkerBinding.ForDesktop(installation) is not { } binding) return new(1, Array.Empty<RunRecord>());
+            if (!binding.CanRun || binding.IsSystem && SystemService.Status(binding.ServiceName) != System.ServiceProcess.ServiceControllerStatus.Running) return new(1, Array.Empty<RunRecord>());
             return await ServiceHistoryProtocol.ReadAsync(binding, request, token).ConfigureAwait(false);
         });
     }

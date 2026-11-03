@@ -114,9 +114,7 @@ internal sealed class ServiceTranscriptProtocol(string logsRoot, Func<string, Li
     internal static async Task<string?> ReadForDesktopAsync(RunRecord run, CancellationToken token)
     {
         var root = AppContext.BaseDirectory.TrimEnd('\\');
-        if (!ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot) || ServiceRetirement.Read(root) is not null
-            || !File.Exists(ServicePortableLayout.Record(root, ServiceWorkerBinding.FileName))) return null;
-        var binding = ServiceWorkerBinding.LoadForOwner(root);
+        if (!ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot) || ServiceWorkerBinding.ForDesktop(root) is not { } binding) return null;
         if (!binding.CanRun) return null;
         using var service = new System.ServiceProcess.ServiceController(binding.ServiceName);
         if (service.Status == System.ServiceProcess.ServiceControllerStatus.Stopped) service.Start();
