@@ -114,11 +114,15 @@ puts your original files back.
 
 ## Get started
 
-1. Download `Backspace-windows-x64.zip` from the
+1. Download `Backspace.exe` from the
    [latest release](https://github.com/backspace-backup/backspace/releases/latest)
    and check it against `SHA256.txt`.
-2. Unzip it anywhere you like, such as your Documents folder or a USB drive.
-3. Open `Backspace.exe`. The wizard sets up your first backup.
+2. Put it in the folder where you want to keep Backspace, such as your Documents
+   folder. Its settings are created beside it.
+3. Open `Backspace.exe`. On first start it downloads its engines (restic,
+   Backrest, rclone) from the same release into `%LOCALAPPDATA%\Backspace\bin`,
+   checked against fingerprints built into `Backspace.exe`. The wizard then sets
+   up your first backup.
 
 Backspace needs Microsoft .NET 10. If it's missing, Backspace offers to
 install it on first launch.
@@ -130,12 +134,14 @@ because `Backspace.exe` isn't code-signed yet.
 
 - **Starts with Windows** and waits in the tray. Close the window and backups
   keep running on schedule.
-- **Quit** from the tray stops automatic backups until you open Backspace
-  again, sign out or restart. Nothing runs behind your back.
+- **Quit** from the tray stops Backspace completely, background service
+  included, until you open it again, sign in again or restart. Nothing runs
+  behind your back.
 - **Administrator access** (optional, approved when you turn it on) installs a small background
-  service. Backups then include files that other programs have open (Windows
-  snapshots, VSS) and run even before you sign in. Later changes to your
-  backups never ask again.
+  service that runs as Windows itself and changes no file or folder permission.
+  Backups then include files that other programs have open (Windows snapshots,
+  VSS) and run even before you sign in. Later changes and updates never ask
+  again.
 - **Portable**: your settings, history and encrypted credentials live in
   `Backspace.config` next to the app. Copy both to move to a new computer.
 
@@ -144,7 +150,7 @@ test restores, checks, alerts and every other detail.
 
 ## Status
 
-Version 1.0 is the first stable release. Before each release, the exact build
+Version 1.1 rebuilt the background service. Before each release, the exact build
 passes the full test suite, a real 20,000-file backup and restore with every
 file compared, live backups and restores on Dropbox, OneDrive and Google Drive,
 and scheduled backups before sign-in in an isolated Windows 11 virtual machine.
