@@ -444,6 +444,26 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     /// shuffle between USB sessions), and matching by label is the
     /// only reliable identity for removable storage.
     /// </summary>
+    /// <summary>What the drive name and letter mean together, in one line (U116).</summary>
+    public string VolumeMatchSummary
+    {
+        get
+        {
+            var label = ExpectedVolumeLabel?.Trim();
+            var letter = string.IsNullOrWhiteSpace(ExpectedDriveLetter) ? null : ExpectedDriveLetter.Trim().TrimEnd('\\', ':').ToUpperInvariant() + ":";
+            return (string.IsNullOrEmpty(label), letter is null) switch
+            {
+                (false, true) => $"Backs up to the drive named “{label}”, whatever letter Windows gives it.",
+                (false, false) => $"Backs up only when the drive at {letter} is named “{label}”.",
+                (true, false) => $"Backs up to whatever drive is at {letter}. Add the drive's name so that another drive given this letter isn't used by mistake.",
+                _ => "Add the drive's name so Backspace can recognise it.",
+            };
+        }
+    }
+
+    partial void OnExpectedVolumeLabelChanged(string? value) => OnPropertyChanged(nameof(VolumeMatchSummary));
+    partial void OnExpectedDriveLetterChanged(string? value) => OnPropertyChanged(nameof(VolumeMatchSummary));
+
     private void TryPrefillVolumeFromPath(string path)
     {
         try

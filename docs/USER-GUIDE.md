@@ -26,8 +26,22 @@ Backspace backs up to a local folder, an external drive, a network share,
 Dropbox, OneDrive Personal, Google Drive, or S3-compatible storage (Amazon S3,
 Wasabi, Cloudflare R2, MinIO, Backblaze B2 through its S3 interface).
 
-External drives are matched by volume name. A backup whose drive isn't plugged
-in is skipped and says so; it doesn't fail.
+External drives are matched by volume name (the drive's name in Explorer),
+whatever letter Windows gives them. Add a drive letter as well only to require
+both. A backup whose drive isn't plugged in is skipped and says so; it doesn't
+fail.
+
+Backspace never starts a backup over on the wrong drive. The first backup to
+a drive runs when you start it (**Run now** or **Save & Run**). After that, a
+run goes ahead only if the drive holds the backup. If an attached drive with
+the right name doesn't (another drive with the same name, or the same drive
+erased), **Run now** asks: **Start a new backup here**, **Don't use this
+drive**, or **Not now**, and scheduled runs are skipped with "Waiting for you"
+until you answer. **Don't use this drive** leaves a small hidden file named
+`.backspace.<backup ID>.declined` at the drive's root, so that drive is skipped
+for that backup only, on any computer, without asking again; other backups
+still use it. Choose **Run now** again, or delete the file, to use the drive
+after all.
 
 For cloud storage, choose **Connect** and approve your own account. Backspace
 ships its application registrations, so you don't need to create one. Dropbox

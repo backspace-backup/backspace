@@ -805,6 +805,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             await EditDestinationByIdAsync(destination.Id, $"To back up to «{destination.Name}», first {DestinationReadiness.Steps(destination, ServiceLocator.Secrets)}, then save and run the backup again.");
             return;
         }
+        if (!await DriveConfirmation.ConfirmAsync(card.Snapshot, Owner())) return;
         card.SetRunning();
         try
         {
@@ -1020,7 +1021,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private void FireBackgroundRun(Backup b)
+    private async void FireBackgroundRun(Backup b)
     {
         // Capture the token up-front: if Dispose runs before Task.Run
         // schedules, we want this attempt to short-circuit, not crash on
@@ -1028,6 +1029,8 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         CancellationToken ct;
         try { ct = _backgroundRunCts.Token; }
         catch (ObjectDisposedException) { return; }
+        try { if (!await DriveConfirmation.ConfirmAsync(b, Owner())) return; }
+        catch (Exception ex) { _log.Error(ex, "Drive confirmation failed for {Name}", b.Name); return; }
         _ = Task.Run(async () =>
         {
             try { await DesktopBackupRun.RunAsync(b, ct); }

@@ -744,7 +744,14 @@ public sealed partial class OnboardingViewModel : ViewModelBase
                 var working = Working;
                 _ = Task.Run(async () =>
                 {
-                    try { await DesktopBackupRun.RunAsync(working, CancellationToken.None); }
+                    try
+                    {
+                        // Starting the first backup is the go-ahead for a new
+                        // backup on an external drive (U117); asks only when the
+                        // drive should already hold this backup.
+                        if (!await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => DriveConfirmation.ConfirmAsync(working, null))) return;
+                        await DesktopBackupRun.RunAsync(working, CancellationToken.None);
+                    }
                     catch (Exception ex)
                     {
                         _log.Error(ex, "Onboarding first-run threw for {Name}", working.Name);

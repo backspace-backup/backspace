@@ -953,12 +953,19 @@ test harness to give each test its own isolated config dir.
    the permissions of the program folder or its parents (see the accepted risk
    above). Backups from a network drive, which the service cannot use, run as
    the signed-in owner without VSS.
-4. **Single executable.** `backrest`, `restic`, and `rclone` are bundled
-   in `Assets/` at build time and extracted beside the portable executable
-   on first run. No separate install step.
+4. **Single executable.** `Backspace.exe` carries the pinned versions and
+   SHA-256 fingerprints of `backrest`, `restic`, and `rclone`; on first
+   start it downloads them from those projects' releases into
+   `%LOCALAPPDATA%\Backspace\bin` and checks them. No separate install step.
 5. **Volume-name matching is first-class** for any local destination —
    never failed-state when an external drive is simply unmounted, always
-   "skipped".
+   "skipped". `DriveRepositoryGuard` keeps an external drive that lacks
+   the repository (another drive with the same name, or an erased one)
+   from being started over: only a person-started first backup, or an
+   answer recorded as a marker file at the drive's root
+   (`.backspace.<backup id>.accepted` / `.declined`), lets a run proceed
+   without a repository. The orchestrator skips otherwise ("Waiting for
+   you"); `DriveConfirmation` asks in the app before Run now.
 6. **No surprises in the config dir.** One `config.json`; a user can
    delete it to start over. Secrets in a separate machine-bound file so
    the JSON is shareable / diffable.

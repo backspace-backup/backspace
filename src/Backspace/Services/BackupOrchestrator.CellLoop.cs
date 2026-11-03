@@ -197,6 +197,24 @@ public sealed partial class BackupOrchestrator
                             final.Warnings.Add($"[{sourcePath} → {dest.Name}] skipped: {vc.Detail}");
                             continue;
                         }
+                        // A drive without this backup is never started over
+                        // without the person's answer (U117).
+                        var guard = DriveRepositoryGuard.Check(backup, dest);
+                        if (guard is DriveRepositoryGuard.State.Missing or DriveRepositoryGuard.State.Declined)
+                        {
+                            var reason = DriveRepositoryGuard.SkipReason(guard, backup, dest);
+                            _log.Information("Skipping cell {Src}→{Dest}: drive guard {State}", sourcePath, dest.Name, guard);
+                            final.Cells.Add(new CellOutcome
+                            {
+                                SourcePath = sourcePath,
+                                DestinationName = dest.Name,
+                                StorageName = target.StorageName,
+                                Status = BackupRunStatus.Skipped,
+                                Summary = reason,
+                            });
+                            final.Warnings.Add($"[{sourcePath} → {dest.Name}] {reason}");
+                            continue;
+                        }
                     }
 
                     // Reachability gate. Per-kind cheap pre-flight that
@@ -328,6 +346,8 @@ public sealed partial class BackupOrchestrator
                     {
                         _progress.ReportCellEnded(backup.Id, sourcePath, capturedDestName,
                             success: cellOutcome.Status == BackupRunStatus.Success);
+                        if (cellOutcome.Status is BackupRunStatus.Success or BackupRunStatus.Warning)
+                            DriveRepositoryGuard.ClearAccepted(backup, dest);
 
                         // Finalise the cell log: write the cell-level
                         // outcome to the file so even a "the engine

@@ -125,12 +125,22 @@
                  skip after a USB-port change). -->
             <StackPanel Spacing="10" IsVisible="{Binding ShowVolumeMatch}">
               <TextBlock Classes="helper" TextWrapping="Wrap"
-                         Text="Removable drives can land on a different letter between sessions, so Backspace matches by volume label instead. We pre-filled the label from the folder you picked; review and edit if needed."/>
-              <StackPanel Spacing="6">
-                <TextBlock Classes="label-caps" Text="EXPECTED VOLUME LABEL"/>
-                <TextBox Text="{Binding ExpectedVolumeLabel}" PlaceholderText="e.g. My Passport"/>
-                <TextBlock Classes="helper" Text="Runs are skipped (not failed) when this drive isn't mounted."/>
-              </StackPanel>
+                         Text="How Backspace recognises this drive. The drive's name is enough: Windows can give a removable drive a different letter each time. Add a letter only to require both. Picking a folder fills in its drive's name."/>
+              <!-- U116: both fields are shown, so a letter kept from an
+                   import is visible and can be cleared. -->
+              <Grid ColumnDefinitions="*,16,140">
+                <StackPanel Grid.Column="0" Spacing="6">
+                  <TextBlock Classes="label-caps" Text="DRIVE NAME (VOLUME LABEL)"/>
+                  <TextBox Text="{Binding ExpectedVolumeLabel}" PlaceholderText="e.g. My Passport"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="6">
+                  <TextBlock Classes="label-caps" Text="LETTER (OPTIONAL)"/>
+                  <TextBox Text="{Binding ExpectedDriveLetter}" PlaceholderText="Any" MaxLength="3"/>
+                </StackPanel>
+              </Grid>
+              <TextBlock Classes="helper" TextWrapping="Wrap" FontWeight="SemiBold" Text="{Binding VolumeMatchSummary}"/>
+              <TextBlock Classes="helper" TextWrapping="Wrap"
+                         Text="Runs are skipped (not failed) while the drive isn't attached. The first backup to the drive starts when you start it; after that, a drive that doesn't have the backup (another drive with the same name, or an erased one) is never used without asking you."/>
             </StackPanel>
           </StackPanel>
         </Border>
