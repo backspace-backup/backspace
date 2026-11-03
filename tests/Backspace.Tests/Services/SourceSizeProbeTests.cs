@@ -74,6 +74,65 @@ public class SourceSizeProbeTests
         Assert.Equal(0, r.Bytes);
     }
 
+    [Fact]
+    public async Task Hidden_and_system_files_are_counted_like_the_backup_counts_them()
+    {
+        using var tmp = new TempDir();
+        var hidden = Path.Combine(tmp.Path, "hidden.bin");
+        var system = Path.Combine(tmp.Path, "system.bin");
+        File.WriteAllBytes(hidden, new byte[300]);
+        File.WriteAllBytes(system, new byte[700]);
+        File.SetAttributes(hidden, FileAttributes.Hidden);
+        File.SetAttributes(system, FileAttributes.System);
+        try
+        {
+            var r = await new SourceSizeProbe().GetOrComputeAsync(tmp.Path, CancellationToken.None);
+            Assert.Equal(1000, r.Bytes);
+            Assert.Equal(2, r.FileCount);
+        }
+        finally
+        {
+            File.SetAttributes(hidden, FileAttributes.Normal);
+            File.SetAttributes(system, FileAttributes.Normal);
+        }
+    }
+
+    // U106: a drive root used to be trimmed to "C:", which Windows reads
+    // as the current folder on drive C, and the walk stopped after 15 s.
+    [Fact]
+    public void A_drive_root_is_read_as_the_drive_not_the_current_folder()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var drive = Path.GetPathRoot(Environment.SystemDirectory)!;
+        Assert.Equal(drive, TreeWalk.Root(drive));
+        Assert.True(TreeWalk.IsDriveRoot(drive));
+        Assert.False(TreeWalk.IsDriveRoot(Environment.SystemDirectory));
+        Assert.Contains(TreeWalk.List(TreeWalk.Root(drive)),
+            e => e.IsDirectory && string.Equals(e.FullPath, Path.Combine(drive, "Windows"), StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("pagefile.sys", TreeWalk.Relative(TreeWalk.Root(drive), Path.Combine(drive, "pagefile.sys")));
+    }
+
+    [Fact]
+    public async Task A_drive_too_big_to_read_in_time_falls_back_to_the_space_used_on_it()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var drive = Path.GetPathRoot(Environment.SystemDirectory)!;
+        var probe = new SourceSizeProbe { MaxScanDuration = TimeSpan.Zero };
+        var r = await probe.GetOrComputeAsync(drive, CancellationToken.None);
+        var info = new DriveInfo(drive);
+        Assert.True(r.Truncated);
+        Assert.True(r.Approximate);
+        Assert.InRange(r.Bytes, (info.TotalSize - info.TotalFreeSpace) / 2, info.TotalSize);
+
+        // A folder that runs out of time keeps its partial count: it is not a drive.
+        using var tmp = new TempDir();
+        File.WriteAllBytes(Path.Combine(tmp.Path, "a.bin"), new byte[10]);
+        var folder = await probe.GetOrComputeAsync(tmp.Path, CancellationToken.None);
+        Assert.True(folder.Truncated);
+        Assert.False(folder.Approximate);
+        Assert.True(folder.Bytes <= 10);
+    }
+
     private sealed class TempDir : IDisposable
     {
         public string Path { get; }

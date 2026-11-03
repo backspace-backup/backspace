@@ -90,129 +90,26 @@ public sealed class SavingsEstimator
     {
         long excluded = 0;
         long included = 0;
-        var deadline = DateTime.UtcNow + MaxScanDuration;
-        var truncated = false;
+        var rootFull = TreeWalk.Root(sourceRoot);
 
-        var rootFull = Path.GetFullPath(sourceRoot).TrimEnd('\\', '/');
-        var stack = new Stack<string>();
-        stack.Push(rootFull);
-
-        while (stack.Count > 0)
+        // The mark is true inside an excluded folder: everything there
+        // counts as saved without applying per-file rules (the user wanted
+        // an accurate savings number, even on large excluded trees).
+        var finished = TreeWalk.Walk(rootFull, (entry, insideExcluded) =>
         {
-            ct.ThrowIfCancellationRequested();
-            if (DateTime.UtcNow > deadline) { truncated = true; break; }
-
-            var dir = stack.Pop();
-            IEnumerable<string>? files = null;
-            IEnumerable<string>? subs  = null;
-            try
+            if (insideExcluded)
             {
-                files = Directory.EnumerateFiles(dir);
-                subs  = Directory.EnumerateDirectories(dir);
+                if (!entry.IsDirectory) Interlocked.Add(ref excluded, entry.Length);
+                return true;
             }
-            catch (UnauthorizedAccessException) { continue; }
-            catch (DirectoryNotFoundException)  { continue; }
-            catch (PathTooLongException)        { continue; }
-            catch (IOException)                 { continue; }
+            var rel = TreeWalk.Relative(rootFull, entry.FullPath);
+            if (entry.IsDirectory) return IsExcluded(rules, rel + "/");
+            if (IsExcluded(rules, rel)) Interlocked.Add(ref excluded, entry.Length);
+            else Interlocked.Add(ref included, entry.Length);
+            return null;
+        }, DateTime.UtcNow + MaxScanDuration, ct);
 
-            // For directories: descend if NOT excluded. If excluded,
-            // sum all bytes inside as Excluded (the user wanted an
-            // accurate savings number, even on large excluded trees).
-            foreach (var sub in subs)
-            {
-                try
-                {
-                    var info = new DirectoryInfo(sub);
-                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                }
-                catch { continue; }
-
-                var rel = MakeRelative(rootFull, sub) + "/";
-                if (IsExcluded(rules, rel))
-                {
-                    // Bulk-count an excluded subtree without applying
-                    // per-file rules inside. Honours the deadline so a
-                    // huge exclusion (e.g. ^Windows/) doesn't prevent
-                    // the rest of the source from being scanned.
-                    excluded += SumBytesUnder(sub, deadline, ref truncated, ct);
-                }
-                else
-                {
-                    stack.Push(sub);
-                }
-            }
-
-            foreach (var f in files)
-            {
-                long len;
-                try
-                {
-                    var info = new FileInfo(f);
-                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                    len = info.Length;
-                }
-                catch { continue; }
-
-                var rel = MakeRelative(rootFull, f);
-                if (IsExcluded(rules, rel)) excluded += len;
-                else included += len;
-            }
-        }
-
-        return (excluded, included, truncated);
-    }
-
-    /// <summary>
-    /// Recursively sums every regular-file byte under <paramref name="root"/>.
-    /// Used when a directory is filter-excluded — we still want to count
-    /// the bytes-saved, but per-file rule evaluation inside is moot.
-    /// </summary>
-    private static long SumBytesUnder(string root, DateTime deadline, ref bool truncated, CancellationToken ct)
-    {
-        long total = 0;
-        var stack = new Stack<string>();
-        stack.Push(root);
-        while (stack.Count > 0)
-        {
-            ct.ThrowIfCancellationRequested();
-            if (DateTime.UtcNow > deadline) { truncated = true; break; }
-            var dir = stack.Pop();
-            try
-            {
-                foreach (var f in Directory.EnumerateFiles(dir))
-                {
-                    try
-                    {
-                        var info = new FileInfo(f);
-                        if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                        total += info.Length;
-                    }
-                    catch { /* file gone mid-walk */ }
-                }
-                foreach (var sub in Directory.EnumerateDirectories(dir))
-                {
-                    try
-                    {
-                        var info = new DirectoryInfo(sub);
-                        if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                    }
-                    catch { continue; }
-                    stack.Push(sub);
-                }
-            }
-            catch (UnauthorizedAccessException) { }
-            catch (DirectoryNotFoundException)  { }
-            catch (PathTooLongException)        { }
-            catch (IOException)                 { }
-        }
-        return total;
-    }
-
-    private static string MakeRelative(string root, string full)
-    {
-        if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-            full = full.Substring(root.Length).TrimStart('\\', '/');
-        return full.Replace('\\', '/');
+        return (excluded, included, !finished);
     }
 
     /// <summary>

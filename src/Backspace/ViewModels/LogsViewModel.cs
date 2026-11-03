@@ -418,9 +418,26 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         });
     }
 
+    /// <summary>The Verbose switch beside Clear view (U113). Run logs always
+    /// record every line, so switching it re-renders the shown logs, past
+    /// lines included. It is the same setting as Settings' verbose logs,
+    /// which also makes Backspace's own app log record debug lines from
+    /// then on.</summary>
+    public bool ShowVerbose
+    {
+        get => VerboseLogFilter.IsVerboseOn();
+        set
+        {
+            if (value == ShowVerbose) return;
+            ServiceLocator.Config.Update(cfg => cfg.Logging.MinimumLevel = value ? "Verbose" : "Information");
+            OnPropertyChanged();
+        }
+    }
+
     private void OnConfigChanged(object? sender, EventArgs e)
     {
         _refreshDebouncer.Schedule();
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(ShowVerbose)));
         // Verbose may have just toggled — re-materialize the visible
         // surfaces from their raw backing buffers so the change
         // applies retroactively. Cheap: a single FilterForDisplay

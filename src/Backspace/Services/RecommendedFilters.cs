@@ -618,6 +618,43 @@ public static class RecommendedFilters
         return new(add, remove);
     }
 
+    /// <summary>The editor's ticks as the saved recommended block has them, or
+    /// null when the filters hold no recommended block.</summary>
+    public sealed record SavedChoice(bool WindowsSystem, bool CachesAndJunk, IReadOnlyCollection<string> CloudLines);
+
+    public static SavedChoice? ReadChoice(string? filters)
+    {
+        var block = FindBlock((filters ?? "").Replace("\r\n", "\n").Split('\n'));
+        if (block is null) return null;
+        var cloud = block.Lines.Where(l => l.Heading == CloudHeading && !l.Line.StartsWith('#')).Select(l => l.Line).ToList();
+        return new(block.Lines.Any(l => l.Heading == WindowsHeading), block.Lines.Any(l => l.Heading == CachesHeading), cloud);
+    }
+
+    /// <summary>The block line that excludes <paramref name="folder"/>, as
+    /// <see cref="RenderBlock(bool, bool, IReadOnlyCollection{CloudSyncFolder})"/> writes it.</summary>
+    public static string? CloudLine(CloudSyncFolder folder) =>
+        ToSourceRelativePath(folder.Path) is { } rel ? $"/{rel}/" : null;
+
+    /// <summary>True when applying these ticks would add or remove no rule:
+    /// every ticked group is complete in the saved block, no unticked group
+    /// has rules there, and the cloud folders match (U105).</summary>
+    public static bool IsApplied(string? filters, bool includeWindowsSystem, bool includeCachesAndJunk,
+        IReadOnlyCollection<CloudSyncFolder> cloudExcludes)
+    {
+        var block = FindBlock((filters ?? "").Replace("\r\n", "\n").Split('\n'));
+        if (block is null) return false;
+        var present = new HashSet<string>(block.Lines
+            .Where(l => !l.Line.StartsWith('#') && l.Heading != CloudHeading).Select(l => l.Line), StringComparer.OrdinalIgnoreCase);
+        var wanted = new HashSet<string>(EssentialPatterns
+            .Concat(includeWindowsSystem ? WindowsSystemPatterns : Array.Empty<string>())
+            .Concat(includeCachesAndJunk ? CachesAndJunkPatterns : Array.Empty<string>()), StringComparer.OrdinalIgnoreCase);
+        var known = Groups.SelectMany(g => g.Patterns);
+        if (!wanted.All(present.Contains) || known.Any(p => present.Contains(p) && !wanted.Contains(p))) return false;
+        var cloud = block.Lines.Where(l => l.Heading == CloudHeading && !l.Line.StartsWith('#')).Select(l => l.Line);
+        return new HashSet<string>(cloud, StringComparer.OrdinalIgnoreCase)
+            .SetEquals(cloudExcludes.Select(CloudLine).OfType<string>());
+    }
+
     /// <summary>Applies <see cref="CheckForUpdates"/> to the saved block,
     /// keeping its cloud-folder lines and every rule outside it.</summary>
     public static string ApplyUpdates(string filters, ListUpdate update)

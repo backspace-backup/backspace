@@ -69,10 +69,15 @@ public sealed class S56_EditorModeAndApply : ScenarioBase
         Assert.Equal(1, merged.Split('\n').Count(line => line.Trim() == RecommendedFilters.AutoBlockHeader));
         Assert.DoesNotContain("stale-copied-rule/", merged);
         Assert.Contains("ntuser.dat*", merged);
-        Click(advanced, "Apply recommended exclusions");
+        // Nothing is left to apply, so the button says so by being disabled
+        // (U105); applying again would leave the text unchanged.
+        Assert.True(advancedVm.RecommendedApplied);
+        Assert.False(advanced.GetVisualDescendants().OfType<Button>()
+            .Single(b => b.Content?.ToString() == "Apply recommended exclusions").IsEffectivelyEnabled);
+        advancedVm.ApplyRecommendedFiltersCommand.Execute(null);
         Assert.Equal(merged, advancedVm.FiltersText);
         ctx.Snapshot(advanced, "applied-with-custom-rules-preserved",
-            "The actual Apply button generated recommended rules beneath preserved custom rules; clicking Apply a second time left the text unchanged.");
+            "The actual Apply button generated recommended rules beneath preserved custom rules; afterwards it is greyed out under '✓ Applied', and applying again left the text unchanged.");
 
         Click(advanced, "Easy");
         easy = await Child<OnboardingWindow>();

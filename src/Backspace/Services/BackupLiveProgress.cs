@@ -73,6 +73,25 @@ internal sealed class BackupLiveProgress
         return (unit == 0 ? value.ToString("0", CultureInfo.InvariantCulture) : value.ToString(value < 10 ? "0.0" : "0", CultureInfo.InvariantCulture)) + " " + units[unit];
     }
 
+    internal const string RecapPrefix = "[recap] ";
+
+    /// <summary>The closing summary of a finished backup, like the totals
+    /// Duplicacy wrote at the end of its log (U112), or null when Backrest
+    /// kept no summary (a failed or cancelled run).</summary>
+    internal static string? Recap(JsonElement? operationBackup)
+    {
+        if (operationBackup is not { ValueKind: JsonValueKind.Object } backup
+            || !backup.TryGetProperty("lastStatus", out var last) || last.ValueKind != JsonValueKind.Object
+            || !last.TryGetProperty("summary", out var s) || s.ValueKind != JsonValueKind.Object) return null;
+        string Count(string name) => ((long)Number(s, name)).ToString("N0", CultureInfo.InvariantCulture);
+        var duration = TimeSpan.FromSeconds(Number(s, "totalDuration"));
+        return RecapPrefix + string.Join(" · ",
+            $"Backup complete: {Count("totalFilesProcessed")} files ({Bytes((long)Number(s, "totalBytesProcessed"))}) checked",
+            $"{Count("filesNew")} new, {Count("filesChanged")} changed, {Count("filesUnmodified")} unchanged",
+            $"{Bytes((long)Number(s, "dataAdded"))} added to the storage",
+            duration.TotalHours >= 1 ? $"took {(int)duration.TotalHours}h {duration.Minutes:00}m" : $"took {duration.Minutes}m {duration.Seconds:00}s");
+    }
+
     /// <summary>What the card shows for a progress line: the text after its percentage.</summary>
     internal static string? Detail(string line)
     {

@@ -393,4 +393,28 @@ public class ConfigMigratorTests
         Assert.Equal(letter, dest.ExpectedDriveLetter);
         Assert.Equal(letter + @"\Backup\Backspace\local_dropbox", dest.PathOrSubpath);
     }
+
+    /// <summary>U103: Duplicacy has no drive-name setting, so the run script
+    /// checked the drive's name itself. The import keeps that check as the
+    /// destination's expected volume label, even with the drive unplugged.</summary>
+    [Fact]
+    public void The_drive_name_a_run_script_required_becomes_the_expected_volume_label()
+    {
+        using var sandbox = new ConfigSandbox();
+        using var parent = new TempDir();
+        var letter = "QRSTUVWXYZ".Select(c => c + ":").First(l => !new DriveInfo(l).IsReady);
+        MakeRepo(parent.Path, "local_dropbox", id: "local_dropbox", storage: letter + @"\Backup\Duplicacy\local_dropbox", encrypted: true);
+        File.WriteAllText(Path.Combine(parent.Path, "run-backup-local_dropbox.bat"),
+            "@echo off\r\nfor /f %%I in (\r\n    '2^>NUL wmic logicaldisk where \"VolumeName='My Passport' and Name='" + letter + "'\" get Name /value ^| find \"=\"'\r\n) do set \"%%I\"\r\n");
+        // A check for another letter must not be taken.
+        File.WriteAllText(Path.Combine(parent.Path, "run-backup-other.bat"), "wmic logicaldisk where \"VolumeName='Other' and Name='B:'\"");
+        var store = CreateLoadedStore();
+        new ConfigMigrator(store).MigrateFrom(parent.Path);
+        var dest = Assert.Single(store.Current.Destinations);
+        Assert.Equal(DestinationKind.ExternalDrive, dest.Kind);
+        Assert.Equal("My Passport", dest.ExpectedVolumeLabel);
+
+        Assert.Null(ConfigMigrator.VolumeLabelFromScripts(parent.Path, "N:"));
+        Assert.Equal("Other", ConfigMigrator.VolumeLabelFromScripts(parent.Path, "b:"));
+    }
 }

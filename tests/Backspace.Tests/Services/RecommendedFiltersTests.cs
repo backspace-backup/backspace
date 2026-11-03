@@ -363,4 +363,29 @@ public class RecommendedFiltersTests
     [Fact]
     public void A_backup_without_a_recommended_block_is_never_offered_changes()
         => Assert.True(RecommendedFilters.CheckForUpdates("e:(?i)^Windows/\nfoo/").IsEmpty);
+
+    // U105: the card says whether the ticks are already in the filters.
+    [Fact]
+    public void Applied_means_apply_would_change_no_rule()
+    {
+        var dropbox = new RecommendedFilters.CloudSyncFolder(RecommendedFilters.CloudSyncProvider.Dropbox, "Dropbox", @"C:\Users\me\Dropbox");
+        var none = Array.Empty<RecommendedFilters.CloudSyncFolder>();
+        var filters = RecommendedFilters.MergeIntoFilters("my/own/rule/", RecommendedFilters.RenderBlock(true, true, new[] { dropbox }));
+
+        Assert.True(RecommendedFilters.IsApplied(filters, true, true, new[] { dropbox }));
+        // A changed tick or cloud folder means Apply still has work to do.
+        Assert.False(RecommendedFilters.IsApplied(filters, false, true, new[] { dropbox }));
+        Assert.False(RecommendedFilters.IsApplied(filters, true, true, none));
+        Assert.False(RecommendedFilters.IsApplied(RecommendedFilters.MergeIntoFilters("", RecommendedFilters.RenderBlock(true, false, none)), true, true, none));
+        // No block at all, or one missing a rule of a ticked group, is not applied.
+        Assert.False(RecommendedFilters.IsApplied("my/own/rule/", true, true, none));
+        var partial = RecommendedFilters.ApplyUpdates(filters, new(Array.Empty<string>(), new[] { RecommendedFilters.WindowsSystemPatterns[0] }));
+        Assert.False(RecommendedFilters.IsApplied(partial, true, true, new[] { dropbox }));
+
+        var choice = RecommendedFilters.ReadChoice(filters)!;
+        Assert.True(choice.WindowsSystem);
+        Assert.True(choice.CachesAndJunk);
+        Assert.Equal(new[] { RecommendedFilters.CloudLine(dropbox)! }, choice.CloudLines);
+        Assert.Null(RecommendedFilters.ReadChoice("my/own/rule/"));
+    }
 }

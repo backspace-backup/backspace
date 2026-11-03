@@ -62,4 +62,24 @@ public sealed class BackupLiveProgressTests
         Assert.Equal(42.5, source.PercentComplete, 1);
         Assert.Equal("Backing up · 21 GB of 50 GB · 4,200 of 10,000 files · 31 MB/s", source.Detail);
     }
+
+    [Fact]
+    public void A_finished_backup_ends_with_a_recap_and_a_failed_one_has_none()
+    {
+        var finished = JsonSerializer.SerializeToElement(new
+        {
+            lastStatus = new
+            {
+                summary = new
+                {
+                    filesNew = "891", filesChanged = "12236", filesUnmodified = "704803", dataAdded = "387529000",
+                    totalFilesProcessed = "717930", totalBytesProcessed = "194637000000", totalDuration = 844.2, snapshotId = "abc",
+                },
+            },
+        });
+        Assert.Equal("[recap] Backup complete: 717,930 files (195 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 388 MB added to the storage · took 14m 04s",
+            BackupLiveProgress.Recap(finished));
+        Assert.Null(BackupLiveProgress.Recap(Operation(0.5, 1, 2, 1, 2)));
+        Assert.Null(BackupLiveProgress.Recap(null));
+    }
 }

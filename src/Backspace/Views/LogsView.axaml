@@ -120,7 +120,7 @@
                 BorderBrush="#1F2630"
                 BorderThickness="0,0,0,1"
                 Padding="14,8">
-          <Grid x:Name="ConsoleHeader" ColumnDefinitions="*,Auto,8,Auto" VerticalAlignment="Center">
+          <Grid x:Name="ConsoleHeader" ColumnDefinitions="*,Auto,8,Auto,8,Auto" VerticalAlignment="Center">
             <!-- Grid so a long backup name ellipsizes before running
                  under the Copy/Clear buttons (horizontal StackPanels
                  give the label infinite measure width). -->
@@ -171,7 +171,26 @@
                 <TextBlock Text="Copy" VerticalAlignment="Center" Foreground="#C9D1D9" FontSize="12"/>
               </StackPanel>
             </Button>
-            <Button x:Name="ClearLog" Grid.Column="3"
+            <!-- Display only: run logs keep every line, so switching
+                 re-renders past lines too (U113). -->
+            <CheckBox x:Name="VerboseLog" Grid.Column="3"
+                      Content="Verbose"
+                      IsChecked="{Binding ShowVerbose}"
+                      Foreground="#C9D1D9" FontSize="12"
+                      BorderBrush="#8B949E"
+                      VerticalAlignment="Center"
+                      ToolTip.Tip="Show every engine line, including debug details. Logs always record them; this changes only what is shown.">
+              <!-- The theme's unticked box outline is invisible on the dark console header. -->
+              <CheckBox.Resources>
+                <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUnchecked" Color="#8B949E"/>
+                <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUncheckedPointerOver" Color="#C9D1D9"/>
+                <SolidColorBrush x:Key="CheckBoxForegroundUnchecked" Color="#C9D1D9"/>
+                <SolidColorBrush x:Key="CheckBoxForegroundUncheckedPointerOver" Color="#FFFFFF"/>
+                <SolidColorBrush x:Key="CheckBoxForegroundChecked" Color="#C9D1D9"/>
+                <SolidColorBrush x:Key="CheckBoxForegroundCheckedPointerOver" Color="#FFFFFF"/>
+              </CheckBox.Resources>
+            </CheckBox>
+            <Button x:Name="ClearLog" Grid.Column="5"
                     Classes="ghost console-action" Content="Clear view"
                     Padding="10,7" MinHeight="36"
                     Background="#1F2630"

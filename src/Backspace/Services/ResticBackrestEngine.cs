@@ -159,6 +159,10 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 new BackupRequest { Value = planId }, op => op.PlanId == planId && op.OperationBackup is not null,
                 ct, lineSink).ConfigureAwait(false);
         }
+        if (BackupLiveProgress.Recap(terminal.OperationBackup) is { } recap)
+        {
+            RaiseLineWritten(recap); lineSink?.Invoke(recap);
+        }
         if (IsValidBackrestGuid(terminal.SnapshotId))
         {
             // Backrest 1.14.1's automatic index task has no pending operation.

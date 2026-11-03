@@ -215,7 +215,7 @@ public sealed class ConfigMigrator
         backup.Targets.Clear();
         foreach (var p in prefs)
         {
-            var dest = UpsertDestinationFromPreference(cfg, repoName, p);
+            var dest = UpsertDestinationFromPreference(cfg, repoName, p, yamlDir);
             backup.Targets.Add(new BackupTarget
             {
                 DestinationId = dest.Id,
@@ -275,7 +275,7 @@ public sealed class ConfigMigrator
         return RecommendedFilters.MergeIntoFilters(note + custom, RecommendedFilters.RenderBlock(recommended));
     }
 
-    private Destination UpsertDestinationFromPreference(AppConfig cfg, string backupName, LegacyPreferences p)
+    private Destination UpsertDestinationFromPreference(AppConfig cfg, string backupName, LegacyPreferences p, string scriptDir)
     {
         var url = p.Storage ?? "";
         var kind = DetectKind(url);
@@ -331,6 +331,13 @@ public sealed class ConfigMigrator
             // external drive its backup is skipped while it is unplugged.
             try { if (!new DriveInfo(letter).IsReady && !IsSystemDrive(letter)) dest.Kind = DestinationKind.ExternalDrive; }
             catch (ArgumentException) { dest.Kind = DestinationKind.ExternalDrive; }
+            // Duplicacy has no drive-name setting; run scripts checked the
+            // drive themselves. Their check names it even while unplugged (U103).
+            if (string.IsNullOrEmpty(dest.ExpectedVolumeLabel) && VolumeLabelFromScripts(scriptDir, letter) is { } scripted)
+            {
+                dest.ExpectedVolumeLabel = scripted;
+                if (!IsSystemDrive(letter)) dest.Kind = DestinationKind.ExternalDrive;
+            }
         }
 
         // Backspace starts a new restic repository and must never write into
@@ -379,6 +386,33 @@ public sealed class ConfigMigrator
         var sys = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.System))
             ?? "C:\\";
         return sys.StartsWith(letter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // wmic logicaldisk where "VolumeName='My Passport' and Name='M:'", in either order.
+    private static readonly Regex[] ScriptVolumeChecks =
+    {
+        new(@"VolumeName\s*=\s*'(?<label>[^']+)'\s+and\s+(?:Name|DeviceID)\s*=\s*'(?<letter>[A-Za-z]:)'", RegexOptions.IgnoreCase),
+        new(@"(?:Name|DeviceID)\s*=\s*'(?<letter>[A-Za-z]:)'\s+and\s+VolumeName\s*=\s*'(?<label>[^']+)'", RegexOptions.IgnoreCase),
+    };
+
+    /// <summary>The drive name a Duplicacy run script required for
+    /// <paramref name="letter"/> before backing up, or null.</summary>
+    internal static string? VolumeLabelFromScripts(string dir, string letter)
+    {
+        try
+        {
+            foreach (var script in Directory.EnumerateFiles(dir)
+                .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".bat" or ".cmd" or ".ps1"))
+            {
+                var text = File.ReadAllText(script);
+                foreach (var check in ScriptVolumeChecks)
+                    foreach (Match m in check.Matches(text))
+                        if (string.Equals(m.Groups["letter"].Value, letter, StringComparison.OrdinalIgnoreCase))
+                            return m.Groups["label"].Value;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return null;
     }
 
     private static DestinationKind DetectKind(string url)

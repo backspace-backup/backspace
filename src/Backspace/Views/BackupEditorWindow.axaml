@@ -820,6 +820,14 @@
                     <TextBlock Classes="section-title" Text="Recommended exclusions" Margin="0"/>
                     <TextBlock Classes="helper" Margin="0"
                                Text="Tick what you'd like skipped, then click Apply. We'll update the labelled recommended block below your custom rules, keeping your own rules intact."/>
+                    <!-- Says whether the ticks are already in the filters, so
+                         the person knows when this section is done (U105). -->
+                    <TextBlock Margin="0" TextWrapping="Wrap" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{DynamicResource BS.Brush.Success}"
+                               Text="{Binding RecommendedStatus}" IsVisible="{Binding RecommendedApplied}"/>
+                    <TextBlock Margin="0" TextWrapping="Wrap" FontSize="13"
+                               Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                               Text="{Binding RecommendedStatus}" IsVisible="{Binding !RecommendedApplied}"/>
 
                     <CheckBox IsChecked="{Binding RecExcludeWindowsSystem}"
                               Content="Windows system files (pagefile, hiberfil, $Recycle.Bin, System Volume Information, Windows.old, ntuser.dat, etc.)"
@@ -859,10 +867,17 @@
                          hard-clip at the card edge. The star column
                          gives the wrap a real constraint. -->
                     <Grid ColumnDefinitions="Auto,14,*" Margin="0,4,0,0">
-                      <Button Grid.Column="0" Classes="primary"
-                              VerticalAlignment="Center"
-                              Content="Apply recommended exclusions"
-                              Command="{Binding ApplyRecommendedFiltersCommand}"/>
+                      <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+                        <Button Classes="primary"
+                                VerticalAlignment="Center"
+                                Content="Apply recommended exclusions"
+                                IsEnabled="{Binding !RecommendedApplied}"
+                                Command="{Binding ApplyRecommendedFiltersCommand}"/>
+                        <Button Classes="ghost" VerticalAlignment="Center"
+                                Content="Estimate savings"
+                                IsVisible="{Binding CanEstimateSavings}"
+                                Command="{Binding EstimateSavingsCommand}"/>
+                      </StackPanel>
                       <TextBlock Grid.Column="2" Classes="dim" FontSize="12"
                                  TextWrapping="Wrap"
                                  Foreground="{DynamicResource BS.Brush.Accent}"

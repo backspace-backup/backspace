@@ -228,6 +228,7 @@
                                      VerticalAlignment="Center"
                                      Foreground="{DynamicResource BS.Brush.FgDim}"
                                      IsVisible="{Binding HasSize}"
+                                     ToolTip.Tip="{Binding SizeTooltip}"
                                      Text="{Binding SizeLabel, StringFormat='({0})'}"/>
                           <TextBlock Grid.Column="3" FontSize="12"
                                      Margin="8,0,0,0"

@@ -302,6 +302,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
 
     partial void OnFiltersTextChanged(string value)
     {
+        RefreshRecommendedStatus();
         if (_ignoredRecommendationChanges is not null) RefreshRecommendationUpdate();
         if (_suppressFilterTouchTracking) return;
         _userTouchedFilters = true;
@@ -363,6 +364,34 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
               : $"Estimated savings: {HumanBytes(RecEstimatedSavingsBytes)} on this PC.",
     };
     private CancellationTokenSource? _savingsCts;
+
+    /// <summary>True when the ticked exclusions are already in this backup's
+    /// filters, so Apply has nothing left to do (U105).</summary>
+    public bool RecommendedApplied => RecommendedFilters.IsApplied(FiltersText, RecExcludeWindowsSystem,
+        RecExcludeCachesAndJunk, DetectedCloudFolders.Where(c => c.IsSelected).Select(c => c.Folder).ToList());
+
+    public string RecommendedStatus => RecommendedApplied
+        ? "✓ Applied. These exclusions are part of this backup's filters, so there is nothing more to do here. Change a tick to adjust them."
+        : "Not applied yet. Click Apply to put the ticked exclusions in this backup's filters.";
+
+    /// <summary>Applied exclusions with no savings figure yet: the card offers
+    /// to measure them instead of walking the sources on every open.</summary>
+    public bool CanEstimateSavings => RecommendedApplied && RecEstimatedSavingsBytes == -1;
+
+    [RelayCommand]
+    private Task EstimateSavingsAsync() => ComputeSavingsEstimateAsync();
+
+    partial void OnRecEstimatedSavingsBytesChanged(long value) => OnPropertyChanged(nameof(CanEstimateSavings));
+
+    private void RefreshRecommendedStatus()
+    {
+        OnPropertyChanged(nameof(RecommendedApplied));
+        OnPropertyChanged(nameof(RecommendedStatus));
+        OnPropertyChanged(nameof(CanEstimateSavings));
+    }
+
+    partial void OnRecExcludeWindowsSystemChanged(bool value) => RefreshRecommendedStatus();
+    partial void OnRecExcludeCachesAndJunkChanged(bool value) => RefreshRecommendedStatus();
 
     private static string HumanBytes(long b) => b switch
     {
@@ -561,8 +590,23 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
 
         // Cloud-sync folder detection runs once at editor open. Cheap
         // (env-var + file-existence checks); no need to re-run.
+        // An existing backup's ticks show what its saved block holds, so the
+        // card can say whether anything is left to apply (U105).
+        var saved = isNew ? null : RecommendedFilters.ReadChoice(_filtersText);
+        if (saved is not null)
+        {
+            _recExcludeWindowsSystem = saved.WindowsSystem;
+            _recExcludeCachesAndJunk = saved.CachesAndJunk;
+        }
         foreach (var folder in RecommendedFilters.DetectCloudSyncFolders())
-            DetectedCloudFolders.Add(new CloudExcludeChoice(folder));
+        {
+            var choice = new CloudExcludeChoice(folder);
+            if (saved is not null)
+                choice.IsSelected = RecommendedFilters.CloudLine(folder) is { } line
+                    && saved.CloudLines.Contains(line, StringComparer.OrdinalIgnoreCase);
+            choice.PropertyChanged += (_, _) => RefreshRecommendedStatus();
+            DetectedCloudFolders.Add(choice);
+        }
 
         foreach (var d in ServiceLocator.Config.Current.Destinations) AvailableDestinations.Add(d);
         foreach (var t in working.Targets)
@@ -1822,8 +1866,8 @@ public sealed partial class TargetRow : ObservableObject
 /// UI wrapper around a source path that exposes a live folder-size
 /// estimate. The probe runs off the UI thread and posts its result
 /// back via Dispatcher; until it completes we show "Estimating size…".
-/// Truncated probes (huge folders that hit the time cap) prefix the
-/// number with "~" so the user knows it's a lower bound.
+/// Probes that hit the time cap read "At least …" (a lower bound);
+/// a whole drive falls back to the space used on it.
 /// </summary>
 public sealed partial class SourceChipVm : ObservableObject
 {
@@ -1857,10 +1901,10 @@ public sealed partial class SourceChipVm : ObservableObject
                 Path, System.Threading.CancellationToken.None, progress);
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                var prefix = result.Truncated ? "~" : "";
-                SizeLabel = result.FileCount == 0
-                    ? "Empty or unreadable"
-                    : $"{prefix}{HumanBytes(result.Bytes)} · {result.FileCount:N0} files";
+                SizeLabel = result.FileCount == 0 ? "Empty or unreadable"
+                    : result.Approximate ? $"About {HumanBytes(result.Bytes)} (space used on the drive)"
+                    : result.Truncated ? $"At least {HumanBytes(result.Bytes)} · {result.FileCount:N0}+ files"
+                    : $"{HumanBytes(result.Bytes)} · {result.FileCount:N0} files";
                 SizeReady = true;
             });
         }

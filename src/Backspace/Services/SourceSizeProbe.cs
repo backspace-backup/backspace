@@ -35,7 +35,7 @@ public sealed class SourceSizeProbe
     /// <summary>Per-source cap on how long a scan runs before giving
     /// up with a partial result. Generous enough for typical user-
     /// data folders; the result is just an estimate either way.</summary>
-    public TimeSpan MaxScanDuration { get; init; } = TimeSpan.FromSeconds(15);
+    public TimeSpan MaxScanDuration { get; init; } = TimeSpan.FromMinutes(3);
 
     /// <summary>How often the walker fires an in-progress
     /// <see cref="SourceSizeProgress"/> update so the UI can show a
@@ -124,88 +124,55 @@ public sealed class SourceSizeProbe
             path, bytes);
     }
 
-    private Task<SourceSizeResult> ComputeAsync(
+    private async Task<SourceSizeResult> ComputeAsync(
         string path,
         CancellationToken ct,
         IProgress<SourceSizeProgress>? progress = null)
     {
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
-            return Task.FromResult(new SourceSizeResult(path, 0, 0, false, false));
+            return new SourceSizeResult(path, 0, 0, false, false);
 
         long bytes = 0;
         long files = 0;
-        var truncated = false;
-        var startedAt = DateTime.UtcNow;
-        var deadline = startedAt + MaxScanDuration;
-        var nextProgressAt = startedAt + ProgressInterval;
-
-        var stack = new Stack<string>();
-        stack.Push(path);
-
-        while (stack.Count > 0)
+        var root = TreeWalk.Root(path);
+        var walk = Task.Run(() => TreeWalk.Walk(root, (entry, _) =>
         {
-            ct.ThrowIfCancellationRequested();
-            var now = DateTime.UtcNow;
-            if (now > deadline)
-            {
-                truncated = true;
-                break;
-            }
-            if (progress is not null && now >= nextProgressAt)
-            {
-                progress.Report(new SourceSizeProgress(bytes, files));
-                nextProgressAt = now + ProgressInterval;
-            }
+            if (entry.IsDirectory) return false;
+            Interlocked.Add(ref bytes, entry.Length);
+            Interlocked.Increment(ref files);
+            return null;
+        }, DateTime.UtcNow + MaxScanDuration, ct), ct);
 
-            var dir = stack.Pop();
-            IEnumerable<string>? subdirs = null;
-            IEnumerable<string>? thisFiles = null;
+        while (!walk.IsCompleted)
+        {
+            await Task.WhenAny(walk, Task.Delay(ProgressInterval, ct));
+            if (!walk.IsCompleted)
+                progress?.Report(new SourceSizeProgress(Interlocked.Read(ref bytes), Interlocked.Read(ref files)));
+        }
+        var truncated = !await walk;
+        var result = new SourceSizeResult(path, bytes, files, true, truncated);
+
+        // A whole drive too big to list in time: the space it uses is a
+        // close, instant answer (it also counts the page file and other
+        // system files that backups leave out).
+        if (truncated && TreeWalk.IsDriveRoot(root))
+        {
             try
             {
-                subdirs = Directory.EnumerateDirectories(dir);
-                thisFiles = Directory.EnumerateFiles(dir);
+                var drive = new DriveInfo(root);
+                var used = drive.TotalSize - drive.TotalFreeSpace;
+                if (used > bytes) result = result with { Bytes = used, Approximate = true };
             }
-            catch (UnauthorizedAccessException) { continue; }
-            catch (DirectoryNotFoundException)  { continue; }
-            catch (PathTooLongException)        { continue; }
-            catch (IOException)                 { continue; }
-
-            foreach (var f in thisFiles)
-            {
-                try
-                {
-                    var info = new FileInfo(f);
-                    // Skip reparse points (junctions/symlinks); their
-                    // length is meaningless and following them risks
-                    // double-counting.
-                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                    bytes += info.Length;
-                    files++;
-                }
-                catch { /* file disappeared mid-walk; ignore */ }
-            }
-
-            foreach (var sub in subdirs)
-            {
-                try
-                {
-                    var info = new DirectoryInfo(sub);
-                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                }
-                catch { continue; }
-                stack.Push(sub);
-            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
         }
-
-        var result = new SourceSizeResult(path, bytes, files, true, truncated);
-        _log.Debug("Source size for {Path}: {Bytes:N0} bytes, {Files:N0} files, truncated={Truncated}",
-            path, bytes, files, truncated);
-        return Task.FromResult(result);
+        _log.Debug("Source size for {Path}: {Bytes:N0} bytes, {Files:N0} files, truncated={Truncated}, approximate={Approximate}",
+            path, result.Bytes, files, truncated, result.Approximate);
+        return result;
     }
 
     private static string NormalizeKey(string path)
     {
-        try { return Path.GetFullPath(path).TrimEnd('\\', '/'); }
+        try { return TreeWalk.Root(path); }
         catch { return path; }
     }
 }
@@ -215,12 +182,15 @@ public sealed class SourceSizeProbe
 /// <param name="FileCount">Files counted.</param>
 /// <param name="Completed">True once the walk finished. False = not yet probed.</param>
 /// <param name="Truncated">True if the time cap kicked in before we finished.</param>
+/// <param name="Approximate">True when <paramref name="Bytes"/> is the space
+/// used on the whole drive, because listing it took too long.</param>
 public readonly record struct SourceSizeResult(
     string Path,
     long Bytes,
     long FileCount,
     bool Completed,
-    bool Truncated);
+    bool Truncated,
+    bool Approximate = false);
 
 /// <summary>Running-total snapshot fired periodically by the walker
 /// while a probe is still in flight. Lets the UI replace the static

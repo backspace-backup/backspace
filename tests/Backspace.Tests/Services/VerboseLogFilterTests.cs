@@ -162,6 +162,38 @@ public class VerboseLogFilterTests
         Assert.True(VerboseLogFilter.IsVerboseOn());
     }
 
+    // U112/U113: the default view of a backup log reads like Duplicacy's:
+    // phases, progress, errors and the recap. Debug records and repeated
+    // state polls appear with Verbose on. Lines taken from a real run log.
+    [Fact]
+    public void Engine_debug_records_and_state_polls_show_only_with_verbose_on()
+    {
+        ResetConfig();
+        var raw =
+            "[orchestrator] attempt 1 starting at 2026-11-03T07:29:25.1431633Z\r\n" +
+            "[backrest] op=1 status=STATUS_PENDING\r\n" +
+            "[backrest] op=1 status=STATUS_INPROGRESS\r\n" +
+            "[repo-manager] 21:31:49.992Z\tdebug\trepo orchestrator starting backup\t{\"repo\": \"x\"}\r\n" +
+            "[restic] 21:32:01.583Z\tdebug\tcommand: \"restic.exe backup --json C:\\\\\"\r\n" +
+            "[progress] 42.5% · Backing up · 21 GB of 50 GB · 4,200 of 10,000 files · 31 MB/s\r\n" +
+            "[tasklog] 23:05:19.180Z\terror\tbackup for plan \"p\"\ttask failed\r\n" +
+            "[backrest] op=2 status=STATUS_USER_CANCELLED failed to backup\r\n" +
+            "[recap] Backup complete: 10 files (1 GB) checked\r\n";
+
+        SetVerbose(false);
+        Assert.Equal(
+            "[orchestrator] attempt 1 starting at 2026-11-03T07:29:25.1431633Z\r\n" +
+            "[progress] 42.5% · Backing up · 21 GB of 50 GB · 4,200 of 10,000 files · 31 MB/s\r\n" +
+            "[tasklog] 23:05:19.180Z\terror\tbackup for plan \"p\"\ttask failed\r\n" +
+            "[backrest] op=2 status=STATUS_USER_CANCELLED failed to backup\r\n" +
+            "[recap] Backup complete: 10 files (1 GB) checked\r\n",
+            VerboseLogFilter.FilterForDisplay(raw));
+
+        SetVerbose(true);
+        Assert.Equal(raw, VerboseLogFilter.FilterForDisplay(raw));
+        SetVerbose(false);
+    }
+
     private static void ResetConfig()
     {
         if (!ServiceLocator.Initialized) ServiceLocator.InitializeCore();

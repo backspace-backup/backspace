@@ -39,6 +39,17 @@ internal static class VerboseLogFilter
     public static bool IsDuplicacyDebugLine(string line) =>
         !string.IsNullOrEmpty(line) && SingleLineDebugRegex.IsMatch(line);
 
+    /// <summary>Backrest's debug records (<c>[restic] 21:31:49.992Z debug …</c>)
+    /// and its repeated "still pending / still running" state polls: the
+    /// readable view keeps phases, progress, errors and the recap (U112).</summary>
+    private static readonly Regex EngineDetailRegex = new(
+        @"^\[[\w-]+\] \d{2}:\d{2}:\d{2}(?:\.\d+)?Z?\s+debug\s|^\[backrest\] op=\d+ status=STATUS_(?:PENDING|INPROGRESS)\s*$",
+        RegexOptions.Compiled);
+
+    /// <summary>True iff <paramref name="line"/> is shown only with verbose on.</summary>
+    public static bool IsDetailLine(string line) =>
+        !string.IsNullOrEmpty(line) && (SingleLineDebugRegex.IsMatch(line) || EngineDetailRegex.IsMatch(line));
+
     /// <summary>True iff the user has opted into verbose diagnostic
     /// logging via Settings → "Show verbose diagnostic logs". Reads
     /// directly from the live config so a runtime toggle takes effect
@@ -56,7 +67,7 @@ internal static class VerboseLogFilter
     /// verbose is on, are hidden otherwise; everything else always
     /// passes.</summary>
     public static bool ShouldShow(string line) =>
-        !IsDuplicacyDebugLine(line) || IsVerboseOn();
+        !IsDetailLine(line) || IsVerboseOn();
 
     /// <summary>
     /// Apply the filter to a multi-line block, returning a new string
@@ -91,7 +102,7 @@ internal static class VerboseLogFilter
             // flush, all short-lived and Gen0-friendly.
             int contentLen = i - lineStart;
             if (contentLen == 0
-                || !SingleLineDebugRegex.IsMatch(raw.Substring(lineStart, contentLen)))
+                || !IsDetailLine(raw.Substring(lineStart, contentLen).TrimEnd('\r')))
             {
                 sb.Append(raw, lineStart, termInclusive - lineStart);
             }

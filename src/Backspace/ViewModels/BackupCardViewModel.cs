@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -396,9 +397,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         // BackupCard doesn't render "(0 B)" for never-run backups.
         foreach (var line in Sources)
         {
-            line.SizeLabel = b.SourceLastSizeBytes.TryGetValue(line.Path, out var bytes) && bytes > 0
-                ? HumanFormat.Size(bytes)
-                : "";
+            if (b.SourceLastSizeBytes.TryGetValue(line.Path, out var bytes) && bytes > 0) line.ShowMeasured(bytes);
+            else line.ShowEstimate();
         }
 
         // Destinations column. Each pill carries the class kind so the
@@ -1023,10 +1023,55 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         /// in <see cref="Backup.SourceLastSizeBytes"/>; rendered in
         /// parentheses next to the path on the BackupCard.</summary>
         [ObservableProperty] private string _sizeLabel = "";
+        [ObservableProperty] private string _sizeTooltip = "";
         public bool HasSize => !string.IsNullOrEmpty(SizeLabel);
         partial void OnSizeLabelChanged(string value) =>
             OnPropertyChanged(nameof(HasSize));
         public SourceLine(string path) { Path = path; }
+
+        private bool _measured;
+        private bool _estimating;
+
+        public void ShowMeasured(long bytes)
+        {
+            _measured = true;
+            SizeLabel = HumanFormat.Size(bytes);
+            SizeTooltip = "Size measured by the last backup.";
+        }
+
+        /// <summary>Before a first successful backup, shows the size of the
+        /// files on disk, replaced by the measured size once a backup has
+        /// run (U106). The probe is shared and cached, so each folder is
+        /// read at most once per session.</summary>
+        public void ShowEstimate()
+        {
+            _measured = false;
+            if (ServiceLocator.SizeProbe is not { } probe) return;
+            if (probe.TryGetCached(Path) is { } cached) { ApplyEstimate(cached); return; }
+            if (_estimating) return;
+            _estimating = true;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var result = await probe.GetOrComputeAsync(Path, CancellationToken.None);
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyEstimate(result));
+                }
+                catch (Exception) { }
+                finally { _estimating = false; }
+            });
+        }
+
+        private void ApplyEstimate(SourceSizeResult result)
+        {
+            if (_measured || !result.Completed || result.Bytes <= 0) return;
+            var size = HumanFormat.Size(result.Bytes);
+            (SizeLabel, SizeTooltip) = result.Approximate
+                ? ($"about {size}", "Space used on the whole drive, as reading every folder took too long. The first backup measures what it actually saves.")
+                : result.Truncated
+                    ? ($"{size}+", "At least this much: reading every folder took too long. The first backup measures it exactly.")
+                    : ($"about {size}", "Estimated from the files in this folder before the first backup. The first backup measures it exactly.");
+        }
     }
 
     /// <summary>One pill in the Destinations column. Identity fields

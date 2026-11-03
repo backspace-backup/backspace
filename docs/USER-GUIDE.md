@@ -7,6 +7,7 @@ of Backspace behaves, including its limits.
 - [Schedules, the tray icon and Quit](#schedules-the-tray-icon-and-quit)
 - [Administrator access and files in use](#administrator-access-and-files-in-use)
 - [Filters](#filters)
+- [Sizes and logs](#sizes-and-logs)
 - [Restoring files](#restoring-files)
 - [Browsing and mounting snapshots](#browsing-and-mounting-snapshots)
 - [The test-restore drill](#the-test-restore-drill)
@@ -159,6 +160,31 @@ that runs the backup. See
 
 Edit restic's filter syntax with a live simulation pane that shows which files
 would be included or excluded before you run.
+
+**Filters → Recommended** groups the suggested exclusions (Windows system
+files, app caches, cloud-synced folders). A green **✓ Applied** line means
+the ticked groups are already in the backup's filters and there is nothing
+left to do; **Apply recommended exclusions** is enabled again only when you
+change a tick. **Estimate savings** reads the sources and says how much the
+exclusions skip on this PC.
+
+## Sizes and logs
+
+Before a backup's first run, each source on its card shows its size read from
+the disk ("about 812 GB"). Hover it for how it was measured. Backspace reads
+several folders at once, without opening each file. A whole drive too big to
+read within three minutes shows the space used on the drive instead, which
+also counts the page file and other files backups leave out. After a backup
+runs, the card shows the size that backup measured.
+
+**Activity & logs** shows each run as phases, progress every few seconds
+(percent, bytes and files done, upload speed) and a closing recap: files
+checked, new, changed and unchanged, data added to the storage and duration.
+Tick **Verbose**, beside **Clear view**, to also show the engine's debug lines
+and status polls. Run logs always record every line, so ticking it shows the
+details of past runs too. It is the same setting as **Settings → Logs &
+diagnostics → Show verbose diagnostic logs**, which also makes Backspace's own
+app log record debug lines from then on.
 
 ## Restoring files
 
@@ -338,7 +364,11 @@ backups stay, so deleting that folder removes the rest.
   convention). Restore profiles that reuse a backup's snapshot ID are skipped.
 
 Backspace imports storage URLs, repository paths, filters, and per-storage
-threads, keep, prune and check settings. Your Duplicacy storage is **left
+threads, keep, prune and check settings. A storage on another drive becomes
+an external drive matched by its volume name, read from the drive or, while it
+is unplugged, from a run script's check such as
+`wmic logicaldisk where "VolumeName='My Passport' and Name='M:'"`. Your
+Duplicacy storage is **left
 untouched**: Backspace starts a fresh restic repository beside it (a
 `Duplicacy` folder in the path becomes `Backspace`; Dropbox uses Backspace's
 own app folder). Cloud sign-ins and storage passwords aren't imported: until a

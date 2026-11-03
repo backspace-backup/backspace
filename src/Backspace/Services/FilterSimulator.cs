@@ -90,7 +90,7 @@ public sealed class FilterSimulator
         var truncated = false;
         var deadline = DateTime.UtcNow + MaxScanDuration;
 
-        var rootFull = Path.GetFullPath(sourceRoot).TrimEnd('\\', '/');
+        var rootFull = TreeWalk.Root(sourceRoot);
         var stack = new Stack<string>();
         stack.Push(rootFull);
 
@@ -107,45 +107,24 @@ public sealed class FilterSimulator
             ct.ThrowIfCancellationRequested();
             if (DateTime.UtcNow > deadline) { truncated = true; break; }
 
-            var dir = stack.Pop();
-            IEnumerable<string>? files = null;
-            IEnumerable<string>? subs  = null;
-            try
-            {
-                files = Directory.EnumerateFiles(dir);
-                subs  = Directory.EnumerateDirectories(dir);
-            }
-            catch (UnauthorizedAccessException) { continue; }
-            catch (DirectoryNotFoundException)  { continue; }
-            catch (PathTooLongException)        { continue; }
-            catch (IOException)                 { continue; }
-
-            foreach (var f in files)
+            var entries = TreeWalk.List(stack.Pop());
+            foreach (var f in entries)
             {
                 if (truncated) break;
-                try
-                {
-                    var info = new FileInfo(f);
-                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                }
-                catch { continue; }
+                if (f.IsDirectory || f.IsLink) continue;
 
-                var rel = MakeRelative(rootFull, f);
+                var rel = TreeWalk.Relative(rootFull, f.FullPath);
                 var (included, rule) = Evaluate(rules, rel);
-                Emit(new SimulatedEntry(f, included, rule));
+                Emit(new SimulatedEntry(f.FullPath, included, rule));
             }
 
-            foreach (var sub in subs)
+            foreach (var d in entries)
             {
                 if (truncated) break;
-                try
-                {
-                    var info = new DirectoryInfo(sub);
-                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                }
-                catch { continue; }
+                if (!d.IsDirectory || d.IsLink) continue;
+                var sub = d.FullPath;
 
-                var rel = MakeRelative(rootFull, sub) + "/";
+                var rel = TreeWalk.Relative(rootFull, sub) + "/";
                 var (included, rule) = Evaluate(rules, rel);
                 if (included)
                 {
@@ -160,13 +139,6 @@ public sealed class FilterSimulator
         }
 
         return (emitted, truncated);
-    }
-
-    private static string MakeRelative(string root, string full)
-    {
-        if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-            full = full.Substring(root.Length).TrimStart('\\', '/');
-        return full.Replace('\\', '/');
     }
 
     /// <summary>
