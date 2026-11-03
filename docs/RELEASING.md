@@ -95,9 +95,9 @@ repository, no expiry. A repository administrator sets it up once (PowerShell,
 with the GitHub CLI signed in):
 
 ```powershell
-ssh-keygen -t ed25519 -N  -C "backspace website sync" -f "$env:TEMPs-site"
-gh repo deploy-key add "$env:TEMPs-site.pub" --repo backspace-backup/backspace-backup.github.io --allow-write --title "backspace docs sync"
-Get-Content "$env:TEMPs-site" -Raw | gh secret set WEBSITE_DEPLOY_KEY --repo backspace-backup/backspace
-Remove-Item "$env:TEMPs-site", "$env:TEMPs-site.pub"
+ssh-keygen -t ed25519 -N '""' -C "backspace website sync" -f "$env:TEMP\bs-site"
+gh repo deploy-key add "$env:TEMP\bs-site.pub" --repo backspace-backup/backspace-backup.github.io --allow-write --title "backspace docs sync"
+Get-Content "$env:TEMP\bs-site" -Raw | gh secret set WEBSITE_DEPLOY_KEY --repo backspace-backup/backspace
+Remove-Item "$env:TEMP\bs-site", "$env:TEMP\bs-site.pub"
 gh workflow run sync-website.yml --repo backspace-backup/backspace
 ```
