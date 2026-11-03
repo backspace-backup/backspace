@@ -85,3 +85,19 @@ The workflow is the enforced publishing route for agents. GitHub repository admi
 Record actual configuration and rehearsal results in the local Review desk issue N011. Do not describe the new gate as exercised until the candidate workflow has passed a non-publishing rehearsal and its rejection cases have been tested. The older October 9 human-approval rehearsal is historical evidence for that earlier workflow, not for this checklist gate.
 
 GitHub documents [deployment environments and their protection rules](https://docs.github.com/en/rest/deployments/environments). Live cloud, reboot and application-specific Windows checks remain separate where relevant; a large local round trip does not prove them.
+
+## Website
+
+The website is the `docs/` folder of `main`. Every push to `main` that changes
+`docs/` runs `.github/workflows/sync-website.yml`, which mirrors it into
+`backspace-backup.github.io` with a deploy key: write access to that one
+repository, no expiry. A repository administrator sets it up once (PowerShell,
+with the GitHub CLI signed in):
+
+```powershell
+ssh-keygen -t ed25519 -N  -C "backspace website sync" -f "$env:TEMPs-site"
+gh repo deploy-key add "$env:TEMPs-site.pub" --repo backspace-backup/backspace-backup.github.io --allow-write --title "backspace docs sync"
+Get-Content "$env:TEMPs-site" -Raw | gh secret set WEBSITE_DEPLOY_KEY --repo backspace-backup/backspace
+Remove-Item "$env:TEMPs-site", "$env:TEMPs-site.pub"
+gh workflow run sync-website.yml --repo backspace-backup/backspace
+```
