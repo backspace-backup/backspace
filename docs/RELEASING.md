@@ -90,14 +90,16 @@ GitHub documents [deployment environments and their protection rules](https://do
 
 The website is the `docs/` folder of `main`. Every push to `main` that changes
 `docs/` runs `.github/workflows/sync-website.yml`, which mirrors it into
-`backspace-backup.github.io` with a deploy key: write access to that one
-repository, no expiry. A repository administrator sets it up once (PowerShell,
-with the GitHub CLI signed in):
+`backspace-backup.github.io` with a fine-grained personal access token
+(deploy keys are disabled for the organization). A repository administrator
+sets it up once:
 
-```powershell
-ssh-keygen -t ed25519 -N '""' -C "backspace website sync" -f "$env:TEMP\bs-site"
-gh repo deploy-key add "$env:TEMP\bs-site.pub" --repo backspace-backup/backspace-backup.github.io --allow-write --title "backspace docs sync"
-Get-Content "$env:TEMP\bs-site" -Raw | gh secret set WEBSITE_DEPLOY_KEY --repo backspace-backup/backspace
-Remove-Item "$env:TEMP\bs-site", "$env:TEMP\bs-site.pub"
-gh workflow run sync-website.yml --repo backspace-backup/backspace
-```
+1. At https://github.com/settings/personal-access-tokens choose **Generate new
+   token**. Resource owner: **backspace-backup**. Repository access: **Only
+   select repositories**, then `backspace-backup.github.io`. Repository
+   permissions: **Contents: Read and write** (Metadata: read is added
+   automatically). Pick an expiry and note it: the sync fails once it expires.
+2. In this repository, **Settings → Secrets and variables → Actions → New
+   repository secret**: name `WEBSITE_DEPLOY_TOKEN`, value the token.
+3. **Actions → Sync website to backspace-backup.github.io → Run workflow**, or
+   push a change to `docs/`.

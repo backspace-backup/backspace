@@ -7,10 +7,11 @@ name: Sync website to backspace-backup.github.io
 # /docs/ path segment.
 #
 # ──────────────────────────────────────────────────────────────────────────
-# One-time setup: a deploy key with write access to the website repository,
-# stored here as the WEBSITE_DEPLOY_KEY secret (it never expires and reaches
-# no other repository). Until it exists this workflow fails at the deploy step.
-# Commands in docs/RELEASING.md, "Website".
+# One-time setup: a fine-grained personal access token limited to the website
+# repository (Contents: read and write), stored here as the WEBSITE_DEPLOY_TOKEN
+# secret. Deploy keys are disabled for the backspace-backup organization.
+# Until the secret exists this workflow fails at the deploy step. Steps in
+# docs/RELEASING.md, "Website".
 # ──────────────────────────────────────────────────────────────────────────
 
 on:
@@ -38,7 +39,7 @@ jobs:
       - name: Mirror docs/ to backspace-backup.github.io
         uses: peaceiris/actions-gh-pages@v4
         with:
-          deploy_key: ${{ secrets.WEBSITE_DEPLOY_KEY }}
+          personal_token: ${{ secrets.WEBSITE_DEPLOY_TOKEN }}
           external_repository: backspace-backup/backspace-backup.github.io
           publish_branch: main
           publish_dir: ./docs
