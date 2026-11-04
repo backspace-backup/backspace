@@ -17,6 +17,18 @@ namespace Backspace.Tests.ViewModels;
 /// </summary>
 public class RunRecordRowTextTests
 {
+    /// <summary>4 November 2026: the run list showed the engine's own text for a
+    /// stopped run over several lines.</summary>
+    [Fact]
+    public void A_stopped_run_saved_with_the_engine_text_reads_Stopped()
+    {
+        var rec = MakeRecord(BackupRunStatus.Skipped, "Backup result: STATUS_USER_CANCELLED. failed to backup: command restic.exe backup failed: exit code 1"
+            + "\noutput processing: no summary event found\n\nnote: task was cancelled by user request · skipped after 19m");
+        Assert.EndsWith("  ·  Stopped", Render(rec));
+        Assert.DoesNotContain("STATUS", Render(rec));
+        Assert.EndsWith("  ·  Stopped after 1h 35m", Render(MakeRecord(BackupRunStatus.Skipped, "Stopped after 1h 35m")));
+    }
+
     [Fact]
     public void Skipped_WithManuallySkippedSummary_DropsRedundantStatusCell()
     {

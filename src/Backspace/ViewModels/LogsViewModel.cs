@@ -807,6 +807,16 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         }, System.Threading.Tasks.TaskScheduler.Default);
     }
 
+    /// <summary>Opening Activity & logs while a backup of the selected backup
+    /// runs shows that run, not the one before it, which had stayed selected
+    /// since the app opened (4 November 2026). A run chosen while on the page
+    /// is never replaced by new activity.</summary>
+    public void ShowRunningRunIfAny()
+    {
+        if (History.FirstOrDefault() is { Status: BackupRunStatus.Running, EndedUtc: null } running && !ReferenceEquals(SelectedRun, running))
+            SelectedRun = running;
+    }
+
     public void Refresh()
     {
         var previousBackup = SelectedBackup;

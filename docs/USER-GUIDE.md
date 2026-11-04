@@ -234,7 +234,8 @@ System Volume Information (shadow copies and the search index), the temporary
 folders of Windows Update, upgrades, resets and installers (Config.Msi,
 $WinREAgent, $GetCurrent, $SysReset, $Windows.~BT, $Windows.~WS,
 Windows10Upgrade, OneDriveTemp) and the boot files at the top of the drive
-(bootmgr, BOOTNXT, BOOTSECT.BAK). Windows, Windows.old, the Recycle Bin and the registry hives are only
+(bootmgr, BOOTNXT, BOOTSECT.BAK), and in every profile Windows' app shortcuts
+(AppDataLocalMicrosoftWindowsApps), links the engine can't store. Windows, Windows.old, the Recycle Bin and the registry hives are only
 recommended exclusions: a backup can include them. The Recovery folder is
 never excluded: a manufacturer may keep recovery files there.
 

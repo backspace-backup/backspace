@@ -158,6 +158,11 @@ public static class RecommendedFilters
         "/BOOTNXT",
         "/BOOTSECT.BAK",
         "/OneDriveTemp/",
+        // Windows' app execution aliases (wt.exe, winget.exe…), links Windows
+        // makes when a Store app is installed. The engine can't store them
+        // ("unsupported file type"): local_c's runs ended with 92 errors, all
+        // from here (4 November 2026). Matched in any profile, at any depth.
+        "AppData/Local/Microsoft/WindowsApps/",
     };
 
     /// <summary>True for a rule meant for the top of a drive (System Volume

@@ -61,6 +61,10 @@ public sealed class S71_BackgroundRunLogs : ScenarioBase
         activity = activity with { Progress = activity.Progress! with { TranscriptEnd = activity.Progress!.TranscriptTail.Length } };
         await monitor.RefreshAsync(CancellationToken.None); await ctx.Driver.PumpAsync(100);
         Assert.Equal(second.Id, vm.SelectedRun!.Id); // New activity must not steal a past selection.
+        // Opening Activity & logs while it runs shows the running run, not
+        // the one before it (4 November 2026, the owner's installation).
+        vm.ShowRunningRunIfAny(); await ctx.Driver.PumpAsync(50);
+        Assert.Equal(runId, vm.SelectedRun!.Id);
         picker.SelectedItem = vm.History.Single(r => r.Id == runId); await ctx.Driver.PumpAsync(100);
         Assert.True(vm.IsShowingLive); Assert.Contains("42 of 100", vm.DisplayText);
         ctx.Snapshot(window, "live-background-log", "The running background backup appears in the run list and its live output reaches the console without starting a local backup.");

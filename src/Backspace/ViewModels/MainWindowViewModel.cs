@@ -170,6 +170,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         };
         if (value is NavItem.Backups or NavItem.Logs)
             _ = RefreshExternalStateAsync();
+        if (value is NavItem.Logs) Logs.ShowRunningRunIfAny();
 
         // Restore is a step-by-step wizard, not a stateful workspace.
         // A fresh nav back to it should restart from step 1 — otherwise

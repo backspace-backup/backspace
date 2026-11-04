@@ -127,9 +127,10 @@ public class ResticBackrestEngineTests
         var root = System.IO.Path.GetFullPath("/x").Replace('\\', '/');
         // The backup's own rules come first; the always-excluded files, which
         // always apply (U106), follow.
-        // "/x" is a folder, not a whole drive: the always-excluded files,
-        // which exist only at the top of a drive, are not added (U106).
-        Assert.Equal(new[] { root + "/**/*.tmp", root + "/**/node_modules/" }, allPatterns);
+        // "/x" is a folder, not a whole drive: the always-excluded files that
+        // exist only at the top of a drive are not added (U106); Windows' app
+        // aliases, which can be anywhere in a profile, are.
+        Assert.Equal(new[] { root + "/**/*.tmp", root + "/**/node_modules/", root + "/**/AppData/Local/Microsoft/WindowsApps/" }, allPatterns);
     }
 
     [Fact]

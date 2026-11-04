@@ -1030,11 +1030,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// </summary>
     private static string NormaliseSuccessSummary(string? raw, BackupRunStatus status)
     {
-        var s = raw ?? "—";
-        // Runs saved before 4 November 2026 kept the engine's own wording for
-        // a run stopped on request (status code and command line).
-        if (status == BackupRunStatus.Skipped && s.StartsWith("Backup result: STATUS_USER_CANCELLED", StringComparison.Ordinal))
-            return "Stopped";
+        var s = raw is null ? "—" : RunSummaryWording.ForDisplay(raw, status);
         if (status != BackupRunStatus.Success) return s;
         // Bare "in 4s" / "in 1h 12m" / "in 1m 12s" with no leading
         // descriptive parts → prepend "Completed". The regex

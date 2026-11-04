@@ -450,7 +450,7 @@ public static class RunRecordRowText
             if (value is not RunRecord r) return "";
             var when = r.StartedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
             var status = r.Status.ToString();
-            var summary = (r.Summary ?? "").Trim();
+            var summary = Backspace.Services.RunSummaryWording.ForDisplay(r.Summary, r.Status);
             // Kind prefix: backup runs render flat (the most common
             // case, no extra noise); restore + test-restore get a
             // tagged prefix so the user can scan the dropdown and
@@ -476,7 +476,7 @@ public static class RunRecordRowText
                     || summary.StartsWith(status, StringComparison.OrdinalIgnoreCase)
                     || status.StartsWith(summary.TrimEnd('…', '.', ' '), StringComparison.OrdinalIgnoreCase)
                     || (string.Equals(status, "Skipped", StringComparison.OrdinalIgnoreCase)
-                        && summary.Contains("skipped", StringComparison.OrdinalIgnoreCase)));
+                        && (summary.Contains("skipped", StringComparison.OrdinalIgnoreCase) || summary.StartsWith("Stopped", StringComparison.OrdinalIgnoreCase))));
             if (summary.Length == 0)
                 return $"{kindPrefix}{when}  ·  {status}";
             // When the summary already implies the status, prefer the

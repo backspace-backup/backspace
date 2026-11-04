@@ -32,7 +32,7 @@ public sealed class FilterScopeTests
 
         // D:\Projects\Intel or D:\Projects\Windows are the person's own folders.
         var folder = Rules(filters, @"D:\Projects");
-        Assert.DoesNotContain(folder, r => r.Contains("/Intel/") || r.Contains("/Windows") || r.Contains("System Volume Information"));
+        Assert.DoesNotContain(folder, r => r.Contains("/Intel/") || r.Contains("/Windows/") || r.Contains("/Windows.old") || r.Contains("System Volume Information"));
         // A rule the person wrote is theirs, wherever the source is.
         Assert.Contains("D:/Projects/build/", folder);
     }
