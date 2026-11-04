@@ -131,15 +131,19 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         : "Restore files from a previous revision of this backup to a folder you choose.";
 
     /// <summary>Whether this backup has stored anything to restore, mount or
-    /// browse: a run that ended other than skipped, or an earlier success.
-    /// A backup that never ran has nothing yet (U079, 2 November 2026).</summary>
-    public bool HasRestorableRun => Snapshot.LastSuccessUtc is not null
-        || (DisplayedRunEndUtc is not null && DisplayedRunStatus is not (BackupRunStatus.NeverRun or BackupRunStatus.Skipped));
+    /// browse: an earlier success, or a run in which at least one source
+    /// reached a destination. A backup that never ran has nothing yet (U079,
+    /// 2 November 2026), and neither does one whose only runs failed:
+    /// local_d, whose destination isn't connected, offered Mount and Restore
+    /// (4 November 2026).</summary>
+    public bool HasRestorableRun => Snapshot.LastSuccessUtc is not null || _displayedRunStoredSomething;
+
+    private bool _displayedRunStoredSomething;
 
     /// <summary>Mount, Restore files and Browse snapshots: idle and with something stored.</summary>
     public bool CanUseSnapshots => !IsRunning && HasRestorableRun;
 
-    public const string NothingToRestoreTooltip = "Nothing to restore yet: this backup hasn't run. Run it first.";
+    public const string NothingToRestoreTooltip = "Nothing to restore yet: this backup hasn't stored anything. Run it first.";
 
     partial void OnDisplayedRunEndUtcChanged(DateTime? value) => RaiseSnapshotAvailability();
     partial void OnDisplayedRunStatusChanged(BackupRunStatus value) => RaiseSnapshotAvailability();
@@ -517,6 +521,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         var status = useHistory ? latest!.Status : saved.LastRunStatus;
         var end = useHistory ? latest!.EndedUtc : saved.LastRunEndUtc;
         var summary = useHistory ? latest!.Summary : saved.LastRunSummary;
+        _displayedRunStoredSomething = end is not null && (status is BackupRunStatus.Success or BackupRunStatus.Warning
+            || useHistory && latest!.Cells.Any(c => c.Status is BackupRunStatus.Success or BackupRunStatus.Warning));
         StatusClass = status switch
         {
             BackupRunStatus.Success => "ok", BackupRunStatus.Warning => "warn", BackupRunStatus.Failed => "fail",
@@ -1025,6 +1031,10 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     private static string NormaliseSuccessSummary(string? raw, BackupRunStatus status)
     {
         var s = raw ?? "—";
+        // Runs saved before 4 November 2026 kept the engine's own wording for
+        // a run stopped on request (status code and command line).
+        if (status == BackupRunStatus.Skipped && s.StartsWith("Backup result: STATUS_USER_CANCELLED", StringComparison.Ordinal))
+            return "Stopped";
         if (status != BackupRunStatus.Success) return s;
         // Bare "in 4s" / "in 1h 12m" / "in 1m 12s" with no leading
         // descriptive parts → prepend "Completed". The regex

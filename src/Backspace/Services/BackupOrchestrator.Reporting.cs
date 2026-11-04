@@ -320,7 +320,8 @@ public sealed partial class BackupOrchestrator
             // reason has its own vocabulary and we still need to spell
             // out that the run was skipped.
             var trimmedReason = reason.TrimEnd('.', ' ', '·');
-            var saysSkipped = trimmedReason.Contains("skipped", StringComparison.OrdinalIgnoreCase);
+            var saysSkipped = trimmedReason.Contains("skipped", StringComparison.OrdinalIgnoreCase)
+                || trimmedReason.StartsWith("Stopped", StringComparison.OrdinalIgnoreCase); // "Stopped after 1h 35m"
             var baseSummary = saysSkipped
                 ? $"{trimmedReason} after {dur}"
                 : $"{trimmedReason} · skipped after {dur}";

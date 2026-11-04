@@ -705,7 +705,12 @@ public sealed partial class BackupOrchestrator
             if (lastRun.Status == BackupRunStatus.Skipped)
             {
                 cell.Status = BackupRunStatus.Skipped;
-                cell.Summary = lastRun.Summary;
+                // A run the engine stopped because it was asked to says why
+                // in words, not with the engine's own status and command
+                // line, which the card showed (4 November 2026). The engine's
+                // text stays in the run log.
+                cell.Summary = ct.IsCancellationRequested || ResticBackrestEngine.WasStoppedOnRequest(lastRun)
+                    ? ResolveCancelReason(backup.Id) : lastRun.Summary;
                 cell.Duration = DateTime.UtcNow - started;
                 cell.LogPath = lastRun.LogPath ?? "";
                 return cell;
@@ -783,7 +788,7 @@ public sealed partial class BackupOrchestrator
         if (_runningRuns.TryGetValue(backupId, out var info)
             && !string.IsNullOrEmpty(info.CancelReason))
             return info.CancelReason!;
-        return "Cancelled";
+        return "Stopped";
     }
 
     /// <summary>

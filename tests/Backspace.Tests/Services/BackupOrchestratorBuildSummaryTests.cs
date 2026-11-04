@@ -17,6 +17,19 @@ namespace Backspace.Tests.Services;
 /// </summary>
 public class BackupOrchestratorBuildSummaryTests
 {
+    /// <summary>4 November 2026: a run stopped on request showed the engine's
+    /// status and command line on the card. It now reads "Stopped after …".</summary>
+    [Fact]
+    public void A_run_stopped_on_request_says_stopped_in_words()
+    {
+        var started = new DateTime(2026, 11, 4, 8, 9, 40, DateTimeKind.Utc);
+        var r = new RunRecord { StartedUtc = started, EndedUtc = started.AddMinutes(95), Status = BackupRunStatus.Skipped };
+        r.Cells.Add(new CellOutcome { Status = BackupRunStatus.Skipped, Summary = "Stopped" });
+        Assert.Equal("Stopped after 1h 35m", BackupOrchestrator.BuildSummary(r));
+        Assert.True(ResticBackrestEngine.WasStoppedOnRequest(new RunRecord { Summary = "Backup result: STATUS_USER_CANCELLED. failed to backup: command \"restic.exe backup\" failed" }));
+        Assert.False(ResticBackrestEngine.WasStoppedOnRequest(new RunRecord { Summary = "Backup result: STATUS_ERROR. failed" }));
+    }
+
     [Fact]
     public void NoOpSuccessRun_ReadsAsCompletedInDuration()
     {

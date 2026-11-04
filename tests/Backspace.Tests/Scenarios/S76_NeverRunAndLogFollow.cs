@@ -36,8 +36,11 @@ public sealed class S76_NeverRunAndLogFollow : ScenarioBase
             LastRunStatus = BackupRunStatus.Success, LastRunSummary = "Completed in 4s",
             LastRunEndUtc = DateTime.UtcNow.AddHours(-1), LastSuccessUtc = DateTime.UtcNow.AddHours(-1) };
         var never = new Backup { Name = "Photos (never run)", SourcePaths = { ctx.MakeSource("photos", targetBytes: 50_000) } };
-        foreach (var b in new[] { ran, never }) b.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });
-        ServiceLocator.Config.Update(cfg => { cfg.Destinations.Add(dest); cfg.Backups.Add(ran); cfg.Backups.Add(never); });
+        // Like local_d on 4 November 2026: it ran, but only ever failed.
+        var failed = new Backup { Name = "Z drive (only failed)", SourcePaths = { ctx.MakeSource("d", targetBytes: 50_000) },
+            LastRunStatus = BackupRunStatus.Failed, LastRunSummary = "1 error · in 1s", LastRunEndUtc = DateTime.UtcNow.AddMinutes(-30) };
+        foreach (var b in new[] { ran, never, failed }) b.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });
+        ServiceLocator.Config.Update(cfg => { cfg.Destinations.Add(dest); cfg.Backups.Add(ran); cfg.Backups.Add(never); cfg.Backups.Add(failed); });
 
         // A long saved log for the follow checks.
         var log = new StringBuilder();
@@ -70,6 +73,9 @@ public sealed class S76_NeverRunAndLogFollow : ScenarioBase
         var ranVm = (BackupCardViewModel)ranCard.DataContext!;
         Assert.False(neverVm.CanUseSnapshots);  // Mount and Browse snapshots bind to this
         Assert.True(ranVm.CanUseSnapshots);
+        var failedVm = main.Backups.Cards.Single(c => c.Id == failed.Id);
+        Assert.False(failedVm.CanUseSnapshots, "A backup whose only run failed offered Mount and Restore.");
+        Assert.False(failedVm.TestRestoreEnabled);
         Assert.Equal(BackupCardViewModel.NothingToRestoreTooltip, neverVm.RestoreFilesTooltip);
         Assert.Equal(BackupCardViewModel.NothingToRestoreTooltip, neverVm.TestRestoreTooltip);
         if (neverVm.CanMountSnapshot)

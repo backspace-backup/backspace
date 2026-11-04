@@ -859,6 +859,11 @@ public sealed class ResticBackrestEngine : IBackupEngine
     /// produce silent data loss: real backups that hadn't actually
     /// finished within 1.5 s showed green in the UI.
     /// </summary>
+    /// <summary>True for a backup the engine stopped because it was asked to
+    /// (Stop, Quit, the service stopping), as opposed to a skip it decided.</summary>
+    internal static bool WasStoppedOnRequest(RunRecord record)
+        => record.Summary?.StartsWith($"Backup result: {BackrestStatus.UserCancelled}", StringComparison.Ordinal) == true;
+
     internal static BackupRunStatus StatusFromBackrestTerminal(string status) => status switch
     {
         BackrestStatus.Success       => BackupRunStatus.Success,
