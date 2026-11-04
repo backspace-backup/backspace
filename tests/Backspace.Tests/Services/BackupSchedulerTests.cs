@@ -112,6 +112,50 @@ public sealed class BackupSchedulerTests : IDisposable
         Assert.Single(_runs);
     }
 
+    /// <summary>U131 (4 November 2026): the PC went down during the night in
+    /// the middle of a backup. The slot was already marked done, so it would
+    /// have waited until the next evening. A run cut short is resumed once.</summary>
+    [Fact]
+    public async Task A_run_cut_short_by_a_crash_is_resumed_once_on_the_next_start()
+    {
+        var backup = Daily();
+        await Loop(backup).TickAsync(default);
+        _now = Local(4, 20);
+        _work = ct => Task.Delay(Timeout.Infinite, ct); // still running when the PC goes down
+        using var crash = new CancellationTokenSource();
+        var running = Loop(backup).TickAsync(crash.Token);
+        Assert.True(SpinWait.SpinUntil(() => _runs.Count == 1, 5000));
+        // The service ends without finishing the run (its process is gone).
+        crash.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+
+        // The PC is back at 09:52: the interrupted 20:00 run is due again.
+        _now = Local(5, 9, 52);
+        var afterCrash = Loop(backup);
+        afterCrash.ResumeInterruptedRuns();
+        await afterCrash.TickAsync(crash.Token).ContinueWith(_ => { }); // cut short again
+        Assert.Equal(2, _runs.Count);
+        Assert.Equal(Local(5, 9, 52), _runs[1].At);
+
+        // Cut short a second time: no third attempt before the next slot.
+        _work = _ => Task.CompletedTask;
+        var again = Loop(backup);
+        again.ResumeInterruptedRuns();
+        _now = Local(5, 10);
+        await again.TickAsync(default);
+        Assert.Equal(2, _runs.Count);
+        _now = Local(5, 20);
+        await again.TickAsync(default);
+        Assert.Equal(3, _runs.Count);
+
+        // A run that ends normally is never resumed.
+        _now = Local(5, 21);
+        var reopened = Loop(backup);
+        reopened.ResumeInterruptedRuns();
+        await reopened.TickAsync(default);
+        Assert.Equal(3, _runs.Count);
+    }
+
     [Fact]
     public async Task A_due_run_waits_for_power_network_and_Quit_then_runs_once()
     {

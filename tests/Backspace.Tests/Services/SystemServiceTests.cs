@@ -137,6 +137,20 @@ public sealed class SystemServiceTests
         Assert.False(SystemServiceLifetime.StaysQuit(dir, 7, _ => Session(), out _));
     }
 
+    /// <summary>U131 (4 November 2026): after the PC went down during a
+    /// backup, the notification said only "The background worker stopped
+    /// unexpectedly". A run that Windows started after now says why.</summary>
+    [Fact]
+    public void A_backup_cut_short_by_a_restart_says_so()
+    {
+        var started = new DateTime(2026, 11, 4, 13, 6, 32, DateTimeKind.Utc);
+        Assert.StartsWith("The computer restarted, shut down or lost power during this backup",
+            SystemBackupService.InterruptionReason(started, started.AddHours(6.8)));
+        // Windows was already running: the worker itself stopped, and the
+        // general wording stays.
+        Assert.Null(SystemBackupService.InterruptionReason(started, started.AddDays(-1)));
+    }
+
     [Fact]
     public void A_restart_ends_the_Quit()
     {

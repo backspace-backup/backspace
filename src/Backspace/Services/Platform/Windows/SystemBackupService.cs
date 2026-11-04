@@ -104,6 +104,16 @@ internal sealed class SystemBackupService : ServiceBase
         _leaseMonitor = Task.Run(MonitorCommandLineLeaseAsync);
     }
 
+    private static DateTime WindowsStartedUtc() => DateTime.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
+
+    /// <summary>Why a run found unfinished at startup ended, in words: on
+    /// 4 November 2026 the PC went down during a backup and the notification
+    /// said only "The background worker stopped unexpectedly".</summary>
+    internal static string? InterruptionReason(DateTime runStartedUtc, DateTime windowsStartedUtc)
+        => windowsStartedUtc > runStartedUtc
+            ? "The computer restarted, shut down or lost power during this backup, so it didn't finish. What it had already stored is kept: the next run doesn't send it again."
+            : null;
+
     private void RestoreSavedStatus()
     {
         var savedPath = Path.Combine(_binding.DataDirectory, "service-run-status.json");
@@ -122,7 +132,7 @@ internal sealed class SystemBackupService : ServiceBase
             {
                 _runId = retained.HostRunId; _backupId = retained.BackupId;
                 _operation = retained.Kind.ToString().ToLowerInvariant(); _startedUtc = retained.StartedUtc;
-                var outcome = _recovery.Recover(retained.HostRunId);
+                var outcome = _recovery.Recover(retained.HostRunId, InterruptionReason(retained.StartedUtc, WindowsStartedUtc()));
                 _state = outcome?.Status == BackupRunStatus.Success ? "completed" : "interrupted";
                 _result = _state == "completed" ? 0 : 4;
                 if (outcome is not null) _progress = new(retained.BackupId, 0, "", [], [], outcome, LogRunId: outcome.Id);

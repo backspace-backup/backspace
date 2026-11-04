@@ -124,6 +124,19 @@ A run that is due but waiting for power or a network starts as soon as the
 condition is met. Runs never overlap: if one is still running when the next
 is due, the next is skipped.
 
+While a backup runs, Backspace asks Windows not to go to sleep on its own.
+The screen still turns off, and closing the lid, pressing the power button,
+choosing Sleep or a nearly empty battery still put the computer to sleep.
+Backspace doesn't hold back restarts, including those Windows Update
+schedules: Windows Update restarts outside your active hours, and changing
+that is a Windows setting, not something an app should override. A
+scheduled run cut short by a restart, a power loss, a crash or Quit is due
+again when Backspace next runs, and "Catch up missed runs" decides whether
+it starts then. It is resumed once: if that attempt is cut short too, the
+next scheduled time is the next try. Nothing already stored is sent again,
+and the notification says the computer restarted or lost power when that is
+what happened.
+
 On macOS and Linux, Backspace starts as a login item and keeps the schedule
 the same way while you are logged in (untested).
 

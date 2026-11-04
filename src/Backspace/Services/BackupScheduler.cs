@@ -47,7 +47,14 @@ public sealed record SchedulePlan(Backup Backup, ScheduledTaskKind Kind, BackupS
 /// afterwards, as Task Scheduler's "start when available" did.</summary>
 internal sealed class ScheduleState
 {
-    internal sealed record Entry(DateTime NextUtc, string Timing);
+    /// <param name="RunningSlotUtc">The slot being run right now, kept until
+    /// the run ends. Still set when the schedule starts again means the run
+    /// was cut short: a crash, a power loss, a restart or Quit (U131).</param>
+    /// <param name="ResumedSlotUtc">A slot due again after such an
+    /// interruption. It is resumed once: if that attempt is cut short too,
+    /// the next scheduled time is the next try, so a run that keeps failing
+    /// in the same way doesn't start at every launch.</param>
+    internal sealed record Entry(DateTime NextUtc, string Timing, DateTime? RunningSlotUtc = null, DateTime? ResumedSlotUtc = null);
     private readonly string _path;
     internal Dictionary<string, Entry> Entries { get; } = new(StringComparer.Ordinal);
     internal bool Changed { get; private set; }
@@ -164,6 +171,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
 
     internal async Task RunAsync(CancellationToken stop)
     {
+        ResumeInterruptedRuns();
         while (!stop.IsCancellationRequested)
         {
             var sleep = MaxSleep;
@@ -216,10 +224,14 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     /// <summary>False when the run was not admitted and stays due.</summary>
     private async Task<bool> RunOneAsync(SchedulePlan plan, ScheduleState state, DateTime now, CancellationToken stop, bool quiet)
     {
-        // Record the start first: a crash or Quit during the run must not
-        // start the same slot again on the next launch.
+        // Record the start first, with the slot being run. A crash, power loss,
+        // restart or Quit during the run leaves it recorded, and the next
+        // launch resumes it once (ResumeInterruptedRuns); a resumed slot cut
+        // short again waits for the next scheduled time.
         var previous = state.Entries[plan.Key];
         SchedulePlanner.Advance(state, plan, now);
+        if (previous.ResumedSlotUtc != previous.NextUtc && state.Entries.GetValueOrDefault(plan.Key) is { } advanced)
+            state.Set(plan.Key, advanced with { RunningSlotUtc = previous.NextUtc });
         state.Save();
         var ran = true;
         using var run = CancellationTokenSource.CreateLinkedTokenSource(stop);
@@ -247,8 +259,28 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         // Slots that passed during a long run are skipped, not queued.
         else if (after.Entries.GetValueOrDefault(plan.Key) is { } entry && entry.NextUtc <= Now())
             SchedulePlanner.Advance(after, plan, Now());
+        // The run ended, whatever its outcome: its slot is no longer running.
+        if (after.Entries.GetValueOrDefault(plan.Key) is { RunningSlotUtc: not null } finished)
+            after.Set(plan.Key, finished with { RunningSlotUtc = null });
         after.Save();
         return ran;
+    }
+
+    /// <summary>A scheduled run cut short by a crash, a power loss, a restart
+    /// or Quit is due again from the slot it was running, and the schedule's
+    /// "Catch up missed runs" decides whether it runs now. Before, the slot
+    /// was already marked done, so it waited until the next day (U131,
+    /// 4 November 2026: the PC went down during the night).</summary>
+    internal void ResumeInterruptedRuns()
+    {
+        var state = ScheduleState.Load(options.StatePath);
+        foreach (var (key, entry) in state.Entries.ToList())
+        {
+            if (entry.RunningSlotUtc is not { } slot) continue;
+            state.Set(key, entry with { NextUtc = slot, RunningSlotUtc = null, ResumedSlotUtc = slot });
+            Log.Information("A scheduled run ({Key}) was cut short; it is due again from {Slot:u}", key, slot);
+        }
+        state.Save();
     }
 
     private async Task WatchPowerAsync(SchedulePlan plan, CancellationTokenSource run, CancellationToken finished)
