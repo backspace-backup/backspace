@@ -62,8 +62,20 @@ public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
         var idleAfter = EngineIdleStop.IdleAfter;
         try
         {
-            var first = await Task.Run(() => ServiceLocator.Orchestrator.RunBackupAsync(backup, CancellationToken.None));
+            // The live view receives each line once (4 November 2026: every
+            // progress line appeared twice during the owner's local_c run).
+            var live = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            void Heard(string line) => live.Enqueue(line);
+            ServiceLocator.Engine.LineWritten += Heard;
+            RunRecord first;
+            try { first = await Task.Run(() => ServiceLocator.Orchestrator.RunBackupAsync(backup, CancellationToken.None)); }
+            finally { ServiceLocator.Engine.LineWritten -= Heard; }
             Assert.True(first.Status is BackupRunStatus.Success or BackupRunStatus.Warning, string.Join(" | ", first.Errors));
+            var setup = live.Where(l => l.StartsWith("[setup] ") || l.StartsWith("[recap] ")).ToList();
+            Assert.NotEmpty(setup);
+            Assert.Equal(setup.Count, setup.Distinct().Count());
+            Assert.Single(live, l => l.StartsWith("[orchestrator] attempt 1 starting"));
+            Output.WriteLine($"Live lines heard once each: {setup.Count} setup/recap lines, {live.Count} lines in all");
             Assert.True(fixture.Sidecar.IsRunning);
             var engineId = fixture.Sidecar.ProcessId!.Value;
 

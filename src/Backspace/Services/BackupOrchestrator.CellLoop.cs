@@ -310,7 +310,9 @@ public sealed partial class BackupOrchestrator
                         // empty until cell.LogPath was set in the
                         // finally block, leaving the user staring at
                         // "0%" with no signs of life.
-                        try { _engine.RaiseLineWritten(line); } catch { /* live-tail listener failure can't escape */ }
+                        // Not twice: the engine has often just announced it.
+                        if (!ResticBackrestEngine.AlreadyAnnounced(line))
+                            try { _engine.RaiseLineWritten(line); } catch { /* live-tail listener failure can't escape */ }
                         if (cellLogWriter is null) return;
                         // Lock so the engine emitting from multiple
                         // background threads doesn't interleave bytes.

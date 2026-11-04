@@ -51,7 +51,22 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
     public void RaiseLineWritten(string line)
     {
+        _justAnnounced = line;
         try { LineWritten?.Invoke(line); } catch { /* live-tail subscriber failure shouldn't escape */ }
+    }
+
+    [ThreadStatic] private static string? _justAnnounced;
+
+    /// <summary>True when this thread's last announced line is
+    /// <paramref name="line"/>: the engine announces a line, then hands the
+    /// same line to the run's log, whose writer announces what it receives
+    /// for lines that come from elsewhere. Without this check the live view
+    /// showed every progress line twice (4 November 2026).</summary>
+    internal static bool AlreadyAnnounced(string line)
+    {
+        var announced = ReferenceEquals(_justAnnounced, line);
+        _justAnnounced = null;
+        return announced;
     }
 
     /// <summary>
