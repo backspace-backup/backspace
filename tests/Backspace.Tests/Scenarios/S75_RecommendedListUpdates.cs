@@ -31,7 +31,7 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
     private static string SavedByEarlierVersion() => string.Join("\n",
         RecommendedFilters.CustomBlockHeader, "Projects/build/", RecommendedFilters.CustomBlockFooter, "",
         RecommendedFilters.AutoBlockHeader,
-        "# Essentials: always excluded; safe for any source.", "/pagefile.sys", "Recovery/", "",
+        "# Essentials: always excluded; safe for any source.", "/pagefile.sys", "Config.Msi/", "",
         "# App caches, temp files, dev junk: universally safe to skip.", "temp/", DeclinedRemoval, "",
         RecommendedFilters.AutoBlockFooter);
 
@@ -41,9 +41,9 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         backup.SourcePaths.Add(System.IO.Path.Combine(ctx.RootDir, "src"));
         var vm = new BackupEditorViewModel(backup, isNew: false);
         Assert.True(vm.HasRecommendationUpdate);
-        Assert.Contains(vm.RecommendedAdditions, c => c.Pattern == "/Recovery/");
+        Assert.Contains(vm.RecommendedAdditions, c => c.Pattern == "/Config.Msi/");
         Assert.Contains(vm.RecommendedAdditions, c => c.Pattern == DeclinedAddition);
-        Assert.Contains(vm.RecommendedRemovals, c => c.Pattern == "Recovery/");
+        Assert.Contains(vm.RecommendedRemovals, c => c.Pattern == "Config.Msi/");
         Assert.Contains(vm.RecommendedRemovals, c => c.Pattern == DeclinedRemoval);
         Assert.All(vm.RecommendedAdditions.Concat(vm.RecommendedRemovals), c => Assert.True(c.IsSelected));
 
@@ -57,7 +57,7 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         // The saved rules are untouched until the person chooses.
         Assert.Equal(SavedByEarlierVersion(), vm.FiltersText);
         ctx.Snapshot(win, "update offered while editing",
-            "Filters > Recommended: 'Updated recommendations' lists each addition (such as /Recovery/ and node_modules/) and each removal (Recovery/ and the old Packages rule) with its own ticked checkbox. The saved rules are unchanged.");
+            "Filters > Recommended: 'Updated recommendations' lists each addition (such as /Config.Msi/ and node_modules/) and each removal (Config.Msi/ and the old Packages rule) with its own ticked checkbox. The saved rules are unchanged.");
 
         // Untick one addition and one removal through their checkboxes.
         CheckBoxFor(win, DeclinedAddition).IsChecked = false;
@@ -73,8 +73,8 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         ctx.Driver.Pump();
         var lines = vm.FiltersText.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).ToList();
         // Ticked changes applied.
-        Assert.Contains("/Recovery/", lines);
-        Assert.DoesNotContain("Recovery/", lines);
+        Assert.Contains("/Config.Msi/", lines);
+        Assert.DoesNotContain("Config.Msi/", lines);
         // Unticked changes not applied.
         Assert.DoesNotContain(DeclinedAddition, lines);
         Assert.Contains(DeclinedRemoval, lines);
@@ -87,7 +87,7 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         Assert.NotNull(saved);
         Assert.Contains(DeclinedAddition, saved!.IgnoredRecommendationChanges);
         Assert.Contains(DeclinedRemoval, saved.IgnoredRecommendationChanges);
-        Assert.DoesNotContain("/Recovery/", saved.IgnoredRecommendationChanges);
+        Assert.DoesNotContain("/Config.Msi/", saved.IgnoredRecommendationChanges);
 
         // Reopening the saved backup offers nothing: the declined ones are remembered,
         // but the editor says they are hidden.

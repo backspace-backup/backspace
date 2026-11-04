@@ -102,10 +102,11 @@ public static class RecommendedFilters
         // Per-drive system metadata and Windows-setup folders. They exist
         // only at the top of a drive, so they are anchored there:
         // unanchored, "Recovery/" also skipped a folder of that name in
-        // Documents (U055, 31 October 2026).
+        // Documents (U055, 31 October 2026). Recovery itself is no longer
+        // recommended (U106, 4 November 2026): besides Windows' recovery
+        // image it can hold a manufacturer's recovery files.
         "/System Volume Information/",
         "/$RECYCLE.BIN/",
-        "/Recovery/",
         "/Config.Msi/",
         "/$WinREAgent/",
         "/$GetCurrent/",
@@ -146,7 +147,7 @@ public static class RecommendedFilters
     /// search index; the other folders are temporary files of Windows Update,
     /// upgrades, resets and installers; the boot files can't make a disk
     /// bootable from a file backup. Things someone may want back (Windows,
-    /// Windows.old, the Recycle Bin, Recovery, the registry hives) are only
+    /// Windows.old, the Recycle Bin, the registry hives) are only
     /// recommended exclusions, which a backup can drop.
     /// </summary>
     public static readonly IReadOnlyList<string> AlwaysExcludedPatterns = new[]
@@ -587,6 +588,9 @@ public static class RecommendedFilters
         "Users/*/AppData/*/Microsoft/Edge/",
         // Anchored at the top of the drive on 4 November 2026 (U106).
         "OneDriveTemp/",
+        // No longer recommended on 4 November 2026 (U106): may hold a
+        // manufacturer's recovery files.
+        "/Recovery/",
     };
 
     /// <summary>The recommended block holding exactly these patterns, under

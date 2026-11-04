@@ -292,7 +292,7 @@ public class RecommendedFiltersTests
     private static string SavedBlock() => string.Join("\n",
         RecommendedFilters.CustomBlockHeader, "mine/", RecommendedFilters.CustomBlockFooter, "",
         RecommendedFilters.AutoBlockHeader,
-        "# Essentials: always excluded; safe for any source.", "/pagefile.sys", "Recovery/", "System Volume Information/", "",
+        "# Essentials: always excluded; safe for any source.", "/pagefile.sys", "Config.Msi/", "/Recovery/", "System Volume Information/", "",
         "# App caches, temp files, dev junk: universally safe to skip.", "temp/", "Users/*/AppData/Local/Packages/", "my-extra/", "",
         "# Cloud-synced folders: already replicated in their providers' clouds.", @"# Dropbox at C:\Users\me\Dropbox", "/Users/me/Dropbox/", "",
         RecommendedFilters.AutoBlockFooter);
@@ -301,9 +301,12 @@ public class RecommendedFiltersTests
     public void Changed_lists_are_offered_for_the_groups_the_backup_uses_only()
     {
         var update = RecommendedFilters.CheckForUpdates(SavedBlock());
-        Assert.Contains("Recovery/", update.Remove);
+        Assert.Contains("Config.Msi/", update.Remove);
+        // Recovery is no longer recommended at all (U106): offered for removal, never added.
+        Assert.Contains("/Recovery/", update.Remove);
+        Assert.DoesNotContain(update.Add, p => p.Contains("Recovery"));
         Assert.Contains("Users/*/AppData/Local/Packages/", update.Remove);
-        Assert.Contains("/Recovery/", update.Add);
+        Assert.Contains("/Config.Msi/", update.Add);
         Assert.Contains("node_modules/", update.Add);
         // The Windows system group was never chosen; nothing from it is offered.
         Assert.DoesNotContain("/Windows/", update.Add);
@@ -322,8 +325,10 @@ public class RecommendedFiltersTests
         Assert.Contains("mine/", lines);
         Assert.Contains("my-extra/", lines);
         Assert.Contains("/Users/me/Dropbox/", lines);
-        Assert.Contains("/Recovery/", lines);
-        Assert.DoesNotContain("Recovery/", lines);
+        Assert.Contains("/Config.Msi/", lines);
+        Assert.DoesNotContain("Config.Msi/", lines);
+        // Recovery, anchored or not, is gone: a manufacturer may keep recovery files there.
+        Assert.DoesNotContain(lines, l => l.Contains("Recovery"));
         Assert.True(RecommendedFilters.CheckForUpdates(updated).IsEmpty);
     }
 

@@ -363,7 +363,6 @@ public sealed partial class FileSystemNode : ObservableObject
     /// Drive-root system stuff:
     ///   $RECYCLE.BIN, $Recycle.Bin           — per-user recycle bin
     ///   System Volume Information            — VSS / index / restore points
-    ///   Recovery                             — Windows recovery image
     ///   Config.Msi                           — MSI installer transient
     ///   $WinREAgent, $GetCurrent, $SysReset  — Windows update / reset temp
     ///   $WINDOWS.~BT, $WINDOWS.~WS           — in-place upgrade staging
@@ -384,7 +383,6 @@ public sealed partial class FileSystemNode : ObservableObject
             "$RECYCLE.BIN",
             "$Recycle.Bin",
             "System Volume Information",
-            "Recovery",
             "Config.Msi",
             "$WinREAgent",
             "$GetCurrent",
