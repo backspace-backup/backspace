@@ -36,8 +36,12 @@ internal sealed class BackupLiveProgress
     private readonly Func<long?>? _sentBytes;
     private DateTime _lastEmitted = DateTime.MinValue;
     private (DateTime At, long Bytes)? _sentFrom;
-    private (DateTime At, long Bytes)? _firstMoving;
+    // Bytes done over the last minutes, for the time left.
+    private readonly System.Collections.Generic.Queue<(DateTime At, long Bytes)> _recent = new();
     private (long Files, long Bytes)? _totals;
+
+    /// <summary>How far back the pace for the time left is measured.</summary>
+    internal static TimeSpan PaceWindow = TimeSpan.FromMinutes(5);
     private DateTime _totalsSince;
     private Sample? _last;
 
@@ -77,15 +81,20 @@ internal sealed class BackupLiveProgress
             _sentFrom = (nowUtc, stored);
         }
 
-        // Time left from the average speed since data started moving, as
-        // Duplicacy showed (U115), once the total is known.
-        if (sample.BytesDone > 0) _firstMoving ??= (nowUtc, sample.BytesDone);
+        // Time left from the pace of the last few minutes, once the total is
+        // known (U115). Not the average since the start: files already stored
+        // are read at hundreds of MB/s, new data at the upload's pace, and
+        // local_c said "about 23 min left" with 89 GB to upload at about
+        // 5 MB/s (4 November 2026).
+        if (sample.BytesDone > 0) _recent.Enqueue((nowUtc, sample.BytesDone));
+        // Keep one sample at least a window old as the starting point.
+        while (_recent.Count > 2 && nowUtc - _recent.ElementAt(1).At >= PaceWindow) _recent.Dequeue();
         TimeSpan? left = null;
-        if (!counting && _firstMoving is { } first && nowUtc - first.At >= TimeSpan.FromSeconds(10) && sample.BytesDone > first.Bytes
-            && sample.TotalBytes > sample.BytesDone)
+        if (!counting && _recent.Count >= 2 && _recent.Peek() is var first && nowUtc - first.At >= TimeSpan.FromSeconds(10)
+            && sample.BytesDone > first.Bytes && sample.TotalBytes > sample.BytesDone)
         {
-            var average = (sample.BytesDone - first.Bytes) / (nowUtc - first.At).TotalSeconds;
-            left = TimeSpan.FromSeconds((sample.TotalBytes - sample.BytesDone) / average);
+            var pace = (sample.BytesDone - first.Bytes) / (nowUtc - first.At).TotalSeconds;
+            left = TimeSpan.FromSeconds((sample.TotalBytes - sample.BytesDone) / pace);
         }
         long expected = 0;
         try { expected = _expectedBytes(); } catch (Exception) { }

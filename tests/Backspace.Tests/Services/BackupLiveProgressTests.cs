@@ -185,6 +185,25 @@ public sealed class BackupLiveProgressTests
     }
 
     [Fact]
+    public void Time_left_follows_the_recent_pace_not_the_average_since_the_start()
+    {
+        // local_c, 4 November 2026: the first 88 GB were already stored and
+        // went by at hundreds of MB/s; then new data went at about 4.5 MB/s.
+        // The average since the start said "about 23 min left".
+        var live = new BackupLiveProgress();
+        var start = new DateTime(2026, 11, 4, 12, 40, 0, DateTimeKind.Utc);
+        const long total = 190_000_000_000;
+        string? line = null;
+        for (var t = 0; t <= 660; t += 30)
+        {
+            long done = t <= 300 ? 1_000_000_000 + (long)(t / 300.0 * 87_000_000_000) : 88_000_000_000 + (long)((t - 300) * 4_500_000.0);
+            line = live.Next(Operation(done / (double)total, done, total, t, 586_638), start.AddSeconds(t)) ?? line;
+        }
+        // 100.4 GB to go at 4.5 MB/s: about 6 hours, not minutes.
+        Assert.Contains(" · about 6 h ", line);
+    }
+
+    [Fact]
     public void While_nothing_has_moved_no_time_left_is_guessed()
     {
         var live = new BackupLiveProgress();
