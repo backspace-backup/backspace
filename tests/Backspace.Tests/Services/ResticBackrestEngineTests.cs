@@ -125,7 +125,10 @@ public class ResticBackrestEngineTests
 
         var allPatterns = plan.Excludes.Concat(plan.IExcludes).ToArray();
         var root = System.IO.Path.GetFullPath("/x").Replace('\\', '/');
-        Assert.Equal(new[] { root + "/**/*.tmp", root + "/**/node_modules/" }, allPatterns);
+        // The backup's own rules come first; the essential exclusions, which
+        // always apply (U106), follow.
+        Assert.Equal(new[] { root + "/**/*.tmp", root + "/**/node_modules/" }, allPatterns.Take(2));
+        Assert.Equal(RecommendedFilters.EssentialPatterns.Count, allPatterns.Length - 2);
     }
 
     [Fact]
