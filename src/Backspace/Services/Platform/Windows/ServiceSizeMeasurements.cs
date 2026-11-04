@@ -19,7 +19,7 @@ namespace Backspace.Services.Platform.Windows;
 internal sealed class ServiceSizeMeasurements
 {
     internal sealed record Reply(int Version, string? RunId = null, string? State = null, long Bytes = 0, long Files = 0,
-        bool Truncated = false, int Unreadable = 0, string? Error = null);
+        bool Truncated = false, int Unreadable = 0, string? Error = null, long CloudOnly = 0);
 
     internal static TimeSpan MaxDuration = TimeSpan.FromMinutes(3);
     private const int MaxKept = 8;
@@ -31,12 +31,12 @@ internal sealed class ServiceSizeMeasurements
         => !string.IsNullOrWhiteSpace(path) && path.Length < 1024 && Path.IsPathFullyQualified(path)
            && !path.StartsWith(@"\\", StringComparison.Ordinal) && Directory.Exists(path);
 
-    internal byte[] Start(string path)
+    internal byte[] Start(string path, SourceSizeRules? rules = null)
     {
         if (!Acceptable(path)) return JsonSerializer.SerializeToUtf8Bytes(new Reply(1, Error: "not-a-folder"));
         foreach (var old in _runs.OrderBy(r => r.Value.Started).SkipLast(MaxKept - 1)) _runs.TryRemove(old.Key, out _);
         var id = Guid.NewGuid().ToString("N");
-        _runs[id] = (DateTime.UtcNow, Task.Run(() => Measure(path)));
+        _runs[id] = (DateTime.UtcNow, Task.Run(() => Measure(path, rules ?? SourceSizeRules.None)));
         return JsonSerializer.SerializeToUtf8Bytes(new Reply(1, id, "running"));
     }
 
@@ -49,18 +49,12 @@ internal sealed class ServiceSizeMeasurements
             : new Reply(1, runId, Error: "failed"));
     }
 
-    internal static Reply Measure(string path)
+    /// <summary>Counts as the app does, with the backup's own rules (U123).</summary>
+    internal static Reply Measure(string path, SourceSizeRules rules)
     {
-        long bytes = 0, files = 0; var unreadable = 0;
-        var root = TreeWalk.Root(path);
-        var finished = TreeWalk.Walk(root, (entry, _) =>
-        {
-            if (RecommendedFilters.IsAlwaysExcludedAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
-            if (entry.IsDirectory) return false;
-            Interlocked.Add(ref bytes, entry.Length);
-            Interlocked.Increment(ref files);
-            return null;
-        }, DateTime.UtcNow + MaxDuration, CancellationToken.None, _ => Interlocked.Increment(ref unreadable));
-        return new Reply(1, State: "done", Bytes: bytes, Files: files, Truncated: !finished, Unreadable: unreadable);
+        var count = new SourceSizeProbe.Count();
+        var finished = SourceSizeProbe.CountIncluded(TreeWalk.Root(path), rules, DateTime.UtcNow + MaxDuration, CancellationToken.None, count);
+        return new Reply(1, State: "done", Bytes: count.Bytes, Files: count.Files, Truncated: !finished, Unreadable: count.Unreadable,
+            CloudOnly: count.CloudOnly);
     }
 }

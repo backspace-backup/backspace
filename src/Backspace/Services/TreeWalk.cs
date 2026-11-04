@@ -18,7 +18,16 @@ namespace Backspace.Services;
 /// </summary>
 internal static class TreeWalk
 {
-    public readonly record struct Entry(string FullPath, bool IsDirectory, long Length, bool IsLink);
+    public readonly record struct Entry(string FullPath, bool IsDirectory, long Length, bool IsLink, FileAttributes Attributes = 0);
+
+    // Set by cloud providers on files kept only online (winnt.h).
+    private const FileAttributes RecallOnOpen = (FileAttributes)0x00040000, RecallOnDataAccess = (FileAttributes)0x00400000;
+
+    /// <summary>True for a file kept only in the cloud (Dropbox, OneDrive,
+    /// Google Drive placeholders): its size is not on this computer, and a
+    /// backup that skips such files never reads it (U123).</summary>
+    public static bool IsCloudOnly(FileAttributes attributes)
+        => (attributes & (RecallOnOpen | RecallOnDataAccess | FileAttributes.Offline)) != 0;
 
     // Hidden and system files are part of a backup, so nothing is
     // skipped by attribute (the default would skip both).
@@ -53,7 +62,7 @@ internal static class TreeWalk
         {
             return new FileSystemEnumerable<Entry>(dir,
                 (ref FileSystemEntry e) => new Entry(e.ToFullPath(), e.IsDirectory, e.IsDirectory ? 0 : e.Length,
-                    (e.Attributes & FileAttributes.ReparsePoint) != 0),
+                    (e.Attributes & FileAttributes.ReparsePoint) != 0, e.Attributes),
                 Options).ToList();
         }
         catch (UnauthorizedAccessException) { return null; }
@@ -71,9 +80,10 @@ internal static class TreeWalk
     /// leave the folder out.</param>
     /// <param name="unreadable">Called with each folder that couldn't be read
     /// (another account's profile, for example), so it isn't silently missing.</param>
+    /// <param name="link">Called with each link left out, with the mark of its folder.</param>
     /// <returns>False when <paramref name="deadline"/> passed before the end.</returns>
     public static bool Walk(string root, Func<Entry, bool, bool?> visit, DateTime deadline, CancellationToken ct,
-        Action<string>? unreadable = null)
+        Action<string>? unreadable = null, Action<Entry, bool>? link = null)
     {
         var queue = new ConcurrentStack<(string Dir, bool Mark)>();
         queue.Push((root, false));
@@ -94,7 +104,7 @@ internal static class TreeWalk
                     if (entries is null) { unreadable?.Invoke(item.Dir); continue; }
                     foreach (var entry in entries)
                     {
-                        if (entry.IsLink) continue;
+                        if (entry.IsLink) { link?.Invoke(entry, item.Mark); continue; }
                         var mark = visit(entry, item.Mark);
                         if (entry.IsDirectory && mark is { } m)
                         {

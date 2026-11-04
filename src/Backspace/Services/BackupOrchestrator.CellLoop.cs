@@ -109,7 +109,7 @@ public sealed partial class BackupOrchestrator
             var weights = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             foreach (var src in sources)
             {
-                var cached = ServiceLocator.SizeProbe.TryGetCached(src);
+                var cached = ServiceLocator.SizeProbe.TryGetCached(src, SourceSizeRules.For(backup));
                 if (cached is { Bytes: > 0 } r) weights[src] = r.Bytes;
             }
             _progress.RegisterRunCells(backup.Id, sources, plannedDestNames, weights);

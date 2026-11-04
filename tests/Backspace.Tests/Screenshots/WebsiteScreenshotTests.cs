@@ -88,7 +88,7 @@ public class WebsiteScreenshotTests : IDisposable
                 card.OverallPercent = 43;
                 foreach (var source in card.Sources) source.PercentComplete = 43;
                 card.CurrentPhaseLabel = "";
-                card.ProgressDetail = "Backing up · 3.9 GB of 9.1 GB · 5,310 of 12,408 files · 31 MB/s";
+                card.ProgressDetail = "Backing up · 3.9 GB of 9.1 GB · 5,310 of 12,408 files · 1.2 GB sent at 31 MB/s · about 3 min left";
             }
         });
     }

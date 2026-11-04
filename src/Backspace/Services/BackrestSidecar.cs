@@ -102,6 +102,17 @@ public sealed class BackrestSidecar : IAsyncDisposable
     /// readiness probe has succeeded.</summary>
     public bool IsRunning => IsAlive(_proc) && _client is not null;
 
+    /// <summary>The daemon's process id while this app runs it, or null.</summary>
+    internal int? ProcessId
+    {
+        get
+        {
+            var process = _proc;
+            try { return IsAlive(process) ? process!.Id : null; }
+            catch (InvalidOperationException) { return null; }
+        }
+    }
+
     private static bool IsAlive(Process? process)
     {
         try { return process is not null && !process.HasExited; }

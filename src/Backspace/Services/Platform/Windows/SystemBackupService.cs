@@ -260,7 +260,7 @@ internal sealed class SystemBackupService : ServiceBase
                         .ServeAsync(_binding, _returnStop.Token);
                     return JsonSerializer.SerializeToUtf8Bytes(new { version = 1, returnId = _returnId, state = _state });
                 case "measure":
-                    return _measurements.Start(request.Path!);
+                    return _measurements.Start(request.Path!, new SourceSizeRules(request.Filters, request.SkipCloudOnly));
                 case "measure-result":
                     return _measurements.Result(request.RunId!);
                 case "thaw":

@@ -197,12 +197,15 @@ when the source is a whole drive, never to a folder of yours with that name.
 
 ## Sizes and logs
 
-Before a backup's first run, each source on its card shows its size read from
-the disk ("about 812 GB"). Hover it for how it was measured. Backspace reads
-several folders at once, without opening each file. A whole drive too big to
-read within three minutes shows the space used on the drive instead, which
-also counts the page file and other files backups leave out. After a backup
-runs, the card shows the size that backup measured.
+Before a backup's first run, each source on its card shows the size of what
+that backup will hold ("about 812 GB"): its exclusion rules are applied, and
+excluded folders aren't even read. Files kept only in the cloud (Dropbox,
+OneDrive or Google Drive placeholders) aren't counted: they aren't on the
+computer, and backups skip them. Hover the size for how it was measured.
+Backspace reads several folders at once, without opening each file. A
+source too big to read within three minutes shows "at least" what was read;
+a whole drive with no exclusion rules shows the space used on the drive
+instead. After a backup runs, the card shows the size that backup read.
 
 Some folders can't be opened from your account, such as another account's
 profile. With administrator access on, backups include them and the size
@@ -222,13 +225,18 @@ never excluded: a manufacturer may keep recovery files there.
 
 While a backup runs, its card says **Running** with a turning icon; each
 source and the strip below show the percentage, and hovering **Running** shows
-bytes, files and speed.
+bytes, files and speed. The engine counts the files while it backs them up,
+so until its count is done the percentage is of the size expected (the last
+backup's, or the estimate) or 0%, the line says "still counting" and no time
+left is shown. The speed is of the data actually sent to the storage: files
+that need nothing sent (unchanged, or already stored) are checked quickly and
+don't count.
 
 **Activity & logs** shows each run as phases. A backup opens with what it
 starts from: the previous backup to that destination (date and snapshot), the
 number of exclusion rules, and whether a shadow copy is used. Progress follows
-every few seconds (percent, bytes and files done, upload speed and an estimate
-of the time left), then a closing recap: files checked, new, changed and
+every few seconds (percent, bytes and files done, data sent and its speed,
+and an estimate of the time left once the files are counted), then a closing recap: files checked, new, changed and
 unchanged, data added to the storage, duration and the snapshot made.
 Long lines wrap. Tick **Verbose** to also show the engine's debug lines
 and status polls. Run logs always record every line, so ticking it shows the

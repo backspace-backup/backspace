@@ -26,17 +26,19 @@ public sealed class BackupLiveProgressTests
         });
 
     [Fact]
-    public void A_running_backup_reports_percent_bytes_files_and_speed()
+    public void Once_the_count_is_done_a_backup_reports_percent_bytes_files_and_time_left()
     {
         var live = new BackupLiveProgress();
         var start = new DateTime(2026, 11, 3, 7, 30, 0, DateTimeKind.Utc);
-        Assert.Equal("[progress] 10.0% · Backing up · 5.0 GB of 50 GB · 1,000 of 10,000 files",
+        // Totals just found: restic may still be counting, so no percentage yet.
+        Assert.Equal("[progress] 0.0% · Backing up · 4.7 GB done · 1,000 files done, 10,000 found so far (still counting)",
             live.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
         // Too soon for another line.
         Assert.Null(live.Next(Operation(0.11, 5_500_000_000, 50_000_000_000, 1_100, 10_000), start.AddSeconds(2)));
-        // Five seconds later: 150 MB more, so 30 MB/s.
-        Assert.Equal("[progress] 10.3% · Backing up · 5.2 GB of 50 GB · 1,200 of 10,000 files · 30 MB/s",
-            live.Next(Operation(0.103, 5_150_000_000, 50_000_000_000, 1_200, 10_000), start.AddSeconds(5)));
+        // The totals stayed the same for 30 s: they are final. 150 MB in 30 s,
+        // 44.85 GB to go: about 2 h 29 min.
+        Assert.Equal("[progress] 10.3% · Backing up · 4.8 GB of 47 GB · 1,200 of 10,000 files · about 2 h 29 min left",
+            live.Next(Operation(0.103, 5_150_000_000, 50_000_000_000, 1_200, 10_000), start.AddSeconds(30)));
     }
 
     [Fact]
@@ -44,12 +46,82 @@ public sealed class BackupLiveProgressTests
     {
         var live = new BackupLiveProgress();
         var start = DateTime.UtcNow;
-        Assert.Equal("[progress] 0.0% · Scanning · 0 B of 12 GB · 0 of 18,000 files",
+        Assert.Equal("[progress] 0.0% · Scanning · 0 B done · 0 files done, 18,000 found so far (still counting)",
             live.Next(Operation(0, 0, 12_000_000_000, 0, 18_000), start));
         Assert.Null(live.Next(Operation(0, 0, 12_000_000_000, 0, 18_000), start.AddMinutes(1)));
         Assert.Null(live.Next(null, start.AddMinutes(2)));
         Assert.Null(live.Next(JsonDocument.Parse("{}").RootElement.Clone(), start.AddMinutes(3)));
     }
+
+    // ---- U124 (4 November 2026): the card showed 91% and "under a minute
+    // left" on a first backup of C:\ while restic was still counting the
+    // drive, at "622 MB/s" to Google Drive. These are the numbers it logged. ----
+
+    [Fact]
+    public void While_restic_is_still_counting_the_percentage_is_never_of_what_was_found_so_far()
+    {
+        var live = new BackupLiveProgress();
+        var start = new DateTime(2026, 11, 4, 8, 9, 50, DateTimeKind.Utc);
+        // Restic said 90.7% of the first 97 MB it had found.
+        var first = live.Next(Operation(0.907, 88_000_000, 97_000_000, 614, 683), start)!;
+        Assert.StartsWith("[progress] 0.0% · Backing up · 84 MB done · 614 files done, 683 found so far (still counting)", first);
+        // Totals growing at every poll: still no percentage and no time left.
+        var t = start;
+        foreach (var (pct, done, total, files, found) in new[] { (0.678, 19_000_000_000L, 28_000_000_000L, 37_113L, 62_564L),
+                     (0.853, 25_000_000_000, 29_000_000_000, 40_432, 68_493), (0.407, 36_000_000_000, 89_000_000_000, 140_495, 264_466) })
+        {
+            t = t.AddSeconds(5);
+            var line = live.Next(Operation(pct, done, total, files, found), t)!;
+            Assert.StartsWith("[progress] 0.0% · Backing up · ", line);
+            Assert.EndsWith(" found so far (still counting)", line);
+            Assert.DoesNotContain("left", line);
+            Assert.DoesNotContain("/s", line); // no speed made of files that needed nothing sent
+        }
+    }
+
+    [Fact]
+    public void While_counting_the_percentage_is_of_the_size_expected_when_one_is_known()
+    {
+        // The last backup read 150 GB (or the estimate says so).
+        var live = new BackupLiveProgress(expectedBytes: 150_000_000_000);
+        var line = live.Next(Operation(0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564), DateTime.UtcNow)!;
+        Assert.Equal("[progress] 12.7% · Backing up · 18 GB of about 140 GB · 37,113 files done, 62,564 found so far (still counting)", line);
+        // Found more than expected: no percentage rather than an optimistic one.
+        var bigger = new BackupLiveProgress(expectedBytes: 20_000_000_000);
+        Assert.StartsWith("[progress] 0.0% · Backing up · 18 GB done", bigger.Next(Operation(0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564), DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void The_speed_is_of_the_data_sent_to_the_storage()
+    {
+        long sent = 0;
+        var live = new BackupLiveProgress(sentBytes: () => sent);
+        var start = new DateTime(2026, 11, 4, 9, 0, 0, DateTimeKind.Utc);
+        Assert.EndsWith(" · 0 B sent", live.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
+        // 3 GB read in 5 s, mostly unchanged files; 60 million bytes actually sent: 11 MB/s.
+        sent = 60_000_000;
+        Assert.EndsWith(" · 57 MB sent at 11 MB/s", live.Next(Operation(0.16, 8_000_000_000, 50_000_000_000, 4_000, 10_000), start.AddSeconds(5)));
+        // When Windows can't tell (two backups at once), no speed rather than a wrong one.
+        var unknown = new BackupLiveProgress(sentBytes: () => null);
+        Assert.DoesNotContain("sent", unknown.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
+    }
+
+    [Fact]
+    public void The_size_a_finished_backup_read_is_taken_from_its_recap()
+    {
+        Assert.Equal(195L << 30, BackupLiveProgress.CheckedBytes(
+            "[recap] Backup complete: 717,930 files (195 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 388 MB added to the storage · took 14m 04s"));
+        Assert.Equal((long)(5.5 * (1L << 30)), Checked("5.5 GB"));
+        Assert.Equal(812, Checked("812 B"));
+        Assert.Null(BackupLiveProgress.CheckedBytes("[progress] 10.0% · Backing up · 5.0 GB of 50 GB"));
+        Assert.Null(BackupLiveProgress.CheckedBytes("Backup complete: 1 files (5 GB) checked"));
+        // The card's size then comes from the backup, not from the estimate.
+        Assert.Equal(195L << 30, BackupProgressService.TryParseSourceSizeBytes(
+            "[recap] Backup complete: 717,930 files (195 GB) checked · 1 new, 0 changed, 0 unchanged · 1 B added to the storage · took 0m 01s"));
+    }
+
+    private static long? Checked(string size)
+        => BackupLiveProgress.CheckedBytes($"[recap] Backup complete: 6 files ({size}) checked · took 0m 01s");
 
     [Fact]
     public void The_backup_card_receives_the_percentage_and_the_details()
@@ -78,7 +150,7 @@ public sealed class BackupLiveProgressTests
                 },
             },
         });
-        Assert.Equal("[recap] Backup complete: 717,930 files (195 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 388 MB added to the storage · took 14m 04s",
+        Assert.Equal("[recap] Backup complete: 717,930 files (181 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 370 MB added to the storage · took 14m 04s",
             BackupLiveProgress.Recap(finished));
         Assert.Null(BackupLiveProgress.Recap(Operation(0.5, 1, 2, 1, 2)));
         Assert.Null(BackupLiveProgress.Recap(null));
@@ -92,8 +164,8 @@ public sealed class BackupLiveProgressTests
         var live = new BackupLiveProgress();
         var start = new DateTime(2026, 11, 4, 7, 0, 0, DateTimeKind.Utc);
         Assert.DoesNotContain("left", live.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
-        // 20 s later, 600 MB more: 30 MB/s on average, 44.4 GB to go, about 25 min.
-        var line = live.Next(Operation(0.112, 5_600_000_000, 50_000_000_000, 1_100, 10_000), start.AddSeconds(20))!;
+        // 40 s later, totals unchanged, 1.2 GB more: 30 MB/s on average, 43.8 GB to go, about 25 min.
+        var line = live.Next(Operation(0.124, 6_200_000_000, 50_000_000_000, 1_100, 10_000), start.AddSeconds(40))!;
         Assert.EndsWith(" · about 25 min left", line);
         Assert.Equal("under a minute left", BackupLiveProgress.TimeLeft(TimeSpan.FromSeconds(40)));
         Assert.Equal("about 2 h 05 min left", BackupLiveProgress.TimeLeft(TimeSpan.FromMinutes(125)));

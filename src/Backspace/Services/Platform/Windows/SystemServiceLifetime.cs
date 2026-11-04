@@ -44,15 +44,21 @@ internal static class SystemServiceLifetime
     /// <summary>Opening Backspace, or signing in, starts it again.</summary>
     internal static void Resume(SystemService.Registration registration, TimeSpan timeout)
     {
-        try { File.Delete(PathFor(registration.DataDirectory)); }
-        catch (DirectoryNotFoundException) { }
+        DeleteRecord(PathFor(registration.DataDirectory));
         SystemService.Start(registration.ServiceName, timeout);
     }
 
     /// <summary>A quit that a cancelled close must undo.</summary>
-    internal static void Forget(SystemService.Registration registration)
+    internal static void Forget(SystemService.Registration registration) => DeleteRecord(PathFor(registration.DataDirectory));
+
+    /// <summary>Deletes the record of a Quit, waiting out a reader: the
+    /// service checking it as it starts, or Dropbox syncing it when the
+    /// portable folder is inside Dropbox. Opening 1.1.4 found it "being
+    /// used by another process" and said tasks stayed paused (U121,
+    /// 4 November 2026). A lasting lock still fails.</summary>
+    internal static void DeleteRecord(string path, TimeSpan? budget = null)
     {
-        try { File.Delete(PathFor(registration.DataDirectory)); }
+        try { ServiceSetup.ReplaceRetrying(() => File.Delete(path), budget); }
         catch (DirectoryNotFoundException) { }
     }
 
@@ -67,7 +73,14 @@ internal static class SystemServiceLifetime
         var path = PathFor(dataDirectory);
         if (!File.Exists(path)) { reason = "Windows or the owner started it"; return false; }
         QuitRecord? record;
-        try { record = JsonSerializer.Deserialize<QuitRecord>(File.ReadAllBytes(path)); }
+        // Read without blocking its deletion: opening Backspace deletes it.
+        try
+        {
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            record = JsonSerializer.Deserialize<QuitRecord>(file);
+        }
+        // Deleted since it was found: Backspace was just opened.
+        catch (FileNotFoundException) { reason = "Windows or the owner started it"; return false; }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { record = null; }
         if (record is null)
         {

@@ -144,12 +144,13 @@ public sealed class ResticBackrestEngine : IBackupEngine
         {
             RaiseLineWritten(setup); lineSink?.Invoke(setup);
         }
+        var liveProgress = new BackupLiveProgress(ExpectedBytes(backup, sourcePath), SentBytesMeter());
         BackrestOperation terminal;
         try
         {
             terminal = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/Backup",
                 new BackupRequest { Value = planId }, op => op.PlanId == planId && op.OperationBackup is not null,
-                ct, lineSink).ConfigureAwait(false);
+                ct, lineSink, liveProgress).ConfigureAwait(false);
         }
         catch (BackrestRpcException ex) when (IsMissingPlanOrRepo(ex))
         {
@@ -162,7 +163,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             await ReapplyConfigAsync(client, ct).ConfigureAwait(false);
             terminal = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/Backup",
                 new BackupRequest { Value = planId }, op => op.PlanId == planId && op.OperationBackup is not null,
-                ct, lineSink).ConfigureAwait(false);
+                ct, lineSink, liveProgress).ConfigureAwait(false);
         }
         if (BackupLiveProgress.Recap(terminal.OperationBackup) is { } recap)
         {
@@ -340,13 +341,13 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
     private async Task<BackrestOperation> RunWithStaleLockRecoveryAsync<T>(BackrestClient client,
         string repoId, string endpoint, T request, Func<BackrestOperation, bool> matches,
-        CancellationToken ct, Action<string>? lineSink = null) where T : class
+        CancellationToken ct, Action<string>? lineSink = null, BackupLiveProgress? liveProgress = null) where T : class
     {
         for (var attempt = 0; ; attempt++)
         {
             ct.ThrowIfCancellationRequested();
             var result = await RunTrackedRepoRpcAsync(client, repoId, endpoint, request,
-                matches, ct, lineSink).ConfigureAwait(false);
+                matches, ct, lineSink, liveProgress: liveProgress).ConfigureAwait(false);
             if (attempt != 0 || !IsConfirmedLockFailure(result)) return result;
             // The command never acquired its repository lock. Restic unlock
             // removes only stale locks; never use --remove-all. Active locks
@@ -398,6 +399,26 @@ public sealed class ResticBackrestEngine : IBackupEngine
             _log.Debug(ex, "Could not read the previous snapshot for the log");
             return null;
         }
+    }
+
+    /// <summary>The size a backup of <paramref name="sourcePath"/> is
+    /// expected to read: the last backup's, or the estimate counted with its
+    /// rules, or 0 when neither is known (U124).</summary>
+    internal static long ExpectedBytes(Backup backup, string sourcePath)
+    {
+        if (backup.SourceLastSizeBytes.TryGetValue(sourcePath, out var last) && last > 0) return last;
+        return ServiceLocator.SizeProbe?.TryGetCached(sourcePath, SourceSizeRules.For(backup))
+            is { Completed: true, Approximate: false, Bytes: > 0 } estimate ? estimate.Bytes : 0;
+    }
+
+    /// <summary>What the engine has stored so far, when Windows can tell (U124).</summary>
+    private Func<long?>? SentBytesMeter()
+    {
+#if WINDOWS
+        return _sidecar.ProcessId is { } engine ? () => Platform.Windows.EngineTransfer.SentBytes(engine) : null;
+#else
+        return null;
+#endif
     }
 
     /// <summary>What a backup starts from, like the opening lines of a
@@ -527,7 +548,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
     internal async Task<BackrestOperation> RunTrackedRepoRpcAsync<T>(BackrestClient client, string repoId,
         string endpoint, T request, Func<BackrestOperation, bool> matches,
-        CancellationToken ct, Action<string>? lineSink = null, TimeSpan? uncertaintyTimeout = null) where T : class
+        CancellationToken ct, Action<string>? lineSink = null, TimeSpan? uncertaintyTimeout = null,
+        BackupLiveProgress? liveProgress = null) where T : class
     {
         var gate = _repoTaskGates.GetOrAdd(repoId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
@@ -551,7 +573,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             DateTime? goneSince = null;
             DateTime? recoveryDeadline = null;
             string lastStatus = "";
-            var liveProgress = new BackupLiveProgress();
+            liveProgress ??= new BackupLiveProgress();
             var lastAnswer = DateTime.UtcNow;
             var movedAt = DateTime.UtcNow;
             BackupLiveProgress.Sample? lastSample = null;

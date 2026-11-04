@@ -531,18 +531,25 @@ internal sealed class BackupWindowsService : ServiceBase
 }
 
 internal sealed record ServiceHostRequest(int Version, string Command, string? Revision = null,
-    string? BackupId = null, string? Operation = null, string? RunId = null, string? Path = null)
+    string? BackupId = null, string? Operation = null, string? RunId = null, string? Path = null,
+    string? Filters = null, bool SkipCloudOnly = false)
 {
+    // A size estimate carries the backup's exclusion rules (U123), which can
+    // run to tens of kilobytes; every other request stays small.
+    internal const int MaxMeasureRequestBytes = 512 * 1024;
+
     internal static ServiceHostRequest Parse(ReadOnlySpan<byte> bytes)
     {
-        if (bytes.Length is <= 0 or > 4096) throw new InvalidDataException("Invalid run request size.");
+        if (bytes.Length is <= 0 or > MaxMeasureRequestBytes
+            || bytes.Length > 4096 && bytes.IndexOf("\"command\":\"measure\""u8) < 0) throw new InvalidDataException("Invalid run request size.");
         var reader = new Utf8JsonReader(bytes);
         var names = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
         while (reader.Read()) if (reader.TokenType == JsonTokenType.PropertyName && !names.Add(reader.GetString()!))
             throw new JsonException("Duplicate property.");
         var request = JsonSerializer.Deserialize<ServiceHostRequest>(bytes, ServiceRunAuthorization.Json)
             ?? throw new JsonException("Empty request.");
-        if (request.Version != 1 || (request.Command is not ("measure") && request.Path is not null) || (request.Command switch
+        if (request.Version != 1 || (request.Command is not ("measure") && (request.Path is not null || request.Filters is not null
+                || request.SkipCloudOnly || bytes.Length > 4096)) || (request.Command switch
         {
             // U106: a size estimate with the service's rights; totals only.
             "measure" => !ServiceSizeMeasurements.Acceptable(request.Path) || request.Revision is not null || request.BackupId is not null || request.Operation is not null || request.RunId is not null,

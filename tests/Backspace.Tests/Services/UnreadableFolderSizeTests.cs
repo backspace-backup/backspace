@@ -44,7 +44,7 @@ public sealed class UnreadableFolderSizeTests
     {
         var previous = SourceSizeProbe.Elevated;
         var asked = 0;
-        SourceSizeProbe.Elevated = (path, _) =>
+        SourceSizeProbe.Elevated = (path, _, _) =>
         {
             Interlocked.Increment(ref asked);
             return Task.FromResult<SourceSizeResult?>(new SourceSizeResult(path, 300_000_000_000, 42, true, false, MeasuredByService: true));

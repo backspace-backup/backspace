@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Backspace.Models;
 using Backspace.Services;
 using Backspace.Services.Platform.Windows;
@@ -97,6 +98,43 @@ public sealed class SystemServiceTests
         Assert.True(SystemServiceLifetime.StaysQuit(dir, 7, _ => Session(), out var reason));
         Assert.Contains("quit", reason);
         Assert.True(File.Exists(SystemServiceLifetime.PathFor(dir)));
+    }
+
+    /// <summary>U121 (4 November 2026): opening 1.1.4 said scheduled tasks
+    /// stayed paused because the Quit record was "being used by another
+    /// process": the service reading it as it started, or Dropbox syncing it
+    /// in the portable folder. Opening Backspace now waits out such a reader.</summary>
+    [Fact]
+    public async Task Opening_Backspace_removes_the_Quit_record_even_while_something_reads_it()
+    {
+        using var ws = new TempWorkspace();
+        var dir = QuitRecord(ws);
+        var path = SystemServiceLifetime.PathFor(dir);
+        var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read); // like Dropbox: no delete sharing
+        // Without waiting, Windows refuses (what the person saw).
+        Assert.Throws<IOException>(() => File.Delete(path));
+        var release = Task.Run(async () => { await Task.Delay(800); held.Dispose(); });
+        SystemServiceLifetime.DeleteRecord(path);
+        await release;
+        Assert.False(File.Exists(path));
+        SystemServiceLifetime.DeleteRecord(path); // already gone: nothing to do
+        // A lasting lock still fails, after the wait.
+        var again = QuitRecord(ws);
+        using (new FileStream(SystemServiceLifetime.PathFor(again), FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.ThrowsAny<IOException>(() => SystemServiceLifetime.DeleteRecord(SystemServiceLifetime.PathFor(again), TimeSpan.FromMilliseconds(300)));
+    }
+
+    [Fact]
+    public void The_service_reading_the_Quit_record_does_not_stop_Backspace_from_removing_it()
+    {
+        using var ws = new TempWorkspace();
+        var dir = QuitRecord(ws);
+        // The service reads it this way while it starts.
+        using var reading = new FileStream(SystemServiceLifetime.PathFor(dir), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        File.Delete(SystemServiceLifetime.PathFor(dir));
+        Assert.False(File.Exists(SystemServiceLifetime.PathFor(dir)));
+        // Removed between the check and the read: Backspace was just opened, so the service runs.
+        Assert.False(SystemServiceLifetime.StaysQuit(dir, 7, _ => Session(), out _));
     }
 
     [Fact]

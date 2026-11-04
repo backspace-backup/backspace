@@ -373,6 +373,10 @@ public sealed class BackupProgressService
     /// </summary>
     internal static long? TryParseSourceSizeBytes(string line)
     {
+        // What the finished backup read, its rules applied: the size the
+        // card shows afterwards (U123). Before, the estimate made before the
+        // run was kept, as if the backup had measured it.
+        if (BackupLiveProgress.CheckedBytes(line) is { } read) return read;
         // Cheap pre-screen so the hot path skips most lines without
         // running any regex. The keywords are exclusive to size-hint
         // lines (chunk-upload lines say "size", not "files (".)

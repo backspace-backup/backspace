@@ -15,9 +15,10 @@ namespace Backspace.Services;
 /// <c>C:\Users\me\Documents</c> doesn't re-walk every time the
 /// containing view re-renders.
 ///
-/// Used by the BackupEditor's source chips and the onboarding wizard
-/// to give the user an at-a-glance estimate of how big a backup will
-/// be — purely informational, never blocks any flow.
+/// Used by the BackupEditor's source chips and the backup cards to give
+/// the user an at-a-glance estimate of how big a backup will be, counted
+/// with that backup's exclusion rules — purely informational, never
+/// blocks any flow.
 ///
 /// Defensive choices for Windows quirks:
 ///   - Skip reparse points (junctions, symlinks) — we'd otherwise
@@ -46,15 +47,21 @@ public sealed class SourceSizeProbe
     private readonly ConcurrentDictionary<string, SourceSizeResult> _cache =
         new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Cached result for the path if a probe has already run.
-    /// Returns null if no probe has happened yet.</summary>
-    public SourceSizeResult? TryGetCached(string path) =>
-        _cache.TryGetValue(NormalizeKey(path), out var r) ? r : null;
+    // Sizes a backup measured (restic's own totals), whatever rules counted them.
+    private readonly ConcurrentDictionary<string, SourceSizeResult> _measured =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Cached result for the path, counted with a backup's
+    /// <paramref name="rules"/>, if a probe has already run (or a backup
+    /// measured it). Returns null if no probe has happened yet.</summary>
+    public SourceSizeResult? TryGetCached(string path, SourceSizeRules? rules = null) =>
+        _cache.TryGetValue(CacheKey(path, rules), out var r) ? r
+        : _measured.TryGetValue(NormalizeKey(path), out var m) ? m : null;
 
     /// <summary>
     /// Returns a cached result if available, otherwise runs the walk
-    /// and caches the outcome. Same path called concurrently shares
-    /// the in-flight Task — no double-walk.
+    /// and caches the outcome. Same path and rules called concurrently
+    /// share the in-flight Task — no double-walk.
     /// <paramref name="progress"/> receives running-total updates
     /// during the walk; only the FIRST caller for a given path that
     /// supplies one will see callbacks (in-flight task is shared).
@@ -62,10 +69,11 @@ public sealed class SourceSizeProbe
     public async Task<SourceSizeResult> GetOrComputeAsync(
         string path,
         CancellationToken ct,
-        IProgress<SourceSizeProgress>? progress = null)
+        IProgress<SourceSizeProgress>? progress = null,
+        SourceSizeRules? rules = null)
     {
-        var key = NormalizeKey(path);
-        if (_cache.TryGetValue(key, out var cached))
+        rules ??= SourceSizeRules.None;
+        if (TryGetCached(path, rules) is { } cached)
             return cached;
 
         // The shared compute uses CancellationToken.None deliberately:
@@ -75,11 +83,11 @@ public sealed class SourceSizeProbe
         // was still alive. MaxScanDuration is the real bound on runtime;
         // each caller observes its own cancellation via WaitAsync below
         // without tearing down the walk for the others.
-        var task = _inflight.GetOrAdd(key, k => Task.Run(async () =>
+        var task = _inflight.GetOrAdd(CacheKey(path, rules), k => Task.Run(async () =>
         {
             try
             {
-                var result = await ComputeAsync(path, CancellationToken.None, progress);
+                var result = await ComputeAsync(path, rules, CancellationToken.None, progress);
                 _cache[k] = result;
                 return result;
             }
@@ -94,80 +102,72 @@ public sealed class SourceSizeProbe
     private readonly ConcurrentDictionary<string, Task<SourceSizeResult>> _inflight =
         new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Drops the cache entry for <paramref name="path"/>. Call
+    /// <summary>Drops the cache entries for <paramref name="path"/>. Call
     /// after a backup runs so the next size probe reflects fresh state.</summary>
-    public void Invalidate(string path) => _cache.TryRemove(NormalizeKey(path), out SourceSizeResult _);
+    public void Invalidate(string path)
+    {
+        var prefix = NormalizeKey(path) + "|";
+        foreach (var key in _cache.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            _cache.TryRemove(key, out SourceSizeResult _);
+        _measured.TryRemove(NormalizeKey(path), out SourceSizeResult _);
+    }
 
     /// <summary>
-    /// Overwrites the cached byte-size for <paramref name="path"/> with
-    /// a fresh measurement (e.g. parsed from Duplicacy's
-    /// <c>Indexed N files (M bytes)</c> stdout line — which Duplicacy
-    /// itself just measured during indexing, so it's strictly more
-    /// accurate than our walked estimate AND avoids re-walking the
-    /// tree). Without this the cache is set on first probe and never
-    /// refreshed for the app's lifetime, so a source that grows from
-    /// 5 GB to 50 GB stays at 5 GB until the user reopens the
-    /// BackupEditor.
+    /// Records a byte-size the backup itself measured for
+    /// <paramref name="path"/> (restic's total at the end of a backup,
+    /// which applied the backup's rules) — strictly more accurate than
+    /// our walked estimate AND avoids re-walking the tree. Without this
+    /// the cache is set on first probe and never refreshed for the app's
+    /// lifetime, so a source that grows from 5 GB to 50 GB stays at 5 GB
+    /// until the user reopens the BackupEditor.
     ///
-    /// File count is left at its previous cached value if we don't
-    /// have a fresh count to apply (the byte-only path doesn't always
-    /// carry a file count, and a stale count is preferable to a zero).
+    /// File count is left at its previous value if we don't have a fresh
+    /// count to apply (a stale count is preferable to a zero).
     /// </summary>
     public void UpdateCachedBytes(string path, long bytes, long? fileCount = null)
     {
         if (string.IsNullOrWhiteSpace(path) || bytes < 0) return;
         var key = NormalizeKey(path);
-        var prev = _cache.TryGetValue(key, out var existing) ? existing : default;
+        var prev = _measured.TryGetValue(key, out var existing) ? existing : default;
         var files = fileCount ?? (prev.Completed ? prev.FileCount : 0);
-        _cache[key] = new SourceSizeResult(path, bytes, files, Completed: true, Truncated: false);
+        _measured[key] = new SourceSizeResult(path, bytes, files, Completed: true, Truncated: false);
         _log.Debug("Source size updated from runtime measurement: {Path} → {Bytes:N0} bytes",
             path, bytes);
     }
 
     private async Task<SourceSizeResult> ComputeAsync(
         string path,
+        SourceSizeRules rules,
         CancellationToken ct,
         IProgress<SourceSizeProgress>? progress = null)
     {
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
             return new SourceSizeResult(path, 0, 0, false, false);
 
-        long bytes = 0;
-        long files = 0;
-        var unreadable = 0;
-        string? unreadableExample = null;
+        var count = new Count();
         var root = TreeWalk.Root(path);
-        var walk = Task.Run(() => TreeWalk.Walk(root, (entry, _) =>
-        {
-            // Never backed up (System Volume Information, pagefile.sys…), so never counted.
-            if (RecommendedFilters.IsAlwaysExcludedAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
-            if (entry.IsDirectory) return false;
-            Interlocked.Add(ref bytes, entry.Length);
-            Interlocked.Increment(ref files);
-            return null;
-        }, DateTime.UtcNow + MaxScanDuration, ct, dir =>
-        {
-            if (Interlocked.Increment(ref unreadable) == 1) unreadableExample = dir;
-        }), ct);
+        var walk = Task.Run(() => CountIncluded(root, rules, DateTime.UtcNow + MaxScanDuration, ct, count), ct);
 
         while (!walk.IsCompleted)
         {
             await Task.WhenAny(walk, Task.Delay(ProgressInterval, ct));
             if (!walk.IsCompleted)
-                progress?.Report(new SourceSizeProgress(Interlocked.Read(ref bytes), Interlocked.Read(ref files)));
+                progress?.Report(new SourceSizeProgress(Interlocked.Read(ref count.Bytes), Interlocked.Read(ref count.Files)));
         }
         var truncated = !await walk;
-        var result = new SourceSizeResult(path, bytes, files, true, truncated,
-            UnreadableFolders: unreadable, UnreadableExample: unreadableExample);
+        var bytes = count.Bytes;
+        var result = new SourceSizeResult(path, bytes, count.Files, true, truncated,
+            UnreadableFolders: count.Unreadable, UnreadableExample: count.UnreadableExample, CloudOnlyFiles: count.CloudOnly);
 
         // Folders this account can't open (another account's profile) are
         // backed up by the background service, which can read them: ask it
-        // to measure with its rights (U106). Without it, say what was missed.
-        if (unreadable > 0 && Elevated is { } elevated)
+        // to measure with its rights and the same rules (U106). Without it,
+        // say what was missed.
+        if (count.Unreadable > 0 && Elevated is { } elevated)
         {
             try
             {
-                if (await elevated(path, ct).ConfigureAwait(false) is { Completed: true } measured && measured.Bytes >= bytes)
+                if (await elevated(path, rules, ct).ConfigureAwait(false) is { Completed: true } measured && measured.Bytes >= bytes)
                     result = measured;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -178,8 +178,10 @@ public sealed class SourceSizeProbe
 
         // A whole drive too big to list in time: the space it uses is a
         // close, instant answer (it also counts the page file and other
-        // system files that backups leave out).
-        if (result.Truncated && TreeWalk.IsDriveRoot(root))
+        // system files that backups leave out). Not with exclusion rules:
+        // they can leave out most of a drive, so the space used says
+        // nothing about the backup (U123).
+        if (result.Truncated && TreeWalk.IsDriveRoot(root) && !rules.HasRules)
         {
             try
             {
@@ -189,20 +191,87 @@ public sealed class SourceSizeProbe
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
         }
-        _log.Debug("Source size for {Path}: {Bytes:N0} bytes, {Files:N0} files, truncated={Truncated}, approximate={Approximate}",
-            path, result.Bytes, files, truncated, result.Approximate);
+        _log.Debug("Source size for {Path}: {Bytes:N0} bytes, {Files:N0} files, truncated={Truncated}, approximate={Approximate}, rules={Rules}",
+            path, result.Bytes, result.FileCount, truncated, result.Approximate, rules.HasRules);
         return result;
     }
 
     /// <summary>Measures a folder with the background service's rights, or
     /// returns null when there is no such service (set by the app on Windows).</summary>
-    internal static Func<string, CancellationToken, Task<SourceSizeResult?>>? Elevated;
+    internal static Func<string, SourceSizeRules, CancellationToken, Task<SourceSizeResult?>>? Elevated;
+
+    /// <summary>Running totals of <see cref="CountIncluded"/>.</summary>
+    internal sealed class Count
+    {
+        public long Bytes, Files, CloudOnly;
+        public int Unreadable;
+        public string? UnreadableExample;
+    }
+
+    /// <summary>
+    /// Counts what a backup of <paramref name="root"/> holds: files its
+    /// exclusion rules leave out (a Dropbox folder, caches) are not counted,
+    /// nor are files kept only in the cloud, nor the files no backup ever
+    /// holds (pagefile.sys…). Excluded folders are not even read (U123,
+    /// 4 November 2026: C:\ showed 791 GB because its own rules were
+    /// ignored). Shared by the app and the background service.
+    /// </summary>
+    /// <returns>False when <paramref name="deadline"/> passed before the end.</returns>
+    internal static bool CountIncluded(string root, SourceSizeRules rules, DateTime deadline, CancellationToken ct, Count count)
+    {
+        var compiled = rules.HasRules ? FilterTranslator.CompileRules(FilterTranslator.ScopeToSource(rules.FiltersText, root)) : null;
+        bool Excluded(string fullPath, bool directory)
+            => compiled is not null && FilterTranslator.Evaluate(compiled, TreeWalk.Relative(root, fullPath) + (directory ? "/" : "")).Excluded;
+        return TreeWalk.Walk(root, (entry, _) =>
+        {
+            // Never backed up (System Volume Information, pagefile.sys…), so never counted.
+            if (RecommendedFilters.IsAlwaysExcludedAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
+            if (Excluded(entry.FullPath, entry.IsDirectory)) return null;
+            if (entry.IsDirectory) return false;
+            if (rules.SkipCloudOnly && TreeWalk.IsCloudOnly(entry.Attributes))
+            {
+                Interlocked.Increment(ref count.CloudOnly);
+                return null;
+            }
+            Interlocked.Add(ref count.Bytes, entry.Length);
+            Interlocked.Increment(ref count.Files);
+            return null;
+        }, deadline, ct, dir =>
+        {
+            if (Interlocked.Increment(ref count.Unreadable) == 1) count.UnreadableExample = dir;
+        }, (entry, _) =>
+        {
+            // Placeholders of files kept only in the cloud are links: never
+            // read, so never counted, whatever the backup does with them.
+            if (!entry.IsDirectory && TreeWalk.IsCloudOnly(entry.Attributes) && !Excluded(entry.FullPath, false))
+                Interlocked.Increment(ref count.CloudOnly);
+        });
+    }
+
+    private static string CacheKey(string path, SourceSizeRules? rules) => NormalizeKey(path) + "|" + (rules ?? SourceSizeRules.None).Key;
 
     private static string NormalizeKey(string path)
     {
         try { return TreeWalk.Root(path); }
         catch { return path; }
     }
+}
+
+/// <summary>What a backup leaves out of its folders when counting their size
+/// (U123): its exclusion rules and, when it skips them, files kept only in
+/// the cloud.</summary>
+public sealed record SourceSizeRules(string? FiltersText, bool SkipCloudOnly)
+{
+    /// <summary>Every file counted, except files no backup holds and cloud placeholders.</summary>
+    public static SourceSizeRules None { get; } = new(null, false);
+
+    public static SourceSizeRules For(Models.Backup backup) => new(backup.FiltersText, backup.ExcludeCloudFiles);
+
+    internal bool HasRules => !string.IsNullOrWhiteSpace(FiltersText);
+
+    // Identifies the rules in the cache without keeping long rule texts as keys.
+    internal string Key { get; } = (SkipCloudOnly ? "c" : "a") + (string.IsNullOrWhiteSpace(FiltersText) ? ""
+        : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(FiltersText.Replace("\r\n", "\n")))));
 }
 
 /// <param name="Path">Folder probed.</param>
@@ -217,6 +286,7 @@ public sealed class SourceSizeProbe
 /// <param name="UnreadableExample">The first of them, to name in the interface.</param>
 /// <param name="MeasuredByService">Measured by the background service, with the
 /// same rights as its backups.</param>
+/// <param name="CloudOnlyFiles">Files kept only in the cloud, not counted.</param>
 public readonly record struct SourceSizeResult(
     string Path,
     long Bytes,
@@ -226,7 +296,8 @@ public readonly record struct SourceSizeResult(
     bool Approximate = false,
     int UnreadableFolders = 0,
     string? UnreadableExample = null,
-    bool MeasuredByService = false)
+    bool MeasuredByService = false,
+    long CloudOnlyFiles = 0)
 {
     /// <summary>Folders the backup will leave out because they can't be opened,
     /// or null when there are none (U106). The size doesn't count them, and
@@ -243,6 +314,14 @@ public readonly record struct SourceSizeResult(
             return $"{what} Backspace can't open {(one ? "it" : "them")}{where}. Turn on administrator access in Settings to include {(one ? "it" : "them")}.";
         }
     }
+
+    /// <summary>Files kept only in the cloud, left out of the size, or null (U123).</summary>
+    public string? CloudOnlyNote => CloudOnlyFiles switch
+    {
+        0 => null,
+        1 => "1 file kept only in the cloud isn't counted: it isn't on this computer.",
+        _ => $"{CloudOnlyFiles:N0} files kept only in the cloud aren't counted: they aren't on this computer.",
+    };
 }
 
 /// <summary>Running-total snapshot fired periodically by the walker

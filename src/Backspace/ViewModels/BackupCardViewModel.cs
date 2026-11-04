@@ -398,7 +398,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         foreach (var line in Sources)
         {
             if (b.SourceLastSizeBytes.TryGetValue(line.Path, out var bytes) && bytes > 0) line.ShowMeasured(bytes);
-            else line.ShowEstimate();
+            else line.ShowEstimate(SourceSizeRules.For(b));
         }
 
         // Destinations column. Each pill carries the class kind so the
@@ -1040,21 +1040,22 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         }
 
         /// <summary>Before a first successful backup, shows the size of the
-        /// files on disk, replaced by the measured size once a backup has
-        /// run (U106). The probe is shared and cached, so each folder is
-        /// read at most once per session.</summary>
-        public void ShowEstimate()
+        /// files this backup will hold: its exclusion rules applied, files
+        /// kept only in the cloud left out (U123). Replaced by the measured
+        /// size once a backup has run (U106). The probe is shared and cached,
+        /// so each folder is read at most once per session and set of rules.</summary>
+        public void ShowEstimate(SourceSizeRules rules)
         {
             _measured = false;
             if (ServiceLocator.SizeProbe is not { } probe) return;
-            if (probe.TryGetCached(Path) is { } cached) { ApplyEstimate(cached); return; }
+            if (probe.TryGetCached(Path, rules) is { } cached) { ApplyEstimate(cached); return; }
             if (_estimating) return;
             _estimating = true;
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    var result = await probe.GetOrComputeAsync(Path, CancellationToken.None);
+                    var result = await probe.GetOrComputeAsync(Path, CancellationToken.None, rules: rules);
                     Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyEstimate(result));
                 }
                 catch (Exception) { }
@@ -1069,9 +1070,10 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             (SizeLabel, SizeTooltip) = result.Approximate
                 ? ($"about {size}", "Space used on the whole drive, as reading every folder took too long. The first backup measures what it actually saves.")
                 : result.Truncated
-                    ? ($"{size}+", "At least this much: reading every folder took too long. The first backup measures it exactly.")
-                    : ($"about {size}", "Estimated from the files in this folder before the first backup. The first backup measures it exactly.");
+                    ? ($"at least {size}", "At least this much: reading every folder took too long. The first backup measures it exactly.")
+                    : ($"about {size}", "Estimated before the first backup from the files this backup includes, its exclusions applied. The first backup measures it exactly.");
             if (result.UnreadableNote is { } note) SizeTooltip += Environment.NewLine + note;
+            if (result.CloudOnlyNote is { } cloud) SizeTooltip += Environment.NewLine + cloud;
         }
     }
 

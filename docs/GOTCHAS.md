@@ -425,7 +425,11 @@ background service therefore also starts on Winlogon and Kernel-Boot events
 from hibernation, and also at shutdown and on lock and unlock; the service
 then decides from `service\quit.json` whether the owner's Quit still holds (the
 same sign-in session in the same boot) and stops again within a fraction of a
-second if so (`SystemServiceLifetime`). Measured in the lab VM on 2 November
+second if so (`SystemServiceLifetime`). Because those starts often coincide
+with the owner opening Backspace, the service reads the record with delete
+sharing, and the desktop retries deleting it for up to 20 seconds: Dropbox
+also opens it when the portable folder is synced (U121, 4 November 2026: "Scheduled tasks
+are still paused … being used by another process"). Measured in the lab VM on 2 November
 2026, which could not produce a true Fast Startup start (it has no hibernation
 file and falls back to a full start). Do not use Microsoft-Windows-Kernel-Power
 or the User Profile Service as triggers: they fire thousands of times or every

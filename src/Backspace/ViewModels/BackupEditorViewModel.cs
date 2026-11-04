@@ -482,7 +482,9 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
 
         // Build matching chips up-front so the initial render isn't
         // empty; the size probes kick off lazily.
-        foreach (var p in SourcePaths) AddChipFor(p);
+        // Measured once the rules below are loaded: the size counts what
+        // this backup holds, its exclusions applied (U123).
+        foreach (var p in SourcePaths) AddChipFor(p, measure: false);
 
         SourcePaths.CollectionChanged += (_, e) =>
         {
@@ -522,6 +524,11 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
                 if (!_userTouchedFilters) ApplyRecommendedFilters();
             });
         }
+        // After the rules are loaded (and a new backup's recommendations applied).
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            foreach (var chip in SourceChips.Where(c => !c.SizeReady)) _ = chip.StartSizeProbeAsync(SizeRules());
+        });
         // 0 means "auto-tune per destination kind" — UI shows this as
         // "Auto" via a placeholder rather than coercing to 4.
         _threads = working.Threads;
@@ -729,15 +736,19 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private void AddChipFor(string path)
+    private void AddChipFor(string path, bool measure = true)
     {
         var chip = new SourceChipVm(path);
         SourceChips.Add(chip);
         // Kick off the async size probe — UI shows "estimating…" until
         // the probe completes (or times out, in which case we display
         // the partial number with a "~" prefix).
-        _ = chip.StartSizeProbeAsync();
+        if (measure) _ = chip.StartSizeProbeAsync(SizeRules());
     }
+
+    /// <summary>What the source sizes leave out: this backup's exclusions
+    /// as currently edited, and files kept only in the cloud (U123).</summary>
+    private SourceSizeRules SizeRules() => new(FiltersText, ExcludeCloudFiles);
 
     [RelayCommand]
     private void AddTarget()
@@ -1880,7 +1891,7 @@ public sealed partial class SourceChipVm : ObservableObject
 
     public SourceChipVm(string path) => Path = path;
 
-    public async System.Threading.Tasks.Task StartSizeProbeAsync()
+    public async System.Threading.Tasks.Task StartSizeProbeAsync(SourceSizeRules? rules = null)
     {
         // Progress<T> captures the current sync context at construction
         // and marshals Report callbacks back to it — so running this on
@@ -1900,7 +1911,7 @@ public sealed partial class SourceChipVm : ObservableObject
         try
         {
             var result = await ServiceLocator.SizeProbe.GetOrComputeAsync(
-                Path, System.Threading.CancellationToken.None, progress);
+                Path, System.Threading.CancellationToken.None, progress, rules);
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 SizeLabel = result.FileCount == 0 ? "Empty or unreadable"
@@ -1909,7 +1920,8 @@ public sealed partial class SourceChipVm : ObservableObject
                     : $"{HumanBytes(result.Bytes)} · {result.FileCount:N0} files";
                 if (result.FileCount > 0 && result.UnreadableFolders > 0 && !result.MeasuredByService)
                     SizeLabel += result.UnreadableFolders == 1 ? " · 1 folder won't be backed up" : $" · {result.UnreadableFolders:N0} folders won't be backed up";
-                SizeTooltip = result.UnreadableNote;
+                SizeTooltip = string.Join(System.Environment.NewLine,
+                    new[] { result.UnreadableNote, result.CloudOnlyNote }.Where(n => n is not null)) is { Length: > 0 } notes ? notes : null;
                 SizeReady = true;
             });
         }

@@ -36,11 +36,15 @@ internal static class SystemServiceClient
 
     /// <summary>The size of a folder measured by the service, with the same
     /// rights as its backups (U106), or null when it can't tell.</summary>
-    internal static async Task<SourceSizeResult?> MeasureAsync(SystemService.Registration system, string path, TimeSpan limit, CancellationToken ct)
+    internal static async Task<SourceSizeResult?> MeasureAsync(SystemService.Registration system, string path, SourceSizeRules rules,
+        TimeSpan limit, CancellationToken ct)
     {
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        object request = rules.HasRules || rules.SkipCloudOnly
+            ? new { version = 1, command = "measure", path, filters = rules.FiltersText, skipCloudOnly = rules.SkipCloudOnly }
+            : new { version = 1, command = "measure", path };
         var started = JsonSerializer.Deserialize<ServiceSizeMeasurements.Reply>(
-            await SendAsync(system, new { version = 1, command = "measure", path }, ct).ConfigureAwait(false), options);
+            await SendAsync(system, request, ct).ConfigureAwait(false), options);
         if (started?.RunId is not { } runId || started.Error is not null) return null;
         var deadline = DateTime.UtcNow + limit;
         while (DateTime.UtcNow < deadline)
@@ -51,7 +55,7 @@ internal static class SystemServiceClient
             if (reply is null || reply.Error is not null) return null;
             if (reply.State == "done")
                 return new SourceSizeResult(path, reply.Bytes, reply.Files, Completed: true, Truncated: reply.Truncated,
-                    UnreadableFolders: reply.Unreadable, MeasuredByService: true);
+                    UnreadableFolders: reply.Unreadable, MeasuredByService: true, CloudOnlyFiles: reply.CloudOnly);
         }
         return null;
     }
