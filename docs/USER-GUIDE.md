@@ -195,15 +195,20 @@ also counts the page file and other files backups leave out. After a backup
 runs, the card shows the size that backup measured.
 
 Some folders can't be opened from your account, such as another account's
-profile. With administrator access on, Backspace measures them with the same
-rights its backups use, so they are counted. Without it, backups skip those
-folders too; the size then ends with "+" and its tooltip names a folder it
-couldn't count.
+profile. With administrator access on, backups include them and the size
+counts them. Without it, backups leave them out, and so does the size; the
+settings window then says how many folders won't be backed up, naming one.
 
-Some Windows files are never backed up and never counted, whatever a backup's
-filters say: System Volume Information, the page, swap and hibernation files,
-the Recycle Bin, Windows setup and recovery folders and the like. They can't
-be restored usefully, and Windows rebuilds them.
+A few Windows files are never backed up and never counted, whatever a
+backup's filters say, because no restore can use them: the page, swap and
+hibernation files (pagefile.sys, swapfile.sys, hiberfil.sys, DumpStack.log.tmp),
+System Volume Information (shadow copies and the search index), the temporary
+folders of Windows Update, upgrades, resets and installers (Config.Msi,
+$WinREAgent, $GetCurrent, $SysReset, $Windows.~BT, $Windows.~WS,
+Windows10Upgrade, OneDriveTemp) and the boot files at the top of the drive
+(bootmgr, BOOTNXT, BOOTSECT.BAK). Windows, Windows.old, the Recycle Bin, the
+Recovery folder and the registry hives are only recommended exclusions: a
+backup can include them.
 
 While a backup runs, its card says **Running** with a turning icon; each
 source and the strip below show the percentage, and hovering **Running** shows

@@ -1908,7 +1908,7 @@ public sealed partial class SourceChipVm : ObservableObject
                     : result.Truncated ? $"At least {HumanBytes(result.Bytes)} · {result.FileCount:N0}+ files"
                     : $"{HumanBytes(result.Bytes)} · {result.FileCount:N0} files";
                 if (result.FileCount > 0 && result.UnreadableFolders > 0 && !result.MeasuredByService)
-                    SizeLabel += $" · {result.UnreadableFolders:N0} folder{(result.UnreadableFolders == 1 ? "" : "s")} not counted";
+                    SizeLabel += result.UnreadableFolders == 1 ? " · 1 folder won't be backed up" : $" · {result.UnreadableFolders:N0} folders won't be backed up";
                 SizeTooltip = result.UnreadableNote;
                 SizeReady = true;
             });

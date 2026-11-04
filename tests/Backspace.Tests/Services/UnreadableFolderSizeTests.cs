@@ -64,11 +64,14 @@ public sealed class UnreadableFolderSizeTests
             Assert.True(measured.MeasuredByService);
             Assert.Equal(300_000_000_000, measured.Bytes);
 
-            // Without the service, the estimate says what it left out.
+            // Without the service, the estimate says what the backup will leave out.
             SourceSizeProbe.Elevated = null;
             var alone = await new SourceSizeProbe().GetOrComputeAsync(locked, CancellationToken.None);
             Assert.Equal(1, alone.UnreadableFolders);
-            Assert.Equal("Not counted: 1 folder Backspace can't open, such as " + locked + ". Turn on administrator access in Settings to back them up.", alone.UnreadableNote);
+            // The backup leaves it out too, so the size is right without it; the
+            // note says the folder won't be backed up, not that the size is short.
+            Assert.Equal("1 folder won't be backed up because Backspace can't open it: " + locked + ". Turn on administrator access in Settings to include it.", alone.UnreadableNote);
+            Assert.Equal("3 folders won't be backed up because they can't be opened.", (alone with { UnreadableFolders = 3, MeasuredByService = true }).UnreadableNote);
         }
         finally { SourceSizeProbe.Elevated = previous; }
     }
@@ -116,10 +119,10 @@ public sealed class UnreadableFolderSizeTests
     }
 
     /// <summary>U106 follow-up: System Volume Information, the page and
-    /// hibernation files and the other essential exclusions are never backed
-    /// up, whatever a backup's filter text says, and never counted.</summary>
+    /// hibernation files and the other files useless in any restore are never
+    /// backed up, whatever a backup's filter text says, and never counted.</summary>
     [Fact]
-    public async Task Essential_exclusions_always_apply_and_are_never_counted()
+    public async Task Useless_system_files_are_always_excluded_and_never_counted()
     {
         // An imported backup with no filters at all still excludes them.
         var plan = ResticBackrestEngine.BuildPlanFromBackup("plan", "repo", new Backspace.Models.Backup { FiltersText = "" }, @"C:\");
@@ -127,6 +130,9 @@ public sealed class UnreadableFolderSizeTests
         foreach (var name in new[] { "System Volume Information", "pagefile.sys", "hiberfil.sys", "swapfile.sys" })
             Assert.Contains(name, all);
         Assert.Equal(plan.IExcludes.Count, plan.IExcludes.Distinct().Count());
+        // Things someone may want back are only recommended, never forced.
+        foreach (var name in new[] { "Windows.old", "$RECYCLE.BIN", "Recovery", "ntuser.dat", "UsrClass.dat", "/Windows/" })
+            Assert.DoesNotContain(name, all);
         // A rule in the text can't bring them back: the essentials come last.
         var withNegation = ResticBackrestEngine.BuildPlanFromBackup("plan", "repo", new Backspace.Models.Backup { FiltersText = "!/hiberfil.sys" }, @"C:\");
         Assert.EndsWith("hiberfil.sys", withNegation.IExcludes.Concat(withNegation.Excludes).Last(p => p.Contains("hiberfil")));
@@ -141,8 +147,8 @@ public sealed class UnreadableFolderSizeTests
         var size = await new SourceSizeProbe().GetOrComputeAsync(workspace.Root, CancellationToken.None);
         Assert.Equal(111, size.Bytes);
         Assert.Equal(2, size.FileCount);
-        Assert.True(RecommendedFilters.IsEssentialAtRoot(@"C:\", @"C:\System Volume Information", isDirectory: true));
-        Assert.False(RecommendedFilters.IsEssentialAtRoot(@"C:\", @"C:\System Volume Information", isDirectory: false));
-        Assert.False(RecommendedFilters.IsEssentialAtRoot(@"C:\", @"C:\Users\me\pagefile.sys", isDirectory: false));
+        Assert.True(RecommendedFilters.IsAlwaysExcludedAtRoot(@"C:\", @"C:\System Volume Information", isDirectory: true));
+        Assert.False(RecommendedFilters.IsAlwaysExcludedAtRoot(@"C:\", @"C:\System Volume Information", isDirectory: false));
+        Assert.False(RecommendedFilters.IsAlwaysExcludedAtRoot(@"C:\", @"C:\Users\me\pagefile.sys", isDirectory: false));
     }
 }

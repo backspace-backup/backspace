@@ -140,7 +140,7 @@ public sealed class SourceSizeProbe
         var walk = Task.Run(() => TreeWalk.Walk(root, (entry, _) =>
         {
             // Never backed up (System Volume Information, pagefile.sys…), so never counted.
-            if (RecommendedFilters.IsEssentialAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
+            if (RecommendedFilters.IsAlwaysExcludedAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
             if (entry.IsDirectory) return false;
             Interlocked.Add(ref bytes, entry.Length);
             Interlocked.Increment(ref files);
@@ -228,12 +228,21 @@ public readonly record struct SourceSizeResult(
     string? UnreadableExample = null,
     bool MeasuredByService = false)
 {
-    /// <summary>What the estimate leaves out because folders couldn't be
-    /// opened, or null when nothing was left out (U106).</summary>
-    public string? UnreadableNote => UnreadableFolders == 0 ? null : MeasuredByService
-        ? $"{UnreadableFolders:N0} folder{(UnreadableFolders == 1 ? "" : "s")} couldn't be opened and {(UnreadableFolders == 1 ? "isn't" : "aren't")} counted."
-        : $"Not counted: {UnreadableFolders:N0} folder{(UnreadableFolders == 1 ? "" : "s")} Backspace can't open, such as {UnreadableExample}. "
-          + "Turn on administrator access in Settings to back them up.";
+    /// <summary>Folders the backup will leave out because they can't be opened,
+    /// or null when there are none (U106). The size doesn't count them, and
+    /// rightly: the backup won't hold them either.</summary>
+    public string? UnreadableNote
+    {
+        get
+        {
+            if (UnreadableFolders == 0) return null;
+            var one = UnreadableFolders == 1;
+            var what = one ? "1 folder won't be backed up because" : $"{UnreadableFolders:N0} folders won't be backed up because";
+            if (MeasuredByService) return $"{what} {(one ? "it" : "they")} can't be opened.";
+            var where = UnreadableExample is null ? "" : one ? $": {UnreadableExample}" : $", such as {UnreadableExample}";
+            return $"{what} Backspace can't open {(one ? "it" : "them")}{where}. Turn on administrator access in Settings to include {(one ? "it" : "them")}.";
+        }
+    }
 }
 
 /// <summary>Running-total snapshot fired periodically by the walker

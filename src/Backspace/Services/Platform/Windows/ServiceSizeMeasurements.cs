@@ -55,7 +55,7 @@ internal sealed class ServiceSizeMeasurements
         var root = TreeWalk.Root(path);
         var finished = TreeWalk.Walk(root, (entry, _) =>
         {
-            if (RecommendedFilters.IsEssentialAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
+            if (RecommendedFilters.IsAlwaysExcludedAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
             if (entry.IsDirectory) return false;
             Interlocked.Add(ref bytes, entry.Length);
             Interlocked.Increment(ref files);
