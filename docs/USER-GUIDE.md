@@ -127,6 +127,9 @@ is due, the next is skipped.
 While a backup runs, Backspace asks Windows not to go to sleep on its own.
 The screen still turns off, and closing the lid, pressing the power button,
 choosing Sleep or a nearly empty battery still put the computer to sleep.
+On battery, laptops with Modern Standby (most recent ones) honour the
+request only until 5 minutes after their usual sleep time; plugged in, it
+holds for the whole backup.
 Backspace doesn't hold back restarts, including those Windows Update
 schedules: Windows Update restarts outside your active hours, and changing
 that is a Windows setting, not something an app should override. A
@@ -259,7 +262,8 @@ so until its count is done the percentage is of the size expected (the last
 backup's, or Backspace's own count, which takes seconds) or 0%, the line says "still counting" and no time
 left is shown. The speed is of the data actually sent to the storage: files
 that need nothing sent (unchanged, or already stored) are checked quickly and
-don't count.
+don't count. The time left follows the pace of the last five minutes, so it
+adjusts when a run speeds up or slows down.
 
 **Activity & logs** shows each run as phases. A backup opens with what it
 starts from: the previous backup to that destination (date and snapshot), the
