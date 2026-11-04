@@ -195,11 +195,15 @@ also counts the page file and other files backups leave out. After a backup
 runs, the card shows the size that backup measured.
 
 Some folders can't be opened from your account, such as another account's
-profile. With administrator access on, the background service backs them up,
-so Backspace asks it to measure the source instead, with the same rights;
-the editor then says "measured by the background service". Without it,
-backups skip those folders too, and the size ends with "+" and says how many
-folders it couldn't count, naming one.
+profile. With administrator access on, Backspace measures them with the same
+rights its backups use, so they are counted. Without it, backups skip those
+folders too; the size then ends with "+" and its tooltip names a folder it
+couldn't count.
+
+Some Windows files are never backed up and never counted, whatever a backup's
+filters say: System Volume Information, the page, swap and hibernation files,
+the Recycle Bin, Windows setup and recovery folders and the like. They can't
+be restored usefully, and Windows rebuilds them.
 
 While a backup runs, its card says **Running** with a turning icon; each
 source and the strip below show the percentage, and hovering **Running** shows

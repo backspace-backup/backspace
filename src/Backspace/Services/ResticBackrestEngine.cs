@@ -408,8 +408,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
         yield return "[setup] " + (previous is { } p
             ? $"Previous backup to «{destination.Name}»: {p.When.ToLocalTime():yyyy-MM-dd HH:mm}, snapshot {p.Id[..8]}. Only changes are sent."
             : $"No earlier backup of this folder in «{destination.Name}»: everything is read and sent.");
-        var translated = FilterTranslator.TranslateForSource(backup.FiltersText, sourcePath);
-        var rules = translated.Excludes.Count + translated.IExcludes.Count;
+        var translated = FilterTranslator.TranslateForSource(RecommendedFilters.WithEssentials(backup.FiltersText), sourcePath);
+        var rules = translated.Excludes.Distinct().Count() + translated.IExcludes.Distinct().Count();
         yield return $"[setup] {rules.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} exclusion rule{(rules == 1 ? "" : "s")} loaded"
             + (Services.Platform.PlatformInfo.IsWindows && backup.ExcludeCloudFiles ? "; files kept only in the cloud are skipped." : ".");
         yield return Services.Platform.PlatformInfo.IsWindows && backup.UseVss
@@ -2952,15 +2952,16 @@ public sealed class ResticBackrestEngine : IBackupEngine
         // meant RecommendedFilters and any imported Duplicacy filters
         // were no-ops, and backups ran without the exclusions the user
         // thought they'd applied.
-        var translated = FilterTranslator.TranslateForSource(backup.FiltersText, sourcePath);
+        // The essential exclusions apply whatever the filter text says (U106).
+        var translated = FilterTranslator.TranslateForSource(RecommendedFilters.WithEssentials(backup.FiltersText), sourcePath);
         var backupFlags = BuildBackupFlags(backup);
         return new BackrestPlan
         {
             Id = planId,
             Repo = repoId,
             Paths = paths,
-            Excludes = new List<string>(translated.Excludes),
-            IExcludes = new List<string>(translated.IExcludes),
+            Excludes = translated.Excludes.Distinct().ToList(),
+            IExcludes = translated.IExcludes.Distinct().ToList(),
             BackupFlags = backupFlags,
             // Backrest 1.13's Forget RPC refuses to run without a
             // retention policy on the plan ("forget called with nil

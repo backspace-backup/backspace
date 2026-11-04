@@ -137,6 +137,30 @@ public static class RecommendedFilters
         "/PerfLogs/",
     };
 
+    /// <summary>A backup's filter text with the essential exclusions added,
+    /// whatever the text holds: an imported backup, or one whose essential
+    /// block was edited away, never backs up System Volume Information, the
+    /// page or hibernation file and the like (U106, 4 November 2026). Added
+    /// last, so a rule earlier in the text can't bring them back.</summary>
+    public static string WithEssentials(string? filtersText)
+        => (filtersText ?? "") + "\n" + string.Join("\n", EssentialPatterns);
+
+    /// <summary>True for an entry directly in <paramref name="root"/> that an
+    /// anchored essential exclusion removes (System Volume Information,
+    /// pagefile.sys, …), so size estimates leave it out like the backup does.</summary>
+    public static bool IsEssentialAtRoot(string root, string fullPath, bool isDirectory)
+    {
+        if (!string.Equals(Path.TrimEndingDirectorySeparator(Path.GetDirectoryName(fullPath) ?? ""),
+                Path.TrimEndingDirectorySeparator(root), StringComparison.OrdinalIgnoreCase)) return false;
+        return AnchoredEssentialNames.Contains((isDirectory ? "/" : "") + Path.GetFileName(fullPath));
+    }
+
+    // "name" for an anchored file, "/name" for an anchored folder.
+    private static readonly HashSet<string> AnchoredEssentialNames = new(
+        EssentialPatterns.Where(p => p.StartsWith('/') && p.IndexOfAny(['*', '?', '[']) < 0)
+            .Select(p => p.EndsWith('/') ? "/" + p.Trim('/') : p.TrimStart('/')),
+        StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Toggleable "Windows system files" recommendations on top of the
     /// always-on essentials. Ticking this in the editor ALSO excludes

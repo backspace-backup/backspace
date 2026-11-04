@@ -404,6 +404,18 @@ public class ScreenshotTests
         {
             window.UpdateLayout();
             window.UpdateLayout();
+            // Settings checks administrator access in the background; on a
+            // slow runner the shot caught "Checking administrator access…"
+            // (release run of 4 November 2026). Wait for the answer.
+            var until = DateTime.UtcNow.AddSeconds(15);
+            while (DateTime.UtcNow < until && System.Linq.Enumerable.Any(
+                       Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window),
+                       v => v is TextBlock { Text: { } text } && text.StartsWith("Checking ", StringComparison.Ordinal)))
+            {
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                System.Threading.Thread.Sleep(20);
+            }
+            window.UpdateLayout();
             ScreenshotDiffTests.SettleInitialTransitions(window);
             ScreenshotDiffTests.FreezeDemoScheduleLabels(window);
 

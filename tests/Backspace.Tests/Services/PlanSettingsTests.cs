@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Backspace.Models;
 using Backspace.Services;
@@ -76,8 +77,11 @@ public sealed class PlanSettingsTests
         var wanted = ResticBackrestEngine.BuildPlanFromBackup("plan", "repo", backup, "source");
         wanted.Retention = new() { PolicyKeepAll = true };
         Assert.True(ResticBackrestEngine.ApplyPlanSettings(plan, wanted));
-        Assert.Empty(plan.Excludes);
-        Assert.Empty(plan.IExcludes);
+        // Only the essential exclusions remain, which always apply (U106).
+        Assert.DoesNotContain(plan.Excludes.Concat(plan.IExcludes), p => p.EndsWith("old.txt"));
+        Assert.Equal(wanted.Excludes, plan.Excludes);
+        Assert.Equal(wanted.IExcludes, plan.IExcludes);
+        Assert.Contains(plan.IExcludes.Concat(plan.Excludes), p => p.EndsWith("/hiberfil.sys"));
         Assert.True(plan.Retention!.PolicyKeepAll);
         Assert.Null(plan.Retention.PolicyTimeBucketed);
     }

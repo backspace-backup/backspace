@@ -52,8 +52,10 @@ internal sealed class ServiceSizeMeasurements
     internal static Reply Measure(string path)
     {
         long bytes = 0, files = 0; var unreadable = 0;
-        var finished = TreeWalk.Walk(TreeWalk.Root(path), (entry, _) =>
+        var root = TreeWalk.Root(path);
+        var finished = TreeWalk.Walk(root, (entry, _) =>
         {
+            if (RecommendedFilters.IsEssentialAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
             if (entry.IsDirectory) return false;
             Interlocked.Add(ref bytes, entry.Length);
             Interlocked.Increment(ref files);

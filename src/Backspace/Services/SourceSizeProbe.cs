@@ -139,6 +139,8 @@ public sealed class SourceSizeProbe
         var root = TreeWalk.Root(path);
         var walk = Task.Run(() => TreeWalk.Walk(root, (entry, _) =>
         {
+            // Never backed up (System Volume Information, pagefile.sys…), so never counted.
+            if (RecommendedFilters.IsEssentialAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
             if (entry.IsDirectory) return false;
             Interlocked.Add(ref bytes, entry.Length);
             Interlocked.Increment(ref files);
@@ -229,9 +231,9 @@ public readonly record struct SourceSizeResult(
     /// <summary>What the estimate leaves out because folders couldn't be
     /// opened, or null when nothing was left out (U106).</summary>
     public string? UnreadableNote => UnreadableFolders == 0 ? null : MeasuredByService
-        ? $"{UnreadableFolders:N0} folder{(UnreadableFolders == 1 ? "" : "s")} couldn't be opened even by the background service and {(UnreadableFolders == 1 ? "isn't" : "aren't")} counted."
-        : $"Not counted: {UnreadableFolders:N0} folder{(UnreadableFolders == 1 ? "" : "s")} your account can't open, such as {UnreadableExample}. "
-          + "With administrator access on, the background service backs them up and measures them; without it, backups skip them too.";
+        ? $"{UnreadableFolders:N0} folder{(UnreadableFolders == 1 ? "" : "s")} couldn't be opened and {(UnreadableFolders == 1 ? "isn't" : "aren't")} counted."
+        : $"Not counted: {UnreadableFolders:N0} folder{(UnreadableFolders == 1 ? "" : "s")} Backspace can't open, such as {UnreadableExample}. "
+          + "Turn on administrator access in Settings to back them up.";
 }
 
 /// <summary>Running-total snapshot fired periodically by the walker

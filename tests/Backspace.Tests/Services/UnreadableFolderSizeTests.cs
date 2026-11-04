@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -67,7 +68,7 @@ public sealed class UnreadableFolderSizeTests
             SourceSizeProbe.Elevated = null;
             var alone = await new SourceSizeProbe().GetOrComputeAsync(locked, CancellationToken.None);
             Assert.Equal(1, alone.UnreadableFolders);
-            Assert.StartsWith("Not counted: 1 folder your account can't open, such as " + locked, alone.UnreadableNote);
+            Assert.Equal("Not counted: 1 folder Backspace can't open, such as " + locked + ". Turn on administrator access in Settings to back them up.", alone.UnreadableNote);
         }
         finally { SourceSizeProbe.Elevated = previous; }
     }
@@ -112,5 +113,36 @@ public sealed class UnreadableFolderSizeTests
         var id = Guid.NewGuid().ToString("N");
         Assert.Equal(id, Parse(new { version = 1, command = "measure-result", runId = id }).RunId);
         Assert.Throws<InvalidDataException>(() => Parse(new { version = 1, command = "measure-result", runId = "not-an-id" }));
+    }
+
+    /// <summary>U106 follow-up: System Volume Information, the page and
+    /// hibernation files and the other essential exclusions are never backed
+    /// up, whatever a backup's filter text says, and never counted.</summary>
+    [Fact]
+    public async Task Essential_exclusions_always_apply_and_are_never_counted()
+    {
+        // An imported backup with no filters at all still excludes them.
+        var plan = ResticBackrestEngine.BuildPlanFromBackup("plan", "repo", new Backspace.Models.Backup { FiltersText = "" }, @"C:\");
+        var all = string.Join("\n", plan.Excludes.Concat(plan.IExcludes));
+        foreach (var name in new[] { "System Volume Information", "pagefile.sys", "hiberfil.sys", "swapfile.sys" })
+            Assert.Contains(name, all);
+        Assert.Equal(plan.IExcludes.Count, plan.IExcludes.Distinct().Count());
+        // A rule in the text can't bring them back: the essentials come last.
+        var withNegation = ResticBackrestEngine.BuildPlanFromBackup("plan", "repo", new Backspace.Models.Backup { FiltersText = "!/hiberfil.sys" }, @"C:\");
+        Assert.EndsWith("hiberfil.sys", withNegation.IExcludes.Concat(withNegation.Excludes).Last(p => p.Contains("hiberfil")));
+
+        using var workspace = new TempWorkspace("essential-size");
+        File.WriteAllBytes(Path.Combine(workspace.Root, "pagefile.sys"), new byte[5000]);
+        Directory.CreateDirectory(Path.Combine(workspace.Root, "System Volume Information"));
+        File.WriteAllBytes(Path.Combine(workspace.Root, "System Volume Information", "tracking.log"), new byte[7000]);
+        Directory.CreateDirectory(Path.Combine(workspace.Root, "docs"));
+        File.WriteAllBytes(Path.Combine(workspace.Root, "docs", "pagefile.sys"), new byte[11]); // not at the root: a user file
+        File.WriteAllBytes(Path.Combine(workspace.Root, "notes.txt"), new byte[100]);
+        var size = await new SourceSizeProbe().GetOrComputeAsync(workspace.Root, CancellationToken.None);
+        Assert.Equal(111, size.Bytes);
+        Assert.Equal(2, size.FileCount);
+        Assert.True(RecommendedFilters.IsEssentialAtRoot(@"C:\", @"C:\System Volume Information", isDirectory: true));
+        Assert.False(RecommendedFilters.IsEssentialAtRoot(@"C:\", @"C:\System Volume Information", isDirectory: false));
+        Assert.False(RecommendedFilters.IsEssentialAtRoot(@"C:\", @"C:\Users\me\pagefile.sys", isDirectory: false));
     }
 }
