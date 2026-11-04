@@ -501,8 +501,9 @@ internal sealed class SystemBackupService : ServiceBase
             StartWorker(new ServiceHostRequest(1, "scheduled", null, plan.Backup.Id, operation), approved);
             exited = _workerExited?.Task ?? Task.CompletedTask;
         }
-        // A time limit or battery stops the worker, then waits for it.
-        using (ct.Register(() => { lock (_gate) try { _worker?.StandardInput.WriteLine("cancel"); _worker?.StandardInput.Flush(); } catch (Exception) { } }))
+        // A time limit or battery stops the worker, then waits for it. When
+        // the service itself stops, OnStop tells the worker why (U131).
+        using (ct.Register(() => { if (_stop.IsCancellationRequested) return; lock (_gate) try { _worker?.StandardInput.WriteLine("cancel"); _worker?.StandardInput.Flush(); } catch (Exception) { } }))
             await exited.ConfigureAwait(false);
         return true;
     }
