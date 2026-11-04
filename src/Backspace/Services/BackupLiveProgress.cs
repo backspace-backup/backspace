@@ -35,8 +35,11 @@ internal sealed class BackupLiveProgress
     private readonly Func<long> _expectedBytes;
     private readonly Func<long?>? _sentBytes;
     private DateTime _lastEmitted = DateTime.MinValue;
-    private (DateTime At, long Bytes)? _sentFrom;
-    private (DateTime At, long Bytes)? _readFrom;
+    // Bytes sent over the last half minute, for the speed: over 5 seconds it
+    // jumped between a few bytes and megabytes as restic sent its data in
+    // packs (U133).
+    private readonly System.Collections.Generic.Queue<(DateTime At, long Bytes)> _sent = new();
+    internal static TimeSpan SpeedWindow = TimeSpan.FromSeconds(30);
     // Bytes done over the last minutes, for the time left.
     private readonly System.Collections.Generic.Queue<(DateTime At, long Bytes)> _recent = new();
     private (long Files, long Bytes)? _totals;
@@ -73,16 +76,14 @@ internal sealed class BackupLiveProgress
         _last = sample;
 
         long? sent = null;
-        double? rate = null, read = null;
-        if (_readFrom is { } before && nowUtc > before.At && sample.BytesDone >= before.Bytes)
-            read = (sample.BytesDone - before.Bytes) / (nowUtc - before.At).TotalSeconds;
-        _readFrom = (nowUtc, sample.BytesDone);
+        double? rate = null;
         try { sent = _sentBytes?.Invoke(); } catch (Exception) { }
         if (sent is { } stored)
         {
-            if (_sentFrom is { } from && nowUtc > from.At && stored >= from.Bytes)
+            _sent.Enqueue((nowUtc, stored));
+            while (_sent.Count > 2 && nowUtc - _sent.ElementAt(1).At >= SpeedWindow) _sent.Dequeue();
+            if (_sent.Peek() is var from && nowUtc > from.At && stored >= from.Bytes)
                 rate = (stored - from.Bytes) / (nowUtc - from.At).TotalSeconds;
-            _sentFrom = (nowUtc, stored);
         }
 
         // Time left from the pace of the last few minutes, once the total is
@@ -102,7 +103,7 @@ internal sealed class BackupLiveProgress
         }
         long expected = 0;
         try { expected = _expectedBytes(); } catch (Exception) { }
-        return Format(sample, counting, expected, sent, rate, left, read);
+        return Format(sample, counting, expected, sent, rate, left);
     }
 
     internal static Sample? Parse(JsonElement? operationBackup)
@@ -120,7 +121,7 @@ internal sealed class BackupLiveProgress
             : value.ValueKind == JsonValueKind.Number ? value.GetDouble()
             : value.ValueKind == JsonValueKind.String && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0;
 
-    internal static string Format(Sample sample, bool counting, long expectedBytes, long? sentBytes, double? sentPerSecond, TimeSpan? left = null, double? readPerSecond = null)
+    internal static string Format(Sample sample, bool counting, long expectedBytes, long? sentBytes, double? sentPerSecond, TimeSpan? left = null)
     {
         static string Count(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
         // While counting, a share of what was found so far would be too
@@ -134,26 +135,35 @@ internal sealed class BackupLiveProgress
             Math.Clamp(percent, 0, 100).ToString("0.0", CultureInfo.InvariantCulture) + "%",
             sample.BytesDone == 0 && sample.FilesDone == 0 ? "Scanning" : "Backing up",
         };
+        // Compact, so it fits on the card (U133, 4 November 2026): "30 / ~178 GB"
+        // and "88,211 / 109,320+ files" while restic is still counting. "~"
+        // marks Backspace's own count of the source, not yet restic's; "+"
+        // a file total that is still growing.
         if (!counting)
         {
-            parts.Add($"{Bytes(sample.BytesDone)} of {Bytes(sample.TotalBytes)}");
-            parts.Add($"{Count(sample.FilesDone)} of {Count(sample.TotalFiles)} files");
+            parts.Add(Of(sample.BytesDone, sample.TotalBytes, estimated: false));
+            parts.Add($"{Count(sample.FilesDone)} / {Count(sample.TotalFiles)} files");
         }
         else
         {
-            parts.Add(expected ? $"{Bytes(sample.BytesDone)} of about {Bytes(expectedBytes)}" : $"{Bytes(sample.BytesDone)} done");
-            parts.Add($"{Count(sample.FilesDone)} files done, {Count(sample.TotalFiles)} found so far (still counting)");
+            parts.Add(expected ? Of(sample.BytesDone, expectedBytes, estimated: true) : Bytes(sample.BytesDone));
+            parts.Add($"{Count(sample.FilesDone)} / {Count(sample.TotalFiles)}+ files");
         }
-        // Files whose data is already in the storage are read, then nothing
-        // is sent: a backup resumed after an interruption, or one without an
-        // earlier backup to compare with. "1.2 MB sent at 268 B/s" read as a
-        // stalled upload (U133, 4 November 2026).
-        if (sentBytes is { } sent && readPerSecond is >= 1024 * 1024 and var reading && (sentPerSecond ?? 0) < reading / 100)
-            parts.Add($"already stored, nothing new to send ({Bytes(sent)} sent so far)");
-        else if (sentBytes is { } sentNow)
-            parts.Add(sentPerSecond is > 0 and var rate ? $"{Bytes(sentNow)} sent at {Bytes((long)rate)}/s" : $"{Bytes(sentNow)} sent");
+        // Below 10 KB/s over half a minute nothing is really being uploaded
+        // (restic is reading files already stored): no speed then.
+        if (sentBytes is { } sent)
+            parts.Add(sentPerSecond is >= 10 * 1024 and var rate ? $"{Bytes(sent)} sent at {Bytes((long)rate)}/s" : $"{Bytes(sent)} sent");
         if (left is { } remaining && remaining < TimeSpan.FromDays(30)) parts.Add(TimeLeft(remaining));
         return Prefix + string.Join(" · ", parts);
+    }
+
+    /// <summary>"30 / 178 GB", or "880 MB / 178 GB" when the units differ.</summary>
+    internal static string Of(long done, long total, bool estimated)
+    {
+        var (a, b) = (Bytes(done), Bytes(total));
+        var unit = b[(b.LastIndexOf(' ') + 1)..];
+        var head = a.EndsWith(" " + unit, StringComparison.Ordinal) ? a[..^(unit.Length + 1)] : a;
+        return $"{head} / {(estimated ? "~" : "")}{b}";
     }
 
     internal static string TimeLeft(TimeSpan left) =>

@@ -257,12 +257,18 @@ never excluded: a manufacturer may keep recovery files there.
 
 While a backup runs, its card says **Running** with a turning icon; each
 source and the strip below show the percentage, and hovering **Running** shows
-bytes, files and speed. The engine counts the files while it backs them up,
-so until its count is done the percentage is of the size expected (the last
-backup's, or Backspace's own count, which takes seconds) or 0%, the line says "still counting" and no time
-left is shown. The speed is of the data actually sent to the storage: files
-that need nothing sent (unchanged, or already stored) are checked quickly and
-don't count; while only such files are read, the line says "already stored, nothing new to send". That happens when a backup starts again after an interruption, or has no earlier backup to compare with: the engine reads every file to find what the storage already holds. The time left follows the pace of the last five minutes, so it
+bytes, files and speed, for example "30 / ~178 GB · 88,211 / 109,320+ files ·
+2.6 GB sent at 5.7 MB/s". The engine counts the files while it backs them up.
+Until its count is done, the file total ends with "+", the size is
+Backspace's own count of the source (marked "~", it takes seconds) or the
+last backup's, the percentage is of that size, and no time left is shown.
+The speed is of the data actually sent to the storage, over the last half
+minute. Files that need nothing sent (unchanged, or already stored) are
+checked quickly and don't count, so while the engine reads files the storage
+already holds, the amount sent hardly grows and no speed is shown. That
+happens when a backup starts again after an interruption, or has no earlier
+backup to compare with: the engine reads every file to find what the storage
+already holds. The time left follows the pace of the last five minutes, so it
 adjusts when a run speeds up or slows down.
 
 **Activity & logs** shows each run as phases. A backup opens with what it

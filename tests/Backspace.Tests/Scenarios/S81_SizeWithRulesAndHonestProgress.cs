@@ -79,7 +79,7 @@ public sealed class S81_SizeWithRulesAndHonestProgress : ScenarioBase
         }
         await ctx.Driver.PumpAsync(200);
         Assert.Equal(0, ruled.Sources.Single().PercentComplete);
-        Assert.Equal("Backing up · 18 GB done · 37,113 files done, 62,564 found so far (still counting)", ruled.ProgressDetail);
+        Assert.Equal("Backing up · 18 GB · 37,113 / 62,564+ files", ruled.ProgressDetail);
         ctx.Snapshot(host, "still counting no false percentage",
             "local_c's own numbers while the engine was still counting the drive: 0% and 'still counting' instead of 91% and 'under a minute left'; no speed made of files that needed nothing sent.");
 
@@ -94,7 +94,7 @@ public sealed class S81_SizeWithRulesAndHonestProgress : ScenarioBase
         progress.ReportLine(withRules.Id, drive, dest.Name, expected.Next(Status(0.70, 19_300_000_000, 28_500_000_000, 37_900, 63_000), t.AddSeconds(5))!);
         await ctx.Driver.PumpAsync(200);
         Assert.Equal(10.1, ruled.Sources.Single().PercentComplete, 1);
-        Assert.Equal("Backing up · 18 GB of about 178 GB · 37,900 files done, 63,000 found so far (still counting) · 52 MB sent at 10 MB/s", ruled.ProgressDetail);
+        Assert.Equal("Backing up · 18 / ~178 GB · 37,900 / 63,000+ files · 52 MB sent at 10 MB/s", ruled.ProgressDetail);
         ctx.Snapshot(host, "percentage of the expected size and real upload speed",
             "With the size expected known, the card shows 10% (18 of about 178 GB, as Windows counts them) and the speed of the data actually sent to the storage (10 MB/s), not of the files read.");
         host.Close();
