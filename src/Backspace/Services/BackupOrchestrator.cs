@@ -760,8 +760,6 @@ public sealed partial class BackupOrchestrator
             // ABBA acquisition.
             var destinationSemaphores = new List<CrossProcessGate>(backup.Targets.Count);
             var destinationGatesAcquired = false;
-            // Windows doesn't fall asleep on its own in the middle (U132).
-            using var awake = SleepGuard.Hold();
             try
             {
                 await AcquireDestinationGatesAsync(backup, result, destinationSemaphores, ct);

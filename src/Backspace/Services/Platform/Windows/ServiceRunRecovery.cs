@@ -54,7 +54,9 @@ internal sealed class ServiceRunRecovery(string directory, LogStore logs, Servic
 
     /// <param name="reason">What the host knows about the failure, such as a
     /// missing destination folder; otherwise the generic interruption text.</param>
-    internal RunRecord? Recover(string? hostRunId, string? reason = null)
+    /// <param name="resumes">The backup resumes by itself: it is recorded as
+    /// interrupted, and nobody is notified (U131).</param>
+    internal RunRecord? Recover(string? hostRunId, string? reason = null, bool resumes = false)
     {
         var context = Read();
         if (context is null || context.HostRunId != hostRunId) return null;
@@ -72,14 +74,14 @@ internal sealed class ServiceRunRecovery(string directory, LogStore logs, Servic
             Id = context.HostRunId, BackupId = context.BackupId, BackupName = context.BackupName,
             StartedUtc = context.StartedUtc, EndedUtc = context.InterruptedUtc, Kind = context.Kind,
             TriggeredAutomatically = context.Automatic,
-            Status = context.StopRequested ? BackupRunStatus.Skipped : BackupRunStatus.Failed,
+            Status = context.StopRequested || resumes ? BackupRunStatus.Skipped : BackupRunStatus.Failed,
             Summary = context.StopRequested ? "Stopped before the background worker could save its final result."
                 : reason ?? "The background worker stopped unexpectedly. Completion was not confirmed.",
         };
         // The fallback uses the host's stable ID, separate from the worker's
         // history ID. Retrying after a crash replaces only this same fallback.
         logs.AppendRun(record);
-        if (!context.StopRequested && (context.Toast || context.Sound))
+        if (!context.StopRequested && !resumes && (context.Toast || context.Sound))
             notifications.Add(new(context.HostRunId, context.InterruptedUtc.Value,
                 "Backspace: background backup needs attention", context.BackupName + ": " + record.Summary,
                 NotificationSeverity.Failure, context.Toast, context.Sound, context.BackupId, record.Id));

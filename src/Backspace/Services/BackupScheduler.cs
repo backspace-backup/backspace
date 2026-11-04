@@ -47,14 +47,31 @@ public sealed record SchedulePlan(Backup Backup, ScheduledTaskKind Kind, BackupS
 /// afterwards, as Task Scheduler's "start when available" did.</summary>
 internal sealed class ScheduleState
 {
-    /// <param name="RunningSlotUtc">The slot being run right now, kept until
-    /// the run ends. Still set when the schedule starts again means the run
-    /// was cut short: a crash, a power loss, a restart or Quit (U131).</param>
-    /// <param name="ResumedSlotUtc">A slot due again after such an
-    /// interruption. It is resumed once: if that attempt is cut short too,
-    /// the next scheduled time is the next try, so a run that keeps failing
-    /// in the same way doesn't start at every launch.</param>
-    internal sealed record Entry(DateTime NextUtc, string Timing, DateTime? RunningSlotUtc = null, DateTime? ResumedSlotUtc = null);
+    /// <param name="RunningSlotUtc">Set while a backup runs, until it ends.
+    /// Still set when the schedule starts again means the run was cut short
+    /// (a crash, a power loss, a restart, Windows shutting down or Quit), and
+    /// it is resumed (U131).</param>
+    /// <param name="ResumeDue">NextUtc is such a resume, due at once.</param>
+    /// <param name="Resuming">The resume is running. A resume cut short is
+    /// not resumed again: the next scheduled time is the next try, so a run
+    /// that keeps failing in the same way doesn't start at every launch.</param>
+    internal sealed record Entry(DateTime NextUtc, string Timing, DateTime? RunningSlotUtc = null,
+        bool ResumeDue = false, bool Resuming = false);
+
+    internal static string BackupKey(string backupId) => backupId + "/" + ScheduledTaskKind.Backup;
+
+    /// <summary>Records that a backup was cut short while it ran, so that it
+    /// is resumed when the schedule next starts. Also used for backups started
+    /// with Run now. False when it can't be: the backup has no schedule, or
+    /// the run cut short was already a resume.</summary>
+    internal static bool MarkCutShort(string path, string backupId)
+    {
+        var state = Load(path);
+        if (state.Entries.GetValueOrDefault(BackupKey(backupId)) is not { Resuming: false } entry) return false;
+        state.Set(BackupKey(backupId), entry with { RunningSlotUtc = entry.RunningSlotUtc ?? entry.NextUtc });
+        state.Save();
+        return true;
+    }
     private readonly string _path;
     internal Dictionary<string, Entry> Entries { get; } = new(StringComparer.Ordinal);
     internal bool Changed { get; private set; }
@@ -126,7 +143,7 @@ internal static class SchedulePlanner
             if (entry is null || entry.Timing != plan.Timing) { Advance(state, plan, nowUtc); continue; }
             if (entry.NextUtc > nowUtc) continue;
             if (!plan.Backup.Enabled || plan.Schedule.PausedUntilUtc > nowUtc
-                || !plan.Schedule.CatchUpMissedRuns && nowUtc - entry.NextUtc > MissedGrace)
+                || !plan.Schedule.CatchUpMissedRuns && !entry.ResumeDue && nowUtc - entry.NextUtc > MissedGrace)
                 Advance(state, plan, nowUtc);
             else due.Add((plan, entry.NextUtc));
         }
@@ -230,8 +247,8 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         // short again waits for the next scheduled time.
         var previous = state.Entries[plan.Key];
         SchedulePlanner.Advance(state, plan, now);
-        if (previous.ResumedSlotUtc != previous.NextUtc && state.Entries.GetValueOrDefault(plan.Key) is { } advanced)
-            state.Set(plan.Key, advanced with { RunningSlotUtc = previous.NextUtc });
+        if (plan.Kind == ScheduledTaskKind.Backup && state.Entries.GetValueOrDefault(plan.Key) is { } advanced)
+            state.Set(plan.Key, previous.ResumeDue ? advanced with { Resuming = true } : advanced with { RunningSlotUtc = previous.NextUtc });
         state.Save();
         var ran = true;
         using var run = CancellationTokenSource.CreateLinkedTokenSource(stop);
@@ -256,29 +273,44 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
             Log.Warning("Stopped the scheduled {Kind} for {Name}: it reached its time limit or the computer went on battery", plan.Kind, plan.Backup.Name);
         var after = ScheduleState.Load(options.StatePath);
         if (!ran) after.Set(plan.Key, previous);
-        // Slots that passed during a long run are skipped, not queued.
-        else if (after.Entries.GetValueOrDefault(plan.Key) is { } entry && entry.NextUtc <= Now())
-            SchedulePlanner.Advance(after, plan, Now());
-        // The run ended, whatever its outcome: its slot is no longer running.
-        if (after.Entries.GetValueOrDefault(plan.Key) is { RunningSlotUtc: not null } finished)
-            after.Set(plan.Key, finished with { RunningSlotUtc = null });
+        // Backspace itself stopping (Quit, Windows shutting down or
+        // restarting) cut the run short: it stays marked, and is resumed
+        // when the schedule starts again.
+        else if (stop.IsCancellationRequested && after.Entries.GetValueOrDefault(plan.Key) is { RunningSlotUtc: not null }) { }
+        else
+        {
+            // Slots that passed during a long run are skipped, not queued.
+            if (after.Entries.GetValueOrDefault(plan.Key) is { } entry && entry.NextUtc <= Now())
+                SchedulePlanner.Advance(after, plan, Now());
+            // The run ended, whatever its outcome: it is no longer running.
+            if (after.Entries.GetValueOrDefault(plan.Key) is { } finished && (finished.RunningSlotUtc is not null || finished.Resuming))
+                after.Set(plan.Key, finished with { RunningSlotUtc = null, Resuming = false });
+        }
         after.Save();
         return ran;
     }
 
-    /// <summary>A scheduled run cut short by a crash, a power loss, a restart
-    /// or Quit is due again from the slot it was running, and the schedule's
-    /// "Catch up missed runs" decides whether it runs now. Before, the slot
-    /// was already marked done, so it waited until the next day (U131,
-    /// 4 November 2026: the PC went down during the night).</summary>
+    /// <summary>A backup cut short by a crash, a power loss, a restart,
+    /// Windows shutting down or Quit is due again at once, whatever "Catch up
+    /// missed runs" says: it isn't a missed run. Before, it waited until the
+    /// next scheduled time, usually the next day (U131, 4 November 2026: the
+    /// PC went down during the night). A resume cut short isn't resumed.</summary>
     internal void ResumeInterruptedRuns()
     {
         var state = ScheduleState.Load(options.StatePath);
+        var now = Now();
         foreach (var (key, entry) in state.Entries.ToList())
         {
-            if (entry.RunningSlotUtc is not { } slot) continue;
-            state.Set(key, entry with { NextUtc = slot, RunningSlotUtc = null, ResumedSlotUtc = slot });
-            Log.Information("A scheduled run ({Key}) was cut short; it is due again from {Slot:u}", key, slot);
+            if (entry.RunningSlotUtc is not null)
+            {
+                state.Set(key, entry with { NextUtc = now, RunningSlotUtc = null, ResumeDue = true, Resuming = false });
+                Log.Information("A backup ({Key}) was cut short; it is resumed now", key);
+            }
+            else if (entry.Resuming)
+            {
+                state.Set(key, entry with { Resuming = false });
+                Log.Information("A resumed backup ({Key}) was cut short again; it waits for its next scheduled time", key);
+            }
         }
         state.Save();
     }

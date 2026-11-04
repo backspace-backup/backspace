@@ -29,7 +29,15 @@ internal static class ServiceApprovedWorker
         if (start != "start") throw new SecurityException("The service did not admit this worker.");
         var monitor = Task.Run(async () =>
         {
-            try { await Console.In.ReadLineAsync().ConfigureAwait(false); stop.Cancel(); }
+            try
+            {
+                // "interrupt": the service is stopping and resumes the backup
+                // later, so it is recorded as interrupted, not stopped (U131).
+                if (await Console.In.ReadLineAsync().ConfigureAwait(false) == "interrupt")
+                    try { ServiceLocator.Orchestrator.CancelRun(backupId, "Interrupted"); }
+                    catch (Exception) { /* Not running yet: stopping is enough. */ }
+                stop.Cancel();
+            }
             catch (ObjectDisposedException) { }
             catch (IOException) { try { stop.Cancel(); } catch (ObjectDisposedException) { } }
         });

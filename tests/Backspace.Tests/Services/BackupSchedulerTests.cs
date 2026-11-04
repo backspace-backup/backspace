@@ -156,6 +156,74 @@ public sealed class BackupSchedulerTests : IDisposable
         Assert.Equal(3, _runs.Count);
     }
 
+    /// <summary>U131: when Windows shuts down or restarts, the service stops
+    /// the run and the run returns normally; it is still resumed, even with
+    /// "Catch up missed runs" off, since it wasn't missed.</summary>
+    [Fact]
+    public async Task A_run_stopped_by_Windows_shutting_down_is_resumed_even_without_catch_up()
+    {
+        var backup = Daily();
+        backup.Schedule.CatchUpMissedRuns = false;
+        await Loop(backup).TickAsync(default);
+        _now = Local(4, 20);
+        using var shutdown = new CancellationTokenSource();
+        _work = async ct => { try { await Task.Delay(Timeout.Infinite, ct); } catch (OperationCanceledException) { } }; // ends cleanly when stopped
+        var running = Loop(backup).TickAsync(shutdown.Token);
+        Assert.True(SpinWait.SpinUntil(() => _runs.Count == 1, 5000));
+        shutdown.Cancel();
+        await running;
+
+        _now = Local(5, 8); // 12 hours later: far past the 10-minute grace
+        _work = _ => Task.CompletedTask;
+        var restarted = Loop(backup);
+        restarted.ResumeInterruptedRuns();
+        await restarted.TickAsync(default);
+        Assert.Equal(2, _runs.Count);
+        Assert.Equal(Local(5, 8), _runs[1].At);
+        // Then the normal schedule: 20:00, not again before.
+        _now = Local(5, 19);
+        await restarted.TickAsync(default);
+        Assert.Equal(2, _runs.Count);
+        _now = Local(5, 20);
+        await restarted.TickAsync(default);
+        Assert.Equal(3, _runs.Count);
+    }
+
+    /// <summary>U131: a backup started with Run now, cut short (Windows
+    /// restarting or the computer losing power), is resumed by the schedule;
+    /// the resume cut short in turn is not.</summary>
+    [Fact]
+    public async Task A_backup_run_by_hand_and_cut_short_is_resumed_once()
+    {
+        var backup = Daily();
+        await Loop(backup).TickAsync(default); // the schedule knows it: next 20:00
+        Assert.False(ScheduleState.MarkCutShort(_state, "no-such-backup"));
+        Assert.True(ScheduleState.MarkCutShort(_state, backup.Id)); // cut short at 19:00
+
+        _now = Local(4, 19, 30);
+        var restarted = Loop(backup);
+        restarted.ResumeInterruptedRuns();
+        _work = ct => Task.Delay(Timeout.Infinite, ct);
+        using var powerLoss = new CancellationTokenSource();
+        var resumed = restarted.TickAsync(powerLoss.Token);
+        Assert.True(SpinWait.SpinUntil(() => _runs.Count == 1, 5000));
+        Assert.Equal(Local(4, 19, 30), _runs[0].At);
+        // The resume is cut short too: the service is told it can't resume.
+        Assert.False(ScheduleState.MarkCutShort(_state, backup.Id));
+        powerLoss.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => resumed);
+
+        _now = Local(4, 19, 40);
+        _work = _ => Task.CompletedTask;
+        var again = Loop(backup);
+        again.ResumeInterruptedRuns();
+        await again.TickAsync(default);
+        Assert.Single(_runs);
+        _now = Local(4, 20);
+        await again.TickAsync(default); // the normal slot still runs
+        Assert.Equal(2, _runs.Count);
+    }
+
     [Fact]
     public async Task A_due_run_waits_for_power_network_and_Quit_then_runs_once()
     {

@@ -30,6 +30,26 @@ public sealed class ServiceRunRecoveryTests
         Assert.True(restarted.Read()!.Complete);
     }
 
+    /// <summary>U131 (4 November 2026): the owner asked not to be notified of
+    /// a backup that resumes by itself.</summary>
+    [Fact]
+    public void A_backup_that_resumes_by_itself_is_recorded_as_interrupted_without_an_alert()
+    {
+        using var ws = new TempWorkspace(); var logs = new LogStore(ws.Sub("logs")); var queue = new ServiceNotificationQueue(ws.Root);
+        var context = Context(); new ServiceRunRecovery(ws.Root, logs, queue).Begin(context);
+        var reason = SystemBackupService.InterruptionReason(context.StartedUtc, DateTime.UtcNow, resumes: true);
+        var record = new ServiceRunRecovery(ws.Root, logs, queue).Recover(context.HostRunId, reason, resumes: true)!;
+        Assert.Equal(BackupRunStatus.Skipped, record.Status);
+        Assert.StartsWith("Interrupted: the computer restarted", record.Summary);
+        Assert.Null(queue.Take());
+
+        // One that can't resume (no schedule, or a resume cut short again)
+        // still fails and notifies.
+        var second = Context(); var recovery = new ServiceRunRecovery(ws.Root, logs, queue); recovery.Begin(second);
+        Assert.Equal(BackupRunStatus.Failed, recovery.Recover(second.HostRunId, SystemBackupService.InterruptionReason(second.StartedUtc, DateTime.UtcNow))!.Status);
+        Assert.NotNull(queue.Take());
+    }
+
     [Fact]
     public void A_recorded_worker_success_is_never_replaced_by_an_interruption()
     {

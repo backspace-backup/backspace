@@ -149,6 +149,9 @@ public sealed class SystemServiceTests
         // Windows was already running: the worker itself stopped, and the
         // general wording stays.
         Assert.Null(SystemBackupService.InterruptionReason(started, started.AddDays(-1)));
+        // Resumed by itself (U131): recorded as interrupted, for either cause.
+        Assert.StartsWith("Interrupted: the computer restarted", SystemBackupService.InterruptionReason(started, started.AddHours(6.8), resumes: true));
+        Assert.StartsWith("Interrupted: Backspace's background service stopped", SystemBackupService.InterruptionReason(started, started.AddDays(-1), resumes: true));
     }
 
     [Fact]

@@ -108,11 +108,31 @@ internal sealed class SystemBackupService : ServiceBase
 
     /// <summary>Why a run found unfinished at startup ended, in words: on
     /// 4 November 2026 the PC went down during a backup and the notification
-    /// said only "The background worker stopped unexpectedly".</summary>
-    internal static string? InterruptionReason(DateTime runStartedUtc, DateTime windowsStartedUtc)
-        => windowsStartedUtc > runStartedUtc
-            ? "The computer restarted, shut down or lost power during this backup, so it didn't finish. What it had already stored is kept: the next run doesn't send it again."
-            : null;
+    /// said only "The background worker stopped unexpectedly". A backup that
+    /// resumes by itself is recorded as interrupted, without a notification
+    /// (U131: the owner asked not to be bothered when nothing is needed).</summary>
+    internal static string? InterruptionReason(DateTime runStartedUtc, DateTime windowsStartedUtc, bool resumes = false)
+        => (windowsStartedUtc > runStartedUtc, resumes) switch
+        {
+            (true, true) => "Interrupted: the computer restarted, shut down or lost power during this backup. It resumes by itself; what it had already stored is kept.",
+            (false, true) => "Interrupted: Backspace's background service stopped during this backup. It resumes by itself; what it had already stored is kept.",
+            (true, false) => "The computer restarted, shut down or lost power during this backup, so it didn't finish. What it had already stored is kept: the next run doesn't send it again.",
+            _ => null,
+        };
+
+    private string SchedulePath => Path.Combine(_binding.DataDirectory, "schedule-state.json");
+
+    /// <summary>Marks a backup cut short so the schedule resumes it.</summary>
+    private bool ResumeLater(string? backupId, RunKind kind)
+    {
+        if (kind != RunKind.Backup || backupId is null) return false;
+        try { return ScheduleState.MarkCutShort(SchedulePath, backupId); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLogger.For<SystemBackupService>().Warning(ex, "A backup cut short could not be marked to resume");
+            return false;
+        }
+    }
 
     private void RestoreSavedStatus()
     {
@@ -132,7 +152,8 @@ internal sealed class SystemBackupService : ServiceBase
             {
                 _runId = retained.HostRunId; _backupId = retained.BackupId;
                 _operation = retained.Kind.ToString().ToLowerInvariant(); _startedUtc = retained.StartedUtc;
-                var outcome = _recovery.Recover(retained.HostRunId, InterruptionReason(retained.StartedUtc, WindowsStartedUtc()));
+                var resumes = !retained.Complete && !retained.StopRequested && ResumeLater(retained.BackupId, retained.Kind);
+                var outcome = _recovery.Recover(retained.HostRunId, InterruptionReason(retained.StartedUtc, WindowsStartedUtc(), resumes), resumes);
                 _state = outcome?.Status == BackupRunStatus.Success ? "completed" : "interrupted";
                 _result = _state == "completed" ? 0 : 4;
                 if (outcome is not null) _progress = new(retained.BackupId, 0, "", [], [], outcome, LogRunId: outcome.Id);
@@ -499,7 +520,11 @@ internal sealed class SystemBackupService : ServiceBase
             if (child is not null)
             {
                 RecordRequestedStop();
-                try { child.StandardInput.WriteLine("cancel"); child.StandardInput.Flush(); } catch (IOException) { }
+                // Windows shutting down or restarting, an update or Quit: a
+                // backup is resumed when the service runs again, and its
+                // history says "Interrupted", not "Stopped" (U131).
+                var resumes = _approved is { } run && ResumeLater(_backupId, run.Kind);
+                try { child.StandardInput.WriteLine(resumes ? "interrupt" : "cancel"); child.StandardInput.Flush(); } catch (IOException) { }
             }
         }
         if (child is not null)

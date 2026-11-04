@@ -124,21 +124,17 @@ A run that is due but waiting for power or a network starts as soon as the
 condition is met. Runs never overlap: if one is still running when the next
 is due, the next is skipped.
 
-While a backup runs, Backspace asks Windows not to go to sleep on its own.
-The screen still turns off, and closing the lid, pressing the power button,
-choosing Sleep or a nearly empty battery still put the computer to sleep.
-On battery, laptops with Modern Standby (most recent ones) honour the
-request only until 5 minutes after their usual sleep time; plugged in, it
-holds for the whole backup.
-Backspace doesn't hold back restarts, including those Windows Update
-schedules: Windows Update restarts outside your active hours, and changing
-that is a Windows setting, not something an app should override. A
-scheduled run cut short by a restart, a power loss, a crash or Quit is due
-again when Backspace next runs, and "Catch up missed runs" decides whether
-it starts then. It is resumed once: if that attempt is cut short too, the
-next scheduled time is the next try. Nothing already stored is sent again,
-and the notification says the computer restarted or lost power when that is
-what happened.
+Backspace doesn't keep the computer awake or hold back restarts, including
+those Windows Update schedules: when to sleep or restart stays your choice
+and Windows'. When the computer sleeps, a backup pauses and carries on when
+it wakes. A backup cut short instead (by a restart, Windows shutting down, a
+power loss, a crash, an update of Backspace or Quit) starts again by itself
+when Backspace runs again, even with "Catch up missed runs" off, and nothing
+already stored is sent again. Its history says "Interrupted", and you get no
+notification, since there is nothing to do. This applies to scheduled
+backups, and with administrator access to Run now as well. It is resumed
+once: if that attempt is cut short too, the next scheduled time is the next
+try. **Stop** ends a backup without resuming it.
 
 On macOS and Linux, Backspace starts as a login item and keeps the schedule
 the same way while you are logged in (untested).

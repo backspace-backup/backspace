@@ -321,7 +321,8 @@ public sealed partial class BackupOrchestrator
             // out that the run was skipped.
             var trimmedReason = reason.TrimEnd('.', ' ', '·');
             var saysSkipped = trimmedReason.Contains("skipped", StringComparison.OrdinalIgnoreCase)
-                || trimmedReason.StartsWith("Stopped", StringComparison.OrdinalIgnoreCase); // "Stopped after 1h 35m"
+                || trimmedReason.StartsWith("Stopped", StringComparison.OrdinalIgnoreCase) // "Stopped after 1h 35m"
+                || trimmedReason.StartsWith("Interrupted", StringComparison.OrdinalIgnoreCase); // resumed later (U131)
             var baseSummary = saysSkipped
                 ? $"{trimmedReason} after {dur}"
                 : $"{trimmedReason} · skipped after {dur}";
@@ -391,7 +392,8 @@ public sealed partial class BackupOrchestrator
             if (reason.Contains("cancel", StringComparison.OrdinalIgnoreCase)
                 || reason.Contains("manually", StringComparison.OrdinalIgnoreCase)
                 || reason.Contains("metered", StringComparison.OrdinalIgnoreCase)
-                || reason.Contains("stopped", StringComparison.OrdinalIgnoreCase)) continue;
+                || reason.Contains("stopped", StringComparison.OrdinalIgnoreCase)
+                || reason.Contains("interrupted", StringComparison.OrdinalIgnoreCase)) continue;
             // Walk the backup's Targets and resolve each into a live
             // Destination, then accept the match ONLY if the resolved
             // destination's display name matches the cell's recorded

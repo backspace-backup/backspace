@@ -28,6 +28,10 @@ public class BackupOrchestratorBuildSummaryTests
         Assert.Equal("Stopped after 1h 35m", BackupOrchestrator.BuildSummary(r));
         Assert.True(ResticBackrestEngine.WasStoppedOnRequest(new RunRecord { Summary = "Backup result: STATUS_USER_CANCELLED. failed to backup: command \"restic.exe backup\" failed" }));
         Assert.False(ResticBackrestEngine.WasStoppedOnRequest(new RunRecord { Summary = "Backup result: STATUS_ERROR. failed" }));
+
+        // Stopped by the service so that it resumes later (U131).
+        r.Cells[0].Summary = "Interrupted";
+        Assert.Equal("Interrupted after 1h 35m", BackupOrchestrator.BuildSummary(r));
     }
 
     [Fact]
