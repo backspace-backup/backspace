@@ -340,8 +340,8 @@ public sealed partial class BackupOrchestrator
         if (r.BytesUploaded > 0) parts.Add($"{HumanFormat.Size(r.BytesUploaded)} uploaded");
         if (r.FilesNew + r.FilesModified + r.FilesRemoved > 0)
             parts.Add($"{r.FilesNew} new / {r.FilesModified} mod / {r.FilesRemoved} rem");
-        if (r.Errors.Count > 0)    parts.Add($"{r.Errors.Count} errors");
-        if (r.Warnings.Count > 0)  parts.Add($"{r.Warnings.Count} warnings");
+        if (r.Errors.Count > 0)    parts.Add(r.Errors.Count == 1 ? "1 error" : $"{r.Errors.Count} errors");
+        if (r.Warnings.Count > 0)  parts.Add(r.Warnings.Count == 1 ? "1 warning" : $"{r.Warnings.Count} warnings");
         // No-op success runs (everything already up-to-date — no
         // bytes uploaded, no file changes) used to surface as
         // "in 6m 10s", which the BackupCard rendered as

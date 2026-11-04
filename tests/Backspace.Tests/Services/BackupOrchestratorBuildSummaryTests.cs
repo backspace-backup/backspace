@@ -36,6 +36,23 @@ public class BackupOrchestratorBuildSummaryTests
         Assert.False(s.StartsWith("in "), $"Got '{s}' — bare 'in {{dur}}' regression.");
     }
 
+    /// <summary>"1 errors" was on a failed card (4 November 2026).</summary>
+    [Theory]
+    [InlineData(1, "1 error · ")]
+    [InlineData(2, "2 errors · ")]
+    public void ErrorAndWarningCounts_AreSingularForOne(int count, string expected)
+    {
+        var r = new RunRecord
+        {
+            BackupId = "b1", BackupName = "test", Status = BackupRunStatus.Failed,
+            StartedUtc = DateTime.UtcNow.AddSeconds(-30), EndedUtc = DateTime.UtcNow,
+        };
+        for (var i = 0; i < count; i++) { r.Errors.Add("e" + i); r.Warnings.Add("w" + i); }
+        var s = BackupOrchestrator.BuildSummary(r);
+        Assert.StartsWith(expected, s);
+        Assert.Contains(count == 1 ? "1 warning · " : "2 warnings · ", s);
+    }
+
     [Fact]
     public void RunWithUploadedBytes_StillUsesBareInDuration()
     {

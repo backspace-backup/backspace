@@ -1074,7 +1074,11 @@ unwritten. The lookup never substitutes the requested executable path for
 the actual process identity; a failed OS lookup remains unknown.
 
 On Windows, the platform builder uses Avalonia's RedirectionSurface composition
-path while retaining its hardware-rendering fallback order. Avalonia 12.1.3 can
+path and renders on the processor (`Win32RenderingMode.Software`, U109). The
+GPU path (ANGLE over Direct3D 11) held about 140 MB more for the same window:
+measured on 4 November 2026 with the release build and a real backup running,
+the window used 330-355 MB with the GPU path (and 3% GPU for the running card)
+against 175-187 MB rendered on the processor, at under 1% CPU. Avalonia 12.1.3 can
 pause its compositor render loop when there is nothing to draw; Avalonia 11 kept
 ticking while idle. Native window-host measurements recorded lower idle CPU after
 the upgrade. They use an isolated configuration and do not guarantee zero CPU on

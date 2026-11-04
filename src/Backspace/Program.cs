@@ -549,13 +549,20 @@ internal static class Program
     /// <summary>Use the Windows redirection compositor. The bundled Avalonia
     /// WinUI/DirectComposition render timers can spin while an empty window is
     /// idle or hidden on some drivers. RedirectionSurface avoids that compositor
-    /// loop while retaining Avalonia's normal GPU/software rendering fallbacks.</summary>
+    /// loop.
+    ///
+    /// Rendering is done on the processor (U109, 4 November 2026). The GPU
+    /// path (ANGLE over Direct3D 11) held about 140 MB more memory for a
+    /// mostly still window: 300 MB against 143 MB in the same idle window,
+    /// measured with the release build. Backspace redraws only what changes,
+    /// a few times a second at most, so the processor cost is negligible.</summary>
     public static AppBuilder ConfigureDesktopPlatform(AppBuilder builder)
     {
 #if WINDOWS
         return builder.With(new Win32PlatformOptions
         {
             CompositionMode = new[] { Win32CompositionMode.RedirectionSurface },
+            RenderingMode = new[] { Win32RenderingMode.Software },
         });
 #else
         return builder;
