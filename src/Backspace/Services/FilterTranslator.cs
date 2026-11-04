@@ -73,7 +73,44 @@ public static class FilterTranslator
             translated.IExcludes.Select(Bind).ToArray());
     }
 
-    internal readonly record struct CompiledRule(string Glob, Regex Pattern, bool Negated, bool CaseInsensitive);
+    /// <param name="Required">Text every path the rule matches contains, or
+    /// null. Most paths lack it, and looking for it is far cheaper than the
+    /// pattern: two thirds of the time to count C:\ with local_c's 270 imported
+    /// rules went into the patterns (U123, 4 November 2026).</param>
+    internal readonly record struct CompiledRule(string Glob, Regex Pattern, bool Negated, bool CaseInsensitive, string? Required = null);
+
+    /// <summary>The longest run of plain characters in <paramref name="glob"/>,
+    /// without the slashes at its ends (an anchor or a folder mark may make
+    /// those optional), when it is at least two ASCII characters; else null.
+    /// Every path the glob's pattern matches contains it.</summary>
+    internal static string? RequiredText(string glob)
+    {
+        glob = glob.Replace('\\', '/');
+        string best = "";
+        var run = new StringBuilder();
+        void End()
+        {
+            var text = run.ToString().Trim('/');
+            if (text.Length > best.Length) best = text;
+            run.Clear();
+        }
+        for (var i = 0; i < glob.Length; i++)
+        {
+            var c = glob[i];
+            if (c is '*' or '?') { End(); continue; }
+            if (c == '[')
+            {
+                End();
+                var close = glob.IndexOf(']', i + 1);
+                if (close < 0) return null;
+                i = close;
+                continue;
+            }
+            run.Append(c);
+        }
+        End();
+        return best.Length >= 2 && best.All(char.IsAscii) ? best : null;
+    }
 
     internal static List<CompiledRule> CompileRules(string? text)
     {
@@ -87,7 +124,7 @@ public static class FilterTranslator
             Regex pattern;
             try { pattern = new Regex(GlobToRegex(negated ? glob[1..] : glob), options); }
             catch (ArgumentException) { pattern = new Regex("(?!)"); }
-            rules.Add(new(glob, pattern, negated, insensitive));
+            rules.Add(new(glob, pattern, negated, insensitive, RequiredText(negated ? glob[1..] : glob)));
         }
         foreach (var glob in translated.Excludes) Add(glob, false);
         foreach (var glob in translated.IExcludes) Add(glob, true);
@@ -102,6 +139,8 @@ public static class FilterTranslator
         string? sensitive = null, insensitive = null;
         foreach (var rule in rules)
         {
+            if (rule.Required is { } text
+                && relativePath.IndexOf(text, rule.CaseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) < 0) continue;
             if (!rule.Pattern.IsMatch(relativePath)) continue;
             // Ordered exceptions apply separately to --exclude and --iexclude.
             if (rule.CaseInsensitive) insensitive = rule.Negated ? null : rule.Glob;

@@ -144,7 +144,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         {
             RaiseLineWritten(setup); lineSink?.Invoke(setup);
         }
-        var liveProgress = new BackupLiveProgress(ExpectedBytes(backup, sourcePath), SentBytesMeter());
+        var liveProgress = new BackupLiveProgress(ExpectedBytes(backup, sourcePath), SentBytesMeter(destination));
         BackrestOperation terminal;
         try
         {
@@ -421,10 +421,10 @@ public sealed class ResticBackrestEngine : IBackupEngine
     private void MarkUsed() => Interlocked.Exchange(ref _lastUseTicks, DateTime.UtcNow.Ticks);
 
     /// <summary>What the engine has stored so far, when Windows can tell (U124).</summary>
-    private Func<long?>? SentBytesMeter()
+    private Func<long?>? SentBytesMeter(Destination destination)
     {
 #if WINDOWS
-        return _sidecar.ProcessId is { } engine ? () => Platform.Windows.EngineTransfer.SentBytes(engine) : null;
+        return _sidecar.ProcessId is { } engine ? () => Platform.Windows.EngineTransfer.SentBytes(engine, direct: destination.Kind == DestinationKind.S3Compatible) : null;
 #else
         return null;
 #endif

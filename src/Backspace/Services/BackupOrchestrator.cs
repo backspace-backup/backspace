@@ -597,6 +597,29 @@ public sealed partial class BackupOrchestrator
     public IReadOnlyList<string> SnapshotRunningBackupIds() =>
         _runningRuns.Keys.ToArray();
 
+    /// <summary>Cancels the running runs with <paramref name="cancel"/>, waits up
+    /// to <paramref name="limit"/> for each to record how it ended (history,
+    /// card and run log), then records any still going as stopped. Force quit
+    /// used to exit at once, so a run in the app could vanish from its history
+    /// (U126, 4 November 2026).</summary>
+    public async Task CancelAndRecordRunsAsync(Action cancel, TimeSpan limit, string reason)
+    {
+        var pending = new HashSet<string>(_runningRuns.Keys);
+        var all = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Ended(string id, RunRecord _) { lock (pending) { if (pending.Remove(id) && pending.Count == 0) all.TrySetResult(); } }
+        // Listening before cancelling: no run can end unseen in between.
+        RunEnded += Ended;
+        try
+        {
+            cancel();
+            if (pending.Count > 0) await Task.WhenAny(all.Task, Task.Delay(limit)).ConfigureAwait(false);
+        }
+        finally { RunEnded -= Ended; }
+        string[] late;
+        lock (pending) late = pending.ToArray();
+        foreach (var id in late) ForceFinaliseRun(id, reason);
+    }
+
     public async Task<RunRecord> RunBackupAsync(Backup backup, CancellationToken ct)
     {
         using var scope = Serilog.Context.LogContext.PushProperty("Backup", backup.Name);

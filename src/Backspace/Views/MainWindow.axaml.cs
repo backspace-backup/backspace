@@ -427,7 +427,8 @@ public partial class MainWindow : Window
             }
             if (_shutdownAdmission is null)
                 ServiceLocator.Maintenance.TryBeginShutdown(out _shutdownAdmission);
-            CancelEverything();
+            // Each stopped run records how it ended before Backspace exits (U126).
+            await ServiceLocator.Orchestrator.CancelAndRecordRunsAsync(CancelEverything, TimeSpan.FromSeconds(5), "Backspace was force quit");
             // Stop only this instance's engine. A stalled engine cannot hold
             // the UI open indefinitely; Windows also owns its process job.
             if (ServiceLocator.BackrestSidecar is { } sidecar)

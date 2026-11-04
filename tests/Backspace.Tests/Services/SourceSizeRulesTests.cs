@@ -137,6 +137,10 @@ public sealed class SourceSizeRulesTests
     [Fact]
     public void What_a_process_writes_can_be_read_and_its_one_child_found()
     {
+        // Written twice (temporary file, then the folder or rclone's pipe), or
+        // once when restic sends over the network itself, which isn't counted.
+        Assert.Equal(52_439_903, EngineTransfer.Stored(104_879_806, direct: false));
+        Assert.Equal(52_439_903, EngineTransfer.Stored(52_439_903, direct: true));
         if (!OperatingSystem.IsWindows()) return;
         using var workspace = new TempWorkspace("engine-transfer");
         var self = Environment.ProcessId;
@@ -151,7 +155,7 @@ public sealed class SourceSizeRulesTests
         {
             Assert.Equal(one.Id, EngineTransfer.OnlyChild(self, "PING.EXE"));
             Assert.Null(EngineTransfer.OnlyChild(self, "restic.exe"));
-            Assert.Null(EngineTransfer.SentBytes(self)); // no engine running under this process
+            Assert.Null(EngineTransfer.SentBytes(self, direct: false)); // no engine running under this process
             using var two = Ping();
             try { Assert.Null(EngineTransfer.OnlyChild(self, "ping.exe")); } // two can't be told apart
             finally { two.Kill(); }

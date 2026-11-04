@@ -8,19 +8,28 @@ namespace Backspace.Services.Platform.Windows;
 /// How much a running backup has sent to its storage (U124, 4 November 2026).
 /// Restic's progress counts every byte it reads, including files that need
 /// nothing sent (unchanged, or already stored), so a speed computed from it
-/// read 622 MB/s to Google Drive. Restic writes each pack of new data twice:
-/// to a temporary file, then to the storage (or to rclone, which uploads it),
-/// so half of what the restic process wrote is what it stored. Measured on
-/// restic 0.19.1: 209.8 MB written for 104.9 MB added, 104.9 MB for 52.4 MB.
-/// Its cache of folder listings adds a little; the figure is an estimate.
+/// read 622 MB/s to Google Drive. Restic writes each pack of new data to a
+/// temporary file first, then sends it. Windows counts what a process writes
+/// to files and pipes, not what it sends over a network connection. So for a
+/// folder, drive or share, and for Google Drive, Dropbox and OneDrive (restic
+/// hands the data to rclone over a pipe), the restic process writes twice what
+/// it stores; for an S3-compatible service, which restic reaches directly over
+/// the network, it writes it once. Measured on restic 0.19.1: 209.8 MB written
+/// for 104.9 MB added to a folder, 104.9 MB for 52.4 MB through rclone, and
+/// nothing counted for 52.4 MB sent over a socket. Its cache of folder
+/// listings adds a little; the figure is an estimate.
 /// </summary>
 internal static class EngineTransfer
 {
     /// <summary>Bytes stored so far by the one restic process started by
     /// <paramref name="parentId"/> (the engine), or null when there isn't
     /// exactly one: two backups at once can't be told apart.</summary>
-    internal static long? SentBytes(int parentId)
-        => OperatingSystem.IsWindows() && OnlyChild(parentId, "restic.exe") is { } restic && Written(restic) is { } written ? written / 2 : null;
+    internal static long? SentBytes(int parentId, bool direct)
+        => OperatingSystem.IsWindows() && OnlyChild(parentId, "restic.exe") is { } restic && Written(restic) is { } written ? Stored(written, direct) : null;
+
+    /// <summary>What restic stored, from what it wrote: <paramref name="direct"/>
+    /// when it reaches the storage over the network itself (S3-compatible).</summary>
+    internal static long Stored(long written, bool direct) => direct ? written : written / 2;
 
     /// <summary>The one process named <paramref name="name"/> started by
     /// <paramref name="parentId"/>, or null when there is none or several.</summary>
