@@ -29,7 +29,7 @@ internal sealed class SystemBackupService : ServiceBase
     private readonly string _installation;
     private readonly CancellationTokenSource _stop = new();
     private readonly object _gate = new();
-    private readonly ServiceSizeMeasurements _measurements = new();
+    private readonly ServiceSizeMeasurements _measurements;
     private readonly ServiceRunLease _cliLease = new();
     private readonly ServiceRunRecovery _recovery;
     private Task? _lifetime, _leaseMonitor;
@@ -50,6 +50,7 @@ internal sealed class SystemBackupService : ServiceBase
     {
         _registration = registration;
         _binding = registration.Binding;
+        _measurements = new(_binding.DataDirectory);
         _installation = registration.Installation;
         Directory.CreateDirectory(_binding.DataDirectory);
         _recovery = new(_binding.DataDirectory, new LogStore(Path.Combine(_binding.DataDirectory, "logs", "engine")), new(_binding.DataDirectory));

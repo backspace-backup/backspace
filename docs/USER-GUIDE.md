@@ -216,7 +216,10 @@ computer, and backups skip them. Hover the size for how it was measured.
 Backspace reads several folders at once, without opening each file. A
 source too big to read within three minutes shows "at least" what was read;
 a whole drive with no exclusion rules shows the space used on the drive
-instead. After a backup runs, the card shows the size that backup read.
+instead. After a backup runs, the card shows the size that backup read. With
+administrator access on, the background service does the counting, with the
+rights of its backups, and its backups reuse that count to show their
+percentage from the start: a folder isn't counted twice.
 
 Some folders can't be opened from your account, such as another account's
 profile. With administrator access on, backups include them and the size
@@ -238,7 +241,7 @@ While a backup runs, its card says **Running** with a turning icon; each
 source and the strip below show the percentage, and hovering **Running** shows
 bytes, files and speed. The engine counts the files while it backs them up,
 so until its count is done the percentage is of the size expected (the last
-backup's, or the estimate) or 0%, the line says "still counting" and no time
+backup's, or Backspace's own count, which takes seconds) or 0%, the line says "still counting" and no time
 left is shown. The speed is of the data actually sent to the storage: files
 that need nothing sent (unchanged, or already stored) are checked quickly and
 don't count.

@@ -144,7 +144,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         {
             RaiseLineWritten(setup); lineSink?.Invoke(setup);
         }
-        var liveProgress = new BackupLiveProgress(ExpectedBytes(backup, sourcePath), SentBytesMeter(destination));
+        var liveProgress = new BackupLiveProgress(ExpectedSize(backup, sourcePath, ct), SentBytesMeter(destination));
         BackrestOperation terminal;
         try
         {
@@ -419,6 +419,23 @@ public sealed class ResticBackrestEngine : IBackupEngine
     internal DateTime LastUseUtc => new(Interlocked.Read(ref _lastUseTicks), DateTimeKind.Utc);
 
     private void MarkUsed() => Interlocked.Exchange(ref _lastUseTicks, DateTime.UtcNow.Ticks);
+
+    /// <summary>The size expected, known at once or counted in the background
+    /// while the backup starts (U129, 4 November 2026: backups run by the
+    /// background service had neither a measured size nor the app's estimate,
+    /// so the card stayed at 0% with 84 GB done while restic was still
+    /// counting). Counting C:\ with its rules takes about 4 s; restic's own
+    /// count, on the shadow copy and while it backs up, takes many minutes.</summary>
+    internal static Func<long> ExpectedSize(Backup backup, string sourcePath, CancellationToken ct)
+    {
+        var known = ExpectedBytes(backup, sourcePath);
+        if (known > 0 || !Directory.Exists(sourcePath)) return () => known;
+        // A count made for the app in the last day is reused rather than
+        // counting the same folder again; one made now is kept for the app.
+        var counted = Task.Run(() => new SizeEstimateCache(AppPaths.ConfigRoot)
+            .CountOrReuse(sourcePath, SourceSizeRules.For(backup), TimeSpan.FromDays(1), TimeSpan.FromMinutes(3), ct)?.Bytes ?? 0, ct);
+        return () => counted.IsCompletedSuccessfully ? counted.Result : 0;
+    }
 
     /// <summary>What the engine has stored so far, when Windows can tell (U124).</summary>
     private Func<long?>? SentBytesMeter(Destination destination)

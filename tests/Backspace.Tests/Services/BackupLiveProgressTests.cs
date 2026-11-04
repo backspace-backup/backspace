@@ -86,9 +86,22 @@ public sealed class BackupLiveProgressTests
         var live = new BackupLiveProgress(expectedBytes: 150_000_000_000);
         var line = live.Next(Operation(0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564), DateTime.UtcNow)!;
         Assert.Equal("[progress] 12.7% · Backing up · 18 GB of about 140 GB · 37,113 files done, 62,564 found so far (still counting)", line);
-        // Found more than expected: no percentage rather than an optimistic one.
+        // Found more than expected: the share of what was found, never more.
         var bigger = new BackupLiveProgress(expectedBytes: 20_000_000_000);
-        Assert.StartsWith("[progress] 0.0% · Backing up · 18 GB done", bigger.Next(Operation(0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564), DateTime.UtcNow));
+        Assert.StartsWith("[progress] 67.9% · Backing up · 18 GB of about 26 GB", bigger.Next(Operation(0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564), DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void The_size_expected_can_arrive_while_the_backup_runs()
+    {
+        // U129: the background service counts the source itself at the start.
+        long expected = 0;
+        var live = new BackupLiveProgress(() => expected, null);
+        var start = new DateTime(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
+        Assert.StartsWith("[progress] 0.0% · Backing up · 18 GB done", live.Next(Operation(0.9, 19_000_000_000, 21_000_000_000, 37_113, 62_564), start));
+        expected = 190_800_000_000; // 177.7 GB, as the card shows
+        Assert.StartsWith("[progress] 47.3% · Backing up · 84 GB of about 178 GB",
+            live.Next(Operation(0.95, 90_200_000_000, 95_000_000_000, 269_809, 390_263), start.AddSeconds(5)));
     }
 
     [Fact]

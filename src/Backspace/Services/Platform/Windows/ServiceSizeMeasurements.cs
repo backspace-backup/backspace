@@ -16,8 +16,12 @@ namespace Backspace.Services.Platform.Windows;
 /// the same rights as the backup and returns only totals: bytes, files and
 /// how many folders even it couldn't read.
 /// </summary>
-internal sealed class ServiceSizeMeasurements
+internal sealed class ServiceSizeMeasurements(string? dataDirectory = null)
 {
+    /// <summary>How long a count is reused for the app: a size that changes
+    /// as files change, but not worth counting again on every view.</summary>
+    internal static TimeSpan ReuseFor = TimeSpan.FromMinutes(10);
+
     internal sealed record Reply(int Version, string? RunId = null, string? State = null, long Bytes = 0, long Files = 0,
         bool Truncated = false, int Unreadable = 0, string? Error = null, long CloudOnly = 0);
 
@@ -36,7 +40,7 @@ internal sealed class ServiceSizeMeasurements
         if (!Acceptable(path)) return JsonSerializer.SerializeToUtf8Bytes(new Reply(1, Error: "not-a-folder"));
         foreach (var old in _runs.OrderBy(r => r.Value.Started).SkipLast(MaxKept - 1)) _runs.TryRemove(old.Key, out _);
         var id = Guid.NewGuid().ToString("N");
-        _runs[id] = (DateTime.UtcNow, Task.Run(() => Measure(path, rules ?? SourceSizeRules.None)));
+        _runs[id] = (DateTime.UtcNow, Task.Run(() => Measure(path, rules ?? SourceSizeRules.None, dataDirectory)));
         return JsonSerializer.SerializeToUtf8Bytes(new Reply(1, id, "running"));
     }
 
@@ -49,9 +53,13 @@ internal sealed class ServiceSizeMeasurements
             : new Reply(1, runId, Error: "failed"));
     }
 
-    /// <summary>Counts as the app does, with the backup's own rules (U123).</summary>
-    internal static Reply Measure(string path, SourceSizeRules rules)
+    /// <summary>Counts as the app does, with the backup's own rules (U123),
+    /// keeping the count where the service's backups find it (U129).</summary>
+    internal static Reply Measure(string path, SourceSizeRules rules, string? dataDirectory = null)
     {
+        if (dataDirectory is not null
+            && new SizeEstimateCache(dataDirectory).CountOrReuse(path, rules, ReuseFor, MaxDuration, CancellationToken.None) is { } kept)
+            return new Reply(1, State: "done", Bytes: kept.Bytes, Files: kept.Files, Unreadable: kept.Unreadable, CloudOnly: kept.CloudOnly);
         var count = new SourceSizeProbe.Count();
         var finished = SourceSizeProbe.CountIncluded(TreeWalk.Root(path), rules, DateTime.UtcNow + MaxDuration, CancellationToken.None, count);
         return new Reply(1, State: "done", Bytes: count.Bytes, Files: count.Files, Truncated: !finished, Unreadable: count.Unreadable,

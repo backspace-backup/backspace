@@ -144,6 +144,21 @@ public sealed class SourceSizeProbe
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
             return new SourceSizeResult(path, 0, 0, false, false);
 
+        // With the background service running, it counts, with the rights of
+        // its backups, and keeps the count for them: the same folder isn't
+        // counted twice (U129, 4 November 2026).
+        if (Elevated is { } service)
+        {
+            try
+            {
+                if (await service(path, rules, ct).ConfigureAwait(false) is { Completed: true } counted) return counted;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _log.Debug(ex, "The background service could not measure {Path}; counting here", path);
+            }
+        }
+
         var count = new Count();
         var root = TreeWalk.Root(path);
         var walk = Task.Run(() => CountIncluded(root, rules, DateTime.UtcNow + MaxScanDuration, ct, count), ct);
@@ -158,23 +173,6 @@ public sealed class SourceSizeProbe
         var bytes = count.Bytes;
         var result = new SourceSizeResult(path, bytes, count.Files, true, truncated,
             UnreadableFolders: count.Unreadable, UnreadableExample: count.UnreadableExample, CloudOnlyFiles: count.CloudOnly);
-
-        // Folders this account can't open (another account's profile) are
-        // backed up by the background service, which can read them: ask it
-        // to measure with its rights and the same rules (U106). Without it,
-        // say what was missed.
-        if (count.Unreadable > 0 && Elevated is { } elevated)
-        {
-            try
-            {
-                if (await elevated(path, rules, ct).ConfigureAwait(false) is { Completed: true } measured && measured.Bytes >= bytes)
-                    result = measured;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _log.Debug(ex, "The background service could not measure {Path}", path);
-            }
-        }
 
         // A whole drive too big to list in time: the space it uses is a
         // close, instant answer (it also counts the page file and other

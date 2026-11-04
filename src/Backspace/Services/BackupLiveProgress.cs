@@ -32,7 +32,7 @@ internal sealed class BackupLiveProgress
 
     internal sealed record Sample(double Percent, long TotalBytes, long BytesDone, long TotalFiles, long FilesDone);
 
-    private readonly long _expectedBytes;
+    private readonly Func<long> _expectedBytes;
     private readonly Func<long?>? _sentBytes;
     private DateTime _lastEmitted = DateTime.MinValue;
     private (DateTime At, long Bytes)? _sentFrom;
@@ -46,6 +46,11 @@ internal sealed class BackupLiveProgress
     /// <param name="sentBytes">How much the engine has stored so far, or null
     /// when it can't tell (measured from the engine's writes on Windows).</param>
     internal BackupLiveProgress(long expectedBytes = 0, Func<long?>? sentBytes = null)
+        : this(() => expectedBytes, sentBytes) { }
+
+    /// <param name="expectedBytes">The size expected so far: it can become
+    /// known while the backup runs (the engine's own count of the source).</param>
+    internal BackupLiveProgress(Func<long> expectedBytes, Func<long?>? sentBytes)
     {
         _expectedBytes = expectedBytes;
         _sentBytes = sentBytes;
@@ -82,7 +87,9 @@ internal sealed class BackupLiveProgress
             var average = (sample.BytesDone - first.Bytes) / (nowUtc - first.At).TotalSeconds;
             left = TimeSpan.FromSeconds((sample.TotalBytes - sample.BytesDone) / average);
         }
-        return Format(sample, counting, _expectedBytes, sent, rate, left);
+        long expected = 0;
+        try { expected = _expectedBytes(); } catch (Exception) { }
+        return Format(sample, counting, expected, sent, rate, left);
     }
 
     internal static Sample? Parse(JsonElement? operationBackup)
@@ -104,8 +111,10 @@ internal sealed class BackupLiveProgress
     {
         static string Count(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
         // While counting, a share of what was found so far would be too
-        // optimistic: use the size expected, or show no percentage yet.
-        var expected = counting && expectedBytes > sample.TotalBytes;
+        // optimistic: use the size expected (or what was found, if more),
+        // or show no percentage yet.
+        var expected = counting && expectedBytes > 0;
+        if (expected) expectedBytes = Math.Max(expectedBytes, sample.TotalBytes);
         var percent = !counting ? sample.Percent : expected ? 100.0 * sample.BytesDone / expectedBytes : 0;
         var parts = new System.Collections.Generic.List<string>
         {

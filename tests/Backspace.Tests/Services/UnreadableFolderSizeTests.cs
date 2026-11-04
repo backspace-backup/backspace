@@ -40,7 +40,7 @@ public sealed class UnreadableFolderSizeTests
     }
 
     [Fact]
-    public async Task The_service_measures_when_something_could_not_be_opened_and_only_then()
+    public async Task With_the_service_running_it_counts_and_the_app_does_not_count_again()
     {
         var previous = SourceSizeProbe.Elevated;
         var asked = 0;
@@ -53,27 +53,51 @@ public sealed class UnreadableFolderSizeTests
         {
             using var workspace = new TempWorkspace("unreadable-size");
             File.WriteAllText(Path.Combine(workspace.Root, "a.txt"), "hello");
-            var readable = await new SourceSizeProbe().GetOrComputeAsync(workspace.Root, CancellationToken.None);
-            Assert.Equal(0, asked); // everything was read: no need to ask
-            Assert.Null(readable.UnreadableNote);
-            Assert.False(readable.MeasuredByService);
-
-            if (LockedFolder() is not { } locked) return;
-            var measured = await new SourceSizeProbe().GetOrComputeAsync(locked, CancellationToken.None);
+            // U129: the service counts (with the rights of its backups) and the
+            // app uses its answer instead of reading the folder itself.
+            var measured = await new SourceSizeProbe().GetOrComputeAsync(workspace.Root, CancellationToken.None);
             Assert.Equal(1, asked);
             Assert.True(measured.MeasuredByService);
             Assert.Equal(300_000_000_000, measured.Bytes);
 
+            // The service not answering: the app counts by itself.
+            SourceSizeProbe.Elevated = (_, _, _) => Task.FromResult<SourceSizeResult?>(null);
+            var alone = await new SourceSizeProbe().GetOrComputeAsync(workspace.Root, CancellationToken.None);
+            Assert.False(alone.MeasuredByService);
+            Assert.Equal(5, alone.Bytes);
+
             // Without the service, the estimate says what the backup will leave out.
             SourceSizeProbe.Elevated = null;
-            var alone = await new SourceSizeProbe().GetOrComputeAsync(locked, CancellationToken.None);
-            Assert.Equal(1, alone.UnreadableFolders);
+            if (LockedFolder() is not { } locked) return;
+            var unreadable = await new SourceSizeProbe().GetOrComputeAsync(locked, CancellationToken.None);
+            Assert.Equal(1, unreadable.UnreadableFolders);
             // The backup leaves it out too, so the size is right without it; the
             // note says the folder won't be backed up, not that the size is short.
-            Assert.Equal("1 folder won't be backed up because Backspace can't open it: " + locked + ". Turn on administrator access in Settings to include it.", alone.UnreadableNote);
-            Assert.Equal("3 folders won't be backed up because they can't be opened.", (alone with { UnreadableFolders = 3, MeasuredByService = true }).UnreadableNote);
+            Assert.Equal("1 folder won't be backed up because Backspace can't open it: " + locked + ". Turn on administrator access in Settings to include it.", unreadable.UnreadableNote);
+            Assert.Equal("3 folders won't be backed up because they can't be opened.", (unreadable with { UnreadableFolders = 3, MeasuredByService = true }).UnreadableNote);
         }
         finally { SourceSizeProbe.Elevated = previous; }
+    }
+
+    [Fact]
+    public void A_count_made_for_the_app_is_reused_by_the_service_backups_and_not_counted_again()
+    {
+        using var workspace = new TempWorkspace("size-estimate-cache");
+        var source = Directory.CreateDirectory(Path.Combine(workspace.Root, "source")).FullName;
+        File.WriteAllBytes(Path.Combine(source, "a.bin"), new byte[700]);
+        var serviceFolder = Directory.CreateDirectory(Path.Combine(workspace.Root, "service")).FullName;
+        var rules = new SourceSizeRules("*.tmp", true);
+        // The service counts for the app...
+        var reply = ServiceSizeMeasurements.Measure(source, rules, serviceFolder);
+        Assert.Equal(700, reply.Bytes);
+        // ...a backup started afterwards finds that count, even though the
+        // folder has grown since: it isn't counted again.
+        File.WriteAllBytes(Path.Combine(source, "b.bin"), new byte[300]);
+        var cache = new SizeEstimateCache(serviceFolder);
+        Assert.Equal(700, cache.CountOrReuse(source, rules, TimeSpan.FromDays(1), TimeSpan.FromMinutes(1), CancellationToken.None)!.Bytes);
+        // Other rules, or an old count, are counted afresh.
+        Assert.Equal(1000, cache.CountOrReuse(source, new SourceSizeRules("*.log", true), TimeSpan.FromDays(1), TimeSpan.FromMinutes(1), CancellationToken.None)!.Bytes);
+        Assert.Equal(1000, cache.CountOrReuse(source, rules, TimeSpan.Zero, TimeSpan.FromMinutes(1), CancellationToken.None)!.Bytes);
     }
 
     [Fact]
