@@ -50,6 +50,24 @@ public sealed class ServiceRunRecoveryTests
         Assert.NotNull(queue.Take());
     }
 
+    /// <summary>U131 (4 November 2026): with the portable folder in Dropbox,
+    /// another program held the record and its fixed temporary name, and the
+    /// service could neither record a stop nor start the resumed backup.</summary>
+    [Fact]
+    public void A_record_held_briefly_by_another_program_is_still_saved()
+    {
+        using var ws = new TempWorkspace(); var logs = new LogStore(ws.Sub("logs")); var queue = new ServiceNotificationQueue(ws.Root);
+        var recovery = new ServiceRunRecovery(ws.Root, logs, queue); var context = Context(); recovery.Begin(context);
+        var path = Path.Combine(ws.Root, "service-worker-context.json");
+        var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read); // like a sync client reading it
+        var stale = new FileStream(path + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None); // the old fixed name, held
+        var release = System.Threading.Tasks.Task.Delay(700).ContinueWith(_ => held.Dispose());
+        recovery.StopRequested(context.HostRunId);
+        release.Wait(); stale.Dispose();
+        Assert.True(recovery.Read()!.StopRequested);
+        Assert.Empty(Directory.GetFiles(ws.Root, "service-worker-context.json.*.tmp"));
+    }
+
     [Fact]
     public void A_recorded_worker_success_is_never_replaced_by_an_interruption()
     {

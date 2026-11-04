@@ -64,9 +64,29 @@ internal sealed class ServiceNotificationQueue(string directory, Func<DateTime>?
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(state, ServiceRunAuthorization.Json);
         if (bytes.Length > 8 * 1024 * 1024) throw new IOException("Pending desktop alerts are full. Open Backspace to receive them; previous alerts were retained.");
-        using (var file = new FileStream(_path + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
-        { file.Write(bytes); file.Flush(true); }
-        Publish(_path + ".tmp", _path);
+        WriteRecord(_path, bytes);
+    }
+
+    /// <summary>Writes a small record beside the settings: to a fresh
+    /// temporary name, then over the record, waiting while another program
+    /// has either open. With the portable folder in Dropbox, Dropbox (or a
+    /// virus scanner) opened the fixed ".tmp" name and the record, and the
+    /// service could neither save that a backup was interrupted nor start the
+    /// resumed one (U131, 4 November 2026). A lasting lock still fails.</summary>
+    internal static void WriteRecord(string path, byte[] bytes, TimeSpan? wait = null)
+    {
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            { file.Write(bytes); file.Flush(true); }
+            ServiceSetup.ReplaceRetrying(() => File.Move(temporary, path, overwrite: true), wait ?? TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     internal static void Publish(string pending, string path, Action<string, string>? replace = null, Action<int>? delay = null)

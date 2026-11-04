@@ -91,10 +91,7 @@ internal sealed class ServiceRunRecovery(string directory, LogStore logs, Servic
 
     private void Save(Context context)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(context, ServiceRunAuthorization.Json);
-        using (var file = new FileStream(_path + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
-        { file.Write(bytes); file.Flush(true); }
-        ServiceNotificationQueue.Publish(_path + ".tmp", _path);
+        ServiceNotificationQueue.WriteRecord(_path, JsonSerializer.SerializeToUtf8Bytes(context, ServiceRunAuthorization.Json));
     }
     private static void Validate(Context context)
     {

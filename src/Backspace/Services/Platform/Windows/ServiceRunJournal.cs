@@ -51,10 +51,5 @@ internal sealed class ServiceRunJournal(string dataDirectory)
             throw new InvalidDataException("Invalid run receipt.");
         return result;
     }
-    private static void WriteAtomic(string path, byte[] bytes)
-    {
-        using (var stream = new FileStream(path + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
-        { stream.Write(bytes); stream.Flush(true); }
-        ServiceSetup.ReplaceRetrying(() => File.Move(path + ".tmp", path, true));
-    }
+    private static void WriteAtomic(string path, byte[] bytes) => ServiceNotificationQueue.WriteRecord(path, bytes, TimeSpan.FromSeconds(20));
 }
