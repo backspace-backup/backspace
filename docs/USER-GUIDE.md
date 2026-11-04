@@ -185,6 +185,16 @@ left to do; **Apply recommended exclusions** is enabled again only when you
 change a tick. **Estimate savings** reads the sources and says how much the
 exclusions skip on this PC.
 
+Recommendations only name things that can be rebuilt or downloaded again:
+app and browser caches, Windows' own temp folder for each account, package
+caches (npm, NuGet, Gradle, pip, Go), thumbnail caches, `node_modules`, and,
+in the Windows group, the Windows folder, Windows.old, the Recycle Bin and
+installer folders. Folders named temp or tmp elsewhere, `.tmp`, `.dump` and
+`.dmp` files, apps' Logs folders, Store apps' LocalCache and the registry
+files are not recommended: they can hold someone's own work or settings.
+Rules for the top of a drive (such as `/Windows/` or `/Intel/`) apply only
+when the source is a whole drive, never to a folder of yours with that name.
+
 ## Sizes and logs
 
 Before a backup's first run, each source on its card shows its size read from

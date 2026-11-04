@@ -147,9 +147,10 @@ public sealed class UnreadableFolderSizeTests
         Directory.CreateDirectory(Path.Combine(workspace.Root, "docs"));
         File.WriteAllBytes(Path.Combine(workspace.Root, "docs", "pagefile.sys"), new byte[11]); // not at the root: a user file
         File.WriteAllBytes(Path.Combine(workspace.Root, "notes.txt"), new byte[100]);
+        // A folder, not a drive: these are the person's own files and count.
         var size = await new SourceSizeProbe().GetOrComputeAsync(workspace.Root, CancellationToken.None);
-        Assert.Equal(111, size.Bytes);
-        Assert.Equal(2, size.FileCount);
+        Assert.Equal(12111, size.Bytes);
+        Assert.Equal(4, size.FileCount);
         Assert.True(RecommendedFilters.IsAlwaysExcludedAtRoot(@"C:\", @"C:\System Volume Information", isDirectory: true));
         Assert.False(RecommendedFilters.IsAlwaysExcludedAtRoot(@"C:\", @"C:\System Volume Information", isDirectory: false));
         Assert.False(RecommendedFilters.IsAlwaysExcludedAtRoot(@"C:\", @"C:\Users\me\pagefile.sys", isDirectory: false));

@@ -71,8 +71,9 @@ public sealed class FilterSimulator
             if (ct.IsCancellationRequested || emitted >= MaxEntries) break;
             if (string.IsNullOrWhiteSpace(sourcePath) || !Directory.Exists(sourcePath)) continue;
 
+            var sourceRules = CompileRules(FilterTranslator.ScopeToSource(backup.FiltersText, sourcePath) ?? "");
             var (count, hitCap) = await Task.Run(
-                () => WalkOne(sourcePath, rules, onEntry, MaxEntries - emitted, ct), ct);
+                () => WalkOne(sourcePath, sourceRules, onEntry, MaxEntries - emitted, ct), ct);
             emitted += count;
             if (hitCap) truncated = true;
         }

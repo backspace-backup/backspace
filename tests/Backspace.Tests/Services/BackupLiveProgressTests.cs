@@ -173,8 +173,8 @@ public sealed class BackupLiveProgressTests
         var first = ResticBackrestEngine.SetupLines(backup, @"C:\Users\me", destination, null).ToList();
         Assert.Equal("[setup] No earlier backup of this folder in «Google Drive»: everything is read and sent.", first[0]);
         // The two rules here plus the essential exclusions, which always apply.
-        Assert.Matches(@"^\[setup\] \d+ exclusion rules loaded", first[1]);
-        Assert.True(int.Parse(first[1].Split(' ')[1]) > 2);
+        // A folder, not a drive: only its own two rules (U106).
+        Assert.StartsWith("[setup] 2 exclusion rules loaded", first[1]);
         Assert.Equal(OperatingSystem.IsWindows()
             ? "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive."
             : "[setup] Shadow copy off: files another program keeps locked may be skipped.", first[2]);

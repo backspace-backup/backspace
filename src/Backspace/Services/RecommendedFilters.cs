@@ -123,16 +123,6 @@ public static class RecommendedFilters
         "/BOOTNXT",
         "/BOOTSECT.BAK",
 
-        // Live registry hives — locked at backup time and worse if
-        // you restore them onto a different user/machine. One glob
-        // covers the whole family (ntuser.dat, ntuser.dat.LOG,
-        // ntuser.dat.LOG1, ntuser.dat.LOG2, plus the .blf/.regtrans-ms
-        // siblings) since FilterTranslator routes bare globs through
-        // restic's --iexclude on Windows.
-        "ntuser.dat*",
-        // The per-user classes hive, in AppData/Local/Microsoft/Windows.
-        "UsrClass.dat*",
-
         // OneDrive's download scratch, which it creates at the top of a drive.
         // Anchored: a folder of that name elsewhere is the person's own.
         "/OneDriveTemp/",
@@ -170,6 +160,18 @@ public static class RecommendedFilters
         "/OneDriveTemp/",
     };
 
+    /// <summary>True for a rule meant for the top of a drive (System Volume
+    /// Information, Windows.old, /Windows/, /Intel/…). For a source that is a
+    /// folder, not a whole drive, these rules are left out: there they would
+    /// match the person's own folders of the same name (U106).</summary>
+    internal static bool IsDriveTopPattern(string line)
+    {
+        _driveTop ??= new HashSet<string>(AlwaysExcludedPatterns.Concat(EssentialPatterns).Concat(WindowsSystemPatterns)
+            .Concat(RetiredPatterns).Where(p => p.StartsWith('/')), StringComparer.OrdinalIgnoreCase);
+        return _driveTop.Contains(line.Trim());
+    }
+    private static HashSet<string>? _driveTop;
+
     /// <summary>A backup's filter text with <see cref="AlwaysExcludedPatterns"/>
     /// added last, so no rule earlier in the text (an imported backup, or one
     /// whose recommended block was edited away) can bring them back.</summary>
@@ -183,7 +185,8 @@ public static class RecommendedFilters
     {
         if (!string.Equals(Path.TrimEndingDirectorySeparator(Path.GetDirectoryName(fullPath) ?? ""),
                 Path.TrimEndingDirectorySeparator(root), StringComparison.OrdinalIgnoreCase)) return false;
-        return AnchoredAlwaysExcludedNames.Contains((isDirectory ? "/" : "") + Path.GetFileName(fullPath));
+        return AnchoredAlwaysExcludedNames.Contains((isDirectory ? "/" : "") + Path.GetFileName(fullPath))
+            && TreeWalk.IsDriveRoot(root);
     }
 
     // "name" for an anchored file, "/name" for an anchored folder.
@@ -245,17 +248,14 @@ public static class RecommendedFilters
     /// Universally safe to skip; nothing here loses real user data.</summary>
     public static readonly IReadOnlyList<string> CachesAndJunkPatterns = new[]
     {
-        // Generic temp folders, anywhere.
-        "temp/",
-        "tmp/",
-        // `.tmp` / `.temp` file extensions, anywhere.
-        "*.tmp",
-        "*.temp",
+        // Windows' own temp folder for each account. Folders named temp or
+        // tmp elsewhere, and .tmp/.dump files, can be a person's own work
+        // (a database dump, a scratch folder in Documents), so they are not
+        // recommended (U106, 4 November 2026).
+        "Users/*/AppData/Local/Temp/",
 
-        // Crash dumps / interrupted downloads.
+        // Interrupted downloads and crash reporters' folders.
         "*.crdownload",
-        "*.dmp",
-        "*.dump",
         "Logs/CrashReporter/",
 
         // Browser / Chromium / Electron app caches.
@@ -297,8 +297,6 @@ public static class RecommendedFilters
         "Users/*/AppData/**/DawnWebGPUCache/",
         "Users/*/AppData/**/Service Worker/CacheStorage/",
         "Users/*/AppData/**/Service Worker/ScriptCache/",
-        "Users/*/AppData/*/Log/",
-        "Users/*/AppData/*/Logs/",
         "Users/*/AppData/Local/CrashDumps/",
         "Users/*/AppData/Local/D3DSCache/",
         "Users/*/AppData/Local/Microsoft/Windows/INetCache/",
@@ -307,14 +305,12 @@ public static class RecommendedFilters
         "Users/*/AppData/Local/Microsoft/Windows/Explorer/",
         "Users/*/AppData/Local/Microsoft/Windows/WER/",
         "Users/*/AppData/Local/Package Cache/",
-        "Users/*/MicrosoftEdgeBackups/",
         "tdata/user_data/media_cache/",
 
         // Store apps keep settings and data in Packages (Sticky Notes, for
         // example); only their caches are skipped. Skipping all of Packages
         // lost that data (U055).
         "Users/*/AppData/Local/Packages/*/AC/",
-        "Users/*/AppData/Local/Packages/*/LocalCache/",
         "Users/*/AppData/Local/Packages/*/TempState/",
         "Users/*/AppData/*/Microsoft/Windows/Recent/",
         "Users/*/AppData/*/Microsoft/Windows/Notifications/",
@@ -588,9 +584,15 @@ public static class RecommendedFilters
         "Users/*/AppData/*/Microsoft/Edge/",
         // Anchored at the top of the drive on 4 November 2026 (U106).
         "OneDriveTemp/",
-        // No longer recommended on 4 November 2026 (U106): may hold a
-        // manufacturer's recovery files.
-        "/Recovery/",
+        // No longer recommended on 4 November 2026 (U106), as they may hold
+        // something the person wants back: a manufacturer's recovery files,
+        // a profile's registry (settings), chat logs some apps keep under
+        // Logs, Store apps' data in LocalCache, the old Edge's favourites
+        // backup, a person's temp/tmp folders and .tmp/.dump/.dmp files.
+        "/Recovery/", "ntuser.dat*", "UsrClass.dat*",
+        "temp/", "tmp/", "*.tmp", "*.temp", "*.dmp", "*.dump",
+        "Users/*/AppData/*/Log/", "Users/*/AppData/*/Logs/",
+        "Users/*/AppData/Local/Packages/*/LocalCache/", "Users/*/MicrosoftEdgeBackups/",
     };
 
     /// <summary>The recommended block holding exactly these patterns, under

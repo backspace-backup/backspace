@@ -127,8 +127,9 @@ public class ResticBackrestEngineTests
         var root = System.IO.Path.GetFullPath("/x").Replace('\\', '/');
         // The backup's own rules come first; the always-excluded files, which
         // always apply (U106), follow.
-        Assert.Equal(new[] { root + "/**/*.tmp", root + "/**/node_modules/" }, allPatterns.Take(2));
-        Assert.Equal(RecommendedFilters.AlwaysExcludedPatterns.Count, allPatterns.Length - 2);
+        // "/x" is a folder, not a whole drive: the always-excluded files,
+        // which exist only at the top of a drive, are not added (U106).
+        Assert.Equal(new[] { root + "/**/*.tmp", root + "/**/node_modules/" }, allPatterns);
     }
 
     [Fact]

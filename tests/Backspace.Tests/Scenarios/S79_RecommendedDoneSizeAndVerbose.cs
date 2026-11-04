@@ -42,14 +42,14 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
     {
         // A backup saved by an earlier version: its caches group lacks today's rules.
         var source = ctx.MakeSource("profile", targetBytes: 20_000);
-        Directory.CreateDirectory(Path.Combine(source, "temp"));
-        File.WriteAllBytes(Path.Combine(source, "temp", "scratch.bin"), new byte[3_000_000]);
+        Directory.CreateDirectory(Path.Combine(source, "node_modules"));
+        File.WriteAllBytes(Path.Combine(source, "node_modules", "scratch.bin"), new byte[3_000_000]);
         var backup = new Backup
         {
             Name = "local_c",
             FiltersText = string.Join("\n", RecommendedFilters.AutoBlockHeader,
                 "# Essentials: always excluded; safe for any source.", "/pagefile.sys", "",
-                "# App caches, temp files, dev junk: universally safe to skip.", "temp/", "",
+                "# App caches, temp files, dev junk: universally safe to skip.", "node_modules/", "",
                 RecommendedFilters.AutoBlockFooter),
         };
         backup.SourcePaths.Add(source);
@@ -75,7 +75,7 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         Assert.True(vm.RecommendedApplied);
         Assert.StartsWith("✓ Applied.", vm.RecommendedStatus);
         Assert.False(Button(win, "Apply recommended exclusions")!.IsEffectivelyEnabled);
-        Assert.True(vm.RecEstimatedSavingsBytes >= 3_000_000, $"The temp folder was not counted: {vm.RecEstimatedSavingsBytes}.");
+        Assert.True(vm.RecEstimatedSavingsBytes >= 3_000_000, $"The node_modules folder was not counted: {vm.RecEstimatedSavingsBytes}.");
         Assert.DoesNotContain("Nothing in your sources matched", vm.RecEstimatedSavingsLabel);
         Button(win, "Apply recommended exclusions")!.BringIntoView();
         ctx.Driver.Pump();

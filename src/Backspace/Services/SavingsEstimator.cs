@@ -69,7 +69,8 @@ public sealed class SavingsEstimator
             if (string.IsNullOrWhiteSpace(src) || !Directory.Exists(src)) continue;
             scanned++;
 
-            var perSource = await Task.Run(() => WalkOne(src, rules, ct), ct);
+            var sourceRules = ParseRules(FilterTranslator.ScopeToSource(filtersText, src));
+            var perSource = await Task.Run(() => WalkOne(src, sourceRules, ct), ct);
             excluded += perSource.Excluded;
             included += perSource.Included;
             if (perSource.Truncated) truncated = true;

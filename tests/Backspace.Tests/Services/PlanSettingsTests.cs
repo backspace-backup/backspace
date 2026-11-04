@@ -81,7 +81,8 @@ public sealed class PlanSettingsTests
         Assert.DoesNotContain(plan.Excludes.Concat(plan.IExcludes), p => p.EndsWith("old.txt"));
         Assert.Equal(wanted.Excludes, plan.Excludes);
         Assert.Equal(wanted.IExcludes, plan.IExcludes);
-        Assert.Contains(plan.IExcludes.Concat(plan.Excludes), p => p.EndsWith("/hiberfil.sys"));
+        // "source" is a folder, not a drive: no drive-top rules either.
+        Assert.DoesNotContain(plan.IExcludes.Concat(plan.Excludes), p => p.EndsWith("/hiberfil.sys"));
         Assert.True(plan.Retention!.PolicyKeepAll);
         Assert.Null(plan.Retention.PolicyTimeBucketed);
     }

@@ -308,7 +308,11 @@ public class ConfigMigratorTests
             @"e:(?i)(^|/)temp/", @"i:(?i)^Data/temp/keep/", @"e:(?i)^Data/", @"e:(?i)\.(tmp|temp)$", @"e:(?i)^pagefile\.sys$");
         var imported = ConfigMigrator.ImportFilters(duplicacy).Replace("\r\n", "\n");
         Assert.Contains(RecommendedFilters.AutoBlockHeader, imported);
-        foreach (var p in new[] { "temp/", "*.tmp", "*.temp", "/pagefile.sys" }) Assert.Contains("\n" + p + "\n", imported);
+        // Still recommended: moves into the recommended block. No longer
+        // recommended (temp folders and .tmp files can be someone's work,
+        // U106): kept as the person's own rules, with the same meaning.
+        Assert.Contains("\n/pagefile.sys\n", imported);
+        Assert.DoesNotContain("\ntemp/\n", imported.Substring(imported.IndexOf(RecommendedFilters.AutoBlockHeader, StringComparison.Ordinal)));
         var rules = FilterTranslator.CompileRules(imported);
         bool Excluded(string path) => FilterTranslator.Evaluate(rules, path).Excluded;
         Assert.True(Excluded("a/temp/x"));          // recognized, still excluded

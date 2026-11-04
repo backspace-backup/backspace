@@ -77,11 +77,11 @@ public sealed class S34_SavingsLabelStates : ScenarioBase
             $"Label: {vm.RecEstimatedSavingsLabel}");
 
         // -------- Case 3: source with files matching a recommended rule --------
-        // Emit a "Temp" subdirectory — should match cache exclusions.
+        // Emit a "node_modules" subdirectory — should match a recommended exclusion.
         var matched = Path.Combine(ctx.RootDir, "matched");
         Directory.CreateDirectory(matched);
         File.WriteAllText(Path.Combine(matched, "keeper.txt"), "important");
-        var cacheDir = Path.Combine(matched, "Temp");
+        var cacheDir = Path.Combine(matched, "node_modules");
         Directory.CreateDirectory(cacheDir);
         var bigBytes = new byte[256_000];
         new Random(42).NextBytes(bigBytes);
@@ -93,7 +93,7 @@ public sealed class S34_SavingsLabelStates : ScenarioBase
         vm.RecEstimatedTruncated = matchedEstimate.Truncated;
 
         Assert.True(matchedEstimate.ExcludedBytes > 0,
-            $"Source with Temp/ subdir should match a recommended exclusion. " +
+            $"Source with node_modules/ subdir should match a recommended exclusion. " +
             $"Got excluded={matchedEstimate.ExcludedBytes}.");
         Assert.Contains("Estimated savings", vm.RecEstimatedSavingsLabel);
 

@@ -45,10 +45,20 @@ public static class FilterTranslator
     public static Result Translate(string? filtersText) =>
         Translate(filtersText, defaultsToCaseInsensitive: Platform.PlatformInfo.IsWindows);
 
+    /// <summary>The filter text that applies to one source: rules for the top
+    /// of a drive (System Volume Information, /Windows/, /Intel/…) only when
+    /// the source is a whole drive, so they never match a person's own folder
+    /// of the same name at the top of a backed-up folder (U106).</summary>
+    internal static string? ScopeToSource(string? filtersText, string sourcePath)
+    {
+        if (filtersText is null || TreeWalk.IsDriveRoot(sourcePath)) return filtersText;
+        return string.Join("\n", filtersText.Replace("\r\n", "\n").Split('\n').Where(l => !RecommendedFilters.IsDriveTopPattern(l)));
+    }
+
     /// <summary>Bind source-relative exclusions to the paths restic walks.</summary>
     internal static Result TranslateForSource(string? filtersText, string sourcePath)
     {
-        var translated = Translate(filtersText);
+        var translated = Translate(ScopeToSource(filtersText, sourcePath));
         var root = Path.GetFullPath(sourcePath).Replace('\\', '/').TrimEnd('/');
         // Escape only the literal path prefix; user globs retain their syntax.
         root = root.Replace("[", "[[]").Replace("*", "[*]").Replace("?", "[?]");

@@ -250,11 +250,10 @@ public class RecommendedFiltersTests
 
         var normalised = block.Replace("\r\n", "\n");
 
-        // Exactly one line should match the family — not four.
-        Assert.Contains("ntuser.dat*\n", normalised);
-        Assert.DoesNotContain("ntuser.dat.LOG\n", normalised);
-        Assert.DoesNotContain("ntuser.dat.LOG1\n", normalised);
-        Assert.DoesNotContain("ntuser.dat.LOG2\n", normalised);
+        // The registry files hold a profile's settings: no longer recommended
+        // at all (U106, 4 November 2026).
+        Assert.DoesNotContain("ntuser.dat", normalised);
+        Assert.DoesNotContain("UsrClass.dat", normalised);
 
         // The OLD Duplicacy regex must be gone — a future refactor
         // shouldn't silently reintroduce it without us noticing.
