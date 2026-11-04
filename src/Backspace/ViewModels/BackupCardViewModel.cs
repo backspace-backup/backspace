@@ -1075,7 +1075,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         public void ShowMeasured(long bytes)
         {
             _measured = true;
-            SizeLabel = HumanFormat.Size(bytes);
+            SizeLabel = BackupLiveProgress.Bytes(bytes);
             SizeTooltip = "Size measured by the last backup.";
         }
 
@@ -1106,12 +1106,14 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         private void ApplyEstimate(SourceSizeResult result)
         {
             if (_measured || !result.Completed || result.Bytes <= 0) return;
-            var size = HumanFormat.Size(result.Bytes);
+            // "~178 GB" and "178+ GB", as on the progress line (U133, 4 November
+            // 2026: "about 178.04 GB" next to "30 / ~178 GB").
+            var size = BackupLiveProgress.Bytes(result.Bytes);
             (SizeLabel, SizeTooltip) = result.Approximate
-                ? ($"about {size}", "Space used on the whole drive, as reading every folder took too long. The first backup measures what it actually saves.")
+                ? ($"~{size}", "Space used on the whole drive, as reading every folder took too long. The first backup measures what it actually saves.")
                 : result.Truncated
-                    ? ($"at least {size}", "At least this much: reading every folder took too long. The first backup measures it exactly.")
-                    : ($"about {size}", "Estimated before the first backup from the files this backup includes, its exclusions applied. The first backup measures it exactly.");
+                    ? ($"{size[..size.LastIndexOf(' ')]}+ {size[(size.LastIndexOf(' ') + 1)..]}", "At least this much: reading every folder took too long. The first backup measures it exactly.")
+                    : ($"~{size}", "Estimated before the first backup from the files this backup includes, its exclusions applied. The first backup measures it exactly.");
             if (result.UnreadableNote is { } note) SizeTooltip += Environment.NewLine + note;
             if (result.CloudOnlyNote is { } cloud) SizeTooltip += Environment.NewLine + cloud;
         }

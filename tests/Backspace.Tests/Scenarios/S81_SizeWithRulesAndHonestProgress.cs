@@ -56,8 +56,8 @@ public sealed class S81_SizeWithRulesAndHonestProgress : ScenarioBase
         Assert.True(ctx.Driver.WaitFor(() => ruled.Sources.Single().HasSize && plain.Sources.Single().HasSize, 20_000), "No size estimate appeared.");
         await ctx.Driver.PumpAsync(100);
         // Only the documents count; the excluded Dropbox folder doesn't.
-        Assert.Equal("about " + HumanFormat.Size(3_000_000), ruled.Sources.Single().SizeLabel);
-        Assert.Equal("about " + HumanFormat.Size(63_000_000), plain.Sources.Single().SizeLabel);
+        Assert.Equal("~2.9 MB", ruled.Sources.Single().SizeLabel);
+        Assert.Equal("~60 MB", plain.Sources.Single().SizeLabel);
         Assert.Contains("its exclusions applied", ruled.Sources.Single().SizeTooltip);
         ctx.Snapshot(host, "size counts what the backup holds",
             $"local_c's rules leave out the Dropbox folder: its card shows {ruled.Sources.Single().SizeLabel}, the documents only. The same folder without rules shows {plain.Sources.Single().SizeLabel}.");

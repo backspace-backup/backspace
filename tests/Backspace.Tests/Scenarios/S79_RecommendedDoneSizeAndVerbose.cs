@@ -136,9 +136,9 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         Assert.True(ctx.Driver.WaitFor(() => neverVm.Sources.Single().HasSize, 20_000), "The never-run backup showed no estimated size.");
         await ctx.Driver.PumpAsync(100);
         var estimate = neverVm.Sources.Single();
-        Assert.StartsWith("about ", estimate.SizeLabel);
+        Assert.StartsWith("~", estimate.SizeLabel);
         Assert.Contains("before the first backup", estimate.SizeTooltip);
-        Assert.Equal(HumanFormat.Size(7_340_032), ranVm.Sources.Single().SizeLabel);
+        Assert.Equal("7.0 MB", ranVm.Sources.Single().SizeLabel);
         Assert.Equal("Size measured by the last backup.", ranVm.Sources.Single().SizeTooltip);
         ctx.Snapshot(host, "estimated and measured sizes",
             $"The never-run backup's source shows '({estimate.SizeLabel})', estimated from the disk; the backup that ran shows its measured ({HumanFormat.Size(7_340_032)}).");

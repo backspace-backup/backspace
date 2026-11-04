@@ -225,12 +225,13 @@ when the source is a whole drive, never to a folder of yours with that name.
 ## Sizes and logs
 
 Before a backup's first run, each source on its card shows the size of what
-that backup will hold ("about 812 GB"): its exclusion rules are applied, and
+that backup will hold ("~812 GB", "~" for an estimate): its exclusion rules are applied, and
 excluded folders aren't even read. Files kept only in the cloud (Dropbox,
 OneDrive or Google Drive placeholders) aren't counted: they aren't on the
 computer, and backups skip them. Hover the size for how it was measured.
 Backspace reads several folders at once, without opening each file. A
-source too big to read within three minutes shows "at least" what was read;
+source too big to read within three minutes shows what was read with "+"
+("812+ GB");
 a whole drive with no exclusion rules shows the space used on the drive
 instead. After a backup runs, the card shows the size that backup read. With
 administrator access on, the background service does the counting, with the
