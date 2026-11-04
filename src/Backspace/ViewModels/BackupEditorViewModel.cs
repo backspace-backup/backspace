@@ -300,8 +300,19 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     private bool _userTouchedFilters;
     private bool _suppressFilterTouchTracking;
 
+    /// <summary>Exceptions in the rules that can never bring anything back,
+    /// one per line, or null (U127).</summary>
+    [ObservableProperty] private string? _filterExceptionWarning;
+
+    private void RefreshFilterExceptionWarning()
+    {
+        var dead = FilterTranslator.DeadExceptions(FiltersText);
+        FilterExceptionWarning = dead.Count == 0 ? null : string.Join(System.Environment.NewLine, dead);
+    }
+
     partial void OnFiltersTextChanged(string value)
     {
+        RefreshFilterExceptionWarning();
         RefreshRecommendedStatus();
         if (_ignoredRecommendationChanges is not null) RefreshRecommendationUpdate();
         if (_suppressFilterTouchTracking) return;
@@ -590,6 +601,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         _extraBackupArgs = working.ExtraBackupArgs;
 
         _filtersText = working.FiltersText;
+        RefreshFilterExceptionWarning();
         _ignoredRecommendationChanges = new(working.IgnoredRecommendationChanges);
         if (!isNew) RefreshRecommendationUpdate();
         _healthcheckId = working.HealthcheckId;

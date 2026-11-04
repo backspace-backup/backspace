@@ -181,6 +181,14 @@ that runs the backup. See
 Edit restic's filter syntax with a live simulation pane that shows which files
 would be included or excluded before you run.
 
+A rule starting with `!` is an exception: it brings back something an earlier
+rule excludes. The engine never goes into a folder it excludes, so an
+exception below a folder excluded whole keeps nothing: `cache/` then
+`!cache/keep/` backs up nothing from `cache`. Exclude the folder's contents
+instead (`cache/*` then `!cache/keep/`). **Filters → Advanced** warns about
+such an exception and shows the fix. Imported Duplicacy include rules are
+translated so that they apply.
+
 **Filters → Recommended** groups the suggested exclusions (Windows system
 files, app caches, cloud-synced folders). A green **✓ Applied** line means
 the ticked groups are already in the backup's filters and there is nothing

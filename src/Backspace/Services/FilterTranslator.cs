@@ -112,14 +112,14 @@ public static class FilterTranslator
         return best.Length >= 2 && best.All(char.IsAscii) ? best : null;
     }
 
-    internal static List<CompiledRule> CompileRules(string? text)
+    internal static List<CompiledRule> CompileRules(string? text, bool compiled = true)
     {
         var translated = Translate(text);
         var rules = new List<CompiledRule>();
         void Add(string glob, bool insensitive)
         {
             var negated = glob.StartsWith('!');
-            var options = RegexOptions.Compiled | RegexOptions.CultureInvariant;
+            var options = (compiled ? RegexOptions.Compiled : RegexOptions.None) | RegexOptions.CultureInvariant;
             if (insensitive) options |= RegexOptions.IgnoreCase;
             Regex pattern;
             try { pattern = new Regex(GlobToRegex(negated ? glob[1..] : glob), options); }
@@ -129,6 +129,59 @@ public static class FilterTranslator
         foreach (var glob in translated.Excludes) Add(glob, false);
         foreach (var glob in translated.IExcludes) Add(glob, true);
         return rules;
+    }
+
+    /// <summary>
+    /// Exceptions (<c>!</c> rules) that can never bring anything back, each with
+    /// why (U127, 4 November 2026). The engine decides on a folder before going
+    /// into it and never enters an excluded one, so <c>!cache/keep/</c> under
+    /// <c>cache/</c> keeps nothing: <c>cache/*</c> would. Each exception is tried
+    /// on a sample path (a wildcard stands for any name) whose folders are
+    /// checked with all the rules, exceptions included.
+    /// </summary>
+    internal static IReadOnlyList<string> DeadExceptions(string? filtersText)
+    {
+        var rules = CompileRules(filtersText, compiled: false);
+        var found = new List<string>();
+        foreach (var exception in rules.Where(r => r.Negated))
+        {
+            var parts = SamplePath(exception.Glob[1..]);
+            for (var depth = 1; depth < parts.Count; depth++)
+            {
+                var folder = string.Join("/", parts.Take(depth));
+                if (Evaluate(rules, folder + "/") is not { Excluded: true, Rule: { } by }) continue;
+                found.Add($"{exception.Glob} can never apply: the backup never looks inside {folder}, which {by} excludes. To keep it, exclude what {folder} contains ({by.TrimEnd('/')}/*) rather than the folder itself.");
+                break;
+            }
+        }
+        return found;
+    }
+
+    // A path the glob matches, with "x" for any name and nothing for "**".
+    private static List<string> SamplePath(string glob)
+    {
+        var parts = new List<string>();
+        foreach (var segment in glob.Replace('\\', '/').Trim('/').Split('/'))
+        {
+            if (segment == "**") continue;
+            var name = new StringBuilder();
+            for (var i = 0; i < segment.Length; i++)
+            {
+                var c = segment[i];
+                if (c is '*' or '?') { name.Append('x'); continue; }
+                if (c == '[')
+                {
+                    var close = segment.IndexOf(']', i + 1);
+                    var first = close > i + 1 ? segment[i + 1] : 'x';
+                    name.Append(first is '^' or '!' ? 'x' : first);
+                    i = close < 0 ? segment.Length : close;
+                    continue;
+                }
+                name.Append(c);
+            }
+            if (name.Length > 0) parts.Add(name.ToString());
+        }
+        return parts;
     }
 
     internal static (bool Excluded, string? Rule) Evaluate(IReadOnlyList<CompiledRule> rules, string relativePath)

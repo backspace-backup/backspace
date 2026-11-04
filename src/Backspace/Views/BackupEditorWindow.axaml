@@ -904,7 +904,7 @@
                each pane carries the label + helper text so it's
                obvious which side is which. -->
           <TabItem Header="Advanced">
-            <Grid RowDefinitions="Auto,Auto,*" Margin="0,12,0,0">
+            <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="0,12,0,0">
               <TextBlock Grid.Row="0"
                          Classes="body" Margin="0,0,0,10"
                          Foreground="{DynamicResource BS.Brush.FgSecondary}"
@@ -920,7 +920,17 @@
                            TextWrapping="Wrap"
                            Text="Checks your rules against the files on disk. The right pane shows what would end up in the snapshot."/>
               </Grid>
-              <Grid Grid.Row="2" ColumnDefinitions="*,16,*" RowDefinitions="Auto,*">
+              <!-- U127: an exception below a folder excluded whole keeps nothing. -->
+              <Border Grid.Row="2" Name="DeadExceptionWarning" Margin="0,0,0,12"
+                      IsVisible="{Binding FilterExceptionWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      Background="{DynamicResource BS.Brush.WarnTint}" BorderBrush="{DynamicResource BS.Brush.Warn}"
+                      BorderThickness="1" CornerRadius="8" Padding="12,10">
+                <StackPanel Spacing="4">
+                  <TextBlock FontWeight="SemiBold" Text="An exception in these rules keeps nothing" TextWrapping="Wrap"/>
+                  <TextBlock Text="{Binding FilterExceptionWarning}" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Border>
+              <Grid Grid.Row="3" ColumnDefinitions="*,16,*" RowDefinitions="Auto,*">
                 <!-- LEFT header. -->
                 <StackPanel Grid.Column="0" Grid.Row="0" Margin="0,0,0,6" Spacing="2">
                   <TextBlock Classes="label-caps" Text="FILTER RULES"/>
