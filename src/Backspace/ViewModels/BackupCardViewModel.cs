@@ -688,6 +688,19 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     internal void ApplyBackgroundActivity(Services.Platform.Windows.ServiceActivity.Snapshot? activity, string? error)
     {
         if (_disposed || ServiceLocator.Orchestrator.IsRunning(Id)) return;
+        // The service reports one run at a time. When it has moved on to
+        // another run (another backup's), this card's run is over even
+        // though its end was never seen: local_d failed in half a second
+        // while Backspace opened, the service went straight on to
+        // local_dropbox, and local_d's card said Running… (U128, 4 November
+        // 2026). Its result comes from the service's history.
+        if (BackgroundRunId is { } ours && activity is not null && error is null && activity.RunId != ours)
+        {
+            BackgroundRunId = null;
+            _awaitingBackgroundResult = true;
+            ShowLatestBackgroundResult();
+            _logs.RefreshBackgroundHistory(Id);
+        }
         if (activity?.BackupId != Id) return;
         if (activity.State is "starting" or "running" or "stopping" or "unknown")
         {
@@ -721,6 +734,27 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         _lastBackgroundResult = activity.RunId;
         _logs.RefreshBackgroundHistory(Id);
         ApplyVerifyState(Snapshot, result);
+    }
+
+    private bool _awaitingBackgroundResult;
+
+    /// <summary>Shows the latest finished run in this backup's history, or
+    /// the saved state when the service's history hasn't arrived yet.</summary>
+    private void ShowLatestBackgroundResult()
+    {
+        var latest = _logs.LoadHistoryByBackupId(Id).Where(r => r.EndedUtc is not null && r.Status is not (BackupRunStatus.Running or BackupRunStatus.NeverRun))
+            .OrderBy(r => r.EndedUtc).LastOrDefault();
+        if (latest is not null) { Apply(latest); _awaitingBackgroundResult = false; return; }
+        IsRunning = false;
+        IsQueued = false;
+        OverallPercent = 0;
+        ApplyStoredRunState(Snapshot);
+    }
+
+    /// <summary>The service's history for this backup was read again.</summary>
+    internal void OnBackgroundHistoryRefreshed()
+    {
+        if (_awaitingBackgroundResult && BackgroundRunId is null && !ServiceLocator.Orchestrator.IsRunning(Id)) ShowLatestBackgroundResult();
     }
 #endif
 

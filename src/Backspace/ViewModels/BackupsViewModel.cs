@@ -226,7 +226,11 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     private void OnHistoryRefreshed(string backupId) => OnUiThread(() =>
     {
         var card = Cards.FirstOrDefault(c => c.Id == backupId);
-        if (card is not null) card.ApplyVerifyState(card.Snapshot);
+        if (card is null) return;
+        card.ApplyVerifyState(card.Snapshot);
+#if WINDOWS
+        card.OnBackgroundHistoryRefreshed();
+#endif
     });
 
     private void OnConfigChanged(object? sender, EventArgs e)
