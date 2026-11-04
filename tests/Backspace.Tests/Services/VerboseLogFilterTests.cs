@@ -178,7 +178,9 @@ public class VerboseLogFilterTests
             "[progress] 42.5% · Backing up · 21 GB of 50 GB · 4,200 of 10,000 files · 31 MB/s\r\n" +
             "[tasklog] 23:05:19.180Z\terror\tbackup for plan \"p\"\ttask failed\r\n" +
             "[backrest] op=2 status=STATUS_USER_CANCELLED failed to backup\r\n" +
-            "[recap] Backup complete: 10 files (1 GB) checked\r\n";
+            "[recap] Backup complete: 10 files (1 GB) checked\r\n" +
+            // U115: one line per changed file, shown with Verbose only.
+            "[file] changed: C:\\Users\\me\\report.docx\r\n";
 
         SetVerbose(false);
         Assert.Equal(

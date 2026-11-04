@@ -966,7 +966,7 @@ test harness to give each test its own isolated config dir.
    the drive's or share's root, or beside the repository folder when that
    root is read-only (`.backspace.<backup id>.accepted` / `.declined`),
    lets a run proceed without a repository. For shares it runs after the
-   reachability gate, so an offline share is reported as offline. The orchestrator skips otherwise ("Waiting for
+   reachability gate, so an offline share is reported as offline. The orchestrator fails the cell otherwise, so alerts fire ("Waiting for
    you"); `DriveConfirmation` asks in the app before Run now.
 6. **No surprises in the config dir.** One `config.json`; a user can
    delete it to start over. Secrets in a separate machine-bound file so

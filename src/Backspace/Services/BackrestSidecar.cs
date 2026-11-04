@@ -322,7 +322,9 @@ public sealed class BackrestSidecar : IAsyncDisposable
             as System.Text.Json.Nodes.JsonObject
             ?? throw new IOException("The engine configuration is not a JSON object. It was left unchanged.");
         var auth = config["auth"] as System.Text.Json.Nodes.JsonObject;
-        if (auth?["disabled"]?.GetValue<bool>() != true && HasMatchingPassword(auth, ReadAuthFile()))
+        var shutOff = AuthFileIsShutOff(AuthFilePath);
+        if (shutOff) File.Delete(AuthFilePath);
+        if (!shutOff && auth?["disabled"]?.GetValue<bool>() != true && HasMatchingPassword(auth, ReadAuthFile()))
             return;
 
         var password = GenerateRandomPassword();
@@ -396,39 +398,27 @@ public sealed class BackrestSidecar : IAsyncDisposable
         catch { return ""; }
     }
 
+    // The file takes its folder's permissions, like every other file in
+    // Backspace.config. It used to be restricted to the account writing it:
+    // under the background service that is Windows itself, so the owner and
+    // Dropbox could no longer read it ("give Dropbox permission to access
+    // it", 4 November 2026). Backspace changes no permissions.
     private void WriteAuthFile(string password)
     {
         Directory.CreateDirectory(DataDir);
         File.WriteAllText(AuthFilePath, password);
-        // On Windows, restrict the file to the current user so even
-        // another local account on the same box can't read it. Best-
-        // effort: if ACL setting fails (network drive, atypical FS,
-        // etc.) we still wrote the file — the next-best protection is
-        // the parent dir being inside the user's Backspace install
-        // folder.
-        if (OperatingSystem.IsWindows())
-        {
-            try { RestrictFileToCurrentUser(AuthFilePath); }
-            catch { /* best-effort */ }
-        }
     }
 
-    [SupportedOSPlatform("windows")]
-    private static void RestrictFileToCurrentUser(string path)
+    /// <summary>True for a sign-in file that earlier versions shut off from
+    /// its folder's permissions. It is replaced by a new one (a new password),
+    /// which takes the folder's permissions; nothing is re-permissioned.
+    /// Tests stand in a shut-off file without changing permissions.</summary>
+    internal static Func<string, bool> AuthFileIsShutOff = path =>
     {
-        var info = new FileInfo(path);
-        var sec = info.GetAccessControl();
-        sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-        var user = System.Security.Principal.WindowsIdentity.GetCurrent().User;
-        if (user is not null)
-        {
-            sec.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
-                user,
-                System.Security.AccessControl.FileSystemRights.FullControl,
-                System.Security.AccessControl.AccessControlType.Allow));
-        }
-        info.SetAccessControl(sec);
-    }
+        if (!OperatingSystem.IsWindows() || !File.Exists(path)) return false;
+        try { return new FileInfo(path).GetAccessControl().AreAccessRulesProtected; }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or InvalidOperationException) { return false; }
+    };
 
     /// <summary>Generate a per-instance random password. 32 bytes of
     /// cryptographic randomness hex-encoded — 64-char string, ~256

@@ -139,6 +139,11 @@ public sealed class ResticBackrestEngine : IBackupEngine
         await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
         var started = DateTime.UtcNow;
         var indexBefore = await client.ReadIndexCountersAsync(repoId, ct).ConfigureAwait(false);
+        var previous = await PreviousSnapshotAsync(client, repoId, planId, ct).ConfigureAwait(false);
+        foreach (var setup in SetupLines(backup, sourcePath, destination, previous))
+        {
+            RaiseLineWritten(setup); lineSink?.Invoke(setup);
+        }
         BackrestOperation terminal;
         try
         {
@@ -174,6 +179,10 @@ public sealed class ResticBackrestEngine : IBackupEngine
             await BackrestIndexCompletion.WaitAsync(client, repoId, repoGuid, terminal.SnapshotId,
                 indexBefore, ServiceLocator.Maintenance, ct,
                 schedulingUncertain: terminal.Status is not (BackrestStatus.Success or BackrestStatus.Warning)).ConfigureAwait(false);
+            // Before retention can remove the previous snapshot.
+            if (previous is { } parent && terminal.Status is BackrestStatus.Success or BackrestStatus.Warning
+                && VerboseLogFilter.IsVerboseOn() && !ct.IsCancellationRequested)
+                await WriteChangedFilesAsync(client, repoId, parent.Id, terminal.SnapshotId, ct, lineSink).ConfigureAwait(false);
         }
         var status = StatusFromBackrestTerminal(terminal.Status);
         var details = terminal.DisplayMessage;
@@ -369,6 +378,94 @@ public sealed class ResticBackrestEngine : IBackupEngine
         if (options.Count == 0) return null; // An empty policy must never delete history.
         return "forget --tag " + QuoteArg("plan:" + planId + ",created-by:" + instance)
             + " --group-by= " + string.Join(' ', options);
+    }
+
+    /// <summary>The latest snapshot this plan made, from Backrest's own
+    /// operation history (local, no storage access), or null for a first
+    /// backup. Only used for the log, so a failure just leaves it out.</summary>
+    private async Task<(string Id, DateTime When)?> PreviousSnapshotAsync(BackrestClient client, string repoId, string planId, CancellationToken ct)
+    {
+        try
+        {
+            var repoGuid = await ResolveRepoGuidAsync(client, repoId, ct).ConfigureAwait(false);
+            var latest = (await GetRepoOperationsAsync(client, repoGuid, ct).ConfigureAwait(false))
+                .Where(op => op.PlanId == planId && IsValidBackrestGuid(op.SnapshotId))
+                .MaxBy(op => op.UnixTimeStartMs);
+            return latest is null ? null : (latest.SnapshotId, DateTimeOffset.FromUnixTimeMilliseconds(latest.UnixTimeStartMs).UtcDateTime);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.Debug(ex, "Could not read the previous snapshot for the log");
+            return null;
+        }
+    }
+
+    /// <summary>What a backup starts from, like the opening lines of a
+    /// Duplicacy log (U115): the previous backup, the exclusion rules and
+    /// whether a shadow copy is used.</summary>
+    internal static IEnumerable<string> SetupLines(Backup backup, string sourcePath, Destination destination, (string Id, DateTime When)? previous)
+    {
+        yield return "[setup] " + (previous is { } p
+            ? $"Previous backup to «{destination.Name}»: {p.When.ToLocalTime():yyyy-MM-dd HH:mm}, snapshot {p.Id[..8]}. Only changes are sent."
+            : $"No earlier backup of this folder in «{destination.Name}»: everything is read and sent.");
+        var translated = FilterTranslator.TranslateForSource(backup.FiltersText, sourcePath);
+        var rules = translated.Excludes.Count + translated.IExcludes.Count;
+        yield return $"[setup] {rules.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} exclusion rule{(rules == 1 ? "" : "s")} loaded"
+            + (Services.Platform.PlatformInfo.IsWindows && backup.ExcludeCloudFiles ? "; files kept only in the cloud are skipped." : ".");
+        yield return Services.Platform.PlatformInfo.IsWindows && backup.UseVss
+            ? "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive."
+            : "[setup] Shadow copy off: files another program keeps locked may be skipped.";
+    }
+
+    internal const int ChangedFileLineLimit = 100_000;
+
+    /// <summary>With Verbose on, lists the files this backup added, changed
+    /// or removed (U115), like Duplicacy's "Uploaded" lines. restic diff
+    /// compares the two snapshots' file lists, which are cached locally, so
+    /// no file data is read. A failure only leaves the list out.</summary>
+    private async Task WriteChangedFilesAsync(BackrestClient client, string repoId, string parentId, string snapshotId,
+        CancellationToken ct, Action<string>? lineSink)
+    {
+        void Write(string line) { RaiseLineWritten(line); lineSink?.Invoke(line); }
+        if (parentId == snapshotId) return;
+        var command = "diff " + parentId + " " + snapshotId;
+        try
+        {
+            var diff = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
+                new RunCommandRequest { RepoId = repoId, Command = command },
+                op => op.OperationRunCommand?.Command == command, ct, lineSink).ConfigureAwait(false);
+            if (diff.Status is not BackrestStatus.Success || string.IsNullOrWhiteSpace(diff.OperationRunCommand?.OutputLogref))
+            {
+                Write("[backspace] The list of changed files couldn't be made. " + diff.DisplayMessage);
+                return;
+            }
+            var pending = new System.Text.StringBuilder();
+            int written = 0, more = 0;
+            void Take(string raw)
+            {
+                if (BackupLiveProgress.FileLine(raw.TrimEnd('\r')) is not { } line) return;
+                if (written < ChangedFileLineLimit) { Write(line); written++; } else more++;
+            }
+            await foreach (var chunk in client.StreamAsync<GetLogsRequest, RestoreLogChunk>(
+                "/v1.Backrest/GetLogs", new GetLogsRequest { Ref = diff.OperationRunCommand!.OutputLogref }, ct).ConfigureAwait(false))
+            {
+                pending.Append(System.Text.Encoding.UTF8.GetString(chunk.Value));
+                var text = pending.ToString();
+                var end = text.LastIndexOf('\n');
+                if (end < 0) continue;
+                foreach (var raw in text[..end].Split('\n')) Take(raw);
+                pending.Clear().Append(text[(end + 1)..]);
+            }
+            Take(pending.ToString());
+            if (more > 0) Write($"{BackupLiveProgress.FilePrefix}… and {more:N0} more");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            if (ServiceLocator.Maintenance.IsBlocked) throw;
+            _log.Debug(ex, "Could not list the changed files");
+            Write("[backspace] The list of changed files couldn't be made: " + ex.Message);
+        }
     }
 
     private async Task<BackrestOperation> RunRepositoryCheckAsync(BackrestClient client, string repoId,

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text.Json;
 using Backspace.Services;
 using Xunit;
@@ -81,5 +82,77 @@ public sealed class BackupLiveProgressTests
             BackupLiveProgress.Recap(finished));
         Assert.Null(BackupLiveProgress.Recap(Operation(0.5, 1, 2, 1, 2)));
         Assert.Null(BackupLiveProgress.Recap(null));
+    }
+
+    // ---- U115 (4 November 2026): what Duplicacy's logs showed ----
+
+    [Fact]
+    public void Time_left_appears_once_data_has_moved_for_a_while()
+    {
+        var live = new BackupLiveProgress();
+        var start = new DateTime(2026, 11, 4, 7, 0, 0, DateTimeKind.Utc);
+        Assert.DoesNotContain("left", live.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
+        // 20 s later, 600 MB more: 30 MB/s on average, 44.4 GB to go, about 25 min.
+        var line = live.Next(Operation(0.112, 5_600_000_000, 50_000_000_000, 1_100, 10_000), start.AddSeconds(20))!;
+        Assert.EndsWith(" · about 25 min left", line);
+        Assert.Equal("under a minute left", BackupLiveProgress.TimeLeft(TimeSpan.FromSeconds(40)));
+        Assert.Equal("about 2 h 05 min left", BackupLiveProgress.TimeLeft(TimeSpan.FromMinutes(125)));
+    }
+
+    [Fact]
+    public void While_nothing_has_moved_no_time_left_is_guessed()
+    {
+        var live = new BackupLiveProgress();
+        var start = DateTime.UtcNow;
+        live.Next(Operation(0, 0, 12_000_000_000, 0, 18_000), start);
+        Assert.DoesNotContain("left", live.Next(Operation(0, 0, 13_000_000_000, 0, 19_000), start.AddMinutes(5)));
+    }
+
+    [Fact]
+    public void The_recap_names_the_snapshot_it_made()
+    {
+        var finished = JsonSerializer.SerializeToElement(new
+        {
+            lastStatus = new
+            {
+                summary = new
+                {
+                    filesNew = "1", filesChanged = "2", filesUnmodified = "3", dataAdded = "1000",
+                    totalFilesProcessed = "6", totalBytesProcessed = "5000", totalDuration = 61.0,
+                    snapshotId = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+                },
+            },
+        });
+        Assert.EndsWith(" · took 1m 01s · snapshot 1a2b3c4d", BackupLiveProgress.Recap(finished));
+    }
+
+    [Fact]
+    public void Each_changed_file_becomes_a_line_but_folders_and_totals_do_not()
+    {
+        Assert.Equal("[file] added: C:\\Users\\me\\new.txt", BackupLiveProgress.FileLine("+    /C/Users/me/new.txt"));
+        Assert.Equal("[file] changed: C:\\Users\\me\\report.docx", BackupLiveProgress.FileLine("M    /C/Users/me/report.docx"));
+        Assert.Equal("[file] removed: C:\\Users\\me\\old.txt", BackupLiveProgress.FileLine("-    /C/Users/me/old.txt"));
+        Assert.Equal("[file] details changed: C:\\Users\\me\\a b.txt", BackupLiveProgress.FileLine("U    /C/Users/me/a b.txt"));
+        Assert.Null(BackupLiveProgress.FileLine("+    /C/Users/me/new folder/"));
+        Assert.Null(BackupLiveProgress.FileLine("comparing snapshot 1a2b3c4d to 5e6f7081:"));
+        Assert.Null(BackupLiveProgress.FileLine("Files:           2 new,     1 removed,     3 changed"));
+        Assert.Null(BackupLiveProgress.FileLine("  Added:   12.000 MiB"));
+        Assert.Null(BackupLiveProgress.FileLine(""));
+    }
+
+    [Fact]
+    public void The_opening_lines_say_what_the_backup_starts_from()
+    {
+        var backup = new Backspace.Models.Backup { FiltersText = "-*.tmp\n-*.log", UseVss = true };
+        var destination = new Backspace.Models.Destination { Name = "Google Drive" };
+        var first = ResticBackrestEngine.SetupLines(backup, @"C:\Users\me", destination, null).ToList();
+        Assert.Equal("[setup] No earlier backup of this folder in «Google Drive»: everything is read and sent.", first[0]);
+        Assert.StartsWith("[setup] 2 exclusion rules loaded", first[1]);
+        Assert.Equal(OperatingSystem.IsWindows()
+            ? "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive."
+            : "[setup] Shadow copy off: files another program keeps locked may be skipped.", first[2]);
+        var when = new DateTime(2026, 11, 3, 18, 40, 0, DateTimeKind.Utc);
+        var next = ResticBackrestEngine.SetupLines(backup, @"C:\Users\me", destination, ("abcdef0123456789", when)).First();
+        Assert.Equal($"[setup] Previous backup to «Google Drive»: {when.ToLocalTime():yyyy-MM-dd HH:mm}, snapshot abcdef01. Only changes are sent.", next);
     }
 }

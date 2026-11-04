@@ -107,15 +107,16 @@ public sealed class DriveRepositoryGuardTests : IDisposable
         var orchestrator = new BackupOrchestrator(config, new SecretsStore(), engine, logs, new HealthcheckService(config, new SecretsStore(), http),
             new MailService(config, new SecretsStore()), new NotificationService(config), new BackupProgressService());
 
-        // No repository, no answer: skipped, and the engine is never asked.
+        // No repository, no answer: the run fails (so alerts fire), and the engine is never asked.
         var waiting = await orchestrator.RunBackupAsync(backup, CancellationToken.None);
-        Assert.Equal(BackupRunStatus.Skipped, waiting.Status);
+        Assert.Equal(BackupRunStatus.Failed, waiting.Status);
         Assert.StartsWith("Waiting for you:", Assert.Single(waiting.Cells).Summary);
         Assert.Equal(0, counting.Calls);
 
         // Declined: skipped for this backup with a way back.
         DriveRepositoryGuard.Decline(backup, drive);
         var declined = await orchestrator.RunBackupAsync(backup, CancellationToken.None);
+        Assert.Equal(BackupRunStatus.Skipped, declined.Status);
         Assert.Contains("you chose not to back up", Assert.Single(declined.Cells).Summary);
         Assert.Equal(0, counting.Calls);
 
@@ -128,10 +129,10 @@ public sealed class DriveRepositoryGuardTests : IDisposable
 
         // The repository is there: later runs need nothing.
         Assert.Equal(BackupRunStatus.Success, (await orchestrator.RunBackupAsync(backup, CancellationToken.None)).Status);
-        // Erased drive (same name): waits again instead of starting over.
+        // Erased drive (same name): fails again instead of starting over.
         Directory.Delete(drive.PathOrSubpath, recursive: true);
         var erased = await orchestrator.RunBackupAsync(backup, CancellationToken.None);
-        Assert.Equal(BackupRunStatus.Skipped, erased.Status);
+        Assert.Equal(BackupRunStatus.Failed, erased.Status);
         Assert.StartsWith("Waiting for you:", Assert.Single(erased.Cells).Summary);
         Assert.Equal(2, counting.Calls);
     }

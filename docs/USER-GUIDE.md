@@ -38,8 +38,8 @@ first backup to one runs when you start it (**Run now** or **Save & Run**).
 After that, a run goes ahead only if the drive or share holds the backup. If
 it doesn't (another drive with the same name, a replaced or erased NAS, or
 the same drive erased), **Run now** asks: **Start a new backup here**, **Don't
-use this drive** (or share), or **Not now**, and scheduled runs are skipped
-with "Waiting for you" until you answer. **Don't use this drive** leaves a
+use this drive** (or share), or **Not now**, and scheduled runs fail with
+"Waiting for you" (so failure alerts reach you) until you answer. **Don't use this drive** leaves a
 small hidden file named `.backspace.<backup ID>.declined` at the drive's or
 share's root (beside the backup's folder when the share's root is read-only),
 so it is skipped for that backup only, on any computer, without asking again;
@@ -198,14 +198,19 @@ While a backup runs, its card says **Running** with a turning icon; each
 source and the strip below show the percentage, and hovering **Running** shows
 bytes, files and speed.
 
-**Activity & logs** shows each run as phases, progress every few seconds
-(percent, bytes and files done, upload speed) and a closing recap: files
-checked, new, changed and unchanged, data added to the storage and duration.
+**Activity & logs** shows each run as phases. A backup opens with what it
+starts from: the previous backup to that destination (date and snapshot), the
+number of exclusion rules, and whether a shadow copy is used. Progress follows
+every few seconds (percent, bytes and files done, upload speed and an estimate
+of the time left), then a closing recap: files checked, new, changed and
+unchanged, data added to the storage, duration and the snapshot made.
 Long lines wrap. Tick **Verbose** to also show the engine's debug lines
 and status polls. Run logs always record every line, so ticking it shows the
 details of past runs too. It is the same setting as **Settings → Logs &
 diagnostics → Show verbose diagnostic logs**, which also makes Backspace's own
-app log record debug lines from then on. **Clear view** appears on the live
+app log record debug lines from then on. While Verbose is on, each backup
+also records one line per file it added, changed or removed (compared with
+the previous backup, up to 100,000 lines); Verbose shows them. **Clear view** appears on the live
 view only; a saved run's log can't be cleared.
 
 A backup that gets stuck fails instead of running forever. If the engine

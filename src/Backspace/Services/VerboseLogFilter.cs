@@ -41,9 +41,10 @@ internal static class VerboseLogFilter
 
     /// <summary>Backrest's debug records (<c>[restic] 21:31:49.992Z debug …</c>)
     /// and its repeated "still pending / still running" state polls: the
-    /// readable view keeps phases, progress, errors and the recap (U112).</summary>
+    /// readable view keeps phases, progress, errors and the recap (U112).
+    /// The per-file list (<c>[file]</c>, U115) shows with Verbose only.</summary>
     private static readonly Regex EngineDetailRegex = new(
-        @"^\[[\w-]+\] \d{2}:\d{2}:\d{2}(?:\.\d+)?Z?\s+debug\s|^\[backrest\] op=\d+ status=STATUS_(?:PENDING|INPROGRESS)\s*$",
+        @"^\[[\w-]+\] \d{2}:\d{2}:\d{2}(?:\.\d+)?Z?\s+debug\s|^\[backrest\] op=\d+ status=STATUS_(?:PENDING|INPROGRESS)\s*$|^\[file\] ",
         RegexOptions.Compiled);
 
     /// <summary>True iff <paramref name="line"/> is shown only with verbose on.</summary>

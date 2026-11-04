@@ -227,20 +227,30 @@ public sealed partial class BackupOrchestrator
                     // A drive or share without this backup is never started
                     // over without the person's answer (U117). After the
                     // reachability gate, so an offline share reads as offline.
+                    // A missing backup fails, with the usual alerts, as the
+                    // engine's "repository does not exist" did before: an
+                    // unattended PC must not stay silent about it. A drive
+                    // the person set aside is skipped.
                     var guard = DriveRepositoryGuard.Check(backup, dest);
                     if (guard is DriveRepositoryGuard.State.Missing or DriveRepositoryGuard.State.Declined)
                     {
                         var reason = DriveRepositoryGuard.SkipReason(guard, backup, dest);
-                        _log.Information("Skipping cell {Src}→{Dest}: drive guard {State}", sourcePath, dest.Name, guard);
+                        var missing = guard == DriveRepositoryGuard.State.Missing;
+                        _log.Information("Not running cell {Src}→{Dest}: drive guard {State}", sourcePath, dest.Name, guard);
                         final.Cells.Add(new CellOutcome
                         {
                             SourcePath = sourcePath,
                             DestinationName = dest.Name,
                             StorageName = target.StorageName,
-                            Status = BackupRunStatus.Skipped,
+                            Status = missing ? BackupRunStatus.Failed : BackupRunStatus.Skipped,
                             Summary = reason,
+                            LastError = missing ? reason : null,
                         });
-                        final.Warnings.Add($"[{sourcePath} → {dest.Name}] {reason}");
+                        if (!missing) { final.Warnings.Add($"[{sourcePath} → {dest.Name}] {reason}"); continue; }
+                        final.Errors.Add($"[{sourcePath} → {dest.Name}] {reason}");
+                        if (HealthcheckAddress(backup) is { } guardPing && _healthcheckFailedRuns.TryAdd(final.Id, 0))
+                            if (!await _hc.PingFailureAsync(guardPing, BuildEmailBody(backup, final), CancellationToken.None))
+                                _healthcheckFailedRuns.TryRemove(final.Id, out _);
                         continue;
                     }
 

@@ -44,6 +44,12 @@ unreadable vault and diagnose the logon context before asking the user to
 replace credentials. Before-sign-in and credential-integrity acceptance must
 follow the separate requirements in [RELEASING.md](RELEASING.md).
 
+Files written by the service take their folder's permissions. Restricting a
+file to "the current user" means Windows itself under the service, which shuts
+out the owner and Dropbox: the engine's sign-in file did this until 1.1.2
+("give Dropbox permission to access it", 4 November 2026). Backspace changes
+no permissions; it replaces such a file instead (`BackrestSidecar.AuthFileIsShutOff`).
+
 Explicit Quit pauses scheduled work for the current sign-in session only.
 Closing to the tray leaves schedules running. Reopening the GUI, signing out or
 restarting ends that pause; locking the desktop, sleep and hibernation do not.

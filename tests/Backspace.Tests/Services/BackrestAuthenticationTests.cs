@@ -105,6 +105,38 @@ public sealed class BackrestAuthenticationTests
         Assert.False(repaired["auth"]!["disabled"]!.GetValue<bool>());
     }
 
+    /// <summary>4 November 2026: the sign-in file was restricted to the account
+    /// writing it, so under the background service (Windows itself) the owner
+    /// and Dropbox couldn't read it. It now keeps its folder's permissions, and
+    /// a file shut off by an earlier version is replaced, not re-permissioned.</summary>
+    [Fact]
+    public async Task The_sign_in_file_keeps_its_folder_permissions_and_a_shut_off_one_is_replaced()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var workspace = new Backspace.Tests.TestHelpers.TempWorkspace("auth-folder-permissions");
+        await using var sidecar = new BackrestSidecar("unused", "unused", workspace.Root);
+        var path = Path.Combine(workspace.Root, "config.json");
+        var authFile = Path.Combine(workspace.Root, "sidecar-auth.txt");
+        BackrestSidecar.WriteSeedConfig(path); sidecar.PrepareAuthentication();
+        // Reading permissions only; the test changes none.
+        Assert.False(new FileInfo(authFile).GetAccessControl().AreAccessRulesProtected);
+        var first = File.ReadAllText(authFile);
+
+        // A matching, readable file is kept as it is.
+        sidecar.PrepareAuthentication();
+        Assert.Equal(first, File.ReadAllText(authFile));
+
+        var check = BackrestSidecar.AuthFileIsShutOff;
+        BackrestSidecar.AuthFileIsShutOff = candidate => candidate == authFile;
+        try { sidecar.PrepareAuthentication(); }
+        finally { BackrestSidecar.AuthFileIsShutOff = check; }
+        var replaced = File.ReadAllText(authFile);
+        Assert.NotEqual(first, replaced);
+        Assert.False(new FileInfo(authFile).GetAccessControl().AreAccessRulesProtected);
+        var hash = Encoding.UTF8.GetString(Convert.FromBase64String(JsonNode.Parse(File.ReadAllText(path))!["auth"]!["users"]![0]!["passwordBcrypt"]!.GetValue<string>()));
+        Assert.True(BCrypt.Net.BCrypt.Verify(replaced.Trim(), hash));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

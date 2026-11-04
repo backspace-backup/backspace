@@ -42,6 +42,10 @@ public sealed class S71_BackgroundRunLogs : ScenarioBase
         var view = new LogsView { DataContext = vm };
         var window = ctx.Driver.Show(new Window { Width = 1024, Height = 768, Content = new Border { Padding = new Thickness(0, 24, 0, 0), Child = view }, Title = "Backspace — Activity & logs" });
         await ctx.Driver.PumpAsync(150);
+        // Logs outlive each scenario's config reset; an earlier scenario's
+        // "[Destinations]" history sorts first and would be selected instead.
+        vm.SelectedBackup = backup.Name;
+        await ctx.Driver.PumpAsync(50);
         var picker = view.FindControl<ComboBox>("RunPicker")!;
         picker.SelectedItem = vm.History.Single(r => r.Id == first.Id);
         for (var n = 0; n < 50 && !readStarted.Task.IsCompleted; n++) await ctx.Driver.PumpAsync(20);
