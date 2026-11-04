@@ -51,6 +51,10 @@ internal static class TestSetup
         // started blowing their timeouts (the "~70s cliff").
         Backspace.App.QuitRequested = true;
 
+        // Screenshots compare with baselines, so the running card's
+        // stepped motion holds still unless a test steps it itself.
+        Backspace.Views.RunningPulse.Paused = true;
+
         // No live GitHub release checks mid-suite: every MainWindow
         // construction otherwise fires a real HTTPS GET (and possibly
         // a toast window) at unpredictable points in the run.

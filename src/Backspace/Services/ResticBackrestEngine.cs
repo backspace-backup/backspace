@@ -446,6 +446,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
             DateTime? recoveryDeadline = null;
             string lastStatus = "";
             var liveProgress = new BackupLiveProgress();
+            var lastAnswer = DateTime.UtcNow;
+            var movedAt = DateTime.UtcNow;
+            BackupLiveProgress.Sample? lastSample = null;
             while (true)
             {
                 // Prefer the daemon's exact id over a similar concurrently
@@ -462,10 +465,16 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 {
                     using var probe = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                     operations = await GetRepoOperationsAsync(client, repoGuid, probe.Token).ConfigureAwait(false);
+                    lastAnswer = DateTime.UtcNow;
                 }
                 catch (Exception ex)
                 {
                     _log.Debug(ex, "Could not poll repository operation");
+                    // Patience has a limit: an engine that answers nothing for
+                    // this long is hung, not busy. The finally block stops the
+                    // task, or keeps Backspace blocked if it can't confirm that.
+                    if (!ct.IsCancellationRequested && DateTime.UtcNow - lastAnswer >= EngineSilenceLimit)
+                        throw Stalled(lineSink, $"The backup engine stopped answering for {Minutes(EngineSilenceLimit)}, so Backspace stopped waiting for it.");
                     // A busy engine (restic scanning a whole drive) can answer
                     // slowly for minutes while the task runs and its request is
                     // still open: keep waiting. Only an ended request or a stop
@@ -505,6 +514,27 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     {
                         RaiseLineWritten(progressLine);
                         lineSink?.Invoke(progressLine);
+                    }
+                    // A backup whose counts (files and bytes found, files and
+                    // bytes done) stay frozen while it runs is stuck, for
+                    // example on a network that stopped answering. Queued time
+                    // doesn't count; restic reports progress every second.
+                    var sample = owned.Status == "STATUS_INPROGRESS" ? BackupLiveProgress.Parse(owned.OperationBackup) : null;
+                    if (owned.Status != "STATUS_INPROGRESS" || sample != lastSample)
+                        (movedAt, lastSample) = (DateTime.UtcNow, sample);
+                    else if (endpoint == "/v1.Backrest/Backup" && !ct.IsCancellationRequested
+                        && DateTime.UtcNow - movedAt >= ProgressStallLimit)
+                    {
+                        var stall = Stalled(lineSink, $"The backup made no progress for {Minutes(ProgressStallLimit)}, so Backspace stopped it.");
+                        await TrySendCancelAsync(client, owned.Id).ConfigureAwait(false);
+                        using var acknowledgement = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                        BackrestOperation stopped;
+                        try { stopped = await WaitForOperationTerminalAsync(client, owned.Id, acknowledgement.Token, lineSink).ConfigureAwait(false); }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw stall; }
+                        await DrainFollowUpOperationsAsync(client, repoGuid, previousIds, ct).ConfigureAwait(false);
+                        acknowledged = true;
+                        await CaptureOperationDiagnosticsAsync(client, stopped, lineSink).ConfigureAwait(false);
+                        throw stall;
                     }
                     if (IsTerminalStatus(owned.Status))
                     {
@@ -562,6 +592,24 @@ public sealed class ResticBackrestEngine : IBackupEngine
     /// counts as discarded by the engine (U093). Tests shorten them.</summary>
     internal static TimeSpan DroppedGrace = TimeSpan.FromSeconds(15);
     internal static TimeSpan NeverQueuedGrace = TimeSpan.FromSeconds(60);
+
+    /// <summary>How long a running task may leave every status check
+    /// unanswered, and how long a backup's counts may stay frozen, before it
+    /// counts as stuck (U111). A busy engine answers within seconds to a few
+    /// minutes; restic reports progress every second. Tests shorten them.</summary>
+    internal static TimeSpan EngineSilenceLimit = TimeSpan.FromMinutes(10);
+    internal static TimeSpan ProgressStallLimit = TimeSpan.FromMinutes(60);
+
+    private EngineStalledException Stalled(Action<string>? lineSink, string reason)
+    {
+        var line = "[backspace] " + reason;
+        RaiseLineWritten(line); lineSink?.Invoke(line);
+        return new EngineStalledException(reason);
+    }
+
+    private static string Minutes(TimeSpan span) => span.TotalMinutes >= 1
+        ? $"{span.TotalMinutes:0} minutes"
+        : $"{span.TotalSeconds:0.#} seconds";
 
     internal static bool Dropped(bool gone, ref DateTime? goneSince, DateTime submitted, bool neverSeen)
     {

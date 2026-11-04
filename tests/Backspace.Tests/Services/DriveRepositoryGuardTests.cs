@@ -40,11 +40,12 @@ public sealed class DriveRepositoryGuardTests : IDisposable
         _workspace.Dispose();
     }
 
-    private Destination Drive(string name = "repo") => new()
+    private Destination Drive(string name = "repo", DestinationKind kind = DestinationKind.ExternalDrive) => new()
     {
-        Name = "My Passport",
-        Kind = DestinationKind.ExternalDrive,
-        ExpectedDriveLetter = Path.GetPathRoot(_workspace.Root)![..2],
+        Name = kind == DestinationKind.NetworkShare ? "NAS" : "My Passport",
+        Kind = kind,
+        // A share is reached by its path alone; the test share is a local folder.
+        ExpectedDriveLetter = kind == DestinationKind.ExternalDrive ? Path.GetPathRoot(_workspace.Root)![..2] : null,
         PathOrSubpath = Path.Combine(_workspace.Root, name),
     };
 
@@ -86,13 +87,15 @@ public sealed class DriveRepositoryGuardTests : IDisposable
             DriveRepositoryGuard.Check(mine, new Destination { Kind = DestinationKind.ExternalDrive, ExpectedVolumeLabel = "Nothing-" + Guid.NewGuid().ToString("N"), PathOrSubpath = @"M:\Backup" }));
     }
 
-    [Fact]
-    public async Task An_unattended_run_never_starts_over_on_a_drive_without_the_backup()
+    [Theory]
+    [InlineData(DestinationKind.ExternalDrive)]
+    [InlineData(DestinationKind.NetworkShare)] // U117 follow-up, 4 November 2026
+    public async Task An_unattended_run_never_starts_over_on_a_drive_without_the_backup(DestinationKind kind)
     {
         if (!OperatingSystem.IsWindows()) return;
         var config = new ConfigStore(); config.Load();
         var logs = new LogStore();
-        var drive = Drive();
+        var drive = Drive(kind: kind);
         var backup = new Backup { Name = "local_dropbox", AbortOnMeteredNetwork = false, UseVss = false, VssDisabledAcknowledged = true,
             SourcePaths = { _workspace.Sub("source") }, Targets = { new() { DestinationId = drive.Id } } };
         config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(drive);
@@ -129,7 +132,31 @@ public sealed class DriveRepositoryGuardTests : IDisposable
         Directory.Delete(drive.PathOrSubpath, recursive: true);
         var erased = await orchestrator.RunBackupAsync(backup, CancellationToken.None);
         Assert.Equal(BackupRunStatus.Skipped, erased.Status);
+        Assert.StartsWith("Waiting for you:", Assert.Single(erased.Cells).Summary);
         Assert.Equal(2, counting.Calls);
+    }
+
+    [Fact]
+    public void Answers_go_to_the_root_and_then_beside_the_backup_folder()
+    {
+        DriveRepositoryGuard.MarkerRootOverride = null;
+        try
+        {
+            Assert.Equal(new[] { @"\\nas\backups", @"\\nas\backups\Backspace" },
+                DriveRepositoryGuard.MarkerFolders(@"\\nas\backups\Backspace\local_c"));
+            Assert.Equal(new[] { @"M:\", @"M:\Backup\Backspace" }, DriveRepositoryGuard.MarkerFolders(@"M:\Backup\Backspace\local_dropbox"));
+            // A backup folder right at the root has one place only.
+            Assert.Equal(new[] { @"M:\" }, DriveRepositoryGuard.MarkerFolders(@"M:\local_dropbox"));
+        }
+        finally { DriveRepositoryGuard.MarkerRootOverride = _markers; }
+    }
+
+    [Fact]
+    public void A_share_that_does_not_answer_is_left_to_the_reachability_check()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var offline = new Destination { Kind = DestinationKind.NetworkShare, PathOrSubpath = @"\\backspace-tests-nonexistent-host\share\repo" };
+        Assert.Equal(DriveRepositoryGuard.State.NotApplicable, DriveRepositoryGuard.Check(new Backup(), offline));
     }
 
     [Fact]

@@ -27,21 +27,24 @@ Dropbox, OneDrive Personal, Google Drive, or S3-compatible storage (Amazon S3,
 Wasabi, Cloudflare R2, MinIO, Backblaze B2 through its S3 interface).
 
 External drives are matched by volume name (the drive's name in Explorer),
-whatever letter Windows gives them. Add a drive letter as well only to require
-both. A backup whose drive isn't plugged in is skipped and says so; it doesn't
-fail.
+whatever letter Windows gives them. Picking a folder on the drive fills in its
+name. Add a drive letter as well only to require both. A drive without a name
+is matched by its letter until you name it in File Explorer (right-click the
+drive, then **Rename**) and type the same name in Backspace. A backup whose
+drive isn't plugged in is skipped and says so; it doesn't fail.
 
-Backspace never starts a backup over on the wrong drive. The first backup to
-a drive runs when you start it (**Run now** or **Save & Run**). After that, a
-run goes ahead only if the drive holds the backup. If an attached drive with
-the right name doesn't (another drive with the same name, or the same drive
-erased), **Run now** asks: **Start a new backup here**, **Don't use this
-drive**, or **Not now**, and scheduled runs are skipped with "Waiting for you"
-until you answer. **Don't use this drive** leaves a small hidden file named
-`.backspace.<backup ID>.declined` at the drive's root, so that drive is skipped
-for that backup only, on any computer, without asking again; other backups
-still use it. Choose **Run now** again, or delete the file, to use the drive
-after all.
+Backspace never starts a backup over on the wrong drive or network share. The
+first backup to one runs when you start it (**Run now** or **Save & Run**).
+After that, a run goes ahead only if the drive or share holds the backup. If
+it doesn't (another drive with the same name, a replaced or erased NAS, or
+the same drive erased), **Run now** asks: **Start a new backup here**, **Don't
+use this drive** (or share), or **Not now**, and scheduled runs are skipped
+with "Waiting for you" until you answer. **Don't use this drive** leaves a
+small hidden file named `.backspace.<backup ID>.declined` at the drive's or
+share's root (beside the backup's folder when the share's root is read-only),
+so it is skipped for that backup only, on any computer, without asking again;
+other backups still use it. Choose **Run now** again, or delete the file, to
+use it after all.
 
 For cloud storage, choose **Connect** and approve your own account. Backspace
 ships its application registrations, so you don't need to create one. Dropbox
@@ -191,14 +194,26 @@ read within three minutes shows the space used on the drive instead, which
 also counts the page file and other files backups leave out. After a backup
 runs, the card shows the size that backup measured.
 
+While a backup runs, its card says **Running** with a turning icon; each
+source and the strip below show the percentage, and hovering **Running** shows
+bytes, files and speed.
+
 **Activity & logs** shows each run as phases, progress every few seconds
 (percent, bytes and files done, upload speed) and a closing recap: files
 checked, new, changed and unchanged, data added to the storage and duration.
-Tick **Verbose**, beside **Clear view**, to also show the engine's debug lines
+Long lines wrap. Tick **Verbose** to also show the engine's debug lines
 and status polls. Run logs always record every line, so ticking it shows the
 details of past runs too. It is the same setting as **Settings → Logs &
 diagnostics → Show verbose diagnostic logs**, which also makes Backspace's own
-app log record debug lines from then on.
+app log record debug lines from then on. **Clear view** appears on the live
+view only; a saved run's log can't be cleared.
+
+A backup that gets stuck fails instead of running forever. If the engine
+leaves every status check unanswered for 10 minutes, or a backup's counts
+(files and bytes found and done) don't move for 60 minutes, Backspace stops it
+and the run fails with that reason and the usual alerts; the next scheduled
+run tries again. A busy engine that answers slowly, or a backup that keeps
+moving however slowly, is left alone.
 
 ## Restoring files
 

@@ -225,11 +225,12 @@
              bottom but in the middle of the terminal". This pattern
              takes the scroll layout into our own hands: the
              ScrollViewer fills the DockPanel's remaining space, the
-             SelectableTextBlock is the content, and the H-bar
-             reliably sits at the actual viewport bottom. -->
+             SelectableTextBlock is the content. Lines wrap, so there
+             is no horizontal bar at all: a long recap or error line
+             used to add one and push its end out of sight (U113). -->
         <Grid>
           <ScrollViewer x:Name="LogScroll"
-                        HorizontalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto"
                         AllowAutoHide="False"
                         Background="Transparent"
@@ -242,7 +243,7 @@
                                  FontSize="12.5"
                                  LineHeight="19"
                                  Foreground="#D7DCE2"
-                                 TextWrapping="NoWrap"/>
+                                 TextWrapping="Wrap"/>
           </ScrollViewer>
           <!-- Shown while the reader has scrolled away from the end (U083):
                new lines no longer pull them back; this returns and follows again. -->

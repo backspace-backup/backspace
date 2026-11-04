@@ -451,6 +451,39 @@ internal static class Program
     }
 
     /// <summary>
+    /// Versions before the portable layout kept a task helper and the
+    /// snapshot-mount library under LocalAppData; they now live beside the
+    /// executable. Only those exact files go, and their folders only when
+    /// empty. The engines folder there (bin) is still used.
+    /// </summary>
+    internal static void RemovePrePortableLeftovers(string? localAppData = null)
+    {
+        var local = localAppData ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrEmpty(local)) return;
+        var old = System.IO.Path.Combine(local, "Backspace");
+        if (string.Equals(System.IO.Path.GetFullPath(old).TrimEnd('\\'), System.IO.Path.GetFullPath(AppPaths.ConfigRoot).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+            return;
+        var programs = System.IO.Path.Combine(local, "Programs", "Backspace");
+        foreach (var file in new[]
+        {
+            System.IO.Path.Combine(programs, "Backspace-stub.exe"),
+            System.IO.Path.Combine(old, "last-exe-path.txt"),
+            System.IO.Path.Combine(old, "stub-fired.flag"),
+            System.IO.Path.Combine(old, "winfsp", "winfsp-msil.dll"),
+            System.IO.Path.Combine(old, "winfsp", "winfsp.msi"),
+        })
+        {
+            try { System.IO.File.Delete(file); }
+            catch (Exception ex) { AppLogger.For("Program").Debug(ex, "Leaving {File} in place", file); }
+        }
+        foreach (var folder in new[] { programs, System.IO.Path.Combine(old, "winfsp"), System.IO.Path.Combine(old, "verify") })
+        {
+            try { if (System.IO.Directory.Exists(folder) && !System.IO.Directory.EnumerateFileSystemEntries(folder).Any()) System.IO.Directory.Delete(folder); }
+            catch (Exception ex) { AppLogger.For("Program").Debug(ex, "Leaving {Folder} in place", folder); }
+        }
+    }
+
+    /// <summary>
     /// Stub-extract + scheduler-task re-upsert + missed-run check +
     /// eager Backrest sidecar boot. Runs after first paint so a slow
     /// path (user moved the exe → N schtasks.exe spawns) doesn't
@@ -476,6 +509,7 @@ internal static class Program
                 try { System.IO.File.Delete(System.IO.Path.Combine(AppPaths.ConfigRoot, leftover)); }
                 catch (Exception ex) { AppLogger.For("Program").Debug(ex, "Leaving {File} in place", leftover); }
             }
+            RemovePrePortableLeftovers();
 
             // Sidecar bootstrap. Best-effort: a missing binary, port
             // conflict, or AV interference logs a warning and the

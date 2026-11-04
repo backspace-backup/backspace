@@ -1,6 +1,10 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Media;
+using Avalonia.VisualTree;
 using Backspace.Models;
 using Backspace.Services;
 using Backspace.ViewModels;
@@ -52,12 +56,43 @@ public sealed class S22_BackupCardRunningState : ScenarioBase
         ctx.Driver.Pump();
         Assert.Equal("Running…", listVm.Cards[0].LastRunLabel);
         Assert.Equal("running", listVm.Cards[0].StatusClass);
+
+        // U114: no progress bar under "Running" (the sources and the strip
+        // below carry the percentage); the icon turns and the dots cycle in steps.
+        var summary = host.GetVisualDescendants().OfType<Border>().First(b => b.Name == "BackupSummary");
+        Assert.DoesNotContain(summary.GetVisualDescendants().OfType<ProgressBar>(), bar => bar.IsEffectivelyVisible);
+        var dots = summary.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "RunningDots");
+        var icon = summary.GetVisualDescendants().OfType<PathIcon>().First(i => i.Classes.Contains("status-icon"));
+        Assert.True(dots.IsEffectivelyVisible);
+        Assert.True(RunningPulse.IsTicking);
+        RunningPulse.Restart();
+        var seenDots = new System.Collections.Generic.List<string>();
+        var seenAngles = new System.Collections.Generic.HashSet<double>();
+        try
+        {
+            for (var i = 0; i < 12; i++)
+            {
+                RunningPulse.Advance();
+                if (seenDots.LastOrDefault() != dots.Text) seenDots.Add(dots.Text!);
+                seenAngles.Add(Assert.IsType<RotateTransform>(icon.RenderTransform).Angle);
+            }
+        }
+        finally { RunningPulse.Restart(); }
+        // ". .. ..." in that order, one full turn in twelve steps.
+        Assert.Equal(new[] { "...", ".", "..", "..." }, seenDots);
+        Assert.Equal(12, seenAngles.Count);
         ctx.Snapshot(host, "card running blue-badge stop-button",
             "After a real settings refresh, the card still says Running and offers Stop; yesterday’s skipped result has not replaced it. The engine state is simulated in this visual check.");
         listVm.Cards[0].SetQueuedReason("waiting for Photos to finish");
         ServiceLocator.Config.Update(cfg => cfg.Backups[0].Name = "Cloud backup — waiting for a destination");
         ctx.Driver.Pump();
         Assert.Equal("Queued: waiting for Photos to finish", listVm.Cards[0].LastRunLabel);
+        // Waiting in line is not running: nothing moves.
+        summary = host.GetVisualDescendants().OfType<Border>().First(b => b.Name == "BackupSummary");
+        icon = summary.GetVisualDescendants().OfType<PathIcon>().First(i => i.Classes.Contains("status-icon"));
+        RunningPulse.Advance();
+        Assert.Null(icon.RenderTransform);
+        Assert.False(summary.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "RunningDots").IsEffectivelyVisible);
         ctx.Snapshot(host, "queued status survives settings refresh",
             "Queued and its reason survive the settings refresh too. This is a headless visual check with simulated activity.");
         host.Close();

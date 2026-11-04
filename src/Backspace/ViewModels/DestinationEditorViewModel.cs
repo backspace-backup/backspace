@@ -433,17 +433,6 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         if (AttemptedSave) RevalidateField(nameof(PathOrSubpath));
     }
 
-    /// <summary>
-    /// Pre-fill <see cref="ExpectedVolumeLabel"/> from the chosen
-    /// path's drive label so the user only confirms. Best-effort —
-    /// IO exceptions (drive vanishing mid-read, label unavailable
-    /// on the filesystem) are swallowed; the user can type a label
-    /// manually if the auto-fill fails. Won't overwrite a label
-    /// the user has already filled in. We deliberately don't
-    /// pre-fill the drive letter — a letter is fragile (it can
-    /// shuffle between USB sessions), and matching by label is the
-    /// only reliable identity for removable storage.
-    /// </summary>
     /// <summary>What the drive name and letter mean together, in one line (U116).</summary>
     public string VolumeMatchSummary
     {
@@ -461,9 +450,36 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         }
     }
 
-    partial void OnExpectedVolumeLabelChanged(string? value) => OnPropertyChanged(nameof(VolumeMatchSummary));
+    partial void OnExpectedVolumeLabelChanged(string? value)
+    {
+        OnPropertyChanged(nameof(VolumeMatchSummary));
+        if (!string.IsNullOrWhiteSpace(value)) DriveHasNoName = false;
+    }
     partial void OnExpectedDriveLetterChanged(string? value) => OnPropertyChanged(nameof(VolumeMatchSummary));
 
+    /// <summary>The picked folder's drive has no volume label (U116): only
+    /// its letter can identify it, so the editor fills that in and says how
+    /// to name the drive.</summary>
+    [ObservableProperty] private bool _driveHasNoName;
+
+    /// <summary>A drive's volume label ("" when it has none), or null while
+    /// it isn't ready. Tests stand in a drive without a name.</summary>
+    internal static Func<string, string?> VolumeLabelReader = root =>
+    {
+        var drive = new System.IO.DriveInfo(root);
+        return drive.IsReady ? drive.VolumeLabel : null;
+    };
+
+    /// <summary>
+    /// Pre-fill <see cref="ExpectedVolumeLabel"/> from the chosen
+    /// path's drive label so the user only confirms. Best-effort —
+    /// IO exceptions (drive vanishing mid-read, label unavailable
+    /// on the filesystem) are swallowed; the user can type a label
+    /// manually if the auto-fill fails. Won't overwrite a label
+    /// the user has already filled in. The letter is filled in only
+    /// for a drive without a name: a letter can shuffle between USB
+    /// sessions, so the name is the reliable identity when there is one.
+    /// </summary>
     private void TryPrefillVolumeFromPath(string path)
     {
         try
@@ -475,13 +491,13 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
 
             try
             {
-                var di = new System.IO.DriveInfo(root);
-                if (di.IsReady
-                    && !string.IsNullOrWhiteSpace(di.VolumeLabel)
-                    && string.IsNullOrWhiteSpace(ExpectedVolumeLabel))
-                {
-                    ExpectedVolumeLabel = di.VolumeLabel;
-                }
+                if (VolumeLabelReader(root) is not { } label) return;
+                DriveHasNoName = string.IsNullOrWhiteSpace(label);
+                if (!DriveHasNoName && string.IsNullOrWhiteSpace(ExpectedVolumeLabel))
+                    ExpectedVolumeLabel = label;
+                // Without a name or a letter nothing would be checked at all.
+                if (DriveHasNoName && string.IsNullOrWhiteSpace(ExpectedVolumeLabel) && string.IsNullOrWhiteSpace(ExpectedDriveLetter))
+                    ExpectedDriveLetter = root.TrimEnd('\\');
             }
             catch { /* drive not ready / label unavailable — leave blank */ }
         }

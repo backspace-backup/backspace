@@ -116,13 +116,10 @@
             </StackPanel>
 
             <!-- ExternalDrive only, and only after a folder has been
-                 picked (ShowVolumeMatch). Pre-filled from the picked
-                 drive's volume label so the user only confirms. The
-                 label is the durable identity — drive letters can
-                 shuffle between sessions, so we deliberately don't
-                 expose a "Expected Drive Letter" field (would invite
-                 the user to set something fragile and have backups
-                 skip after a USB-port change). -->
+                 picked (ShowVolumeMatch). The name is pre-filled from
+                 the picked drive's volume label so the user only
+                 confirms: it is the durable identity, as letters can
+                 shuffle between sessions. The letter is optional. -->
             <StackPanel Spacing="10" IsVisible="{Binding ShowVolumeMatch}">
               <TextBlock Classes="helper" TextWrapping="Wrap"
                          Text="How Backspace recognises this drive. The drive's name is enough: Windows can give a removable drive a different letter each time. Add a letter only to require both. Picking a folder fills in its drive's name."/>
@@ -139,6 +136,8 @@
                 </StackPanel>
               </Grid>
               <TextBlock Classes="helper" TextWrapping="Wrap" FontWeight="SemiBold" Text="{Binding VolumeMatchSummary}"/>
+              <TextBlock x:Name="DriveHasNoNameHint" Classes="helper" TextWrapping="Wrap" IsVisible="{Binding DriveHasNoName}"
+                         Text="This drive has no name, so its letter is used for now. To have Backspace recognise it whatever letter it gets, name it in File Explorer (right-click the drive › Rename), then type the same name here."/>
               <TextBlock Classes="helper" TextWrapping="Wrap"
                          Text="Runs are skipped (not failed) while the drive isn't attached. The first backup to the drive starts when you start it; after that, a drive that doesn't have the backup (another drive with the same name, or an erased one) is never used without asking you."/>
             </StackPanel>
@@ -188,6 +187,8 @@
                          Watermark="{Binding NetworkPasswordWatermark}"/>
               </StackPanel>
             </Grid>
+            <TextBlock Classes="helper" TextWrapping="Wrap"
+                       Text="The first backup to this folder starts when you start it. After that, a share that doesn't have the backup (a replaced or erased network drive at the same address) is never used without asking you."/>
             <!-- U071: the background service reaches the share only with these. -->
             <TextBlock Classes="helper" TextWrapping="Wrap"
                        Text="With administrator access on, these let backups to this share run in the background, with snapshots and before you sign in. Without them, they run from the tray app while you're signed in."/>

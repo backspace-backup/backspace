@@ -357,6 +357,18 @@ seconds, as discarded (`EngineTaskDroppedException`); nothing is running,
 so the run's ordinary retry submits it again (U093). Found when the PC
 hibernated during the two-cloud test and the test waited for hours.
 
+A status poll that goes unanswered is not, by itself, a stopped task: while
+restic scans a whole drive, Backrest can answer slowly for minutes, and
+counting 30 s of slow polls as an uncertainty cancelled a working backup
+(U111). Unanswered polls start the uncertainty countdown only after a stop or
+once the request has ended. Patience still has limits
+(`ResticBackrestEngine.EngineSilenceLimit`, 10 minutes of no answer at all,
+and `ProgressStallLimit`, 60 minutes of a running backup whose counts don't
+move): the task is cancelled and the run fails with
+`EngineStalledException`, which is non-retriable so a stuck network doesn't
+cost another hour at once. If cancellation can't be confirmed, the usual
+fail-closed block applies.
+
 ## Password changes and test restore
 
 Password changes require exclusive repository ownership. Never force-remove

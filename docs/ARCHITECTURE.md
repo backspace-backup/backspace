@@ -959,12 +959,14 @@ test harness to give each test its own isolated config dir.
    `%LOCALAPPDATA%\Backspace\bin` and checks them. No separate install step.
 5. **Volume-name matching is first-class** for any local destination —
    never failed-state when an external drive is simply unmounted, always
-   "skipped". `DriveRepositoryGuard` keeps an external drive that lacks
-   the repository (another drive with the same name, or an erased one)
-   from being started over: only a person-started first backup, or an
-   answer recorded as a marker file at the drive's root
-   (`.backspace.<backup id>.accepted` / `.declined`), lets a run proceed
-   without a repository. The orchestrator skips otherwise ("Waiting for
+   "skipped". `DriveRepositoryGuard` keeps an external drive or network
+   share that lacks the repository (another drive with the same name, an
+   erased one, a replaced NAS) from being started over: only a
+   person-started first backup, or an answer recorded as a marker file at
+   the drive's or share's root, or beside the repository folder when that
+   root is read-only (`.backspace.<backup id>.accepted` / `.declined`),
+   lets a run proceed without a repository. For shares it runs after the
+   reachability gate, so an offline share is reported as offline. The orchestrator skips otherwise ("Waiting for
    you"); `DriveConfirmation` asks in the app before Run now.
 6. **No surprises in the config dir.** One `config.json`; a user can
    delete it to start over. Secrets in a separate machine-bound file so

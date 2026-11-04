@@ -414,6 +414,64 @@ public sealed class RestoreSafetyRegressionTests
         Assert.Equal(0, fixture.Handler.CancelRequests);
     }
 
+    /// <summary>U111 follow-up (4 November 2026): "What if Backrest really
+    /// fails?" An engine that stops answering altogether, while its request is
+    /// still open, is stopped and the run fails instead of waiting forever.</summary>
+    [Fact]
+    public async Task An_engine_that_stops_answering_fails_the_task_after_the_silence_limit()
+    {
+        var limit = ResticBackrestEngine.EngineSilenceLimit;
+        ResticBackrestEngine.EngineSilenceLimit = TimeSpan.FromMilliseconds(400);
+        try
+        {
+            using var fixture = new ProtocolFixture("STATUS_SUCCESS");
+            fixture.Handler.SynchronousRequest = true;
+            fixture.Handler.ProgressPolls = int.MaxValue;
+            fixture.Handler.SilentAfterPolls = 2;
+            var run = fixture.Track("/v1.Backrest/Backup", TestContext.Current.CancellationToken);
+            Assert.Same(run, await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken)));
+            var error = await Assert.ThrowsAsync<EngineStalledException>(() => run);
+            Assert.Contains("stopped answering", error.Message);
+            // The running task was told to stop, and confirmed it.
+            Assert.Equal(1, fixture.Handler.CancelRequests);
+            Assert.True(fixture.Handler.TerminalAcknowledged);
+        }
+        finally { ResticBackrestEngine.EngineSilenceLimit = limit; }
+    }
+
+    /// <summary>A backup whose counts stay frozen is stopped and fails; one
+    /// whose counts keep moving, however slowly, is left alone.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_backup_whose_progress_freezes_is_stopped_but_a_moving_one_is_not(bool moving)
+    {
+        var limit = ResticBackrestEngine.ProgressStallLimit;
+        ResticBackrestEngine.ProgressStallLimit = TimeSpan.FromMilliseconds(400);
+        try
+        {
+            using var fixture = new ProtocolFixture("STATUS_SUCCESS");
+            fixture.Handler.SynchronousRequest = true;
+            fixture.Handler.ProgressPolls = moving ? 25 : int.MaxValue; // 25 polls take several times the limit
+            fixture.Handler.BackupProgressMoves = moving;
+            var run = fixture.Track("/v1.Backrest/Backup", TestContext.Current.CancellationToken);
+            Assert.Same(run, await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken)));
+            if (moving)
+            {
+                Assert.Equal("STATUS_SUCCESS", (await run).Status);
+                Assert.Equal(0, fixture.Handler.CancelRequests);
+            }
+            else
+            {
+                var error = await Assert.ThrowsAsync<EngineStalledException>(() => run);
+                Assert.Contains("made no progress", error.Message);
+                Assert.Equal(1, fixture.Handler.CancelRequests);
+                Assert.True(fixture.Handler.TerminalAcknowledged);
+            }
+        }
+        finally { ResticBackrestEngine.ProgressStallLimit = limit; }
+    }
+
     [Theory]
     [InlineData(3)] // queued, then discarded by a queue reset after waking from sleep
     [InlineData(0)] // discarded before the first poll saw it
@@ -550,6 +608,11 @@ public sealed class RestoreSafetyRegressionTests
         public bool NativeSummary { get; set; }
         public bool WholeSource { get; set; }
         public int FailPolls { get; set; }
+        /// <summary>After this many answered polls, every poll fails until a cancel arrives.</summary>
+        public int SilentAfterPolls { get; set; } = -1;
+        private int _answeredPolls;
+        /// <summary>A running backup reports growing byte counts on each poll.</summary>
+        public bool BackupProgressMoves { get; set; }
         public int FollowupPolls { get; set; }
         public bool CancelDuringFollowup { get; set; }
         public bool FollowupAcknowledged { get; private set; }
@@ -647,7 +710,8 @@ public sealed class RestoreSafetyRegressionTests
                     if (_endpoint is null) { response = "{\"operations\":[{\"id\":\"41\",\"status\":\"STATUS_SUCCESS\",\"operationCheck\":{}}]}"; break; }
                     if (DelayAcknowledgement && ++_acknowledgementPolls >= 2) _acknowledgement.TrySetResult();
                     if (VanishAfterPolls >= 0 && _vanishPolls++ >= VanishAfterPolls) { response = "{\"operations\":[]}"; break; }
-                    if (FailPolls-- > 0) return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                    if (FailPolls-- > 0 || SilentAfterPolls >= 0 && CancelRequests == 0 && _answeredPolls++ >= SilentAfterPolls)
+                        return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
                         { Content = new StringContent("{\"code\":\"unavailable\",\"message\":\"temporary fixture fault\"}") };
                     var recorded = new List<object>();
                     if (IncludeOtherMatchingOperation)
@@ -666,7 +730,9 @@ public sealed class RestoreSafetyRegressionTests
                     recorded.Add(new { id = "42", status = current, displayMessage = "Fixture terminal message",
                         operationRestore = _nativeTarget is null ? null : new { target = _nativeTarget, path = _nativePath,
                             lastStatus = new { messageType = NativeSummary && current != "STATUS_INPROGRESS" ? "summary" : "status", totalBytes = "8", bytesRestored = NativeSummary && current != "STATUS_INPROGRESS" ? "8" : "4", totalFiles = "1", filesRestored = NativeSummary && current != "STATUS_INPROGRESS" ? "1" : "0", percentDone = NativeSummary && current != "STATUS_INPROGRESS" ? 1.0 : 0.5 } },
-                        operationBackup = _endpoint == "/v1.Backrest/Backup" ? new object() : null,
+                        operationBackup = _endpoint != "/v1.Backrest/Backup" ? null : BackupProgressMoves
+                            ? new { lastStatus = new { status = new { percentDone = 0.1, totalBytes = "1000000", bytesDone = (_polls * 1000).ToString(), totalFiles = "10", filesDone = "1" } } }
+                            : new object(),
                         operationCheck = _endpoint == "/v1.Backrest/DoRepoTask" ? new object() : null,
                         operationForget = _endpoint == "/v1.Backrest/Forget" ? new object() : null,
                         operationRunCommand = _endpoint == "/v1.Backrest/RunCommand" ? new { command = "fixture command" } : null });

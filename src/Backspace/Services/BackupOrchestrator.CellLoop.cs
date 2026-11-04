@@ -197,24 +197,6 @@ public sealed partial class BackupOrchestrator
                             final.Warnings.Add($"[{sourcePath} → {dest.Name}] skipped: {vc.Detail}");
                             continue;
                         }
-                        // A drive without this backup is never started over
-                        // without the person's answer (U117).
-                        var guard = DriveRepositoryGuard.Check(backup, dest);
-                        if (guard is DriveRepositoryGuard.State.Missing or DriveRepositoryGuard.State.Declined)
-                        {
-                            var reason = DriveRepositoryGuard.SkipReason(guard, backup, dest);
-                            _log.Information("Skipping cell {Src}→{Dest}: drive guard {State}", sourcePath, dest.Name, guard);
-                            final.Cells.Add(new CellOutcome
-                            {
-                                SourcePath = sourcePath,
-                                DestinationName = dest.Name,
-                                StorageName = target.StorageName,
-                                Status = BackupRunStatus.Skipped,
-                                Summary = reason,
-                            });
-                            final.Warnings.Add($"[{sourcePath} → {dest.Name}] {reason}");
-                            continue;
-                        }
                     }
 
                     // Reachability gate. Per-kind cheap pre-flight that
@@ -239,6 +221,26 @@ public sealed partial class BackupOrchestrator
                                     _healthcheckFailedRuns.TryRemove(final.Id, out _);
                         }
                         else final.Warnings.Add($"[{sourcePath} → {dest.Name}] skipped: {gateMiss.Summary}");
+                        continue;
+                    }
+
+                    // A drive or share without this backup is never started
+                    // over without the person's answer (U117). After the
+                    // reachability gate, so an offline share reads as offline.
+                    var guard = DriveRepositoryGuard.Check(backup, dest);
+                    if (guard is DriveRepositoryGuard.State.Missing or DriveRepositoryGuard.State.Declined)
+                    {
+                        var reason = DriveRepositoryGuard.SkipReason(guard, backup, dest);
+                        _log.Information("Skipping cell {Src}→{Dest}: drive guard {State}", sourcePath, dest.Name, guard);
+                        final.Cells.Add(new CellOutcome
+                        {
+                            SourcePath = sourcePath,
+                            DestinationName = dest.Name,
+                            StorageName = target.StorageName,
+                            Status = BackupRunStatus.Skipped,
+                            Summary = reason,
+                        });
+                        final.Warnings.Add($"[{sourcePath} → {dest.Name}] {reason}");
                         continue;
                     }
 
@@ -866,6 +868,13 @@ public sealed partial class BackupOrchestrator
                 return (attributes & FileAttributes.Directory) != 0 ? null
                     : new IOException("The network destination is not a folder.");
             }
+            catch (Exception ex) when (ex is DirectoryNotFoundException or FileNotFoundException && ShareRootIsFolder(unc))
+            {
+                // The share answers but the backup's folder isn't there: a
+                // first backup creates it, and the drive guard asks before
+                // starting over where one existed (U117).
+                return null;
+            }
             catch (Exception ex) { return ex; }
         }, ct);
         var completed = await Task.WhenAny(probe, Task.Delay(TimeSpan.FromSeconds(5), ct)).ConfigureAwait(false);
@@ -882,6 +891,12 @@ public sealed partial class BackupOrchestrator
             Summary = tolerable ? $"Network share unavailable: {unc}" : $"Cannot access network destination: {unc}",
             LastError = failure.Message,
         };
+    }
+
+    private static bool ShareRootIsFolder(string path)
+    {
+        try { return Path.GetPathRoot(path) is { Length: > 0 } root && (File.GetAttributes(root) & FileAttributes.Directory) != 0; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return false; }
     }
 
     internal static bool IsTolerableShareFailure(Exception error)

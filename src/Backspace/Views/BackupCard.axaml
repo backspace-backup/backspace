@@ -124,8 +124,19 @@
                         Classes.fail="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
                         Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"
                         Classes.running="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=running}"
-                        Classes.idle="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"/>
+                        Classes.idle="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"
+                        v:RunningPulse.IsActive="{Binding IsActuallyRunning}"/>
+                <!-- While a backup runs, the icon turns and the dots cycle in
+                     steps instead of a progress bar here: the percentage is
+                     already on the sources and the strip below (U114). -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" IsVisible="{Binding IsActuallyRunning}"
+                            Background="Transparent" ToolTip.Tip="{Binding ProgressTooltip}">
+                  <TextBlock Name="RunningText" Text="Running" Classes="meta-value" FontSize="14" FontWeight="SemiBold"/>
+                  <TextBlock Name="RunningDots" Text="…" Classes="meta-value" FontSize="14" FontWeight="SemiBold" Width="16"
+                             v:RunningPulse.IsActive="{Binding IsActuallyRunning}"/>
+                </StackPanel>
                 <TextBlock Grid.Column="2" Text="{Binding LastRunLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold"
+                           IsVisible="{Binding !IsActuallyRunning}"
                            TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding LastRunLabel}"
                            Classes.fail="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
                            Classes.warn="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
@@ -136,17 +147,6 @@
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
                 <Button Classes="row-action-danger" IsVisible="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
-                <!-- A real percentage, not a looping animation: the looping bar
-                     kept the GPU at 10-12% while a backup ran (U109, U114). The
-                     text beside it changes every few seconds, so a long scan
-                     still visibly moves; the tooltip has bytes, files and speed. -->
-                <StackPanel Orientation="Horizontal" Spacing="8" Margin="20,2,0,0" IsVisible="{Binding IsActuallyRunning}"
-                            Background="Transparent" ToolTip.Tip="{Binding ProgressTooltip}">
-                  <ProgressBar Minimum="0" Maximum="100" Value="{Binding OverallPercent}" Width="96" Height="6" VerticalAlignment="Center"
-                               Foreground="{DynamicResource BS.Brush.Accent}" Background="{DynamicResource BS.Brush.AccentTint}"/>
-                  <TextBlock FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource BS.Brush.FgSecondary}"
-                             Text="{Binding OverallPercent, StringFormat='{}{0:0}%'}"/>
-                </StackPanel>
                 <TextBlock IsVisible="{Binding IsQueued}" Text="Waiting for another operation" FontSize="13"
                            Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"/>
               </WrapPanel>

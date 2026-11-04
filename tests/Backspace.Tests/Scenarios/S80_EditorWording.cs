@@ -1,9 +1,11 @@
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 using Backspace.Models;
+using Backspace.Services;
 using Backspace.ViewModels;
 using Backspace.Views;
 using Xunit;
@@ -23,7 +25,7 @@ public sealed class S80_EditorWording : ScenarioBase
 
     [AvaloniaFact] public async Task Run_S80() => await Run();
 
-    protected override Task RunAsync(ScenarioContext ctx)
+    protected override async Task RunAsync(ScenarioContext ctx)
     {
         Options(ctx, DestinationKind.GoogleDrive, "(name)", "google drive options");
         Options(ctx, DestinationKind.S3Compatible, "(name, region, bucket prefix)", "s3 options");
@@ -50,6 +52,62 @@ public sealed class S80_EditorWording : ScenarioBase
         ctx.Snapshot(driveWin, "drive name and letter",
             "External drive: DRIVE NAME 'My Passport' and LETTER (OPTIONAL) empty; the line below says it backs up to the drive named My Passport whatever its letter.");
         driveWin.Close();
+
+        // U116 follow-up: picking a folder fills in the drive's name; a drive
+        // without a name gets its letter and a hint on naming it.
+        var reader = DestinationEditorViewModel.VolumeLabelReader;
+        try
+        {
+            DestinationEditorViewModel.VolumeLabelReader = _ => "My Passport";
+            var named = new DestinationEditorViewModel(new Destination { Kind = DestinationKind.ExternalDrive, Encrypted = true }, true);
+            named.PathOrSubpath = @"Q:\Backup\Backspace\photos";
+            Assert.Equal("My Passport", named.ExpectedVolumeLabel);
+            Assert.True(string.IsNullOrEmpty(named.ExpectedDriveLetter));
+            Assert.False(named.DriveHasNoName);
+
+            DestinationEditorViewModel.VolumeLabelReader = _ => "";
+            var unnamed = new DestinationEditorViewModel(new Destination { Kind = DestinationKind.ExternalDrive, Encrypted = true }, true);
+            unnamed.PathOrSubpath = @"Q:\Backup\Backspace\photos";
+            Assert.True(unnamed.DriveHasNoName);
+            Assert.Equal("Q:", unnamed.ExpectedDriveLetter);
+            Assert.True(string.IsNullOrEmpty(unnamed.ExpectedVolumeLabel));
+            var unnamedWin = new DestinationEditorWindow { DataContext = unnamed, Width = 760, Height = 760 };
+            ctx.Driver.Show(unnamedWin);
+            ctx.Driver.Pump();
+            var hint = unnamedWin.FindControl<TextBlock>("DriveHasNoNameHint")!;
+            Assert.True(hint.IsEffectivelyVisible);
+            hint.BringIntoView();
+            ctx.Driver.Pump();
+            ctx.Snapshot(unnamedWin, "drive without a name",
+                "A folder on a drive without a name: LETTER is filled in with Q:, and a hint says how to name the drive in File Explorer.");
+            // Typing the name the drive was given hides the hint.
+            unnamed.ExpectedVolumeLabel = "Photos disk";
+            ctx.Driver.Pump();
+            Assert.False(hint.IsEffectivelyVisible);
+            unnamedWin.Close();
+        }
+        finally { DestinationEditorViewModel.VolumeLabelReader = reader; }
+
+        // U117 follow-up: a network share that should hold the backup but
+        // doesn't is asked about, in its own words (the test share is a folder).
+        var share = new Destination { Name = "NAS", Kind = DestinationKind.NetworkShare, PathOrSubpath = System.IO.Path.Combine(ctx.MakeLocalDestination("nas"), "documents") };
+        var documents = new Backup { Name = "documents", LastSuccessUtc = DateTime.UtcNow.AddDays(-1) };
+        documents.Targets.Add(new BackupTarget { DestinationId = share.Id });
+        ServiceLocator.Config.Update(c => c.Destinations.Add(share));
+        DriveConfirmation.Question? asked = null;
+        DriveConfirmation.AskOverride = q => { asked = q; return Task.FromResult(DriveChoiceWindow.Choice.Cancel); };
+        var markers = DriveRepositoryGuard.MarkerRootOverride;
+        DriveRepositoryGuard.MarkerRootOverride = ctx.MakeLocalDestination("nas-markers");
+        try { Assert.False(await DriveConfirmation.ConfirmAsync(documents, null)); }
+        finally { DriveConfirmation.AskOverride = null; DriveRepositoryGuard.MarkerRootOverride = markers; }
+        Assert.Equal("This network share doesn't have this backup", asked!.Title);
+        Assert.Equal("Don't use this network share", asked.DeclineLabel);
+        var shareAsk = new DriveChoiceWindow(asked.Title, asked.Body, asked.UseLabel, asked.DeclineLabel) { Width = 580, Height = 330 };
+        ctx.Driver.Show(shareAsk);
+        ctx.Driver.Pump();
+        ctx.Snapshot(shareAsk, "share without the backup",
+            "The question for a network share: 'This network share doesn't have this backup', with Not now, Don't use this network share and Start a new backup here.");
+        shareAsk.Close();
 
         // U117: the question asked when a drive should hold the backup but doesn't.
         var ask = new DriveChoiceWindow("This drive doesn't have this backup",
@@ -81,7 +139,7 @@ public sealed class S80_EditorWording : ScenarioBase
         ctx.Snapshot(win, "stop conditions", "Schedule: the two stopping rules read 'Stop mid-run if the computer switches to battery' and 'Stop mid-run if the connection becomes metered'.");
         win.Close();
         vm.Dispose();
-        return Task.CompletedTask;
+
     }
 
     private static void Options(ScenarioContext ctx, DestinationKind kind, string hint, string shot)

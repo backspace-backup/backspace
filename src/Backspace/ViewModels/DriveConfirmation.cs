@@ -10,13 +10,15 @@ namespace Backspace.ViewModels;
 
 /// <summary>
 /// Before a backup the person starts (Run now, Save &amp; Run), settles any
-/// external drive that lacks this backup (U117). The first backup to a
+/// external drive or network share that lacks this backup (U117). The first backup to a
 /// drive needs no question: starting it is the confirmation. A drive that
 /// should already hold the backup, or that was declined, is asked about.
 /// </summary>
 internal static class DriveConfirmation
 {
     internal sealed record Question(string Title, string Body, string UseLabel, string? DeclineLabel);
+
+    internal static TimeSpan CheckTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>Replaces the dialog in tests.</summary>
     internal static Func<Question, Task<DriveChoiceWindow.Choice>>? AskOverride;
@@ -27,7 +29,11 @@ internal static class DriveConfirmation
         foreach (var target in backup.Targets)
         {
             if (ServiceLocator.Config.Current.Destinations.FirstOrDefault(d => d.Id == target.DestinationId) is not { } destination) continue;
-            var state = DriveRepositoryGuard.Check(backup, destination);
+            // A share that stopped answering can hold a file check for many
+            // seconds; the run's own reachability check reports it instead.
+            var check = Task.Run(() => DriveRepositoryGuard.Check(backup, destination));
+            var state = await Task.WhenAny(check, Task.Delay(CheckTimeout)) == check
+                ? await check : DriveRepositoryGuard.State.NotApplicable;
             if (state is DriveRepositoryGuard.State.NotApplicable or DriveRepositoryGuard.State.Present or DriveRepositoryGuard.State.Accepted) continue;
 
             if (state == DriveRepositoryGuard.State.Missing && !DriveRepositoryGuard.SucceededBefore(backup, destination, ServiceLocator.Logs))
@@ -37,17 +43,21 @@ internal static class DriveConfirmation
             }
 
             var where = DriveRepositoryGuard.RepositoryPath(destination) ?? destination.PathOrSubpath;
+            var share = destination.Kind == DestinationKind.NetworkShare;
+            var place = share ? "network share" : "drive";
+            var attached = share ? "network share" : "drive attached";
             var question = state == DriveRepositoryGuard.State.Declined
-                ? new Question("This drive is set aside for this backup",
-                    $"You chose not to back up «{backup.Name}» to the drive attached for «{destination.Name}». Use it for this backup now? "
+                ? new Question($"This {place} is set aside for this backup",
+                    $"You chose not to back up «{backup.Name}» to the {attached} for «{destination.Name}». Use it for this backup now? "
                     + $"Backspace will start a new backup at {where}.",
-                    "Use this drive", null)
-                : new Question("This drive doesn't have this backup",
-                    $"«{backup.Name}» has backed up to «{destination.Name}» before, but the drive attached now has no backup at {where}. "
-                    + "It may be a different drive with the same name, or the drive was erased.\n\n"
-                    + "Start a new backup on this drive, or set this drive aside for this backup: Backspace then skips it for "
+                    $"Use this {place}", null)
+                : new Question($"This {place} doesn't have this backup",
+                    $"«{backup.Name}» has backed up to «{destination.Name}» before, but the {attached} now has no backup at {where}. "
+                    + (share ? "It may be a different or erased network drive at the same address.\n\n"
+                             : "It may be a different drive with the same name, or the drive was erased.\n\n")
+                    + $"Start a new backup there, or set this {place} aside for this backup: Backspace then skips it for "
                     + "«" + backup.Name + "» and doesn't ask again. Other backups and other computers decide for themselves.",
-                    "Start a new backup here", "Don't use this drive");
+                    "Start a new backup here", $"Don't use this {place}");
             var choice = AskOverride is not null
                 ? await AskOverride(question)
                 : await new DriveChoiceWindow(question.Title, question.Body, question.UseLabel, question.DeclineLabel).AskAsync(owner);

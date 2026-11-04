@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
@@ -167,8 +168,27 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         Assert.Contains("STATUS_INPROGRESS", main.Logs.DisplayText);
         ctx.Snapshot(host, "verbose on shows earlier lines",
             "Verbose ticked: the same saved run now also shows Backrest's debug lines and state polls, without rerunning anything.");
+        // U113 follow-up: long lines (the recap) wrap; no horizontal bar.
+        var scroll = view.FindControl<ScrollViewer>("LogScroll")!;
+        Assert.True(scroll.Extent.Width <= scroll.Viewport.Width + 1, $"The log is wider ({scroll.Extent.Width}) than its pane ({scroll.Viewport.Width}).");
+        Assert.Contains(view.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("took 26m 10s") == true);
         verbose.IsChecked = false;
         await ctx.Driver.PumpAsync(100);
         Assert.False(VerboseLogFilter.IsVerboseOn());
+
+        // The live view has Copy, Verbose and Clear view side by side, inside the header.
+        main.Logs.SelectedRun = null;
+        await ctx.Driver.PumpAsync(200);
+        Assert.True(main.Logs.IsShowingLive);
+        var header = view.FindControl<Grid>("ConsoleHeader")!;
+        foreach (var name in new[] { "CopyLog", "VerboseLog", "ClearLog" })
+        {
+            var control = view.FindControl<Control>(name)!;
+            Assert.True(control.IsEffectivelyVisible, name + " is hidden in the live view.");
+            var right = control.TranslatePoint(new Avalonia.Point(control.Bounds.Width, 0), header)!.Value.X;
+            Assert.True(right <= header.Bounds.Width + 0.5, $"{name} runs past the header's edge.");
+        }
+        ctx.Snapshot(host, "live view header",
+            "The live view: Copy, Verbose and Clear view all visible in the console header; Clear view appears only here, since a saved run can't be cleared.");
     }
 }

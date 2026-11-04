@@ -116,7 +116,13 @@ public class ScreenshotDiffTests
             PublishScreenshot(staging, current);
             Assert.Equal("new complete image", File.ReadAllText(current));
         }
-        finally { await release; held.Dispose(); }
+        finally { await release; held.Dispose(); TryDeleteScratch(directory); }
+    }
+
+    // Scratch folders used to pile up in Local Temp, one per run (found 4 November 2026).
+    private static void TryDeleteScratch(string directory)
+    {
+        try { Directory.Delete(directory, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
     [Fact]
@@ -129,11 +135,15 @@ public class ScreenshotDiffTests
         var staging = Path.Combine(directory, "replacement.png");
         File.WriteAllText(current, "previous complete image");
         File.WriteAllText(staging, "new complete image");
-        using var held = new FileStream(current, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        var failure = Record.Exception(() => PublishScreenshot(staging, current));
-        Assert.True(failure is IOException or UnauthorizedAccessException);
-        Assert.Equal("previous complete image", File.ReadAllText(current));
-        Assert.Equal("new complete image", File.ReadAllText(staging));
+        try
+        {
+            using var held = new FileStream(current, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var failure = Record.Exception(() => PublishScreenshot(staging, current));
+            Assert.True(failure is IOException or UnauthorizedAccessException);
+            Assert.Equal("previous complete image", File.ReadAllText(current));
+            Assert.Equal("new complete image", File.ReadAllText(staging));
+        }
+        finally { TryDeleteScratch(directory); }
     }
 
     /// <summary>Called immediately after each generator saves its PNG. This

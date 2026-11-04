@@ -142,3 +142,14 @@ public sealed class ServiceRemovalPendingException : System.IO.IOException
     public ServiceRemovalPendingException()
         : base("Finish background service removal in Settings before starting another operation.") { }
 }
+
+/// <summary>A task stopped showing signs of life (U111, 4 November 2026): the
+/// engine left status checks unanswered for <see cref="ResticBackrestEngine.EngineSilenceLimit"/>,
+/// or a backup's counts didn't move for <see cref="ResticBackrestEngine.ProgressStallLimit"/>.
+/// The task is stopped and the run fails with this reason and the usual
+/// failure alerts; the next scheduled run tries again. Retrying at once could
+/// wait another hour on the same stuck network.</summary>
+public sealed class EngineStalledException : System.IO.IOException, INonRetriable
+{
+    public EngineStalledException(string message) : base(message) { }
+}
