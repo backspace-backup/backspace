@@ -411,6 +411,15 @@ public sealed class ResticBackrestEngine : IBackupEngine
             is { Completed: true, Approximate: false, Bytes: > 0 } estimate ? estimate.Bytes : 0;
     }
 
+    internal BackrestSidecar Sidecar => _sidecar;
+
+    private long _lastUseTicks = DateTime.UtcNow.Ticks;
+
+    /// <summary>When the engine was last asked for anything (U125).</summary>
+    internal DateTime LastUseUtc => new(Interlocked.Read(ref _lastUseTicks), DateTimeKind.Utc);
+
+    private void MarkUsed() => Interlocked.Exchange(ref _lastUseTicks, DateTime.UtcNow.Ticks);
+
     /// <summary>What the engine has stored so far, when Windows can tell (U124).</summary>
     private Func<long?>? SentBytesMeter()
     {
@@ -592,6 +601,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 try
                 {
                     using var probe = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    MarkUsed();
                     operations = await GetRepoOperationsAsync(client, repoGuid, probe.Token).ConfigureAwait(false);
                     lastAnswer = DateTime.UtcNow;
                 }
@@ -2356,6 +2366,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
     /// StartAsync — touching the engine is enough.</summary>
     internal async Task<BackrestClient> EnsureClientAsync(CancellationToken ct)
     {
+        MarkUsed();
         await _sidecar.EnsureStartedAsync(ct).ConfigureAwait(false);
         if (_sidecar.Client is null)
             throw new InvalidOperationException("Backspace could not connect to its running backup engine. Quit and reopen Backspace, then try again.");

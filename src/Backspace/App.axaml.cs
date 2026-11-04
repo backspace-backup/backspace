@@ -264,6 +264,8 @@ public partial class App : Application
                 if (taskResume.IsCancellationRequested || QuitRequested) return;
                 // Schedules run while Backspace runs, including a start at sign-in (U043).
                 DesktopSchedule.Start();
+                // The engine runs only while needed (U125).
+                EngineIdleStop.Start();
                 if (!startedInBackground) Program.RunPostInitStartup();
                 try { await ServiceLocator.TestRestores.ResumeInterruptedAsync(); }
                 catch (Exception ex) { AppLogger.For<App>().Error(ex, "Could not load interrupted test restores"); }

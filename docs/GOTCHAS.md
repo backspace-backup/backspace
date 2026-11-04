@@ -429,7 +429,11 @@ second if so (`SystemServiceLifetime`). Because those starts often coincide
 with the owner opening Backspace, the service reads the record with delete
 sharing, and the desktop retries deleting it for up to 20 seconds: Dropbox
 also opens it when the portable folder is synced (U121, 4 November 2026: "Scheduled tasks
-are still paused … being used by another process"). Measured in the lab VM on 2 November
+are still paused … being used by another process"). When the service stops, it
+keeps reading its backup worker's output until the worker exits: a stopping
+worker still writes its last progress and run record, and with nobody reading,
+its pipe filled and it hung until the service killed it after 15 seconds (U126:
+Quit took 15 s and the run's final report was lost). Measured in the lab VM on 2 November
 2026, which could not produce a true Fast Startup start (it has no hibernation
 file and falls back to a full start). Do not use Microsoft-Windows-Kernel-Power
 or the User Profile Service as triggers: they fire thousands of times or every

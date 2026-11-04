@@ -36,6 +36,13 @@ internal static class EngineTransfer
         return found;
     }
 
+    /// <summary>The process that started <paramref name="processId"/>, or null.</summary>
+    internal static int? ParentOf(int processId)
+    {
+        foreach (var (id, parent, _) in Processes()) if (id == processId) return parent;
+        return null;
+    }
+
     /// <summary>Bytes a process has written so far: to files, pipes and the network.</summary>
     internal static long? Written(int processId)
     {

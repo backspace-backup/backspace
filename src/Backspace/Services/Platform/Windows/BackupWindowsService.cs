@@ -363,7 +363,7 @@ internal sealed class BackupWindowsService : ServiceBase
         {
             while (true)
             {
-                var bytes = await BackupServicePipe.ReadMessageAsync(process.StandardOutput.BaseStream, TimeSpan.FromMinutes(1), _stop.Token).ConfigureAwait(false);
+                var bytes = await BackupServicePipe.ReadMessageAsync(process.StandardOutput.BaseStream, TimeSpan.FromMinutes(1), CancellationToken.None).ConfigureAwait(false);
                 var progress = ServiceActivity.ParseProgress(bytes, backupId);
                 lock (_gate) if (ReferenceEquals(process, _worker))
                 {

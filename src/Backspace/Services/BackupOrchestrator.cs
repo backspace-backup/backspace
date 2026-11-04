@@ -407,6 +407,9 @@ public sealed partial class BackupOrchestrator
     /// <summary>True if a run for this backup is currently in flight.</summary>
     public bool IsRunning(string backupId) => _runningRuns.ContainsKey(backupId);
 
+    /// <summary>True while any backup, check or cleanup runs in this process.</summary>
+    public bool AnyRunning => !_runningRuns.IsEmpty;
+
     /// <summary>
     /// Snapshot of an in-flight run for the LogsView "current run" entry.
     /// Returns true and writes <paramref name="startedUtc"/> when the

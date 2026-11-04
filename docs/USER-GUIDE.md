@@ -105,7 +105,10 @@ switching the computer on after **Shut down**, Fast Startup included). Sleep,
 hibernation and locking the screen don't bring it back.
 
 Backspace registers no Windows scheduled task. Between runs it only waits for
-the next due time, so it uses no CPU while idle.
+the next due time, so it uses no CPU while idle. The backup engine (Backrest, and the
+restic and rclone it starts) runs only while needed: the background service
+stops it when each run ends, and the open app after 5 minutes without use. The
+next action starts it again, which takes a few seconds.
 
 Each schedule has conditions that also apply to its standalone check and
 prune:

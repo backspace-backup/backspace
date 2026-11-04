@@ -352,13 +352,18 @@ internal sealed class SystemBackupService : ServiceBase
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
     }
 
+    // Read until the worker's output ends, also while the service stops: a
+    // stopping worker still writes its last progress and the run's record,
+    // and with nobody reading, its pipe filled and it hung until the service
+    // killed it 15 s later. Quit looked as if it had not worked, and the
+    // run's final report was lost (U126, 4 November 2026).
     private async Task ReadProgressAsync(Process process, string backupId)
     {
         try
         {
             while (true)
             {
-                var bytes = await BackupServicePipe.ReadMessageAsync(process.StandardOutput.BaseStream, TimeSpan.FromMinutes(1), _stop.Token).ConfigureAwait(false);
+                var bytes = await BackupServicePipe.ReadMessageAsync(process.StandardOutput.BaseStream, TimeSpan.FromMinutes(1), CancellationToken.None).ConfigureAwait(false);
                 var progress = ServiceActivity.ParseProgress(bytes, backupId);
                 lock (_gate) if (ReferenceEquals(process, _worker))
                 {

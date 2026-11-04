@@ -513,6 +513,20 @@ public sealed class BackrestSidecar : IAsyncDisposable
         }
     }
 
+    /// <summary>Stops the daemon if <paramref name="idle"/> still holds once no
+    /// start can race the stop. The next engine call starts it again.</summary>
+    internal async Task<bool> StopIfIdleAsync(Func<bool> idle)
+    {
+        await _startGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            if (!IsAlive(_proc) || !idle()) return false;
+            await StopCoreAsync(null, CancellationToken.None).ConfigureAwait(false);
+            return !IsAlive(_proc);
+        }
+        finally { _startGate.Release(); }
+    }
+
     public async ValueTask DisposeAsync()
     {
         await StopAsync().ConfigureAwait(false);
