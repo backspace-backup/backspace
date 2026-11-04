@@ -119,6 +119,26 @@ public sealed class BackupLiveProgressTests
         Assert.DoesNotContain("sent", unknown.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
     }
 
+    /// <summary>U133 (4 November 2026): a resumed local_c run read files the
+    /// earlier runs had stored and showed "1.2 MB sent at 268 B/s", which read
+    /// as a stalled upload.</summary>
+    [Fact]
+    public void Reading_files_already_stored_says_so_instead_of_a_tiny_speed()
+    {
+        long sent = 1_200_000;
+        var live = new BackupLiveProgress(() => 190_800_000_000, () => sent);
+        var start = new DateTime(2026, 11, 4, 21, 20, 0, DateTimeKind.Utc);
+        live.Next(Operation(0.1, 26_000_000_000, 80_000_000_000, 64_715, 82_405), start);
+        // 1.1 GB read in 10 s (110 MB/s), 2.7 KB sent.
+        sent += 2_700;
+        Assert.EndsWith(" · already stored, nothing new to send (1.1 MB sent so far)",
+            live.Next(Operation(0.15, 27_100_000_000, 82_000_000_000, 66_000, 84_000), start.AddSeconds(10)));
+        // New data again: 1.1 GB read in 10 s, 400 MB sent: the speed is back.
+        sent += 400_000_000;
+        Assert.EndsWith(" · 383 MB sent at 38 MB/s",
+            live.Next(Operation(0.16, 28_200_000_000, 84_000_000_000, 66_100, 85_000), start.AddSeconds(20)));
+    }
+
     [Fact]
     public void The_size_a_finished_backup_read_is_taken_from_its_recap()
     {

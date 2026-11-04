@@ -132,7 +132,9 @@ power loss, a crash, an update of Backspace or Quit) starts again by itself
 when Backspace runs again, even with "Catch up missed runs" off, and nothing
 already stored is sent again. Its history says "Interrupted", and you get no
 notification, since there is nothing to do. This applies to scheduled
-backups, and with administrator access to Run now as well. It is resumed
+backups, and with administrator access to `Backspace --run` from the
+command line as well; a backup started with **Run now** in the window
+waits for its next scheduled time. It is resumed
 once: if that attempt is cut short too, the next scheduled time is the next
 try. **Stop** ends a backup without resuming it.
 
@@ -258,7 +260,7 @@ so until its count is done the percentage is of the size expected (the last
 backup's, or Backspace's own count, which takes seconds) or 0%, the line says "still counting" and no time
 left is shown. The speed is of the data actually sent to the storage: files
 that need nothing sent (unchanged, or already stored) are checked quickly and
-don't count. The time left follows the pace of the last five minutes, so it
+don't count; while only such files are read, the line says "already stored, nothing new to send". That happens when a backup starts again after an interruption, or has no earlier backup to compare with: the engine reads every file to find what the storage already holds. The time left follows the pace of the last five minutes, so it
 adjusts when a run speeds up or slows down.
 
 **Activity & logs** shows each run as phases. A backup opens with what it

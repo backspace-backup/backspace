@@ -61,8 +61,8 @@ internal sealed class ScheduleState
     internal static string BackupKey(string backupId) => backupId + "/" + ScheduledTaskKind.Backup;
 
     /// <summary>Records that a backup was cut short while it ran, so that it
-    /// is resumed when the schedule next starts. Also used for backups started
-    /// with Run now. False when it can't be: the backup has no schedule, or
+    /// is resumed when the schedule next starts. Also used for backups the service
+    /// started outside the schedule (Backspace --run). False when it can't be: the backup has no schedule, or
     /// the run cut short was already a resume.</summary>
     internal static bool MarkCutShort(string path, string backupId)
     {

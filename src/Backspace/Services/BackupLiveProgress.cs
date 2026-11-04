@@ -36,6 +36,7 @@ internal sealed class BackupLiveProgress
     private readonly Func<long?>? _sentBytes;
     private DateTime _lastEmitted = DateTime.MinValue;
     private (DateTime At, long Bytes)? _sentFrom;
+    private (DateTime At, long Bytes)? _readFrom;
     // Bytes done over the last minutes, for the time left.
     private readonly System.Collections.Generic.Queue<(DateTime At, long Bytes)> _recent = new();
     private (long Files, long Bytes)? _totals;
@@ -72,7 +73,10 @@ internal sealed class BackupLiveProgress
         _last = sample;
 
         long? sent = null;
-        double? rate = null;
+        double? rate = null, read = null;
+        if (_readFrom is { } before && nowUtc > before.At && sample.BytesDone >= before.Bytes)
+            read = (sample.BytesDone - before.Bytes) / (nowUtc - before.At).TotalSeconds;
+        _readFrom = (nowUtc, sample.BytesDone);
         try { sent = _sentBytes?.Invoke(); } catch (Exception) { }
         if (sent is { } stored)
         {
@@ -98,7 +102,7 @@ internal sealed class BackupLiveProgress
         }
         long expected = 0;
         try { expected = _expectedBytes(); } catch (Exception) { }
-        return Format(sample, counting, expected, sent, rate, left);
+        return Format(sample, counting, expected, sent, rate, left, read);
     }
 
     internal static Sample? Parse(JsonElement? operationBackup)
@@ -116,7 +120,7 @@ internal sealed class BackupLiveProgress
             : value.ValueKind == JsonValueKind.Number ? value.GetDouble()
             : value.ValueKind == JsonValueKind.String && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0;
 
-    internal static string Format(Sample sample, bool counting, long expectedBytes, long? sentBytes, double? sentPerSecond, TimeSpan? left = null)
+    internal static string Format(Sample sample, bool counting, long expectedBytes, long? sentBytes, double? sentPerSecond, TimeSpan? left = null, double? readPerSecond = null)
     {
         static string Count(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
         // While counting, a share of what was found so far would be too
@@ -140,8 +144,14 @@ internal sealed class BackupLiveProgress
             parts.Add(expected ? $"{Bytes(sample.BytesDone)} of about {Bytes(expectedBytes)}" : $"{Bytes(sample.BytesDone)} done");
             parts.Add($"{Count(sample.FilesDone)} files done, {Count(sample.TotalFiles)} found so far (still counting)");
         }
-        if (sentBytes is { } sent)
-            parts.Add(sentPerSecond is > 0 and var rate ? $"{Bytes(sent)} sent at {Bytes((long)rate)}/s" : $"{Bytes(sent)} sent");
+        // Files whose data is already in the storage are read, then nothing
+        // is sent: a backup resumed after an interruption, or one without an
+        // earlier backup to compare with. "1.2 MB sent at 268 B/s" read as a
+        // stalled upload (U133, 4 November 2026).
+        if (sentBytes is { } sent && readPerSecond is >= 1024 * 1024 and var reading && (sentPerSecond ?? 0) < reading / 100)
+            parts.Add($"already stored, nothing new to send ({Bytes(sent)} sent so far)");
+        else if (sentBytes is { } sentNow)
+            parts.Add(sentPerSecond is > 0 and var rate ? $"{Bytes(sentNow)} sent at {Bytes((long)rate)}/s" : $"{Bytes(sentNow)} sent");
         if (left is { } remaining && remaining < TimeSpan.FromDays(30)) parts.Add(TimeLeft(remaining));
         return Prefix + string.Join(" · ", parts);
     }

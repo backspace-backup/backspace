@@ -189,7 +189,8 @@ public sealed class BackupSchedulerTests : IDisposable
         Assert.Equal(3, _runs.Count);
     }
 
-    /// <summary>U131: a backup started with Run now, cut short (Windows
+    /// <summary>U131: a backup the service started outside its schedule
+    /// (Backspace --run), cut short (Windows
     /// restarting or the computer losing power), is resumed by the schedule;
     /// the resume cut short in turn is not.</summary>
     [Fact]
