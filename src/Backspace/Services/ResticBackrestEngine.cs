@@ -430,10 +430,11 @@ public sealed class ResticBackrestEngine : IBackupEngine
     {
         var known = ExpectedBytes(backup, sourcePath);
         if (known > 0 || !Directory.Exists(sourcePath)) return () => known;
-        // A count made for the app in the last day is reused rather than
-        // counting the same folder again; one made now is kept for the app.
+        // A count made in the last minutes (for the app) is reused rather
+        // than counting the same folder again; otherwise it is counted now
+        // (seconds) and kept for the app. Never an old figure (U129).
         var counted = Task.Run(() => new SizeEstimateCache(AppPaths.ConfigRoot)
-            .CountOrReuse(sourcePath, SourceSizeRules.For(backup), TimeSpan.FromDays(1), TimeSpan.FromMinutes(3), ct)?.Bytes ?? 0, ct);
+            .CountOrReuse(sourcePath, SourceSizeRules.For(backup), SizeEstimateCache.FreshFor, TimeSpan.FromMinutes(3), ct)?.Bytes ?? 0, ct);
         return () => counted.IsCompletedSuccessfully ? counted.Result : 0;
     }
 

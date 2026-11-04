@@ -94,9 +94,9 @@ public sealed class UnreadableFolderSizeTests
         // folder has grown since: it isn't counted again.
         File.WriteAllBytes(Path.Combine(source, "b.bin"), new byte[300]);
         var cache = new SizeEstimateCache(serviceFolder);
-        Assert.Equal(700, cache.CountOrReuse(source, rules, TimeSpan.FromDays(1), TimeSpan.FromMinutes(1), CancellationToken.None)!.Bytes);
+        Assert.Equal(700, cache.CountOrReuse(source, rules, SizeEstimateCache.FreshFor, TimeSpan.FromMinutes(1), CancellationToken.None)!.Bytes);
         // Other rules, or an old count, are counted afresh.
-        Assert.Equal(1000, cache.CountOrReuse(source, new SourceSizeRules("*.log", true), TimeSpan.FromDays(1), TimeSpan.FromMinutes(1), CancellationToken.None)!.Bytes);
+        Assert.Equal(1000, cache.CountOrReuse(source, new SourceSizeRules("*.log", true), SizeEstimateCache.FreshFor, TimeSpan.FromMinutes(1), CancellationToken.None)!.Bytes);
         Assert.Equal(1000, cache.CountOrReuse(source, rules, TimeSpan.Zero, TimeSpan.FromMinutes(1), CancellationToken.None)!.Bytes);
     }
 

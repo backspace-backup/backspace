@@ -15,6 +15,10 @@ namespace Backspace.Services;
 internal sealed class SizeEstimateCache(string directory)
 {
     internal const string FileName = "size-estimates.json";
+
+    /// <summary>How long a count is reused: long enough not to count the same
+    /// folder twice in a row, short enough never to show an old figure.</summary>
+    internal static readonly TimeSpan FreshFor = TimeSpan.FromMinutes(10);
     internal sealed record Entry(long Bytes, long Files, int Unreadable, long CloudOnly, DateTime CountedUtc);
 
     private string PathOf => Path.Combine(directory, FileName);

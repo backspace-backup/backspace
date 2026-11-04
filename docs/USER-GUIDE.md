@@ -219,7 +219,8 @@ a whole drive with no exclusion rules shows the space used on the drive
 instead. After a backup runs, the card shows the size that backup read. With
 administrator access on, the background service does the counting, with the
 rights of its backups, and its backups reuse that count to show their
-percentage from the start: a folder isn't counted twice.
+percentage from the start: a folder isn't counted twice. A count is reused for
+at most 10 minutes; after that the folder is counted again, which takes seconds.
 
 Some folders can't be opened from your account, such as another account's
 profile. With administrator access on, backups include them and the size

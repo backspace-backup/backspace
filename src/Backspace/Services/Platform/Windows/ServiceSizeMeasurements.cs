@@ -18,9 +18,6 @@ namespace Backspace.Services.Platform.Windows;
 /// </summary>
 internal sealed class ServiceSizeMeasurements(string? dataDirectory = null)
 {
-    /// <summary>How long a count is reused for the app: a size that changes
-    /// as files change, but not worth counting again on every view.</summary>
-    internal static TimeSpan ReuseFor = TimeSpan.FromMinutes(10);
 
     internal sealed record Reply(int Version, string? RunId = null, string? State = null, long Bytes = 0, long Files = 0,
         bool Truncated = false, int Unreadable = 0, string? Error = null, long CloudOnly = 0);
@@ -58,7 +55,7 @@ internal sealed class ServiceSizeMeasurements(string? dataDirectory = null)
     internal static Reply Measure(string path, SourceSizeRules rules, string? dataDirectory = null)
     {
         if (dataDirectory is not null
-            && new SizeEstimateCache(dataDirectory).CountOrReuse(path, rules, ReuseFor, MaxDuration, CancellationToken.None) is { } kept)
+            && new SizeEstimateCache(dataDirectory).CountOrReuse(path, rules, SizeEstimateCache.FreshFor, MaxDuration, CancellationToken.None) is { } kept)
             return new Reply(1, State: "done", Bytes: kept.Bytes, Files: kept.Files, Unreadable: kept.Unreadable, CloudOnly: kept.CloudOnly);
         var count = new SourceSizeProbe.Count();
         var finished = SourceSizeProbe.CountIncluded(TreeWalk.Root(path), rules, DateTime.UtcNow + MaxDuration, CancellationToken.None, count);
