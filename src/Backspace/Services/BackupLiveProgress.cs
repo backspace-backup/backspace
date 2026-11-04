@@ -149,10 +149,11 @@ internal sealed class BackupLiveProgress
             parts.Add(expected ? Of(sample.BytesDone, expectedBytes, estimated: true) : Bytes(sample.BytesDone));
             parts.Add($"{Count(sample.FilesDone)} / {Count(sample.TotalFiles)}+ files");
         }
-        // Below 10 KB/s over half a minute nothing is really being uploaded
-        // (restic is reading files already stored): no speed then.
+        // Below 100 KB/s over half a minute nothing is really being uploaded:
+        // restic reading files already stored sends its listings and index,
+        // up to about 20 KB/s on local_c (4 November 2026). No speed then.
         if (sentBytes is { } sent)
-            parts.Add(sentPerSecond is >= 10 * 1024 and var rate ? $"{Bytes(sent)} sent at {Bytes((long)rate)}/s" : $"{Bytes(sent)} sent");
+            parts.Add(sentPerSecond is >= 100 * 1024 and var rate ? $"{Bytes(sent)} sent at {Bytes((long)rate)}/s" : $"{Bytes(sent)} sent");
         if (left is { } remaining && remaining < TimeSpan.FromDays(30)) parts.Add(TimeLeft(remaining));
         return Prefix + string.Join(" · ", parts);
     }

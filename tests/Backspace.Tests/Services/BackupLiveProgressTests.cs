@@ -131,9 +131,9 @@ public sealed class BackupLiveProgressTests
         var start = new DateTime(2026, 11, 4, 21, 20, 0, DateTimeKind.Utc);
         Assert.Equal("[progress] 16.9% · Backing up · 30 / ~178 GB · 88,211 / 109,320+ files · 879 KB sent",
             live.Next(Operation(0.25, 32_200_000_000, 120_000_000_000, 88_211, 109_320), start));
-        // Files already stored: a few KB of listings in 30 s is no upload, so no speed.
-        sent += 30_000;
-        Assert.Equal("[progress] 17.5% · Backing up · 31 / ~178 GB · 90,000 / 111,000+ files · 908 KB sent",
+        // Files already stored: restic's listings (here 20 KB/s, as on local_c) are no upload, so no speed.
+        sent += 600_000;
+        Assert.Equal("[progress] 17.5% · Backing up · 31 / ~178 GB · 90,000 / 111,000+ files · 1.4 MB sent",
             live.Next(Operation(0.26, 33_400_000_000, 121_000_000_000, 90_000, 111_000), start.AddSeconds(30)));
         // New data: 150 MB in the next 30 s, and a quiet 5 s right after keeps the speed.
         sent += 150_000_000;
