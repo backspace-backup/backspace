@@ -130,6 +130,9 @@ public sealed class UnreadableFolderSizeTests
         foreach (var name in new[] { "System Volume Information", "pagefile.sys", "hiberfil.sys", "swapfile.sys" })
             Assert.Contains(name, all);
         Assert.Equal(plan.IExcludes.Count, plan.IExcludes.Distinct().Count());
+        // OneDrive's scratch only at the top of the drive, never a folder of that name anywhere.
+        Assert.Contains("C:/OneDriveTemp/", all);
+        Assert.DoesNotContain("**/OneDriveTemp", all);
         // Things someone may want back are only recommended, never forced.
         foreach (var name in new[] { "Windows.old", "$RECYCLE.BIN", "Recovery", "ntuser.dat", "UsrClass.dat", "/Windows/" })
             Assert.DoesNotContain(name, all);

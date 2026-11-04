@@ -132,8 +132,9 @@ public static class RecommendedFilters
         // The per-user classes hive, in AppData/Local/Microsoft/Windows.
         "UsrClass.dat*",
 
-        // Cloud-sync / installer transients that always regenerate.
-        "OneDriveTemp/",
+        // OneDrive's download scratch, which it creates at the top of a drive.
+        // Anchored: a folder of that name elsewhere is the person's own.
+        "/OneDriveTemp/",
         "/PerfLogs/",
     };
 
@@ -165,7 +166,7 @@ public static class RecommendedFilters
         "/bootmgr",
         "/BOOTNXT",
         "/BOOTSECT.BAK",
-        "OneDriveTemp/",
+        "/OneDriveTemp/",
     };
 
     /// <summary>A backup's filter text with <see cref="AlwaysExcludedPatterns"/>
@@ -584,6 +585,8 @@ public static class RecommendedFilters
         // The whole Edge profile, bookmarks and passwords included; its caches
         // are covered by the cache rules, as for Chrome (U065, 1 November 2026).
         "Users/*/AppData/*/Microsoft/Edge/",
+        // Anchored at the top of the drive on 4 November 2026 (U106).
+        "OneDriveTemp/",
     };
 
     /// <summary>The recommended block holding exactly these patterns, under

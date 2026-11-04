@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Linq;
 using Backspace.Tests.TestHelpers;
 using Backspace.ViewModels;
 using Xunit;
@@ -109,5 +111,23 @@ public class FileSystemNodeTests
         // root has a partial child (a) and a true child (b) → partial.
         Assert.Null(built.a.IsChecked);
         Assert.Null(built.root.IsChecked);
+    }
+
+    /// <summary>U106 (4 November 2026): the picker hides Windows' own folders
+    /// (Recovery, OneDriveTemp, PerfLogs…) only at the top of a drive. A
+    /// folder with one of those names inside the person's folders is theirs.</summary>
+    [Fact]
+    public void Folders_named_like_Windows_ones_are_shown_below_the_top_of_a_drive()
+    {
+        using var ws = new TempWorkspace("fsnode-names");
+        var rootPath = Path.Combine(ws.Root, "projects");
+        foreach (var name in new[] { "Recovery", "OneDriveTemp", "PerfLogs", "Mine" })
+            Directory.CreateDirectory(Path.Combine(rootPath, name));
+        var root = new FileSystemNode(rootPath, "projects", isDirectory: true) { IsExpanded = true };
+        Assert.Equal(new[] { "Mine", "OneDriveTemp", "PerfLogs", "Recovery" }, root.Children.Select(c => c.DisplayName));
+
+        // At the top of the system drive, System Volume Information stays hidden.
+        var drive = new FileSystemNode(Path.GetPathRoot(Environment.SystemDirectory)!, "C:", isDirectory: true) { IsExpanded = true };
+        Assert.DoesNotContain(drive.Children, c => c.DisplayName.Equals("System Volume Information", StringComparison.OrdinalIgnoreCase));
     }
 }

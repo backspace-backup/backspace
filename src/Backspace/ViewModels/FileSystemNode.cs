@@ -314,9 +314,13 @@ public sealed partial class FileSystemNode : ObservableObject
         catch (System.Security.SecurityException) { yield break; }
         catch (IOException)                  { yield break; }
 
+        // Only at the top of a drive, where Windows keeps them: a folder of
+        // the same name deeper down is the person's own (U106).
+        var driveTop = string.Equals(System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(parent)),
+            System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetPathRoot(System.IO.Path.GetFullPath(parent)) ?? ""), StringComparison.OrdinalIgnoreCase);
         foreach (var d in entries)
         {
-            if (NeverBackupFolders.Contains(d.Name)) continue;
+            if (driveTop && NeverBackupFolders.Contains(d.Name)) continue;
             yield return d;
         }
     }
