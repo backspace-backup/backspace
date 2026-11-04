@@ -123,10 +123,10 @@ internal sealed class SystemBackupService : ServiceBase
     private string SchedulePath => Path.Combine(_binding.DataDirectory, "schedule-state.json");
 
     /// <summary>Marks a backup cut short so the schedule resumes it.</summary>
-    private bool ResumeLater(string? backupId, RunKind kind)
+    private bool ResumeLater(string? backupId, RunKind kind, bool stopped)
     {
         if (kind != RunKind.Backup || backupId is null) return false;
-        try { return ScheduleState.MarkCutShort(SchedulePath, backupId); }
+        try { return ScheduleState.MarkCutShort(SchedulePath, backupId, stopped); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             AppLogger.For<SystemBackupService>().Warning(ex, "A backup cut short could not be marked to resume");
@@ -152,7 +152,7 @@ internal sealed class SystemBackupService : ServiceBase
             {
                 _runId = retained.HostRunId; _backupId = retained.BackupId;
                 _operation = retained.Kind.ToString().ToLowerInvariant(); _startedUtc = retained.StartedUtc;
-                var resumes = !retained.Complete && !retained.StopRequested && ResumeLater(retained.BackupId, retained.Kind);
+                var resumes = !retained.Complete && !retained.StopRequested && ResumeLater(retained.BackupId, retained.Kind, stopped: false);
                 var outcome = _recovery.Recover(retained.HostRunId, InterruptionReason(retained.StartedUtc, WindowsStartedUtc(), resumes), resumes);
                 _state = outcome?.Status == BackupRunStatus.Success ? "completed" : "interrupted";
                 _result = _state == "completed" ? 0 : 4;
@@ -523,7 +523,7 @@ internal sealed class SystemBackupService : ServiceBase
                 // Windows shutting down or restarting, an update or Quit: a
                 // backup is resumed when the service runs again, and its
                 // history says "Interrupted", not "Stopped" (U131).
-                var resumes = _approved is { } run && ResumeLater(_backupId, run.Kind);
+                var resumes = _approved is { } run && ResumeLater(_backupId, run.Kind, stopped: true);
                 try { child.StandardInput.WriteLine(resumes ? "interrupt" : "cancel"); child.StandardInput.Flush(); } catch (IOException) { }
             }
         }

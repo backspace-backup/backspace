@@ -61,14 +61,18 @@ internal sealed class ScheduleState
     internal static string BackupKey(string backupId) => backupId + "/" + ScheduledTaskKind.Backup;
 
     /// <summary>Records that a backup was cut short while it ran, so that it
-    /// is resumed when the schedule next starts. Also used for backups the service
-    /// started outside the schedule (Backspace --run). False when it can't be: the backup has no schedule, or
-    /// the run cut short was already a resume.</summary>
-    internal static bool MarkCutShort(string path, string backupId)
+    /// is resumed when the schedule next starts. Also used for backups the
+    /// service started outside the schedule (Backspace --run). False when it
+    /// can't be: the backup has no schedule, or a resume crashed or lost power
+    /// (so a backup that brings the computer down doesn't restart forever).</summary>
+    /// <param name="stopped">Backspace stopped it cleanly (Windows shutting
+    /// down or restarting, an update, Quit): it resumes again, even if it was
+    /// already a resume.</param>
+    internal static bool MarkCutShort(string path, string backupId, bool stopped = false)
     {
         var state = Load(path);
-        if (state.Entries.GetValueOrDefault(BackupKey(backupId)) is not { Resuming: false } entry) return false;
-        state.Set(BackupKey(backupId), entry with { RunningSlotUtc = entry.RunningSlotUtc ?? entry.NextUtc });
+        if (state.Entries.GetValueOrDefault(BackupKey(backupId)) is not { } entry || entry.Resuming && !stopped) return false;
+        state.Set(BackupKey(backupId), entry with { RunningSlotUtc = entry.RunningSlotUtc ?? entry.NextUtc, Resuming = false });
         state.Save();
         return true;
     }
@@ -275,8 +279,10 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         if (!ran) after.Set(plan.Key, previous);
         // Backspace itself stopping (Quit, Windows shutting down or
         // restarting) cut the run short: it stays marked, and is resumed
-        // when the schedule starts again.
-        else if (stop.IsCancellationRequested && after.Entries.GetValueOrDefault(plan.Key) is { RunningSlotUtc: not null }) { }
+        // when the schedule starts again, a resume included.
+        else if (stop.IsCancellationRequested && after.Entries.GetValueOrDefault(plan.Key) is { } cut
+            && (cut.RunningSlotUtc is not null || cut.Resuming))
+            after.Set(plan.Key, cut with { RunningSlotUtc = cut.RunningSlotUtc ?? cut.NextUtc, Resuming = false });
         else
         {
             // Slots that passed during a long run are skipped, not queued.

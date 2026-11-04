@@ -134,9 +134,11 @@ already stored is sent again. Its history says "Interrupted", and you get no
 notification, since there is nothing to do. This applies to scheduled
 backups, and with administrator access to `Backspace --run` from the
 command line as well; a backup started with **Run now** in the window
-waits for its next scheduled time. It is resumed
-once: if that attempt is cut short too, the next scheduled time is the next
-try. **Stop** ends a backup without resuming it.
+waits for its next scheduled time. A resume stopped by Windows or an update
+resumes again; one ended by a crash or a power loss doesn't, so a backup
+that brings the computer down doesn't start at every launch: the next
+scheduled time is the next try, and you are notified. **Stop** ends a backup
+without resuming it.
 
 On macOS and Linux, Backspace starts as a login item and keeps the schedule
 the same way while you are logged in (untested).

@@ -209,7 +209,9 @@ public sealed class BackupSchedulerTests : IDisposable
         var resumed = restarted.TickAsync(powerLoss.Token);
         Assert.True(SpinWait.SpinUntil(() => _runs.Count == 1, 5000));
         Assert.Equal(Local(4, 19, 30), _runs[0].At);
-        // The resume is cut short too: the service is told it can't resume.
+        // The resume is cut short too: after a crash or power loss the service
+        // is told it can't resume (no endless restarts), after a clean stop
+        // (Windows shutting down, an update) it can.
         Assert.False(ScheduleState.MarkCutShort(_state, backup.Id));
         powerLoss.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => resumed);
@@ -223,6 +225,35 @@ public sealed class BackupSchedulerTests : IDisposable
         _now = Local(4, 20);
         await again.TickAsync(default); // the normal slot still runs
         Assert.Equal(2, _runs.Count);
+    }
+
+    /// <summary>U131: on 4 November 2026 an update of Backspace stopped a
+    /// resumed local_c run, which then waited until 20:00. A resume stopped
+    /// cleanly resumes again; only a crash or power loss ends the retries.</summary>
+    [Fact]
+    public async Task A_resume_stopped_cleanly_resumes_again()
+    {
+        var backup = Daily();
+        await Loop(backup).TickAsync(default);
+        Assert.True(ScheduleState.MarkCutShort(_state, backup.Id));
+        _now = Local(4, 19, 10);
+        var first = Loop(backup);
+        first.ResumeInterruptedRuns();
+        using var update = new CancellationTokenSource();
+        _work = async ct => { try { await Task.Delay(Timeout.Infinite, ct); } catch (OperationCanceledException) { } };
+        var resumed = first.TickAsync(update.Token);
+        Assert.True(SpinWait.SpinUntil(() => _runs.Count == 1, 5000));
+        Assert.True(ScheduleState.MarkCutShort(_state, backup.Id, stopped: true)); // the service stops for an update
+        update.Cancel();
+        await resumed;
+
+        _now = Local(4, 19, 20);
+        _work = _ => Task.CompletedTask;
+        var second = Loop(backup);
+        second.ResumeInterruptedRuns();
+        await second.TickAsync(default);
+        Assert.Equal(2, _runs.Count);
+        Assert.Equal(Local(4, 19, 20), _runs[1].At);
     }
 
     [Fact]
