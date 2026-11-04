@@ -1071,6 +1071,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
                 : result.Truncated
                     ? ($"{size}+", "At least this much: reading every folder took too long. The first backup measures it exactly.")
                     : ($"about {size}", "Estimated from the files in this folder before the first backup. The first backup measures it exactly.");
+            if (result.UnreadableNote is { } note) { SizeLabel += "+"; SizeTooltip += Environment.NewLine + note; }
         }
     }
 

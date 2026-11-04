@@ -531,7 +531,7 @@ internal sealed class BackupWindowsService : ServiceBase
 }
 
 internal sealed record ServiceHostRequest(int Version, string Command, string? Revision = null,
-    string? BackupId = null, string? Operation = null, string? RunId = null)
+    string? BackupId = null, string? Operation = null, string? RunId = null, string? Path = null)
 {
     internal static ServiceHostRequest Parse(ReadOnlySpan<byte> bytes)
     {
@@ -542,8 +542,11 @@ internal sealed record ServiceHostRequest(int Version, string Command, string? R
             throw new JsonException("Duplicate property.");
         var request = JsonSerializer.Deserialize<ServiceHostRequest>(bytes, ServiceRunAuthorization.Json)
             ?? throw new JsonException("Empty request.");
-        if (request.Version != 1 || (request.Command switch
+        if (request.Version != 1 || (request.Command is not ("measure") && request.Path is not null) || (request.Command switch
         {
+            // U106: a size estimate with the service's rights; totals only.
+            "measure" => !ServiceSizeMeasurements.Acceptable(request.Path) || request.Revision is not null || request.BackupId is not null || request.Operation is not null || request.RunId is not null,
+            "measure-result" => !Guid.TryParseExact(request.RunId, "N", out _) || request.Revision is not null || request.BackupId is not null || request.Operation is not null,
             "status" or "activity" or "freeze" or "thaw" => request.Revision is not null || request.BackupId is not null || request.Operation is not null || request.RunId is not null,
             "cancel" or "heartbeat" => !Guid.TryParseExact(request.RunId, "N", out _) || request.Revision is not null || request.BackupId is not null || request.Operation is not null,
             "start" or "start-cli" => !Guid.TryParseExact(request.Revision, "N", out _) || string.IsNullOrWhiteSpace(request.BackupId)

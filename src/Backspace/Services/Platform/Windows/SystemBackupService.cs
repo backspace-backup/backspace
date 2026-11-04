@@ -29,6 +29,7 @@ internal sealed class SystemBackupService : ServiceBase
     private readonly string _installation;
     private readonly CancellationTokenSource _stop = new();
     private readonly object _gate = new();
+    private readonly ServiceSizeMeasurements _measurements = new();
     private readonly ServiceRunLease _cliLease = new();
     private readonly ServiceRunRecovery _recovery;
     private Task? _lifetime, _leaseMonitor;
@@ -258,6 +259,10 @@ internal sealed class SystemBackupService : ServiceBase
                     _ = new ServiceVaultReturnProtocol(_returnId, Path.Combine(_binding.DataDirectory, "return-" + _returnId + ".receipt"), Vault())
                         .ServeAsync(_binding, _returnStop.Token);
                     return JsonSerializer.SerializeToUtf8Bytes(new { version = 1, returnId = _returnId, state = _state });
+                case "measure":
+                    return _measurements.Start(request.Path!);
+                case "measure-result":
+                    return _measurements.Result(request.RunId!);
                 case "thaw":
                     _returnStop?.Cancel(); _returnStop = null; _returnId = null;
                     break;

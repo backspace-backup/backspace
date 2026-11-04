@@ -34,14 +34,37 @@ internal static class SystemServiceClient
                 try { File.Delete(file); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
-    private static byte[] Send(SystemService.Registration system, string command)
-        => SendAsync(system, command).GetAwaiter().GetResult();
-
-    private static async Task<byte[]> SendAsync(SystemService.Registration system, string command)
+    /// <summary>The size of a folder measured by the service, with the same
+    /// rights as its backups (U106), or null when it can't tell.</summary>
+    internal static async Task<SourceSizeResult?> MeasureAsync(SystemService.Registration system, string path, TimeSpan limit, CancellationToken ct)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var started = JsonSerializer.Deserialize<ServiceSizeMeasurements.Reply>(
+            await SendAsync(system, new { version = 1, command = "measure", path }, ct).ConfigureAwait(false), options);
+        if (started?.RunId is not { } runId || started.Error is not null) return null;
+        var deadline = DateTime.UtcNow + limit;
+        while (DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(500, ct).ConfigureAwait(false);
+            var reply = JsonSerializer.Deserialize<ServiceSizeMeasurements.Reply>(
+                await SendAsync(system, new { version = 1, command = "measure-result", runId }, ct).ConfigureAwait(false), options);
+            if (reply is null || reply.Error is not null) return null;
+            if (reply.State == "done")
+                return new SourceSizeResult(path, reply.Bytes, reply.Files, Completed: true, Truncated: reply.Truncated,
+                    UnreadableFolders: reply.Unreadable, MeasuredByService: true);
+        }
+        return null;
+    }
+
+    private static byte[] Send(SystemService.Registration system, string command)
+        => SendAsync(system, new { version = 1, command }, CancellationToken.None).GetAwaiter().GetResult();
+
+    private static async Task<byte[]> SendAsync(SystemService.Registration system, object request, CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
         using var pipe = await BackupServicePipe.ConnectAsync(system.ServiceName + "-runs", SystemService.LocalSystemSid, TimeSpan.FromSeconds(15), timeout.Token).ConfigureAwait(false);
-        await BackupServicePipe.WriteMessageAsync(pipe, JsonSerializer.SerializeToUtf8Bytes(new { version = 1, command }), TimeSpan.FromSeconds(10), timeout.Token).ConfigureAwait(false);
+        await BackupServicePipe.WriteMessageAsync(pipe, JsonSerializer.SerializeToUtf8Bytes(request), TimeSpan.FromSeconds(10), timeout.Token).ConfigureAwait(false);
         return await BackupServicePipe.ReadResponseAsync(pipe, TimeSpan.FromSeconds(10), timeout.Token).ConfigureAwait(false);
     }
 }

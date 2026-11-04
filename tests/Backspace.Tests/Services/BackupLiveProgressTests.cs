@@ -141,6 +141,31 @@ public sealed class BackupLiveProgressTests
     }
 
     [Fact]
+    public void A_first_backup_lists_every_file_from_the_snapshot_listing()
+    {
+        Assert.Equal("[file] added: C:\\Users\\me\\Documents\\taxes 2026.pdf", BackupLiveProgress.ListedFileLine(
+            "{\"name\":\"taxes 2026.pdf\",\"type\":\"file\",\"path\":\"/C/Users/me/Documents/taxes 2026.pdf\",\"size\":1024,\"struct_type\":\"node\"}"));
+        Assert.Null(BackupLiveProgress.ListedFileLine("{\"name\":\"Documents\",\"type\":\"dir\",\"path\":\"/C/Users/me/Documents\",\"struct_type\":\"node\"}"));
+        Assert.Null(BackupLiveProgress.ListedFileLine("{\"time\":\"2026-11-04T07:00:00Z\",\"paths\":[\"C:\\\\Users\\\\me\"],\"struct_type\":\"snapshot\"}"));
+        Assert.Null(BackupLiveProgress.ListedFileLine("not json"));
+        // A long path is kept whole, never shortened.
+        var deep = "/C/" + string.Join("/", Enumerable.Repeat("a fairly long folder name", 20)) + "/file.txt";
+        Assert.EndsWith("a fairly long folder name\\file.txt", BackupLiveProgress.FileLine("M    " + deep));
+        Assert.DoesNotContain("…", BackupLiveProgress.FileLine("M    " + deep));
+    }
+
+    [Fact]
+    public void The_file_list_runs_restic_directly_with_the_repository_settings()
+    {
+        var repo = new BackrestRepo { Uri = "rclone:gd:backups", Password = "fixture-password", Flags = { "-o", "rclone.program=rclone.exe" },
+            Env = { "RCLONE_CONFIG=C:\\cfg\\rclone.conf" } };
+        var start = ResticBackrestEngine.BuildResticStartInfo("C:/engines/restic.exe", repo, "diff", "--no-lock", "aaaa", "bbbb");
+        Assert.Equal(new[] { "-r", "rclone:gd:backups", "-o", "rclone.program=rclone.exe", "diff", "--no-lock", "aaaa", "bbbb" }, start.ArgumentList);
+        Assert.Equal("fixture-password", start.Environment["RESTIC_PASSWORD"]);
+        Assert.Equal("C:\\cfg\\rclone.conf", start.Environment["RCLONE_CONFIG"]);
+    }
+
+    [Fact]
     public void The_opening_lines_say_what_the_backup_starts_from()
     {
         var backup = new Backspace.Models.Backup { FiltersText = "-*.tmp\n-*.log", UseVss = true };

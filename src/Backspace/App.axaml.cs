@@ -106,6 +106,16 @@ public partial class App : Application
             ApplyAccentFromConfig();
             ApplyThemeFromConfig();
 #if WINDOWS
+            // Folders this account can't open are measured by the running
+            // background service, which backs them up (U106).
+            Services.SourceSizeProbe.Elevated = async (path, ct) =>
+            {
+                var system = Services.Platform.Windows.SystemService.ForCopy(Services.AppPaths.ExeDirectory);
+                if (system is not { Activated: true }
+                    || Services.Platform.Windows.SystemService.Status(system.ServiceName) != System.ServiceProcess.ServiceControllerStatus.Running)
+                    return null;
+                return await Services.Platform.Windows.SystemServiceClient.MeasureAsync(system, path, TimeSpan.FromMinutes(4), ct);
+            };
             // One copy per Windows account (U100): another copy is set up.
             if (!Program.StartedInBackground && OtherInstallation() is { } other)
             {

@@ -137,8 +137,8 @@
                                        Text="{Binding Path}"
                                        Foreground="{DynamicResource BS.Brush.FgPrimary}"
                                        TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Classes="dim" FontSize="11"
-                                       Text="{Binding SizeLabel}"/>
+                            <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap"
+                                       Text="{Binding SizeLabel}" ToolTip.Tip="{Binding SizeTooltip}"/>
                           </StackPanel>
                           <Button Grid.Column="3" Classes="row-action-danger"
                                   Command="{Binding $parent[ItemsControl].((vm:BackupEditorViewModel)DataContext).RemoveSourceCommand}"

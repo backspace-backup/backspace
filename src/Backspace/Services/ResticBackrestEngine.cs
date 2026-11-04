@@ -180,9 +180,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 indexBefore, ServiceLocator.Maintenance, ct,
                 schedulingUncertain: terminal.Status is not (BackrestStatus.Success or BackrestStatus.Warning)).ConfigureAwait(false);
             // Before retention can remove the previous snapshot.
-            if (previous is { } parent && terminal.Status is BackrestStatus.Success or BackrestStatus.Warning
+            if (terminal.Status is BackrestStatus.Success or BackrestStatus.Warning
                 && VerboseLogFilter.IsVerboseOn() && !ct.IsCancellationRequested)
-                await WriteChangedFilesAsync(client, repoId, parent.Id, terminal.SnapshotId, ct, lineSink).ConfigureAwait(false);
+                await WriteChangedFilesAsync(client, repoId, previous?.Id, terminal.SnapshotId, ct, lineSink).ConfigureAwait(false);
         }
         var status = StatusFromBackrestTerminal(terminal.Status);
         var details = terminal.DisplayMessage;
@@ -417,47 +417,35 @@ public sealed class ResticBackrestEngine : IBackupEngine
             : "[setup] Shadow copy off: files another program keeps locked may be skipped.";
     }
 
-    internal const int ChangedFileLineLimit = 100_000;
-
     /// <summary>With Verbose on, lists the files this backup added, changed
-    /// or removed (U115), like Duplicacy's "Uploaded" lines. restic diff
-    /// compares the two snapshots' file lists, which are cached locally, so
-    /// no file data is read. A failure only leaves the list out.</summary>
-    private async Task WriteChangedFilesAsync(BackrestClient client, string repoId, string parentId, string snapshotId,
+    /// or removed (U115), like Duplicacy's "Uploaded" lines: restic diff
+    /// against the previous snapshot, or every file of a first backup. Both
+    /// read the snapshots' file lists (cached locally), not file data. restic
+    /// runs directly, streamed line by line, because Backrest keeps only the
+    /// first 2 MB of a command's output; the list is not capped. A failure
+    /// only leaves the list out.</summary>
+    private async Task WriteChangedFilesAsync(BackrestClient client, string repoId, string? parentId, string snapshotId,
         CancellationToken ct, Action<string>? lineSink)
     {
         void Write(string line) { RaiseLineWritten(line); lineSink?.Invoke(line); }
         if (parentId == snapshotId) return;
-        var command = "diff " + parentId + " " + snapshotId;
         try
         {
-            var diff = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
-                new RunCommandRequest { RepoId = repoId, Command = command },
-                op => op.OperationRunCommand?.Command == command, ct, lineSink).ConfigureAwait(false);
-            if (diff.Status is not BackrestStatus.Success || string.IsNullOrWhiteSpace(diff.OperationRunCommand?.OutputLogref))
+            var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
+                "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
+            var repo = config.Repos.SingleOrDefault(r => r.Id == repoId)
+                ?? throw new IOException("The backup engine could not identify this repository.");
+            // Snapshots never change, so no repository lock is needed to read them.
+            var start = parentId is null
+                ? BuildResticStartInfo(_sidecar.ResticBinaryPath, repo, "ls", "--json", "--no-lock", snapshotId)
+                : BuildResticStartInfo(_sidecar.ResticBinaryPath, repo, "diff", "--no-lock", parentId, snapshotId);
+            var result = await StreamingRestoreProcess.RunAsync(start, raw =>
             {
-                Write("[backspace] The list of changed files couldn't be made. " + diff.DisplayMessage);
-                return;
-            }
-            var pending = new System.Text.StringBuilder();
-            int written = 0, more = 0;
-            void Take(string raw)
-            {
-                if (BackupLiveProgress.FileLine(raw.TrimEnd('\r')) is not { } line) return;
-                if (written < ChangedFileLineLimit) { Write(line); written++; } else more++;
-            }
-            await foreach (var chunk in client.StreamAsync<GetLogsRequest, RestoreLogChunk>(
-                "/v1.Backrest/GetLogs", new GetLogsRequest { Ref = diff.OperationRunCommand!.OutputLogref }, ct).ConfigureAwait(false))
-            {
-                pending.Append(System.Text.Encoding.UTF8.GetString(chunk.Value));
-                var text = pending.ToString();
-                var end = text.LastIndexOf('\n');
-                if (end < 0) continue;
-                foreach (var raw in text[..end].Split('\n')) Take(raw);
-                pending.Clear().Append(text[(end + 1)..]);
-            }
-            Take(pending.ToString());
-            if (more > 0) Write($"{BackupLiveProgress.FilePrefix}… and {more:N0} more");
+                if ((parentId is null ? BackupLiveProgress.ListedFileLine(raw) : BackupLiveProgress.FileLine(raw)) is { } line) Write(line);
+            }, ct, "file list", includeStandardOutput: true).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            if (result.ExitCode != 0)
+                Write("[backspace] The list of changed files is incomplete: restic stopped with code " + result.ExitCode + ".");
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
@@ -466,6 +454,27 @@ public sealed class ResticBackrestEngine : IBackupEngine
             _log.Debug(ex, "Could not list the changed files");
             Write("[backspace] The list of changed files couldn't be made: " + ex.Message);
         }
+    }
+
+    /// <summary>restic run directly against a configured repository, with the
+    /// same address, options, password and environment Backrest uses.</summary>
+    internal static ProcessStartInfo BuildResticStartInfo(string binary, BackrestRepo repo, params string[] arguments)
+    {
+        var start = new ProcessStartInfo(binary);
+        start.ArgumentList.Add("-r");
+        start.ArgumentList.Add(repo.Uri);
+        foreach (var flag in repo.Flags) start.ArgumentList.Add(flag);
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        start.Environment["RESTIC_PASSWORD"] = repo.Password;
+        foreach (var entry in repo.Env)
+        {
+            var equals = entry.IndexOf('=');
+            if (equals > 0) start.Environment[entry[..equals]] = entry[(equals + 1)..];
+        }
+        var directory = Path.GetDirectoryName(Path.GetFullPath(binary))!;
+        start.Environment["PATH"] = directory + Path.PathSeparator +
+            (start.Environment.TryGetValue("PATH", out var oldPath) ? oldPath : "");
+        return start;
     }
 
     private async Task<BackrestOperation> RunRepositoryCheckAsync(BackrestClient client, string repoId,
@@ -1620,29 +1629,13 @@ public sealed class ResticBackrestEngine : IBackupEngine
     internal static ProcessStartInfo BuildStreamingRestoreStartInfo(string binary, BackrestRepo repo,
         string snapshot, string target, string includeFile, int bandwidthLimitKBps)
     {
-        var start = new ProcessStartInfo(binary);
-        start.ArgumentList.Add("-r");
-        start.ArgumentList.Add(repo.Uri);
-        foreach (var flag in repo.Flags) start.ArgumentList.Add(flag);
-        foreach (var value in new[] { "restore", snapshot, "--target", target, "--json", "--include-file", includeFile })
-            start.ArgumentList.Add(value);
+        var arguments = new List<string> { "restore", snapshot, "--target", target, "--json", "--include-file", includeFile };
         if (bandwidthLimitKBps > 0)
-        {
-            start.ArgumentList.Add("--limit-download");
-            start.ArgumentList.Add(bandwidthLimitKBps.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        }
-        start.Environment["RESTIC_PASSWORD"] = repo.Password;
-        foreach (var entry in repo.Env)
-        {
-            var equals = entry.IndexOf('=');
-            if (equals > 0) start.Environment[entry[..equals]] = entry[(equals + 1)..];
-        }
+            arguments.AddRange(["--limit-download", bandwidthLimitKBps.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+        var start = BuildResticStartInfo(binary, repo, [.. arguments]);
         // Direct pipes are drained continuously; unlike Backrest's generic
         // command log they do not retain every progress message forever.
         start.Environment["RESTIC_PROGRESS_FPS"] = "2";
-        var directory = Path.GetDirectoryName(Path.GetFullPath(binary))!;
-        start.Environment["PATH"] = directory + Path.PathSeparator +
-            (start.Environment.TryGetValue("PATH", out var oldPath) ? oldPath : "");
         return start;
     }
 

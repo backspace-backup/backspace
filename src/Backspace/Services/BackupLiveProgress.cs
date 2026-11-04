@@ -134,6 +134,22 @@ internal sealed class BackupLiveProgress
         return $"{FilePrefix}{action}: {path}";
     }
 
+    /// <summary>A file of a first backup, from <c>restic ls --json</c>: every
+    /// file is new. Folders and the snapshot header are left out.</summary>
+    internal static string? ListedFileLine(string json)
+    {
+        if (!json.StartsWith('{')) return null;
+        try
+        {
+            using var node = JsonDocument.Parse(json);
+            var root = node.RootElement;
+            if (!root.TryGetProperty("type", out var type) || type.GetString() != "file"
+                || !root.TryGetProperty("path", out var path) || path.GetString() is not { Length: > 0 } value) return null;
+            return FileLine("+    " + value);
+        }
+        catch (JsonException) { return null; }
+    }
+
     /// <summary>What the card shows for a progress line: the text after its percentage.</summary>
     internal static string? Detail(string line)
     {

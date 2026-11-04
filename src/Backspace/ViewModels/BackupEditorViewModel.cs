@@ -1875,6 +1875,8 @@ public sealed partial class SourceChipVm : ObservableObject
 
     [ObservableProperty] private string _sizeLabel = "Estimating size…";
     [ObservableProperty] private bool _sizeReady;
+    /// <summary>What the size leaves out, when folders couldn't be opened (U106).</summary>
+    [ObservableProperty] private string? _sizeTooltip;
 
     public SourceChipVm(string path) => Path = path;
 
@@ -1905,6 +1907,9 @@ public sealed partial class SourceChipVm : ObservableObject
                     : result.Approximate ? $"About {HumanBytes(result.Bytes)} (space used on the drive)"
                     : result.Truncated ? $"At least {HumanBytes(result.Bytes)} · {result.FileCount:N0}+ files"
                     : $"{HumanBytes(result.Bytes)} · {result.FileCount:N0} files";
+                if (result.FileCount > 0 && (result.MeasuredByService || result.UnreadableFolders > 0))
+                    SizeLabel += result.MeasuredByService ? " (measured by the background service)" : $" · {result.UnreadableFolders:N0} folder{(result.UnreadableFolders == 1 ? "" : "s")} not counted";
+                SizeTooltip = result.UnreadableNote;
                 SizeReady = true;
             });
         }

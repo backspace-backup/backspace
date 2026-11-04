@@ -134,6 +134,8 @@ public sealed class SourceSizeProbe
 
         long bytes = 0;
         long files = 0;
+        var unreadable = 0;
+        string? unreadableExample = null;
         var root = TreeWalk.Root(path);
         var walk = Task.Run(() => TreeWalk.Walk(root, (entry, _) =>
         {
@@ -141,7 +143,10 @@ public sealed class SourceSizeProbe
             Interlocked.Add(ref bytes, entry.Length);
             Interlocked.Increment(ref files);
             return null;
-        }, DateTime.UtcNow + MaxScanDuration, ct), ct);
+        }, DateTime.UtcNow + MaxScanDuration, ct, dir =>
+        {
+            if (Interlocked.Increment(ref unreadable) == 1) unreadableExample = dir;
+        }), ct);
 
         while (!walk.IsCompleted)
         {
@@ -150,12 +155,29 @@ public sealed class SourceSizeProbe
                 progress?.Report(new SourceSizeProgress(Interlocked.Read(ref bytes), Interlocked.Read(ref files)));
         }
         var truncated = !await walk;
-        var result = new SourceSizeResult(path, bytes, files, true, truncated);
+        var result = new SourceSizeResult(path, bytes, files, true, truncated,
+            UnreadableFolders: unreadable, UnreadableExample: unreadableExample);
+
+        // Folders this account can't open (another account's profile) are
+        // backed up by the background service, which can read them: ask it
+        // to measure with its rights (U106). Without it, say what was missed.
+        if (unreadable > 0 && Elevated is { } elevated)
+        {
+            try
+            {
+                if (await elevated(path, ct).ConfigureAwait(false) is { Completed: true } measured && measured.Bytes >= bytes)
+                    result = measured;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _log.Debug(ex, "The background service could not measure {Path}", path);
+            }
+        }
 
         // A whole drive too big to list in time: the space it uses is a
         // close, instant answer (it also counts the page file and other
         // system files that backups leave out).
-        if (truncated && TreeWalk.IsDriveRoot(root))
+        if (result.Truncated && TreeWalk.IsDriveRoot(root))
         {
             try
             {
@@ -169,6 +191,10 @@ public sealed class SourceSizeProbe
             path, result.Bytes, files, truncated, result.Approximate);
         return result;
     }
+
+    /// <summary>Measures a folder with the background service's rights, or
+    /// returns null when there is no such service (set by the app on Windows).</summary>
+    internal static Func<string, CancellationToken, Task<SourceSizeResult?>>? Elevated;
 
     private static string NormalizeKey(string path)
     {
@@ -184,13 +210,29 @@ public sealed class SourceSizeProbe
 /// <param name="Truncated">True if the time cap kicked in before we finished.</param>
 /// <param name="Approximate">True when <paramref name="Bytes"/> is the space
 /// used on the whole drive, because listing it took too long.</param>
+/// <param name="UnreadableFolders">Folders that couldn't be opened, so their
+/// contents aren't counted.</param>
+/// <param name="UnreadableExample">The first of them, to name in the interface.</param>
+/// <param name="MeasuredByService">Measured by the background service, with the
+/// same rights as its backups.</param>
 public readonly record struct SourceSizeResult(
     string Path,
     long Bytes,
     long FileCount,
     bool Completed,
     bool Truncated,
-    bool Approximate = false);
+    bool Approximate = false,
+    int UnreadableFolders = 0,
+    string? UnreadableExample = null,
+    bool MeasuredByService = false)
+{
+    /// <summary>What the estimate leaves out because folders couldn't be
+    /// opened, or null when nothing was left out (U106).</summary>
+    public string? UnreadableNote => UnreadableFolders == 0 ? null : MeasuredByService
+        ? $"{UnreadableFolders:N0} folder{(UnreadableFolders == 1 ? "" : "s")} couldn't be opened even by the background service and {(UnreadableFolders == 1 ? "isn't" : "aren't")} counted."
+        : $"Not counted: {UnreadableFolders:N0} folder{(UnreadableFolders == 1 ? "" : "s")} your account can't open, such as {UnreadableExample}. "
+          + "With administrator access on, the background service backs them up and measures them; without it, backups skip them too.";
+}
 
 /// <summary>Running-total snapshot fired periodically by the walker
 /// while a probe is still in flight. Lets the UI replace the static

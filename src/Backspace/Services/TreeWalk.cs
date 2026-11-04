@@ -44,7 +44,10 @@ internal static class TreeWalk
 
     /// <summary>The entries directly inside <paramref name="dir"/>, or
     /// an empty list when the folder can't be read.</summary>
-    public static IReadOnlyList<Entry> List(string dir)
+    public static IReadOnlyList<Entry> List(string dir) => ListOrNull(dir) ?? Array.Empty<Entry>();
+
+    /// <summary>Like <see cref="List"/>, but null when the folder can't be read.</summary>
+    public static IReadOnlyList<Entry>? ListOrNull(string dir)
     {
         try
         {
@@ -53,8 +56,8 @@ internal static class TreeWalk
                     (e.Attributes & FileAttributes.ReparsePoint) != 0),
                 Options).ToList();
         }
-        catch (UnauthorizedAccessException) { return Array.Empty<Entry>(); }
-        catch (IOException) { return Array.Empty<Entry>(); }
+        catch (UnauthorizedAccessException) { return null; }
+        catch (IOException) { return null; }
     }
 
     /// <summary>
@@ -66,8 +69,11 @@ internal static class TreeWalk
     /// entry and the mark of the folder holding it (the root's is false).
     /// For a folder it returns the mark its own entries get, or null to
     /// leave the folder out.</param>
+    /// <param name="unreadable">Called with each folder that couldn't be read
+    /// (another account's profile, for example), so it isn't silently missing.</param>
     /// <returns>False when <paramref name="deadline"/> passed before the end.</returns>
-    public static bool Walk(string root, Func<Entry, bool, bool?> visit, DateTime deadline, CancellationToken ct)
+    public static bool Walk(string root, Func<Entry, bool, bool?> visit, DateTime deadline, CancellationToken ct,
+        Action<string>? unreadable = null)
     {
         var queue = new ConcurrentStack<(string Dir, bool Mark)>();
         queue.Push((root, false));
@@ -84,7 +90,9 @@ internal static class TreeWalk
                 if (!queue.TryPop(out var item)) { Thread.Sleep(1); continue; }
                 try
                 {
-                    foreach (var entry in List(item.Dir))
+                    var entries = ListOrNull(item.Dir);
+                    if (entries is null) { unreadable?.Invoke(item.Dir); continue; }
+                    foreach (var entry in entries)
                     {
                         if (entry.IsLink) continue;
                         var mark = visit(entry, item.Mark);

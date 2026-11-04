@@ -194,6 +194,13 @@ read within three minutes shows the space used on the drive instead, which
 also counts the page file and other files backups leave out. After a backup
 runs, the card shows the size that backup measured.
 
+Some folders can't be opened from your account, such as another account's
+profile. With administrator access on, the background service backs them up,
+so Backspace asks it to measure the source instead, with the same rights;
+the editor then says "measured by the background service". Without it,
+backups skip those folders too, and the size ends with "+" and says how many
+folders it couldn't count, naming one.
+
 While a backup runs, its card says **Running** with a turning icon; each
 source and the strip below show the percentage, and hovering **Running** shows
 bytes, files and speed.
@@ -209,8 +216,10 @@ and status polls. Run logs always record every line, so ticking it shows the
 details of past runs too. It is the same setting as **Settings → Logs &
 diagnostics → Show verbose diagnostic logs**, which also makes Backspace's own
 app log record debug lines from then on. While Verbose is on, each backup
-also records one line per file it added, changed or removed (compared with
-the previous backup, up to 100,000 lines); Verbose shows them. **Clear view** appears on the live
+also records one line per file it added, changed or removed, with its full
+path, compared with the previous backup (a first backup lists every file).
+The list is read from the two snapshots right after the backup, so it adds a
+little time, and only Verbose shows it. **Clear view** appears on the live
 view only; a saved run's log can't be cleared.
 
 A backup that gets stuck fails instead of running forever. If the engine
