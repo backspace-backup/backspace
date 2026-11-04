@@ -528,7 +528,9 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             if ((card?.DisplayedRunEndUtc ?? b.LastRunEndUtc) is DateTime t && (mostRecent is null || t > mostRecent)) mostRecent = t;
         }
 
-        var ago = mostRecent is DateTime when ? HumanFormat.Ago(when) : "never";
+        // A backup running now is the latest activity (4 November 2026: the
+        // banner said "Last activity: 19m ago" while local_c was running).
+        var ago = runningCount > 0 ? "now" : mostRecent is DateTime when ? HumanFormat.Ago(when) : "never";
         // Sub-line carries last-activity + an "ok N" tail when there
         // are healthy backups to mention. Stays calm + typographic;
         // the chips below carry the actionable info.

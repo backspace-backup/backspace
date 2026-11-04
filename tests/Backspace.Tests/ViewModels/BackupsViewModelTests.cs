@@ -385,6 +385,24 @@ public class BackupsViewModelTests
         Assert.Empty(vm.AffectedBackups);
     }
 
+    /// <summary>4 November 2026: the banner said "Last activity: 19m ago" while
+    /// local_c was running.</summary>
+    [AvaloniaFact]
+    public void HealthBanner_says_the_latest_activity_is_now_while_a_backup_runs()
+    {
+        ResetConfig();
+        ServiceLocator.Config.Update(c => c.Backups.AddRange(new[] {
+            new Backup { Name = "local_d", LastRunStatus = BackupRunStatus.Failed, LastRunSummary = "1 error", LastRunEndUtc = DateTime.UtcNow.AddMinutes(-19) },
+            new Backup { Name = "local_c", LastRunStatus = BackupRunStatus.Running, LastRunStartUtc = DateTime.UtcNow.AddMinutes(-5) }
+        }));
+        using var vm = new BackupsViewModel();
+        WaitForCheckHistory(vm);
+        Assert.Equal("1 backup failed on its last run and needs attention", vm.HealthHeadline);
+        Assert.StartsWith("Last activity: now", vm.HealthDetail);
+        ServiceLocator.Config.Update(c => { c.Backups[1].LastRunStatus = BackupRunStatus.Success; c.Backups[1].LastRunEndUtc = DateTime.UtcNow.AddMinutes(-2); });
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+    }
+
     [AvaloniaFact]
     public void HealthBanner_MixedRunAndTestFailuresCountEachBackupOnlyOnce()
     {
