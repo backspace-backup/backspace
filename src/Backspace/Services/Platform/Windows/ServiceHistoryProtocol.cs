@@ -45,6 +45,9 @@ internal sealed class ServiceHistoryProtocol(Func<string, List<RunRecord>> readH
                 // open. The service never changes its original history here.
                 var copy = JsonSerializer.Deserialize<RunRecord>(
                     JsonSerializer.SerializeToUtf8Bytes(records[index], ServiceRunAuthorization.Json), ServiceRunAuthorization.Json)!;
+                // Whether its log can be read through the transcript pipe,
+                // which reads the run's own LogPath (U138).
+                copy.LogKeptByService = !string.IsNullOrWhiteSpace(records[index].LogPath) && File.Exists(records[index].LogPath);
                 copy.LogPath = "";
                 foreach (var cell in copy.Cells) cell.LogPath = "";
                 page.Add(copy);

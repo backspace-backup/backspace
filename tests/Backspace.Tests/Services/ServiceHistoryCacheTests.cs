@@ -100,4 +100,33 @@ public sealed class ServiceHistoryCacheTests
         using var workspace = new TempWorkspace();
         Assert.Null(ServiceHistoryCache.ForDesktop(Path.Combine(workspace.Root, "application"), Path.Combine(workspace.Root, "isolated")));
     }
+    /// <summary>U138: every background run in a backup's history said "Detailed
+    /// log unavailable" because the service sends no paths. It now says which
+    /// runs still have a log it can send, and only those offer Open log.</summary>
+    [Fact]
+    public async Task Background_runs_whose_log_the_service_keeps_offer_it_and_others_do_not()
+    {
+        using var workspace = new TempWorkspace();
+        var logs = Path.Combine(workspace.Root, "service-logs");
+        Directory.CreateDirectory(logs);
+        var kept = Path.Combine(logs, "kept.log");
+        File.WriteAllText(kept, "[recap] Backup complete");
+        var withLog = new RunRecord { BackupId = "backup", StartedUtc = DateTime.UtcNow, LogPath = kept, Summary = "Completed" };
+        var expired = new RunRecord { BackupId = "backup", StartedUtc = DateTime.UtcNow.AddHours(-1), LogPath = Path.Combine(logs, "expired.log"), Summary = "Older" };
+        var none = new RunRecord { BackupId = "backup", StartedUtc = DateTime.UtcNow.AddHours(-2), Summary = "Skipped" };
+        var protocol = new ServiceHistoryProtocol(_ => new List<RunRecord> { withLog, expired, none });
+        var reply = System.Text.Json.JsonSerializer.Deserialize<ServiceHistoryProtocol.Response>(
+            protocol.Dispatch(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new ServiceHistoryProtocol.Request(1, "backup"), ServiceRunAuthorization.Json)),
+            ServiceRunAuthorization.Json)!;
+        Assert.Null(reply.Error);
+        Assert.All(reply.Runs, r => Assert.Equal("", r.LogPath)); // still no paths
+        Assert.Equal(new[] { true, false, false }, reply.Runs.Select(r => r.LogKeptByService));
+
+        // Through the desktop cache file and into the history window.
+        var cache = new ServiceHistoryCache(Path.Combine(workspace.Root, "cache"), (_, _) => Task.FromResult(reply));
+        await cache.RefreshAsync("backup", CancellationToken.None);
+        var runs = cache.ReadCached("backup");
+        var window = new Backspace.ViewModels.BackupHistoryViewModel(new Backup { Id = "backup", Name = "local_c" }, runs, checks: false);
+        Assert.Equal(new[] { true, false, false }, window.Rows.Select(r => r.HasLog));
+    }
 }

@@ -609,7 +609,9 @@ test harness to give each test its own isolated config dir.
    a filesystem path. Pages are limited by both record count and serialized
    size. Newer runs do not shift an existing cursor; a removed cursor or an
    oversized single record produces an explicit error. Returned records are
-   copies with private transcript paths removed. The service does not write
+   copies with private transcript paths removed; `LogKeptByService` says whether
+   the service still has the run's transcript, so its row in a backup's activity
+   offers Open log (U138). The service does not write
    into the desktop's writable history directory. `ServiceHistoryCache` pulls
    pages in the ordinary desktop process and saves them beneath the adjacent
    configuration folder. `LogStore` merges those outcomes into history and the

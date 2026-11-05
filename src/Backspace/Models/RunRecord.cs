@@ -68,6 +68,12 @@ public sealed class RunRecord
     /// <summary>Absolute path to the stored log file.</summary>
     public string LogPath { get; set; } = "";
 
+    /// <summary>A background-service run whose log the service still keeps.
+    /// The service never sends its paths, so LogPath is empty; the desktop
+    /// reads the log through the service (U138).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool LogKeptByService { get; set; }
+
     /// <summary>For the "last revision" views in the UI.</summary>
     public int? RevisionNumber { get; set; }
 

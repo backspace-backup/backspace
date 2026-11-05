@@ -17,14 +17,16 @@
     </Grid>
     <Grid Grid.Row="2">
       <TextBlock IsVisible="{Binding IsEmpty}" Text="No saved activity in this view yet." Margin="0,24"/>
-        <ListBox ItemsSource="{Binding Rows}" Background="Transparent" BorderThickness="0" Padding="0"
-                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-          <ListBox.Styles>
-            <Style Selector="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style>
-          </ListBox.Styles>
-          <ListBox.ItemTemplate>
+        <!-- Rows are read, not selected: no list selection, and the hover
+             outlines the card itself rather than a square around it (U139). -->
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl ItemsSource="{Binding Rows}">
+          <ItemsControl.Styles>
+            <Style Selector="Border.history-row:pointerover"><Setter Property="BorderBrush" Value="{DynamicResource BS.Brush.BorderEmphasized}"/></Style>
+          </ItemsControl.Styles>
+          <ItemsControl.ItemTemplate>
             <DataTemplate DataType="vm:BackupHistoryRow">
-              <Border Classes="surface" Padding="18" Margin="0,0,8,12">
+              <Border Classes="surface history-row" Padding="18" Margin="0,0,8,12">
                 <StackPanel Spacing="8">
                   <Grid ColumnDefinitions="*,Auto">
                     <StackPanel Spacing="4">
@@ -39,8 +41,9 @@
                 </StackPanel>
               </Border>
             </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        </ScrollViewer>
     </Grid>
     <Button Grid.Row="3" Content="Close" Classes="ghost" Click="OnClose" HorizontalAlignment="Right" Margin="0,16,0,0"/>
   </Grid>

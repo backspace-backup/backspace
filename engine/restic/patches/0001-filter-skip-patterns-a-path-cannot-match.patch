@@ -1,4 +1,4 @@
-From af1eae82a069319289f0b13a4762a7921d094473 Mon Sep 17 00:00:00 2001
+From f3d2ce69f04fe5f585769af6fcf9a6f294192bf8 Mon Sep 17 00:00:00 2001
 From: Backspace <noreply@backspace.invalid>
 Date: Wed, 4 Nov 2026 20:34:52 -1000
 Subject: [PATCH] filter: skip patterns a path cannot match before running
@@ -6,13 +6,13 @@ Subject: [PATCH] filter: skip patterns a path cannot match before running
 
 Backport of https://github.com/restic/restic/pull/22165 to restic 0.19.1.
 ---
- internal/filter/filter.go                   |  88 ++++++++++++--
- internal/filter/filter_requirements_test.go | 126 ++++++++++++++++++++
- 2 files changed, 207 insertions(+), 7 deletions(-)
+ internal/filter/filter.go                   |  88 +++++++++++--
+ internal/filter/filter_requirements_test.go | 129 ++++++++++++++++++++
+ 2 files changed, 210 insertions(+), 7 deletions(-)
  create mode 100644 internal/filter/filter_requirements_test.go
 
 diff --git a/internal/filter/filter.go b/internal/filter/filter.go
-index c2b5f98ce..f979782a8 100644
+index c2b5f98ce..c6c06cdd8 100644
 --- a/internal/filter/filter.go
 +++ b/internal/filter/filter.go
 @@ -2,6 +2,7 @@ package filter
@@ -58,9 +58,17 @@ index c2b5f98ce..f979782a8 100644
 +
 +// requirements returns what every path matching parts must contain: the
 +// plain parts, as whole components, and the longest literal run of each
-+// wildcard part, as text. A pattern with a malformed part gets no
-+// requirements, so that match still reports the error for every path.
++// wildcard part, as text. A pattern with a character class or an escape in
++// any part gets no requirements: such a part can be malformed in a way that
++// filepath.Match reports only for some paths (for example "[ab]*[a-]" only
++// for names starting with a or b), and match must keep returning that error
++// for exactly the paths it does today.
 +func requirements(parts []patternPart) (requiredParts []string, requiredText []string) {
++	for _, part := range parts {
++		if strings.ContainsAny(part.pattern, `\[]`) {
++			return nil, nil
++		}
++	}
 +	// Last parts first: they are the most specific, so a path usually
 +	// fails on the first one checked.
 +	for _, part := range slices.Backward(parts) {
@@ -69,14 +77,6 @@ index c2b5f98ce..f979782a8 100644
 +		}
 +		if part.isSimple {
 +			requiredParts = append(requiredParts, part.pattern)
-+			continue
-+		}
-+		if _, err := filepath.Match(part.pattern, part.pattern); err != nil {
-+			return nil, nil
-+		}
-+		// Character classes and escapes are left out: their literal text
-+		// is not simply a substring of what they match.
-+		if strings.ContainsAny(part.pattern, `\[]`) {
 +			continue
 +		}
 +		longest := ""
@@ -154,10 +154,10 @@ index c2b5f98ce..f979782a8 100644
  		var c bool
 diff --git a/internal/filter/filter_requirements_test.go b/internal/filter/filter_requirements_test.go
 new file mode 100644
-index 000000000..9ac41edb4
+index 000000000..1566c0cb6
 --- /dev/null
 +++ b/internal/filter/filter_requirements_test.go
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,129 @@
 +package filter_test
 +
 +import (
@@ -209,7 +209,10 @@ index 000000000..9ac41edb4
 +// result must be the same as matching every pattern, for any patterns.
 +func TestListRequirementsKeepResults(t *testing.T) {
 +	names := []string{"a", "b", "foo", "foo.txt", "bar.tmp", "node_modules", "Cache", "x.cache", "$RECYCLE.BIN", "sdk", "cpp"}
-+	globs := []string{"*", "**", "*.tmp", "*cache*", "*Cache", "f?o*", "[ab]", "?", "*.txt", "*$RECYCLE.BIN", "["}
++	globs := []string{"*", "**", "*.tmp", "*cache*", "*Cache", "f?o*", "[ab]", "?", "*.txt", "*$RECYCLE.BIN", "[",
++		// Malformed, yet accepted by ValidatePatterns: match fails only for
++		// names the first class accepts.
++		"[ab]*[a-]", "[ab]*["}
 +	r := rand.New(rand.NewSource(1))
 +	part := func() string {
 +		if r.Intn(3) == 0 {
