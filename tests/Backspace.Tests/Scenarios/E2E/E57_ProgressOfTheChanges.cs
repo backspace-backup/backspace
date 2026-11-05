@@ -76,6 +76,11 @@ public sealed class E57_ProgressOfTheChanges : BackupE2EBase
             Assert.Contains(progress, l => l.Contains("changes ") && l.Contains("/ ~400 MB"));
             // Mid-file: some of the 400 MiB counted as read, not all.
             Assert.Contains(progress, l => l.Contains("changes ") && !l.Contains("changes 0 B") && !l.Contains("changes 400 / ~400 MB"));
+            // U145: restic runs with --no-scan and reports no totals; the line
+            // takes the source's from Backspace's listing, never "/ 0".
+            Assert.Contains(progress, l => l.Contains(" files, ~"));
+            Assert.DoesNotContain(progress, l => l.Contains(" / 0 files") || l.Contains("/ 0 B"));
+            Assert.Contains(log, l => l.StartsWith("[recap] Backup complete: ", StringComparison.Ordinal) && !l.StartsWith("[recap] Backup complete: 0 files", StringComparison.Ordinal));
         }
         finally { BackupLiveProgress.Interval = interval; }
         File.Delete(large);

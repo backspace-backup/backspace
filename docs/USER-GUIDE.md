@@ -274,11 +274,13 @@ never excluded: a manufacturer may keep recovery files there.
 
 While a backup runs, its card says **Running** with a turning icon; each
 source and the strip below show the percentage, and hovering **Running** shows
-bytes, files and speed, for example "30 / ~178 GB · 88,211 / 109,320+ files ·
-2.6 GB sent at 5.7 MB/s". The engine counts the files while it backs them up.
-Until its count is done, the file total ends with "+", the size is
-Backspace's own count of the source (marked "~", it takes seconds) or the
-last backup's, the percentage is of that size, and no time left is shown.
+bytes, files and speed, for example "30 / ~178 GB · 88,211 / ~109,320 files ·
+2.6 GB sent at 5.7 MB/s". The totals, marked "~", are Backspace's own listing
+of the source with the backup's rules, made as the backup starts (seconds for
+a whole drive). The engine doesn't count the source itself: its separate
+counting pass looked every file up a second time and took as long as the backup
+walk. Until the listing is done, the size is the last backup's, the percentage
+is of that size, and no time left is shown.
 The speed is of the data actually sent to the storage, over the last half
 minute, and shows whenever new data is being sent, however slowly. Files that
 need nothing sent (unchanged, or already stored) are checked quickly and don't
@@ -290,8 +292,8 @@ backup to compare with: the engine reads every file to find what the storage
 already holds. The time left follows the pace of the last five minutes, or of
 the last minute when that is slower: the engine can't tell which of the
 remaining files are new, so a large changed file lengthens the estimate at
-once, and it shortens again when the pace picks up. Once the engine has counted
-the source, its size next to the folder is the size counted by this run.
+once, and it shortens again when the pace picks up. Once the source is listed,
+its size next to the folder is the size counted by this run.
 
 **After a first backup, the progress follows the changes.** Once a backup has
 succeeded, Backspace keeps a list of the source's files with their size and

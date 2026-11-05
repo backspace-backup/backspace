@@ -76,17 +76,24 @@ internal sealed class BackupLiveProgress
     /// <param name="expectedBytes">The size expected so far: it can become
     /// known while the backup runs (the engine's own count of the source).</param>
     internal BackupLiveProgress(Func<long> expectedBytes, Func<long?>? sentBytes, ChangePlanner? changes = null)
-        : this(expectedBytes, sentBytes, changes is null ? null : () => changes.Plan, changes is null ? null : () => changes.PreviousPace) { }
+        : this(expectedBytes, sentBytes, changes is null ? null : () => changes.Plan, changes is null ? null : () => changes.PreviousPace,
+              changes is null ? null : () => changes.Listed) { }
 
     /// <param name="plan">What this backup will read (U144), once known.</param>
     /// <param name="previousPace">The pace the last backup measured, if any.</param>
-    internal BackupLiveProgress(Func<long> expectedBytes, Func<long?>? sentBytes, Func<ChangePlan?>? plan, Func<(double FilesPerSecond, double BytesPerSecond)?>? previousPace)
+    /// <param name="listed">Files and bytes of Backspace's own listing of the
+    /// source, once done: restic reports no totals with --no-scan (U145).</param>
+    internal BackupLiveProgress(Func<long> expectedBytes, Func<long?>? sentBytes, Func<ChangePlan?>? plan, Func<(double FilesPerSecond, double BytesPerSecond)?>? previousPace,
+        Func<(long Files, long Bytes)?>? listed = null)
     {
         _expectedBytes = expectedBytes;
         _sentBytes = sentBytes;
         _plan = plan;
         _previousPace = previousPace;
+        _listed = listed;
     }
+
+    private readonly Func<(long Files, long Bytes)?>? _listed;
 
     // ---- U144: progress of the work, once the changes are known ----
     private readonly Func<ChangePlan?>? _plan;
@@ -113,9 +120,33 @@ internal sealed class BackupLiveProgress
     internal string? Next(JsonElement? operationBackup, DateTime nowUtc)
     {
         if (Parse(operationBackup) is not { } sample) return null;
-        if (_totals != (sample.TotalFiles, sample.TotalBytes))
-            (_totals, _totalsSince) = ((sample.TotalFiles, sample.TotalBytes), nowUtc);
-        var counting = nowUtc - _totalsSince < CountSettles;
+        // Restic run with --no-scan (U145) reports no totals at all: Backspace's
+        // own listing of the source stands in for them, marked "~", and until
+        // it is done the run is still counting.
+        var ownTotals = sample.TotalFiles == 0 && sample.TotalBytes == 0;
+        bool counting;
+        if (ownTotals)
+        {
+            (long Files, long Bytes)? listed = null;
+            try { listed = _listed?.Invoke(); } catch (Exception) { }
+            counting = listed is null;
+            if (listed is { } l)
+            {
+                var bytes = Math.Max(l.Bytes, sample.BytesDone);
+                sample = sample with
+                {
+                    TotalFiles = Math.Max(l.Files, sample.FilesDone),
+                    TotalBytes = bytes,
+                    Percent = bytes > 0 ? 100.0 * sample.BytesDone / bytes : 0,
+                };
+            }
+        }
+        else
+        {
+            if (_totals != (sample.TotalFiles, sample.TotalBytes))
+                (_totals, _totalsSince) = ((sample.TotalFiles, sample.TotalBytes), nowUtc);
+            counting = nowUtc - _totalsSince < CountSettles;
+        }
         if (_last == sample || nowUtc - _lastEmitted < Interval) return null;
         _lastEmitted = nowUtc;
         _last = sample;
@@ -160,8 +191,8 @@ internal sealed class BackupLiveProgress
         }
         long expected = 0;
         try { expected = _expectedBytes(); } catch (Exception) { }
-        if (PlanLine(sample, counting, nowUtc, sent, rate) is { } planned) return planned;
-        return Format(sample, counting, expected, sent, rate, left);
+        if (PlanLine(sample, counting || ownTotals, nowUtc, sent, rate) is { } planned) return planned;
+        return Format(sample, counting, expected, sent, rate, left, ownTotals);
     }
 
     /// <summary>The line once the changes are known (U144): the percentage and
@@ -263,7 +294,9 @@ internal sealed class BackupLiveProgress
             : value.ValueKind == JsonValueKind.Number ? value.GetDouble()
             : value.ValueKind == JsonValueKind.String && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0;
 
-    internal static string Format(Sample sample, bool counting, long expectedBytes, long? sentBytes, double? sentPerSecond, TimeSpan? left = null)
+    /// <param name="ownTotals">The totals are Backspace's listing of the
+    /// source, not restic's count (--no-scan, U145): shown with "~".</param>
+    internal static string Format(Sample sample, bool counting, long expectedBytes, long? sentBytes, double? sentPerSecond, TimeSpan? left = null, bool ownTotals = false)
     {
         static string Count(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
         // While counting, a share of what was found so far would be too
@@ -283,8 +316,15 @@ internal sealed class BackupLiveProgress
         // a file total that is still growing.
         if (!counting)
         {
-            parts.Add(Of(sample.BytesDone, sample.TotalBytes, estimated: false));
-            parts.Add($"{Count(sample.FilesDone)} / {Count(sample.TotalFiles)} files");
+            parts.Add(Of(sample.BytesDone, sample.TotalBytes, estimated: ownTotals));
+            parts.Add($"{Count(sample.FilesDone)} / {(ownTotals ? "~" : "")}{Count(sample.TotalFiles)} files");
+        }
+        else if (ownTotals)
+        {
+            // Nothing counted yet: restic counts nothing, Backspace's listing
+            // is not done.
+            parts.Add(expected ? Of(sample.BytesDone, expectedBytes, estimated: true) : Bytes(sample.BytesDone));
+            parts.Add($"{Count(sample.FilesDone)} files");
         }
         else
         {
@@ -299,15 +339,17 @@ internal sealed class BackupLiveProgress
         return Prefix + string.Join(" · ", parts);
     }
 
-    /// <summary>The size restic counted for this run ("190 GB"), once its count
-    /// is complete: no "~" (Backspace's estimate) and no "+" (files still being
-    /// counted). Null otherwise (U141).</summary>
+    /// <summary>The size counted for this run ("190 GB"), once the count is
+    /// complete: restic's, or Backspace's listing of the source with --no-scan
+    /// ("~", U145), shown together with its file total. Not the size expected
+    /// while still counting ("+" after the files, or no file total). Null
+    /// otherwise (U141).</summary>
     internal static string? CountedTotal(string detail)
     {
-        var m = System.Text.RegularExpressions.Regex.Match(detail ?? "", @"· [^·/]+ / (?<total>[0-9][^·]*?) · [0-9,]+ / [0-9,]+ files");
+        var m = System.Text.RegularExpressions.Regex.Match(detail ?? "", @"· (?!changes )[^·/]+ / (?<own>~?)(?<total>[0-9][^·]*?) · [0-9,]+ / \k<own>[0-9,]+ files(?!,)");
         if (m.Success) return m.Groups["total"].Value;
         // With the changes known (U144): "504,701 / 601,922 files, 190 GB".
-        m = System.Text.RegularExpressions.Regex.Match(detail ?? "", @"· [0-9,]+ / [0-9,]+ files, (?<total>[0-9][^·]*?)( ·|$)");
+        m = System.Text.RegularExpressions.Regex.Match(detail ?? "", @"· [0-9,]+ / ~?[0-9,]+ files, ~?(?<total>[0-9][^·]*?)( ·|$)");
         return m.Success ? m.Groups["total"].Value.Trim() : null;
     }
 

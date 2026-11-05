@@ -172,7 +172,8 @@ public sealed class ChangePlanTests
     public void The_source_shows_the_counted_size_from_the_new_line_too()
     {
         Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 23.4% · Backing up · changes 3.1 / ~9.0 GB · 504,701 / 601,922 files, 190 GB · 881 MB sent at 3.8 MB/s · about 25 min left"));
-        Assert.Null(BackupLiveProgress.CountedTotal("[progress] 2.0% · Backing up · changes 0 / ~9.0 GB · 4,701 / ~601,922 files, ~190 GB"));
+        // "~": Backspace's own listing of the source for this run, which is its count with --no-scan (U145).
+        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 2.0% · Backing up · changes 0 / ~9.0 GB · 4,701 / ~601,922 files, ~190 GB"));
     }
 }
 

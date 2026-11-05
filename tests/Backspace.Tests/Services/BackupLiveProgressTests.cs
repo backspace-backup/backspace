@@ -196,6 +196,54 @@ public sealed class BackupLiveProgressTests
         Assert.Null(BackupLiveProgress.CountedTotal("Pruning…"));
     }
 
+    // ---- U145 (5 November 2026): restic runs with --no-scan, so it reports
+    // no totals at all; Backspace's own listing of the source gives them. ----
+
+    [Fact]
+    public void Backups_skip_restics_counting_walk()
+    {
+        Assert.Equal("--no-scan", ResticBackrestEngine.BuildBackupFlags(new Backspace.Models.Backup())[0]);
+        Assert.Single(ResticBackrestEngine.BuildBackupFlags(new Backspace.Models.Backup()), "--no-scan");
+    }
+
+    [Fact]
+    public void Without_restics_totals_the_listing_of_the_source_gives_them()
+    {
+        (long Files, long Bytes)? listed = null;
+        var live = new BackupLiveProgress(() => 40_000_000_000, null, null, null, () => listed);
+        var start = new DateTime(2026, 11, 5, 21, 0, 0, DateTimeKind.Utc);
+        // Before the listing is done: the size expected, the files done, never "/ 0".
+        var first = live.Next(Operation(0, 4_000_000_000, 0, 1_000, 0), start)!;
+        Assert.Equal("[progress] 10.0% · Backing up · 3.7 / ~37 GB · 1,000 files", first);
+        Assert.Null(BackupLiveProgress.CountedTotal(first));
+        // Listed: 50 GB in 20,000 files. The percentage is of that, at once
+        // (no 30 s wait for restic's count to settle), marked "~".
+        listed = (20_000, 50_000_000_000);
+        var second = live.Next(Operation(0, 5_000_000_000, 0, 2_000, 0), start.AddSeconds(5))!;
+        Assert.Equal("[progress] 10.0% · Backing up · 4.7 / ~47 GB · 2,000 / ~20,000 files", second);
+        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal(second));
+        // The changes' total is never taken for the source's.
+        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal("[progress] 30.0% · Backing up · changes 3.1 / ~9.0 GB · 2,000 / ~20,000 files, ~47 GB · about 5 min left"));
+        // Time left from the pace, as with restic's totals.
+        var t = start.AddSeconds(5);
+        string? line = null;
+        for (var i = 1; i <= 6; i++) line = live.Next(Operation(0, 5_000_000_000 + i * 50_000_000L, 0, 2_000 + i, 0), t.AddSeconds(5 * i)) ?? line;
+        Assert.Contains("about ", line);
+        Assert.Contains(" left", line);
+        // More read than listed (files grew meanwhile): never past 100%.
+        var over = live.Next(Operation(0, 60_000_000_000, 0, 25_000, 0), t.AddMinutes(10))!;
+        Assert.StartsWith("[progress] 100.0% · Backing up · 56 / ~56 GB · 25,000 / ~25,000 files", over);
+    }
+
+    [Fact]
+    public void Restics_own_totals_still_win_when_it_reports_them()
+    {
+        var live = new BackupLiveProgress(() => 0, null, null, null, () => (1, 1));
+        var start = new DateTime(2026, 11, 5, 21, 0, 0, DateTimeKind.Utc);
+        Assert.Equal("[progress] 0.0% · Backing up · 4.7 GB · 1,000 / 10,000+ files",
+            live.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
+    }
+
     [Fact]
     public void The_size_a_finished_backup_read_is_taken_from_its_recap()
     {

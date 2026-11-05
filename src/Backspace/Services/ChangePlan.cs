@@ -248,6 +248,11 @@ internal sealed class ChangePlanner
     internal static ChangePlanner Start(ChangePlanStore store, string planId, string sourcePath, SourceSizeRules rules, string? previousSnapshotId, CancellationToken ct)
         => new(store, planId, sourcePath, rules, previousSnapshotId, ct);
 
+    /// <summary>The files and bytes of this run's listing of the source, once
+    /// listed: restic counts nothing with --no-scan (U145).</summary>
+    internal (long Files, long Bytes)? Listed => _work.IsCompletedSuccessfully && _work.Result.Files is { } f
+        ? (f.LongLength, f.Sum(e => e.Size)) : null;
+
     /// <summary>The plan once ready, or null (still listing, or nothing to compare with).</summary>
     internal ChangePlan? Plan => _work.IsCompletedSuccessfully ? _work.Result.Plan : null;
 

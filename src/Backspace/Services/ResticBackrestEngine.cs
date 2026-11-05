@@ -3183,7 +3183,12 @@ public sealed class ResticBackrestEngine : IBackupEngine
     /// </summary>
     internal static List<string> BuildBackupFlags(Backup backup)
     {
-        var flags = new List<string>();
+        // Restic's separate counting walk only feeds its totals: it looks up
+        // every file and folder a second time and cost as much CPU as the
+        // backup walk on C: (252 s against 110 s without it, U145, 5 November
+        // 2026). Backspace lists the source itself in seconds and shows that
+        // total instead (BackupLiveProgress). The snapshot is the same.
+        var flags = new List<string> { "--no-scan" };
         if (Services.Platform.PlatformInfo.IsWindows)
         {
             if (backup.UseVss)

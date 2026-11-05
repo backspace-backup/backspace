@@ -477,8 +477,9 @@ lock during a save also delays code that reads the settings meanwhile.
 
 ## Restic's exclusion matching is slow
 
-Restic tests every exclusion rule against every path, twice per backup (the
-counting scanner and the archiver), on every run, and its `**` handling tries
+Restic tests every exclusion rule against every path, on every run (twice
+before Backspace passed `--no-scan`: the counting scanner and the archiver),
+and its `**` handling tries
 every depth: `match` expands the first `**` into 0…n `*` parts and recurses.
 On local_c's 273 rules this was 93% of the time to walk C:\ (330 µs a path;
 restic's own `internal/filter` code timed on 743,491 real paths, 4 November
@@ -498,6 +499,29 @@ again:
   `i <= len(strs)-len(parts)+1` counts each later `**` as one component, so
   `C:/**/*/**/node_modules/*` does **not** match `C:\a\node_modules\x` (but
   does match `C:\a\node_modules\x\y`).
+
+## Restic's walk: why `--no-scan`, and why not the folder listing's metadata
+
+Profiled on C:\ with local_c's rules (5 November 2026), 60% of the walk's CPU
+was `os.Lstat` (`GetFileAttributesEx`): restic's counting scanner and its
+archiver each look up every file and folder. Backspace passes `--no-scan`
+(`BuildBackupFlags`): the scanner only feeds the totals and percentage of
+restic's status, never the snapshot. Restic then reports 0 for
+`total_files`, `total_bytes` and `percent_done`; `BackupLiveProgress`
+treats both totals at 0 as "no totals" and uses the `ChangePlanner` listing
+instead (shown with "~"). If that listing fails or takes over three minutes,
+the line shows the bytes and files done against the expected size, with no
+time left.
+
+The remaining look-up per entry stays. Windows does return size and times in
+the folder listing (`FindFirstFile` data), but for a file kept open for
+writing that copy is stale: tested on NTFS, a 1,000-byte file grown to
+3,001,000 bytes by a handle still open listed as 1,000 bytes with its old
+date, while `GetFileAttributesEx` gave the new size and date. Restic decides
+"unchanged" from size and date, so using the listing would skip changed files
+that stay open (mail stores, databases, virtual disks) for as long as they
+stay open. Backspace's own listing (`ChangePlan`) uses that data only for the
+progress estimate.
 
 ## An interrupted backup leaves data behind until a prune
 
