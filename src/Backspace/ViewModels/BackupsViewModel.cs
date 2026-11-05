@@ -211,7 +211,10 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         foreach (var card in Cards) _logs.RefreshBackgroundHistory(card.Id);
     }
 
-    private void OnCheckAgeTick(object? sender, EventArgs e) { foreach (var card in Cards) card.RefreshCheckAge(); }
+    private void OnCheckAgeTick(object? sender, EventArgs e)
+    {
+        foreach (var card in Cards) { card.RefreshCheckAge(); card.RefreshTimes(); }
+    }
     private void OnCardCheckStateChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(BackupCardViewModel.VerifyClass) or nameof(BackupCardViewModel.DisplayedRunStatus)

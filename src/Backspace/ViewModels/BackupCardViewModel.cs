@@ -531,9 +531,28 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             BackupRunStatus.Skipped => "skipped", BackupRunStatus.Running => "running", _ => "idle",
         };
         StatusLabel = status == BackupRunStatus.Success ? "OK" : status == BackupRunStatus.NeverRun ? "Idle" : status.ToString();
-        LastRunLabel = end is DateTime when ? $"{NormaliseSuccessSummary(summary, status)} · {HumanFormat.Ago(when)}" : "Never run";
+        _lastRun = end is DateTime when ? (NormaliseSuccessSummary(summary, status), when) : null;
+        LastRunLabel = _lastRunAgeLabel = LastRunText();
         DisplayedRunEndUtc = end;
         DisplayedRunStatus = status;
+    }
+
+    // The last run shown and its label, so the minute timer can redo "3h ago" (U136).
+    private (string Summary, DateTime When)? _lastRun;
+    private string? _lastRunAgeLabel;
+
+    private string LastRunText() => _lastRun is { } last ? $"{last.Summary} · {HumanFormat.Ago(last.When)}" : "Never run";
+
+    /// <summary>Redoes the labels that read the clock, every minute (U136,
+    /// 4 November 2026): the card said "1h ago" for a backup finished three
+    /// hours before, while its health line, already redone, said "3h ago";
+    /// and "Today 20:00" stayed after 20:00 had passed. A label showing
+    /// something else (running, queued, stopping, an error) is left alone.</summary>
+    public void RefreshTimes()
+    {
+        if (!IsRunning && _lastRunAgeLabel is not null && LastRunLabel == _lastRunAgeLabel)
+            LastRunLabel = _lastRunAgeLabel = LastRunText();
+        if (Snapshot.Enabled) NextRunLabel = Snapshot.Schedule.DescribeNextRun(DateTime.Now);
     }
 
     public void RefreshCheckAge()

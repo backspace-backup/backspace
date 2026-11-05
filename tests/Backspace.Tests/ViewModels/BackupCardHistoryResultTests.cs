@@ -45,3 +45,29 @@ public sealed class BackupCardHistoryResultTests
         Assert.Equal(BackupRunStatus.Failed, backup.LastRunStatus);
     }
 }
+
+public sealed class BackupCardClockLabelTests
+{
+    /// <summary>U136 (4 November 2026): the card kept "1h ago" for a backup
+    /// that had finished three hours before, until another tab was opened,
+    /// while its health line said "3h ago". The minute timer now redoes it.</summary>
+    [AvaloniaFact]
+    public void The_last_backup_age_follows_the_clock_but_leaves_a_running_label_alone()
+    {
+        var now = DateTime.UtcNow;
+        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, LastRunStartUtc = now.AddHours(-3), LastRunEndUtc = now.AddMinutes(-90), LastRunSummary = "Backup result: STATUS_SUCCESS." };
+        using var card = new BackupCardViewModel(backup, false, false);
+        Assert.EndsWith(" · 1h ago", card.LastRunLabel);
+
+        // Ninety minutes later: same backup, older.
+        var field = typeof(BackupCardViewModel).GetField("_lastRun", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var last = ((string Summary, DateTime When)?)field.GetValue(card);
+        field.SetValue(card, ((string, DateTime)?)(last!.Value.Summary, now.AddMinutes(-180)));
+        card.RefreshTimes();
+        Assert.EndsWith(" · 3h ago", card.LastRunLabel);
+
+        card.SetRunning();
+        card.RefreshTimes();
+        Assert.Equal("Running…", card.LastRunLabel);
+    }
+}
