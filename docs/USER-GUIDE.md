@@ -293,6 +293,22 @@ remaining files are new, so a large changed file lengthens the estimate at
 once, and it shortens again when the pace picks up. Once the engine has counted
 the source, its size next to the folder is the size counted by this run.
 
+**After a first backup, the progress follows the changes.** Once a backup has
+succeeded, Backspace keeps a list of the source's files with their size and
+date (in `%LOCALAPPDATA%\Backspace\change-lists`; a cache it rebuilds when
+missing). At the start of the next backup it lists the source again (seconds)
+and compares: a file whose size or date differs is one the engine will read,
+as the engine itself decides. The line then reads, for example, "23.4% ·
+Backing up · changes 3.1 / ~9.0 GB · 504,701 / 601,922 files, 190 GB · 881 MB
+sent at 3.8 MB/s · about 25 min left". The percentage and the time left are of
+the work: checking the unchanged files counts for a small part, reading and
+sending the changes for the rest, each at the pace this backup measures (the
+last backup's pace is the first guess). So a backup no longer races to 99% on
+unchanged files and then waits; the size next to the source stays the
+source's. The changed size is what the engine reads: it can send much less,
+since it stores only the parts it doesn't hold yet. Without the list (a first
+backup, or a list made for another snapshot), progress is shown as above.
+
 **Activity & logs** shows each run as phases. A backup opens with what it
 starts from: the previous backup to that destination (date and snapshot), the
 number of exclusion rules, and whether a shadow copy is used. Progress follows

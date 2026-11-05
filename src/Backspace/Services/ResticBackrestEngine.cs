@@ -159,7 +159,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
         {
             RaiseLineWritten(setup); lineSink?.Invoke(setup);
         }
-        var liveProgress = new BackupLiveProgress(ExpectedSize(backup, sourcePath, ct), SentBytesMeter(destination));
+        // What this backup will read, compared with the last one's listing (U144).
+        var changes = ChangePlanner.Start(ChangePlanStore.ForOwner(), planId, sourcePath, SourceSizeRules.For(backup), previous?.Id, ct);
+        var liveProgress = new BackupLiveProgress(ExpectedSize(backup, sourcePath, ct), SentBytesMeter(destination), changes);
         BackrestOperation terminal;
         try
         {
@@ -202,6 +204,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
         }
         var status = StatusFromBackrestTerminal(terminal.Status);
         var details = terminal.DisplayMessage;
+        if (status is BackupRunStatus.Success or BackupRunStatus.Warning && IsValidBackrestGuid(terminal.SnapshotId))
+            await changes.SaveAsync(terminal.SnapshotId, liveProgress.MeasuredPace).ConfigureAwait(false);
         var checks = new List<BackupCheckResult>();
         if (status is BackupRunStatus.Success or BackupRunStatus.Warning && !ct.IsCancellationRequested)
         {

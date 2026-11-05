@@ -30,7 +30,7 @@ internal sealed class BackupLiveProgress
     /// count as final. Its progress is recorded every second or so.</summary>
     internal static TimeSpan CountSettles = TimeSpan.FromSeconds(30);
 
-    internal sealed record Sample(double Percent, long TotalBytes, long BytesDone, long TotalFiles, long FilesDone);
+    internal sealed record Sample(double Percent, long TotalBytes, long BytesDone, long TotalFiles, long FilesDone, string? CurrentFiles = null);
 
     private readonly Func<long> _expectedBytes;
     private readonly Func<long?>? _sentBytes;
@@ -75,11 +75,39 @@ internal sealed class BackupLiveProgress
 
     /// <param name="expectedBytes">The size expected so far: it can become
     /// known while the backup runs (the engine's own count of the source).</param>
-    internal BackupLiveProgress(Func<long> expectedBytes, Func<long?>? sentBytes)
+    internal BackupLiveProgress(Func<long> expectedBytes, Func<long?>? sentBytes, ChangePlanner? changes = null)
+        : this(expectedBytes, sentBytes, changes is null ? null : () => changes.Plan, changes is null ? null : () => changes.PreviousPace) { }
+
+    /// <param name="plan">What this backup will read (U144), once known.</param>
+    /// <param name="previousPace">The pace the last backup measured, if any.</param>
+    internal BackupLiveProgress(Func<long> expectedBytes, Func<long?>? sentBytes, Func<ChangePlan?>? plan, Func<(double FilesPerSecond, double BytesPerSecond)?>? previousPace)
     {
         _expectedBytes = expectedBytes;
         _sentBytes = sentBytes;
+        _plan = plan;
+        _previousPace = previousPace;
     }
+
+    // ---- U144: progress of the work, once the changes are known ----
+    private readonly Func<ChangePlan?>? _plan;
+    private readonly Func<(double FilesPerSecond, double BytesPerSecond)?>? _previousPace;
+    private ChangePlan? _activePlan;
+    private DateTime _planSince;
+    /// <summary>Bytes of changes that cost as much time as checking one
+    /// unchanged file, fixed for the run so the percentage only grows.</summary>
+    private double _bytesPerFile;
+    private double _filesPerSecond, _bytesPerSecond;
+    private bool _measuredFiles, _measuredBytes;
+    private (DateTime At, long Unchanged, long Changed)? _lastWork;
+    /// <summary>First guesses until the run measures its own: a walk of C:
+    /// checks about 1,500 unchanged files a second; 5 MB/s is a common upload.</summary>
+    internal const double DefaultFilesPerSecond = 1_500, DefaultBytesPerSecond = 5_000_000;
+    /// <summary>How much a new five-second measure moves the pace.</summary>
+    internal const double PaceWeight = 0.25;
+
+    /// <summary>The pace this run measured, for the next run's first guess.</summary>
+    internal (double FilesPerSecond, double BytesPerSecond)? MeasuredPace
+        => _measuredFiles || _measuredBytes ? (_filesPerSecond, _bytesPerSecond) : null;
 
     /// <summary>The line to show now, or null when it is too soon or nothing changed.</summary>
     internal string? Next(JsonElement? operationBackup, DateTime nowUtc)
@@ -132,7 +160,76 @@ internal sealed class BackupLiveProgress
         }
         long expected = 0;
         try { expected = _expectedBytes(); } catch (Exception) { }
+        if (PlanLine(sample, counting, nowUtc, sent, rate) is { } planned) return planned;
         return Format(sample, counting, expected, sent, rate, left);
+    }
+
+    /// <summary>The line once the changes are known (U144): the percentage and
+    /// the time left are of the work (unchanged files to check, changed bytes
+    /// to read and send), not of the source's size.</summary>
+    private string? PlanLine(Sample sample, bool counting, DateTime nowUtc, long? sent, double? rate)
+    {
+        if (_activePlan is null)
+        {
+            ChangePlan? plan = null;
+            try { plan = _plan?.Invoke(); } catch (Exception) { }
+            if (plan is null) return null;
+            (double FilesPerSecond, double BytesPerSecond)? previous = null;
+            try { previous = _previousPace?.Invoke(); } catch (Exception) { }
+            (_filesPerSecond, _bytesPerSecond) = previous ?? (DefaultFilesPerSecond, DefaultBytesPerSecond);
+            _bytesPerFile = _bytesPerSecond / _filesPerSecond;
+            (_activePlan, _planSince) = (plan, nowUtc);
+        }
+        var p = _activePlan;
+        var (unchanged, changed) = p.Done(sample.CurrentFiles, sample.FilesDone, sample.BytesDone);
+        var changedTotal = Math.Max(p.ChangedBytes, changed);
+        MeasurePace(nowUtc, unchanged, changed);
+        var total = p.UnchangedFiles * _bytesPerFile + changedTotal;
+        var percent = total <= 0 ? 100 : 100 * (unchanged * _bytesPerFile + changed) / total;
+        TimeSpan? left = nowUtc - _planSince >= TimeSpan.FromSeconds(20)
+            ? TimeSpan.FromSeconds((p.UnchangedFiles - unchanged) / _filesPerSecond + (changedTotal - changed) / _bytesPerSecond)
+            : null;
+        static string Count(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
+        var parts = new System.Collections.Generic.List<string>
+        {
+            Math.Clamp(percent, 0, 100).ToString("0.0", CultureInfo.InvariantCulture) + "%",
+            "Backing up",
+            "changes " + Of(changed, changedTotal, estimated: true),
+            counting
+                ? $"{Count(sample.FilesDone)} / ~{Count(p.Files)} files, ~{Bytes(p.TotalBytes)}"
+                : $"{Count(sample.FilesDone)} / {Count(sample.TotalFiles)} files, {Bytes(sample.TotalBytes)}",
+        };
+        if (sent is { } s)
+            parts.Add(rate is > 0 and var r ? $"{Bytes(s)} sent at {Bytes(Math.Max(1, (long)r))}/s" : $"{Bytes(s)} sent");
+        if (left is { } l && l < TimeSpan.FromDays(30)) parts.Add(TimeLeft(l));
+        return Prefix + string.Join(" · ", parts);
+    }
+
+    /// <summary>Shares each step's time between checking and reading changes in
+    /// proportion to the current pace, and moves each pace towards what the
+    /// step showed. A slowdown therefore shows within a few steps (U140).</summary>
+    private void MeasurePace(DateTime nowUtc, long unchanged, long changed)
+    {
+        if (_lastWork is not { } last) { _lastWork = (nowUtc, unchanged, changed); return; }
+        var seconds = (nowUtc - last.At).TotalSeconds;
+        var du = Math.Max(0, unchanged - last.Unchanged);
+        var dc = Math.Max(0, changed - last.Changed);
+        _lastWork = (nowUtc, unchanged, changed);
+        if (seconds <= 0 || du + dc == 0) return;
+        var tu = du / _filesPerSecond;
+        var tc = dc / _bytesPerSecond;
+        if (du > 0)
+        {
+            var share = seconds * tu / (tu + tc);
+            _filesPerSecond = Math.Max(1, (1 - PaceWeight) * _filesPerSecond + PaceWeight * du / share);
+            _measuredFiles = true;
+        }
+        if (dc > 0)
+        {
+            var share = seconds * tc / (tu + tc);
+            _bytesPerSecond = Math.Max(1, (1 - PaceWeight) * _bytesPerSecond + PaceWeight * dc / share);
+            _measuredBytes = true;
+        }
     }
 
     /// <summary>Whether the amount sent grew by at least <see cref="ContinuousBytes"/>
@@ -151,8 +248,13 @@ internal sealed class BackupLiveProgress
         if (operationBackup is not { ValueKind: JsonValueKind.Object } backup
             || !backup.TryGetProperty("lastStatus", out var last) || last.ValueKind != JsonValueKind.Object
             || !last.TryGetProperty("status", out var status) || status.ValueKind != JsonValueKind.Object) return null;
+        // Every file restic is reading, one per line: a string keeps the
+        // sample comparable, so an unchanged status is not shown again.
+        string? current = null;
+        if (status.TryGetProperty("currentFile", out var files) && files.ValueKind == JsonValueKind.Array)
+            current = string.Join('\n', files.EnumerateArray().Where(f => f.ValueKind == JsonValueKind.String).Select(f => f.GetString()));
         return new(Number(status, "percentDone") * 100, (long)Number(status, "totalBytes"), (long)Number(status, "bytesDone"),
-            (long)Number(status, "totalFiles"), (long)Number(status, "filesDone"));
+            (long)Number(status, "totalFiles"), (long)Number(status, "filesDone"), current);
     }
 
     // Protocol buffers write 64-bit numbers as strings in JSON.
@@ -203,7 +305,10 @@ internal sealed class BackupLiveProgress
     internal static string? CountedTotal(string detail)
     {
         var m = System.Text.RegularExpressions.Regex.Match(detail ?? "", @"· [^·/]+ / (?<total>[0-9][^·]*?) · [0-9,]+ / [0-9,]+ files");
-        return m.Success ? m.Groups["total"].Value : null;
+        if (m.Success) return m.Groups["total"].Value;
+        // With the changes known (U144): "504,701 / 601,922 files, 190 GB".
+        m = System.Text.RegularExpressions.Regex.Match(detail ?? "", @"· [0-9,]+ / [0-9,]+ files, (?<total>[0-9][^·]*?)( ·|$)");
+        return m.Success ? m.Groups["total"].Value.Trim() : null;
     }
 
     /// <summary>"30 / 178 GB", or "880 MB / 178 GB" when the units differ.</summary>

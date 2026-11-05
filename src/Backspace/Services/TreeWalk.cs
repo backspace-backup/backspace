@@ -18,7 +18,7 @@ namespace Backspace.Services;
 /// </summary>
 internal static class TreeWalk
 {
-    public readonly record struct Entry(string FullPath, bool IsDirectory, long Length, bool IsLink, FileAttributes Attributes = 0);
+    public readonly record struct Entry(string FullPath, bool IsDirectory, long Length, bool IsLink, FileAttributes Attributes = 0, DateTime LastWriteUtc = default);
 
     // Set by cloud providers on files kept only online (winnt.h).
     private const FileAttributes RecallOnOpen = (FileAttributes)0x00040000, RecallOnDataAccess = (FileAttributes)0x00400000;
@@ -62,7 +62,7 @@ internal static class TreeWalk
         {
             return new FileSystemEnumerable<Entry>(dir,
                 (ref FileSystemEntry e) => new Entry(e.ToFullPath(), e.IsDirectory, e.IsDirectory ? 0 : e.Length,
-                    (e.Attributes & FileAttributes.ReparsePoint) != 0, e.Attributes),
+                    (e.Attributes & FileAttributes.ReparsePoint) != 0, e.Attributes, e.LastWriteTimeUtc.UtcDateTime),
                 Options).ToList();
         }
         catch (UnauthorizedAccessException) { return null; }

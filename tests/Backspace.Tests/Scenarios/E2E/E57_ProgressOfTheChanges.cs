@@ -1,0 +1,80 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Backspace.Models;
+using Backspace.Services;
+using Backspace.Tests.TestHelpers;
+using Backspace.ViewModels;
+using Backspace.Views;
+using Xunit;
+
+namespace Backspace.Tests.Scenarios.E2E;
+
+/// <summary>
+/// U144 with the real engine: after a first backup, Backspace keeps the
+/// source's listing; the next backup compares the source with it, and its
+/// progress line counts the changes ("changes x / ~y") from restic's own
+/// current files and bytes, not the source's size.
+/// </summary>
+[Collection(ScenarioCollection.Name)]
+public sealed class E57_ProgressOfTheChanges : BackupE2EBase
+{
+    public E57_ProgressOfTheChanges(ITestOutputHelper output) : base(output) { }
+
+    protected override string ScenarioName => "E57-progress-of-the-changes";
+
+    [AvaloniaFact] public async Task Run_E57() => await Run();
+
+    protected override async Task RunE2EAsync(ScenarioContext ctx, RealEngineFixture fixture)
+    {
+        var source = ctx.MakeSource("docs", seed: 561, targetBytes: 3_000_000);
+        var dest = new Destination
+        {
+            Name = "Local — changes", Kind = DestinationKind.LocalFolder, PathOrSubpath = ctx.MakeLocalDestination("changes"),
+            Encrypted = true, StoragePasswordRef = ServiceLocator.Secrets.PutNew("e57", $"e57-{Guid.NewGuid():N}"),
+        };
+        var backup = new Backup
+        {
+            Name = "Docs (E57)", SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
+            CheckSchedule = new BackupSchedule(), PruneSchedule = new BackupSchedule(), Threads = 2,
+            Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } },
+        };
+        ServiceLocator.Config.Update(cfg => { cfg.Destinations.Add(dest); cfg.Backups.Add(backup); });
+        var view = new BackupsView { DataContext = new BackupsViewModel() };
+        var host = new Window { Width = 1100, Height = 760, Content = view };
+        ctx.Driver.Show(host);
+
+        var lists = Path.Combine(AppPaths.ConfigRoot, "change-lists");
+        var earlier = Directory.Exists(lists) ? Directory.GetFiles(lists).Length : 0;
+        var first = await RunBackupViaUiAsync(ctx, backup, view, CancellationToken.None);
+        Assert.Equal(BackupRunStatus.Success, first.Status);
+        var saved = Directory.GetFiles(lists);
+        Assert.True(saved.Length == earlier + 1 && saved.All(f => f.EndsWith(".bin")), string.Join(" ; ", saved)); // this backup's listing, for the next one
+
+        // A large new file, so restic spends several progress steps on it.
+        var large = Path.Combine(source, "zz-large.bin");
+        var block = new byte[4 << 20];
+        new Random(56).NextBytes(block);
+        await using (var file = File.Create(large))
+            for (var i = 0; i < 100; i++) { block[i] ^= 1; await file.WriteAsync(block); } // 400 MiB, little dedup
+        var interval = BackupLiveProgress.Interval;
+        BackupLiveProgress.Interval = TimeSpan.FromMilliseconds(500);
+        try
+        {
+            var second = await RunBackupViaUiAsync(ctx, backup, view, CancellationToken.None);
+            Assert.Equal(BackupRunStatus.Success, second.Status);
+            var log = File.ReadAllLines(second.Cells.Single().LogPath);
+            var progress = log.Where(l => l.StartsWith(BackupLiveProgress.Prefix, StringComparison.Ordinal)).ToArray();
+            ctx.Report.RecordNote("Progress lines of the second backup", string.Join(Environment.NewLine, progress));
+            Assert.Contains(progress, l => l.Contains("changes ") && l.Contains("/ ~400 MB"));
+            // Mid-file: some of the 400 MiB counted as read, not all.
+            Assert.Contains(progress, l => l.Contains("changes ") && !l.Contains("changes 0 B") && !l.Contains("changes 400 / ~400 MB"));
+        }
+        finally { BackupLiveProgress.Interval = interval; }
+        File.Delete(large);
+    }
+}

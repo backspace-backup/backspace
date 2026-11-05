@@ -410,6 +410,7 @@ Optional system changes are listed in the user guide: the background service
 - `<exe-dir>/Backspace.config/test-restores/` — saved test-restore plans, completed batch results and sample history. Temporary recovered files live separately under `verify/`.
 - `<exe-dir>/Backspace.config/logs/app/` — Serilog daily-rolling Backspace logs
 - `<exe-dir>/Backspace.config/logs/engine/<backup-name>/` — per-run engine transcripts (restic stdout via Backrest)
+- `%LOCALAPPDATA%/Backspace/change-lists/` — outside the portable folder, a reproducible cache: per backup cell, the source's file list (path hash, size, last write) at its last successful backup and the pace it measured, compressed. `ChangePlan` compares the source with it at the next start to know what restic will read (U144); when missing or made for another snapshot, progress falls back to restic's own totals. A configuration outside the copy's folder (tests) keeps it under its own `change-lists/`.
 - The actual restic repositories live wherever the user pointed each
   destination (a local folder, an external drive, a cloud bucket via
   rclone). We don't reach into them.
