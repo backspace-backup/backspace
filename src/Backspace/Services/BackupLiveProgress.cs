@@ -61,6 +61,8 @@ internal sealed class BackupLiveProgress
 
     /// <summary>How far back the pace for the time left is measured.</summary>
     internal static TimeSpan PaceWindow = TimeSpan.FromMinutes(5);
+    /// <summary>The recent pace that can only make the time left longer (U140).</summary>
+    internal static TimeSpan RecentPaceWindow = TimeSpan.FromMinutes(1);
     private DateTime _totalsSince;
     private Sample? _last;
 
@@ -117,6 +119,15 @@ internal sealed class BackupLiveProgress
             && sample.BytesDone > first.Bytes && sample.TotalBytes > sample.BytesDone)
         {
             var pace = (sample.BytesDone - first.Bytes) / (nowUtc - first.At).TotalSeconds;
+            // The slower of that and the last minute's pace (U140, 5 November
+            // 2026): after minutes of unchanged files read at hundreds of MB/s,
+            // local_c reached a large changed file and said "about 2 min left"
+            // while sending it at 3.8 MB/s with 18 GB to go. Restic can't say
+            // which of the remaining files are new, so the estimate follows the
+            // slowdown at once and recovers when the pace does.
+            if (_recent.LastOrDefault(r => nowUtc - r.At >= RecentPaceWindow) is { At: var at } recent && at > first.At
+                && sample.BytesDone >= recent.Bytes)
+                pace = Math.Min(pace, Math.Max(1, sample.BytesDone - recent.Bytes) / (nowUtc - at).TotalSeconds);
             left = TimeSpan.FromSeconds((sample.TotalBytes - sample.BytesDone) / pace);
         }
         long expected = 0;
@@ -184,6 +195,15 @@ internal sealed class BackupLiveProgress
             parts.Add(sentPerSecond is > 0 and var rate ? $"{Bytes(sent)} sent at {Bytes(Math.Max(1, (long)rate))}/s" : $"{Bytes(sent)} sent");
         if (left is { } remaining && remaining < TimeSpan.FromDays(30)) parts.Add(TimeLeft(remaining));
         return Prefix + string.Join(" · ", parts);
+    }
+
+    /// <summary>The size restic counted for this run ("190 GB"), once its count
+    /// is complete: no "~" (Backspace's estimate) and no "+" (files still being
+    /// counted). Null otherwise (U141).</summary>
+    internal static string? CountedTotal(string detail)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(detail ?? "", @"· [^·/]+ / (?<total>[0-9][^·]*?) · [0-9,]+ / [0-9,]+ files");
+        return m.Success ? m.Groups["total"].Value : null;
     }
 
     /// <summary>"30 / 178 GB", or "880 MB / 178 GB" when the units differ.</summary>

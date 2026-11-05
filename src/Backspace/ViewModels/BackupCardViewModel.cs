@@ -674,6 +674,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
                 s.PercentComplete = sp.PercentComplete;
                 s.IsRunning = sp.IsRunning;
                 s.Detail = sp.Detail;
+                s.ShowCounted(sp.Detail);
             }
         }
         // Per-destination progress for the pill bar fill. Match by
@@ -742,6 +743,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             {
                 var match = progress?.Sources.FirstOrDefault(s => string.Equals(s.Path, source.Path, StringComparison.OrdinalIgnoreCase));
                 source.PercentComplete = match?.Percent ?? 0; source.IsRunning = match?.Running ?? false; source.Detail = match?.Detail ?? "";
+                source.ShowCounted(source.Detail);
             }
             foreach (var destination in Destinations)
                 destination.PercentComplete = progress?.Destinations.FirstOrDefault(d => string.Equals(d.Name, destination.Name, StringComparison.OrdinalIgnoreCase))?.Percent ?? 0;
@@ -1103,6 +1105,18 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             _measured = true;
             SizeLabel = BackupLiveProgress.Bytes(bytes);
             SizeTooltip = "Size measured by the last backup.";
+        }
+
+        /// <summary>While a backup runs, the size it counted, once its count is
+        /// complete: the last backup's size next to a different total on the
+        /// progress line read as a contradiction (U141, 5 November 2026: "179 GB"
+        /// on the source, "172 / 190 GB" below it).</summary>
+        public void ShowCounted(string detail)
+        {
+            if (BackupLiveProgress.CountedTotal(detail) is not { } total || total == SizeLabel) return;
+            _measured = true;
+            SizeLabel = total;
+            SizeTooltip = "Size counted by the backup in progress.";
         }
 
         /// <summary>Before a first successful backup, shows the size of the

@@ -287,8 +287,11 @@ while the engine reads files the storage already holds, the amount sent hardly
 grows and no speed is shown. That
 happens when a backup starts again after an interruption, or has no earlier
 backup to compare with: the engine reads every file to find what the storage
-already holds. The time left follows the pace of the last five minutes, so it
-adjusts when a run speeds up or slows down.
+already holds. The time left follows the pace of the last five minutes, or of
+the last minute when that is slower: the engine can't tell which of the
+remaining files are new, so a large changed file lengthens the estimate at
+once, and it shortens again when the pace picks up. Once the engine has counted
+the source, its size next to the folder is the size counted by this run.
 
 **Activity & logs** shows each run as phases. A backup opens with what it
 starts from: the previous backup to that destination (date and snapshot), the

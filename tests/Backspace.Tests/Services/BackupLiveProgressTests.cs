@@ -185,6 +185,17 @@ public sealed class BackupLiveProgressTests
         Assert.Contains(" sent at ", fast[^1]);
     }
 
+    /// <summary>U141: the source shows the size this run counted, once counted.</summary>
+    [Fact]
+    public void The_counted_total_is_read_only_once_the_count_is_complete()
+    {
+        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 91.6% · Backing up · 172 / 190 GB · 504,701 / 601,922 files · 881 MB sent at 3.8 MB/s · about 2 min left"));
+        Assert.Equal("1.2 GB", BackupLiveProgress.CountedTotal("Backing up · 880 MB / 1.2 GB · 12 / 40 files"));
+        Assert.Null(BackupLiveProgress.CountedTotal("[progress] 13.0% · Backing up · 23 / ~177 GB · 41,135 / 56,281+ files · 1.6 MB sent"));
+        Assert.Null(BackupLiveProgress.CountedTotal("[progress] 0.0% · Backing up · 4.7 GB · 1,000 / 10,000+ files"));
+        Assert.Null(BackupLiveProgress.CountedTotal("Pruning…"));
+    }
+
     [Fact]
     public void The_size_a_finished_backup_read_is_taken_from_its_recap()
     {
@@ -267,6 +278,30 @@ public sealed class BackupLiveProgressTests
         }
         // 100.4 GB to go at 4.5 MB/s: about 6 hours, not minutes.
         Assert.Contains(" · about 6 h ", line);
+    }
+
+    /// <summary>U140 (5 November 2026): after minutes of unchanged files, local_c
+    /// reached a large changed file and said "about 2 min left" while sending
+    /// it at 3.8 MB/s with 18 GB to go. The last minute's slower pace now counts.</summary>
+    [Fact]
+    public void A_slowdown_lengthens_the_time_left_at_once_and_a_steady_pace_is_unchanged()
+    {
+        var live = new BackupLiveProgress();
+        var start = new DateTime(2026, 11, 5, 10, 34, 0, DateTimeKind.Utc);
+        const long total = 190_000_000_000;
+        string? fast = null, slow = null;
+        for (var t = 0; t <= 480; t += 5)
+        {
+            // 6 minutes of unchanged files at 400 MB/s up to 172 GB, then 3.8 MB/s.
+            long done = t <= 360 ? 28_000_000_000 + t * 400_000_000L : 172_000_000_000 + (t - 360) * 3_800_000L;
+            var line = live.Next(Operation(done / (double)total, done, total, 300_000 + t, 601_922), start.AddSeconds(t));
+            if (t == 330) fast = line;
+            if (t == 440) slow = line;
+        }
+        // Steady fast pace: the minute and the five minutes agree, 30 GB at 400 MB/s.
+        Assert.EndsWith(" · about 2 min left", fast);
+        // 80 s into the slow part, 17.7 GB to go at 3.8 MB/s: over an hour, not 2 min.
+        Assert.Contains(" · about 1 h ", slow);
     }
 
     [Fact]
