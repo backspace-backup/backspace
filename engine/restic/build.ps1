@@ -7,6 +7,7 @@ param(
     [string] $Arch = 'amd64'
 )
 $ErrorActionPreference = 'Stop'
+if (-not [IO.Path]::IsPathRooted($OutDir)) { $OutDir = Join-Path (Get-Location).Path $OutDir }
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $versions = Get-Content (Join-Path $repo 'src/Backspace/engine-versions.json') -Raw | ConvertFrom-Json
 $tag = $versions.restic                      # e.g. v0.19.1
