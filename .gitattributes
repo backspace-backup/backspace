@@ -1,0 +1,2 @@
+# Patches are applied to restic sources with LF line endings (engine/restic).
+*.patch -text

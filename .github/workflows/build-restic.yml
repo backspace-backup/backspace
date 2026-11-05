@@ -1,0 +1,42 @@
+# Builds Backspace's Windows restic (official release + engine/restic/patches)
+# and publishes it as the release engine-restic-<resticBackspace>. Run by hand
+# when engine-versions.json or the patches change. See engine/restic/README.md.
+name: Build restic for Windows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          cache: false
+      - name: Build
+        shell: pwsh
+        run: ./engine/restic/build.ps1 -OutDir out
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $build = (Get-Content src/Backspace/engine-versions.json -Raw | ConvertFrom-Json).resticBackspace
+          $tag = "engine-restic-$build"
+          $version = $build.Substring(1)
+          $notes = @"
+          restic $version for Backspace on Windows: the official restic $((Get-Content src/Backspace/engine-versions.json -Raw | ConvertFrom-Json).restic) source with the patches in engine/restic/patches at commit $env:GITHUB_SHA, built by this workflow (run $env:GITHUB_RUN_ID) with Go 1.26.4.
+
+          Why and when it goes away: engine/restic/README.md. Upstream proposal: https://github.com/restic/restic/pull/22165
+
+          Backspace versions using this build download it from here: do not delete this release.
+          "@
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "$tag already exists: raise resticBackspace for a new build" }
+          # A prerelease never becomes "latest", which Backspace's update check reads.
+          gh release create $tag --prerelease --latest=false --title "restic $version (Windows, for Backspace)" --notes $notes --target $env:GITHUB_SHA @((Get-ChildItem out/*.zip, out/*.sha256, engine/restic/patches/*.patch).FullName)
