@@ -91,7 +91,7 @@ internal static class ServiceActivation
 
     private static T ReadSmall<T>(string path)
     {
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var file = FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read), path);
         if (file.Length is <= 0 or > 8192) throw new InvalidDataException("A service activation record is invalid.");
         return JsonSerializer.Deserialize<T>(file, ServiceRunAuthorization.Json)
             ?? throw new InvalidDataException("A service activation record is missing.");

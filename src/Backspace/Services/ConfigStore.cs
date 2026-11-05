@@ -102,10 +102,15 @@ public sealed class ConfigStore
                     // process or thread doesn't surface as a sharing
                     // violation that the catch below would misreport as
                     // "Corrupt config file" — and then overwrite it.
-                    string text;
-                    using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-                    using (var sr = new StreamReader(fs))
-                        text = sr.ReadToEnd();
+                    // Another program holding it (Dropbox, a virus scanner) is
+                    // waited out, as long as it takes (U135): a lock used to
+                    // leave the settings unloaded, so a backup refused to start.
+                    var text = FileAccessRetry.Get(() =>
+                    {
+                        using var fs = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                        using var sr = new StreamReader(fs);
+                        return sr.ReadToEnd();
+                    }, _path);
                     _current = JsonSerializer.Deserialize<AppConfig>(text, Json)
                         ?? throw new JsonException("Settings file contains no configuration.");
                     _lastKnownFileHash = SHA256.HashData(Encoding.UTF8.GetBytes(text));
@@ -179,11 +184,19 @@ public sealed class ConfigStore
     public Task<bool> ReloadIfChangedAsync(CancellationToken ct = default) => Task.Run(() =>
     {
         bool changed;
+        // Read outside _gate: waiting for another program to let go of the file
+        // (U135) must not block everything else that reads the settings. A save
+        // by this process meanwhile wins: its hash changes, and this read is
+        // dropped instead of bringing back older settings.
+        byte[]? known;
+        lock (_gate) known = _lastKnownFileHash;
+        byte[] bytes;
+        using (StateFileLock.Acquire(_path))
+            bytes = FileAccessRetry.Get(() => File.ReadAllBytes(_path), _path, ct: ct);
         lock (_gate)
         {
             ct.ThrowIfCancellationRequested();
-            using var transaction = StateFileLock.Acquire(_path);
-            var bytes = File.ReadAllBytes(_path);
+            if (!ReferenceEquals(known, _lastKnownFileHash)) return false;
             var hash = SHA256.HashData(bytes);
             if (_loaded && _lastKnownFileHash is not null && hash.AsSpan().SequenceEqual(_lastKnownFileHash))
                 return false;
@@ -424,23 +437,17 @@ public sealed class ConfigStore
             // the bounded backoff aligned with other durable-file writers;
             // the maximum wait is 1.55 seconds, and persistent locks still
             // surface as a save failure instead of risking a partial write.
-            const int maxAttempts = 6;
-            for (int attempt = 1; ; attempt++)
+            // U135 (4 November 2026): no limit any more. With the portable
+            // folder in Dropbox, a lock can outlast any short wait; the save
+            // waits until the file is free (a notice after a few seconds).
+            FileAccessRetry.Run(() =>
             {
-                try
-                {
-                    if (File.Exists(_path))
-                        File.Replace(tmp, _path, destinationBackupFileName: _path + ".bak");
-                    else
-                        File.Move(tmp, _path);
-                    _lastKnownFileHash = SHA256.HashData(Encoding.UTF8.GetBytes(text));
-                    break;
-                }
-                catch (Exception ex) when (attempt < maxAttempts && FileReplacementErrors.CanRetry(ex))
-                {
-                    System.Threading.Thread.Sleep(50 << (attempt - 1));
-                }
-            }
+                if (File.Exists(_path))
+                    File.Replace(tmp, _path, destinationBackupFileName: _path + ".bak");
+                else
+                    File.Move(tmp, _path);
+            }, _path);
+            _lastKnownFileHash = SHA256.HashData(Encoding.UTF8.GetBytes(text));
             _log.Debug("Saved config: {BackupCount} backup(s), {DestCount} destination(s)",
                 _current.Backups.Count, _current.Destinations.Count);
         }

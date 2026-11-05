@@ -52,11 +52,13 @@ internal static class SystemServiceUpgrade
                 var name = Path.GetFileName(file);
                 if (name.StartsWith("history.json", StringComparison.OrdinalIgnoreCase)) continue;
                 var copy = Path.Combine(destination, name);
-                if (!File.Exists(copy)) File.Copy(file, copy);
+                if (!File.Exists(copy)) FileAccessRetry.Run(() => File.Copy(file, copy), file);
             }
             if (!RunHistoryFile.Exists(Path.Combine(backup, "history.json"))) continue;
-            var runs = new LogStore(from).LoadHistory(Path.GetFileName(backup));
-            var existing = store.LoadHistory(Path.GetFileName(backup)).Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
+            // Read so that a failure stops the move (the earlier folder is kept),
+            // never as an empty history that the deletion below would lose (U135).
+            var runs = new LogStore(from).LoadHistoryOrThrow(Path.GetFileName(backup));
+            var existing = store.LoadHistoryOrThrow(Path.GetFileName(backup)).Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
             foreach (var run in runs.Where(r => !existing.Contains(r.Id)).OrderBy(r => r.StartedUtc))
             {
                 run.LogPath = Relocate(run.LogPath, destination);

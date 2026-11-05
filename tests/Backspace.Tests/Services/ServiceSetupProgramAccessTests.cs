@@ -86,10 +86,11 @@ public sealed class ServiceSetupProgramAccessTests
             if (++attempts < 3) throw new UnauthorizedAccessException("Access to the path is denied.") { HResult = unchecked((int)0x80070005) };
         });
         Assert.Equal(3, attempts);
-        // A lasting lock still fails, and other errors are never retried.
-        Assert.Throws<UnauthorizedAccessException>(() => ServiceSetup.ReplaceRetrying(
-            () => throw new UnauthorizedAccessException("Access to the path is denied.") { HResult = unchecked((int)0x80070005) },
-            TimeSpan.FromMilliseconds(600)));
+        // A lasting lock is waited out until the operation is stopped (U135),
+        // and other errors are never retried.
+        using (var stop = new System.Threading.CancellationTokenSource(TimeSpan.FromMilliseconds(600)))
+            Assert.ThrowsAny<OperationCanceledException>(() => ServiceSetup.ReplaceRetrying(
+                () => throw new UnauthorizedAccessException("Access to the path is denied.") { HResult = unchecked((int)0x80070005) }, null, stop.Token));
         var other = 0;
         Assert.Throws<FileNotFoundException>(() => ServiceSetup.ReplaceRetrying(() => { other++; throw new FileNotFoundException(); }));
         Assert.Equal(1, other);

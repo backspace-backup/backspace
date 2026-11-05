@@ -111,11 +111,15 @@ public sealed class ServiceRunRecoveryTests
         var recovery = new ServiceRunRecovery(ws.Root, logs, queue); var context = Context(); recovery.Begin(context);
         var queuePath = Path.Combine(ws.Root, "desktop-notifications.json");
         File.WriteAllText(queuePath, "{\"version\":1,\"pending\":[],\"active\":null}");
-        using (var blocked = new FileStream(queuePath, FileMode.Open, FileAccess.Read, FileShare.None))
-            Assert.Throws<IOException>(() => recovery.Recover(context.HostRunId));
-        Assert.False(recovery.Read()!.Complete); Assert.Single(logs.LoadTimelineByBackupId("b"));
+        // The alert file held by another program: the recovery waits it out,
+        // as long as it takes (U135), and saves both the run and the alert.
+        var blocked = new FileStream(queuePath, FileMode.Open, FileAccess.Read, FileShare.None);
+        var release = System.Threading.Tasks.Task.Delay(1500).ContinueWith(_ => blocked.Dispose());
         recovery.Recover(context.HostRunId);
+        release.Wait();
         Assert.True(recovery.Read()!.Complete); Assert.Single(logs.LoadTimelineByBackupId("b"));
+        recovery.Recover(context.HostRunId); // again: nothing is added twice
+        Assert.Single(logs.LoadTimelineByBackupId("b"));
         Assert.Equal(context.HostRunId, queue.Take()!.Notice.RunId);
     }
 

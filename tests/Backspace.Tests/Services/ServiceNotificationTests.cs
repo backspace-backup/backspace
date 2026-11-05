@@ -43,12 +43,13 @@ public sealed class ServiceNotificationTests
     {
         var attempts = 0;
         ServiceNotificationQueue.Publish("pending", "saved", (_, _) =>
-        { if (++attempts < 3) throw new UnauthorizedAccessException(); }, _ => { });
+        { if (++attempts < 3) throw new UnauthorizedAccessException(); });
         Assert.Equal(3, attempts);
+        // Only locks are waited out (as long as they last, U135); other errors fail at once.
         attempts = 0;
-        Assert.Throws<UnauthorizedAccessException>(() => ServiceNotificationQueue.Publish("pending", "saved", (_, _) =>
-        { attempts++; throw new UnauthorizedAccessException(); }, _ => { }));
-        Assert.Equal(6, attempts);
+        Assert.Throws<FileNotFoundException>(() => ServiceNotificationQueue.Publish("pending", "saved", (_, _) =>
+        { attempts++; throw new FileNotFoundException(); }));
+        Assert.Equal(1, attempts);
     }
 
     [Fact]

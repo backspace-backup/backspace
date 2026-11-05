@@ -118,10 +118,11 @@ public sealed class SystemServiceTests
         await release;
         Assert.False(File.Exists(path));
         SystemServiceLifetime.DeleteRecord(path); // already gone: nothing to do
-        // A lasting lock still fails, after the wait.
+        // A lasting lock is waited out until the operation is stopped (U135).
         var again = QuitRecord(ws);
         using (new FileStream(SystemServiceLifetime.PathFor(again), FileMode.Open, FileAccess.Read, FileShare.Read))
-            Assert.ThrowsAny<IOException>(() => SystemServiceLifetime.DeleteRecord(SystemServiceLifetime.PathFor(again), TimeSpan.FromMilliseconds(300)));
+        using (var stop = new System.Threading.CancellationTokenSource(TimeSpan.FromMilliseconds(300)))
+            Assert.ThrowsAny<OperationCanceledException>(() => SystemServiceLifetime.DeleteRecord(SystemServiceLifetime.PathFor(again), stop.Token));
     }
 
     [Fact]

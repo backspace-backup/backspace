@@ -170,14 +170,15 @@ public sealed class WindowsUpdateTests
         var staged = JsonSerializer.Serialize(plan);
         var attempts = 0;
 
-        Assert.Throws<IOException>(() => WindowsUpdatePackage.SavePlan(plan,
+        // Blocked for a long time: it keeps trying (U135) until stopped.
+        Assert.Throws<OperationCanceledException>(() => WindowsUpdatePackage.SavePlan(plan,
             (_, _, _) =>
             {
                 attempts++;
                 throw new IOException("Synthetic sharing violation", unchecked((int)0x80070020));
-            }, _ => { }));
+            }, _ => { if (attempts == 40) throw new OperationCanceledException(); }));
 
-        Assert.Equal(6, attempts);
+        Assert.Equal(40, attempts);
         Assert.Equal(original, File.ReadAllText(planPath));
         Assert.Equal(staged, File.ReadAllText(planPath + ".new"));
     }

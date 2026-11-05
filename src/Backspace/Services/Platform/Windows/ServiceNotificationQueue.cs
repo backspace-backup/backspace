@@ -49,7 +49,7 @@ internal sealed class ServiceNotificationQueue(string directory, Func<DateTime>?
     private State Read()
     {
         if (!File.Exists(_path)) return new(1, new());
-        using var file = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var file = FileAccessRetry.Get(() => new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), _path);
         if (file.Length is <= 0 or > 8 * 1024 * 1024) throw new InvalidDataException("The pending notification file needs attention; it was retained.");
         var state = JsonSerializer.Deserialize<State>(file, ServiceRunAuthorization.Json) ?? throw new InvalidDataException();
         if (state.Version != 1 || state.Pending is null) throw new InvalidDataException();
@@ -69,18 +69,21 @@ internal sealed class ServiceNotificationQueue(string directory, Func<DateTime>?
 
     /// <summary>Writes a small record beside the settings: to a fresh
     /// temporary name, then over the record, waiting while another program
-    /// has either open. With the portable folder in Dropbox, Dropbox (or a
-    /// virus scanner) opened the fixed ".tmp" name and the record, and the
-    /// service could neither save that a backup was interrupted nor start the
-    /// resumed one (U131, 4 November 2026). A lasting lock still fails.</summary>
-    internal static void WriteRecord(string path, byte[] bytes, TimeSpan? wait = null)
+    /// has either open, as long as it takes (U135). With the portable folder
+    /// in Dropbox, Dropbox (or a virus scanner) opened the fixed ".tmp" name
+    /// and the record, and the service could neither save that a backup was
+    /// interrupted nor start the resumed one (U131, 4 November 2026).</summary>
+    internal static void WriteRecord(string path, byte[] bytes, CancellationToken ct = default)
     {
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            { file.Write(bytes); file.Flush(true); }
-            ServiceSetup.ReplaceRetrying(() => File.Move(temporary, path, overwrite: true), wait ?? TimeSpan.FromSeconds(10));
+            FileAccessRetry.Run(() =>
+            {
+                using var file = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None);
+                file.Write(bytes); file.Flush(true);
+            }, temporary, FileWaitReason.BackspaceFile, ct);
+            ServiceSetup.ReplaceRetrying(() => File.Move(temporary, path, overwrite: true), path, ct);
         }
         finally
         {
@@ -89,15 +92,8 @@ internal sealed class ServiceNotificationQueue(string directory, Func<DateTime>?
         }
     }
 
-    internal static void Publish(string pending, string path, Action<string, string>? replace = null, Action<int>? delay = null)
-    {
-        for (var attempt = 0; ; attempt++)
-        {
-            try { (replace ?? ((source, target) => File.Move(source, target, overwrite: true)))(pending, path); return; }
-            catch (Exception ex) when (attempt < 5 && FileReplacementErrors.CanRetry(ex))
-            { (delay ?? Thread.Sleep)(50 << attempt); }
-        }
-    }
+    internal static void Publish(string pending, string path, Action<string, string>? replace = null)
+        => ServiceSetup.ReplaceRetrying(() => (replace ?? ((source, target) => File.Move(source, target, overwrite: true)))(pending, path), path);
 
     internal static void Validate(BackgroundNotification notice)
     {

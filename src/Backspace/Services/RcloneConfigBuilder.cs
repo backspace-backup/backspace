@@ -79,7 +79,7 @@ public sealed class RcloneConfigBuilder
         try { gate.WaitOne(); } catch (System.Threading.AbandonedMutexException) { }
         try
         {
-            var existing = File.Exists(target) ? File.ReadAllText(target, Encoding.UTF8) : "";
+            var existing = File.Exists(target) ? FileAccessRetry.Get(() => File.ReadAllText(target, Encoding.UTF8), target) : "";
             var sections = ParseSections(existing);
             foreach (var destination in selected)
             {
@@ -104,16 +104,8 @@ public sealed class RcloneConfigBuilder
                 // A sync client, scanner or exiting rclone process can briefly
                 // deny replacement on Windows. Keep the previous complete file
                 // until the atomic rename succeeds; never truncate it in place.
-                for (var attempt = 0; ; attempt++)
-                {
-                    try { File.Move(temporary, target, overwrite: true); break; }
-                    catch (Exception ex) when (OperatingSystem.IsWindows() && attempt < 20
-                        && (ex is UnauthorizedAccessException
-                            || ex is IOException && (ex.HResult & 0xffff) is 5 or 32 or 33))
-                    {
-                        System.Threading.Thread.Sleep(100);
-                    }
-                }
+                // Waited out as long as it takes (U135); 2 seconds was a limit.
+                FileAccessRetry.Run(() => File.Move(temporary, target, overwrite: true), target);
                 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(target, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
@@ -130,7 +122,7 @@ public sealed class RcloneConfigBuilder
         // Import a refreshed token from the old shared file when upgrading.
         if (!File.Exists(target) && File.Exists(DefaultPath))
         {
-            var legacy = ParseSections(File.ReadAllText(DefaultPath, Encoding.UTF8));
+            var legacy = ParseSections(FileAccessRetry.Get(() => File.ReadAllText(DefaultPath, Encoding.UTF8), DefaultPath));
             if (legacy.TryGetValue(ResticUriResolver.RcloneRemoteNameFor(destination), out var section))
                 ImportRefreshedToken(destination, section, File.GetLastWriteTimeUtc(DefaultPath));
         }

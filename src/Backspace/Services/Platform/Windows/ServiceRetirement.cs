@@ -211,7 +211,8 @@ internal static class ServiceRetirement
             if (expectedHash is not null && (expectedHash.Version != 1 || expectedHash.ReturnId != saved.ReturnId))
                 throw new IOException("The service has not accepted this credential return.");
             var hash = expectedHash?.OwnerCiphertextSha256 ?? saved.OwnerCiphertextSha256;
-            using var ownerFile = new FileStream(Path.Combine(ServicePortableLayout.Config(root), "secrets.bin"), FileMode.Open, FileAccess.Read, FileShare.Read);
+            var ownerVault = Path.Combine(ServicePortableLayout.Config(root), "secrets.bin");
+            using var ownerFile = FileAccessRetry.Get(() => new FileStream(ownerVault, FileMode.Open, FileAccess.Read, FileShare.Read), ownerVault);
             if (!ServiceVaultReturnProtocol.Hash(hash) || Convert.ToHexString(SHA256.HashData(ownerFile)) != hash)
                 throw new IOException("The verified returned vault is missing or changed. The retained service data was not removed.");
             if (saved.Stage == "frozen")
@@ -281,13 +282,13 @@ internal static class ServiceRetirement
     private static void Write(string root, Record record) => ServiceSetup.WriteRecord(root, FileName, JsonSerializer.SerializeToUtf8Bytes(record, ServiceRunAuthorization.Json));
     private static T ReadBounded<T>(string path)
     {
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var file = FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read), path);
         if (file.Length is <= 0 or > 65536) throw new InvalidDataException("Invalid service removal record size.");
         return JsonSerializer.Deserialize<T>(file, ServiceRunAuthorization.Json) ?? throw new InvalidDataException();
     }
     private static T ReadTrusted<T>(string path)
     {
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var file = FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read), path);
         // After successful removal the program's original parent permissions
         // are restored. Trust this pinned administrator-owned record itself,
         // not a claim that the whole portable folder is still protected.

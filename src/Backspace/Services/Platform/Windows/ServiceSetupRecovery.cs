@@ -126,7 +126,7 @@ internal static class ServiceSetupRecovery
         {
             if (Path.GetFileName(path) != diagnostic || (File.GetAttributes(path) & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
                 return true;
-            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var file = FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read), path);
             if (file.Length is <= 0 or > 1024) return true;
             using var record = JsonDocument.Parse(file);
             if (record.RootElement.ValueKind != JsonValueKind.Object
@@ -141,7 +141,7 @@ internal static class ServiceSetupRecovery
     {
         using var held = new ServiceObjectPermissions(path, directory: false);
         ValidateTrusted(held);
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var stream = FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read), path);
         if (stream.Length is <= 0 or > 65536) throw new InvalidDataException("The setup recovery record is invalid.");
         return JsonSerializer.Deserialize<T>(stream, ServiceRunAuthorization.Json)
             ?? throw new InvalidDataException("The setup recovery record is empty.");

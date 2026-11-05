@@ -23,16 +23,21 @@ public sealed class InfrastructureReliabilityTests
         var store = new ConfigStore(); store.Load();
         store.Update(c => c.Logging.RetentionDays = 44);
         var prior = File.ReadAllBytes(AppPaths.ConfigFile);
-        using (var held = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.Read, FileShare.Read))
-            Assert.Throws<IOException>(() => store.Update(c => c.Logging.RetentionDays = 88));
-        Assert.Equal(44, store.Current.Logging.RetentionDays);
+        // Held by another program while saving: the save waits (U135), the
+        // saved file stays the previous one meanwhile, then the change lands.
+        var held = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var saving = System.Threading.Tasks.Task.Run(() => store.Update(c => c.Logging.RetentionDays = 88));
+        System.Threading.Thread.Sleep(1500);
+        Assert.False(saving.IsCompleted);
         Assert.Equal(prior, File.ReadAllBytes(AppPaths.ConfigFile));
         var pending = Assert.Single(Directory.GetFiles(AppPaths.ConfigRoot, "config.json.*.tmp"));
-        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(pending));
-        Assert.Equal(88, document.RootElement.GetProperty("logging").GetProperty("retentionDays").GetInt32());
-        store.Update(c => c.Logging.RetentionDays = 99);
+        using (var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(pending)))
+            Assert.Equal(88, document.RootElement.GetProperty("logging").GetProperty("retentionDays").GetInt32());
+        held.Dispose();
+        saving.GetAwaiter().GetResult();
+        Assert.Equal(88, store.Current.Logging.RetentionDays);
         Assert.Equal(prior, File.ReadAllBytes(AppPaths.ConfigFile + ".bak"));
-        Assert.Equal(99, store.Current.Logging.RetentionDays);
+        Assert.Empty(Directory.GetFiles(AppPaths.ConfigRoot, "config.json.*.tmp"));
     }
 
     [Fact]
@@ -66,9 +71,15 @@ public sealed class InfrastructureReliabilityTests
         Assert.Equal(1, notifications);
         if (OperatingSystem.IsWindows())
         {
-            using var held = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.Read, FileShare.None);
-            await Assert.ThrowsAsync<IOException>(() => gui.ReloadIfChangedAsync());
+            // Held by another program: the reload waits it out (U135), keeping
+            // the good state meanwhile, then finds nothing changed.
+            var held = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.Read, FileShare.None);
+            var reload = gui.ReloadIfChangedAsync();
+            await Task.Delay(1500);
+            Assert.False(reload.IsCompleted);
             Assert.Equal(83, gui.Current.Logging.RetentionDays);
+            held.Dispose();
+            Assert.False(await reload);
             Assert.Equal(1, notifications);
         }
         external.UpdateQuiet(c => c.Logging.RetentionDays = 19);
@@ -224,16 +235,18 @@ public sealed class InfrastructureReliabilityTests
         first.Set("existing", "keep-me");
         var original = File.ReadAllBytes(AppPaths.SecretsFile);
         var second = new SecretsStore(new PlainEncryption());
-        using (var held = new FileStream(AppPaths.SecretsFile, FileMode.Open, FileAccess.Read, FileShare.None))
-        {
-            Assert.Throws<IOException>(() => second.Get("existing"));
-            Assert.Throws<IOException>(() => second.Set("new", "must-not-persist"));
-            Assert.Null(second.LoadErrorMessage);
-            Assert.Null(second.PreservedCorruptPath);
-        }
+        // Held by another program (Dropbox, a virus scanner): the read waits,
+        // as long as it takes (U135), and never reads as corrupt or empty.
+        var held = new FileStream(AppPaths.SecretsFile, FileMode.Open, FileAccess.Read, FileShare.None);
+        var reading = System.Threading.Tasks.Task.Run(() => second.Get("existing"));
+        System.Threading.Thread.Sleep(1500);
+        Assert.False(reading.IsCompleted);
+        held.Dispose();
+        Assert.Equal("keep-me", reading.GetAwaiter().GetResult());
+        Assert.Null(second.LoadErrorMessage);
+        Assert.Null(second.PreservedCorruptPath);
         Assert.Equal(original, File.ReadAllBytes(AppPaths.SecretsFile));
         Assert.Empty(Directory.GetFiles(AppPaths.ConfigRoot, "*.unreadable-*"));
-        Assert.Equal("keep-me", second.Get("existing"));
         Assert.False(second.TryGet("new", out _));
         second.Set("new", "retry-success");
         Assert.Equal("keep-me", first.Get("existing"));
@@ -328,8 +341,9 @@ public sealed class InfrastructureReliabilityTests
         var data = workspace.Sub("engine");
         using (var first = BackrestSidecar.AcquireDataDirectoryLease(data))
         {
-            var exception = Assert.Throws<IOException>(() => BackrestSidecar.AcquireDataDirectoryLease(data));
-            Assert.Contains("left untouched", exception.Message);
+            // A second owner waits (as long as it takes, U135) without touching the first.
+            using var stop = new System.Threading.CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+            Assert.ThrowsAny<OperationCanceledException>(() => BackrestSidecar.AcquireDataDirectoryLease(data, stop.Token));
             using var independent = BackrestSidecar.AcquireDataDirectoryLease(workspace.Sub("other-engine"));
         }
         using var afterExit = BackrestSidecar.AcquireDataDirectoryLease(data);

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
 
 namespace Backspace.Services.Platform.Windows;
 
@@ -55,33 +56,43 @@ internal static class SystemServiceLifetime
     /// service checking it as it starts, or Dropbox syncing it when the
     /// portable folder is inside Dropbox. Opening 1.1.4 found it "being
     /// used by another process" and said tasks stayed paused (U121,
-    /// 4 November 2026). A lasting lock still fails.</summary>
-    internal static void DeleteRecord(string path, TimeSpan? budget = null)
+    /// 4 November 2026). It waits as long as it takes (U135).</summary>
+    internal static void DeleteRecord(string path, System.Threading.CancellationToken ct = default)
     {
-        try { ServiceSetup.ReplaceRetrying(() => File.Delete(path), budget); }
+        try { ServiceSetup.ReplaceRetrying(() => File.Delete(path), path, ct); }
         catch (DirectoryNotFoundException) { }
     }
 
     /// <summary>Run by the service as it starts. True while the owner's Quit
     /// still holds: the same sign-in session, in the same Windows start.</summary>
-    internal static bool StaysQuit(string dataDirectory, out string reason)
+    /// <param name="waiting">Called while another program holds the record,
+    /// so the service can ask Windows for more time to start (U135).</param>
+    internal static bool StaysQuit(string dataDirectory, out string reason, Action? waiting = null)
         => StaysQuit(dataDirectory, WindowsInteractiveSessionReader.CurrentBootId(),
-            id => new WindowsInteractiveSessionReader().Read(id), out reason);
+            id => new WindowsInteractiveSessionReader().Read(id), out reason, waiting);
 
-    internal static bool StaysQuit(string dataDirectory, uint? bootId, Func<int, InteractiveSessionIdentity?> readSession, out string reason)
+    internal static bool StaysQuit(string dataDirectory, uint? bootId, Func<int, InteractiveSessionIdentity?> readSession, out string reason, Action? waiting = null)
     {
         var path = PathFor(dataDirectory);
         if (!File.Exists(path)) { reason = "Windows or the owner started it"; return false; }
         QuitRecord? record;
         // Read without blocking its deletion: opening Backspace deletes it.
-        try
+        // Another program holding it (Dropbox, a virus scanner) is waited
+        // out, as long as it takes, instead of being read as "still quit"
+        // (U135, 4 November 2026).
+        while (true)
         {
-            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            record = JsonSerializer.Deserialize<QuitRecord>(file);
+            try
+            {
+                using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                record = JsonSerializer.Deserialize<QuitRecord>(file);
+                break;
+            }
+            // Deleted since it was found: Backspace was just opened.
+            catch (FileNotFoundException) { reason = "Windows or the owner started it"; return false; }
+            catch (Exception ex) when (FileAccessRetry.IsLock(ex)) { waiting?.Invoke(); Thread.Sleep(250); }
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { record = null; break; }
         }
-        // Deleted since it was found: Backspace was just opened.
-        catch (FileNotFoundException) { reason = "Windows or the owner started it"; return false; }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { record = null; }
         if (record is null)
         {
             // Unreadable: keep the Quit. Opening Backspace or signing in
@@ -114,7 +125,7 @@ internal static class SystemServiceLifetime
         {
             using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             { JsonSerializer.Serialize(file, record); file.Flush(true); }
-            ServiceSetup.ReplaceRetrying(() => File.Move(temporary, path, overwrite: true));
+            ServiceSetup.ReplaceRetrying(() => File.Move(temporary, path, overwrite: true), path);
         }
         finally { try { if (File.Exists(temporary)) File.Delete(temporary); } catch (IOException) { } }
     }

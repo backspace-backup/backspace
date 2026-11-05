@@ -108,16 +108,19 @@ public sealed class BackupCheckHistoryTests
         var result = BackupVerifier.VerifyOneFile(new("f", 5, Now), source, recovered, new());
         Assert.Equal(FileVerifyStatus.OkNoCompare, result.Status);
     }
-    [Fact] public void Locked_timeline_defers_retention_without_losing_results()
+    /// <summary>U135: a timeline held by another program (Dropbox, a virus
+    /// scanner) is waited for, as long as it takes; no result is lost.</summary>
+    [Fact] public void Locked_timeline_is_waited_out_without_losing_results()
     {
         using var ws = new TempWorkspace(); var logs = new LogStore { RetainLastNRuns = 1 }; var b = Backup();
         var first = Check(b, CheckDepth.RestoreAllFiles, BackupRunStatus.Failed, 20); logs.AppendRun(first);
         var timeline = Path.Combine(Path.GetDirectoryName(logs.GetHistoryFile(b.Name))!, "timeline.json");
-        using (var held = new FileStream(timeline, FileMode.Open, FileAccess.Read, FileShare.None))
-        {
-            logs.AppendRun(Check(b, CheckDepth.RepositoryStructure, BackupRunStatus.Success, 10));
-            Assert.Equal(2, logs.LoadHistoryByBackupId(b.Id).Count);
-        }
+        var held = new FileStream(timeline, FileMode.Open, FileAccess.Read, FileShare.None);
+        var appending = System.Threading.Tasks.Task.Run(() => logs.AppendRun(Check(b, CheckDepth.RepositoryStructure, BackupRunStatus.Success, 10)));
+        System.Threading.Thread.Sleep(1500);
+        Assert.False(appending.IsCompleted);
+        held.Dispose();
+        appending.GetAwaiter().GetResult();
         logs.AppendRun(Check(b, CheckDepth.RepositoryStructure, BackupRunStatus.Success, 1));
         Assert.Single(logs.LoadHistoryByBackupId(b.Id));
         Assert.Equal(3, logs.LoadTimelineByBackupId(b.Id).Count);

@@ -88,10 +88,14 @@ internal sealed class ScheduleState
         try
         {
             if (!File.Exists(path)) return state;
-            var saved = JsonSerializer.Deserialize<Dictionary<string, Entry>>(File.ReadAllBytes(path));
+            // A file another program holds (Dropbox, a virus scanner) is
+            // waited for, never taken as empty: that lost the times and the
+            // backups cut short, and skipped due runs (U135, 4 November 2026).
+            var bytes = FileAccessRetry.Get(() => File.ReadAllBytes(path), path);
+            var saved = JsonSerializer.Deserialize<Dictionary<string, Entry>>(bytes);
             if (saved is not null) foreach (var (key, entry) in saved) state.Entries[key] = entry;
         }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is JsonException || ex is IOException or UnauthorizedAccessException && !FileAccessRetry.IsLock(ex))
         {
             // Starting again from the next due times loses at most one catch-up run.
             AppLogger.For<ScheduleState>().Warning(ex, "The saved schedule times could not be read; using the next scheduled times");
@@ -117,7 +121,7 @@ internal sealed class ScheduleState
         try
         {
             File.WriteAllBytes(staging, JsonSerializer.SerializeToUtf8Bytes(Entries));
-            File.Move(staging, _path, overwrite: true);
+            FileAccessRetry.Run(() => File.Move(staging, _path, overwrite: true), _path);
             Changed = false;
         }
         finally { try { if (File.Exists(staging)) File.Delete(staging); } catch { /* Preserve the original error. */ } }

@@ -18,7 +18,7 @@ internal sealed class ServiceRunRecovery(string directory, LogStore logs, Servic
     internal Context? Read()
     {
         if (!File.Exists(_path)) return null;
-        using var file = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var file = FileAccessRetry.Get(() => new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), _path);
         if (file.Length is <= 0 or > 32 * 1024) throw new InvalidDataException("Invalid retained background-run context.");
         var context = JsonSerializer.Deserialize<Context>(file, ServiceRunAuthorization.Json) ?? throw new InvalidDataException();
         Validate(context); return context;

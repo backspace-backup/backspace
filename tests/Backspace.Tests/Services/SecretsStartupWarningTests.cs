@@ -79,18 +79,18 @@ public sealed class SecretsStartupWarningTests
         initial.Set("test-ref", "keep-original-value");
         var original = File.ReadAllBytes(AppPaths.SecretsFile);
         var store = new SecretsStore();
-        using (var locked = new FileStream(AppPaths.SecretsFile, FileMode.Open, FileAccess.Read, FileShare.None))
-        {
-            Assert.Throws<IOException>(() => store.ValidateReadable());
-            var warning = await SecretsStartupWarning.CheckAsync(store);
-            Assert.NotNull(warning);
-            Assert.Contains("temporarily unavailable", warning.Title);
-            Assert.Contains("have not been changed", warning.Message);
-            Assert.DoesNotContain("Re-enter", warning.Message);
-            Assert.Null(store.LoadErrorMessage);
-            Assert.Null(store.PreservedCorruptPath);
-            Assert.Empty(Directory.GetFiles(workspace.ConfigRoot, "secrets.bin.unreadable-*"));
-        }
+        // Held by another program (Dropbox, a virus scanner): the check waits
+        // it out (U135, with the app's notice after a few seconds) instead of
+        // warning, and never touches the vault.
+        var locked = new FileStream(AppPaths.SecretsFile, FileMode.Open, FileAccess.Read, FileShare.None);
+        var check = SecretsStartupWarning.CheckAsync(store);
+        await Task.Delay(1500);
+        Assert.False(check.IsCompleted);
+        locked.Dispose();
+        Assert.Null(await check);
+        Assert.Null(store.LoadErrorMessage);
+        Assert.Null(store.PreservedCorruptPath);
+        Assert.Empty(Directory.GetFiles(workspace.ConfigRoot, "secrets.bin.unreadable-*"));
         Assert.Equal(original, File.ReadAllBytes(AppPaths.SecretsFile));
         Assert.Null(await SecretsStartupWarning.CheckAsync(store));
         Assert.Equal("keep-original-value", store.Get("test-ref"));

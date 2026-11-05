@@ -70,8 +70,11 @@ internal static class ServiceApprovedWorker
 
         // Serialize workers across sessions using a private file, not the
         // interactive user's Local\\ mutex namespace. No automatic replay.
-        using var exclusive = new FileStream(Path.Combine(binding.DataDirectory, "worker.lock"),
-            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        // A worker still exiting, or Dropbox or a virus scanner opening the
+        // file, is waited out (U135).
+        var workerLock = Path.Combine(binding.DataDirectory, "worker.lock");
+        using var exclusive = FileAccessRetry.Get(() => new FileStream(workerLock,
+            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None), workerLock, ct: stop);
         var vault = new SecretsStore(new DpapiSecretsEncryption(), Path.Combine(binding.DataDirectory, "secrets.bin"));
         vault.WithMigrationSnapshot(_ => true, requireExisting: true);
         ServiceWorkerPrivileges.EnableExistingBackupRights();
@@ -135,9 +138,9 @@ internal static class ServiceApprovedWorker
                 vaultReadVerified = true, administrator = false, run = result,
             }, ServiceRunAuthorization.Json);
             var reportPath = Path.Combine(binding.DataDirectory, "last-service-run.json");
-            using (var file = new FileStream(reportPath + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
-            { file.Write(report); file.Flush(flushToDisk: true); }
-            ServiceSetup.ReplaceRetrying(() => File.Move(reportPath + ".tmp", reportPath, overwrite: true));
+            // A fresh temporary name, and no limit on waiting for another
+            // program to let go (U135).
+            ServiceNotificationQueue.WriteRecord(reportPath, report);
             return result.Status == BackupRunStatus.Success ? 0 : 4;
         }
         finally

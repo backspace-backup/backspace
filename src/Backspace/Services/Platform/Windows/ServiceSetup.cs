@@ -49,7 +49,7 @@ internal static class ServiceSetup
                 ? new[] { WindowsUpdateRuntime.GateName } : Array.Empty<string>()))
                 codeLocks.Add(name, new ServiceObjectPermissions(Path.Combine(root, name), directory: false));
             using var configLock = StateFileLock.Acquire(Path.Combine(configRoot, "config.json"));
-            var bytes = File.ReadAllBytes(Path.Combine(configRoot, "config.json"));
+            var bytes = FileAccessRetry.Get(() => File.ReadAllBytes(Path.Combine(configRoot, "config.json")), Path.Combine(configRoot, "config.json"));
             if (bytes.Length > ServiceRunAuthorization.MaximumApprovalBytes) throw new InvalidDataException("The backup settings are too large for service setup.");
             var json = bytes.AsSpan().StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }) ? bytes.AsSpan(3) : bytes.AsSpan();
             var config = JsonSerializer.Deserialize<AppConfig>(json, ServiceRunAuthorization.Json)
@@ -176,7 +176,7 @@ internal static class ServiceSetup
         if (File.Exists(gate) || Directory.Exists(gate))
         {
             RejectLink(gate);
-            using var stream = new FileStream(gate, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var stream = FileAccessRetry.Get(() => new FileStream(gate, FileMode.Open, FileAccess.Read, FileShare.Read), gate);
             if (stream.Length != 0) throw new IOException("The application-use lock is not an empty lock file. It was not changed.");
         }
     }
@@ -195,7 +195,7 @@ internal static class ServiceSetup
             || Directory.EnumerateFiles(binding.DataDirectory, "migration-*.receipt").Any())
             throw new InvalidOperationException("Credential handoff has already started. Resume verification before removing this setup; both vault copies have been preserved.");
         var path = ServicePortableLayout.Record(root, "permissions-before.json");
-        using var record = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var record = FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read), path);
         ServiceInstallationSecurity.ValidateProtectedRecord(path, root);
         if (record.Length is <= 0 or > 65536) throw new InvalidDataException("The saved folder permissions could not be verified.");
         var prior = JsonSerializer.Deserialize<List<PermissionRecord>>(record, ServiceRunAuthorization.Json)
@@ -252,28 +252,19 @@ internal static class ServiceSetup
         {
             using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             { file.Write(bytes); file.Flush(true); }
-            ReplaceRetrying(() => File.Move(temporary, path, overwrite: true));
+            ReplaceRetrying(() => File.Move(temporary, path, overwrite: true), path);
         }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        finally { try { if (File.Exists(temporary)) File.Delete(temporary); } catch (Exception ex) when (FileAccessRetry.IsLock(ex)) { } }
     }
 
     /// <summary>While the record is open for reading (the Backspace window or
-    /// the service checking setup, a virus scanner), Windows refuses to
-    /// replace it with "Access is denied", and setup stopped half way (U094).
-    /// Readers hold it for milliseconds and records change once per setup
-    /// step, so waiting up to 20 seconds is cheap; a lasting lock still fails.</summary>
-    internal static void ReplaceRetrying(Action replace, TimeSpan? budget = null)
-    {
-        var deadline = DateTime.UtcNow + (budget ?? TimeSpan.FromSeconds(20));
-        while (true)
-        {
-            try { replace(); return; }
-            catch (Exception ex) when (FileReplacementErrors.CanRetry(ex) && DateTime.UtcNow < deadline)
-            {
-                System.Threading.Thread.Sleep(250);
-            }
-        }
-    }
+    /// the service checking setup, a virus scanner, Dropbox), Windows refuses
+    /// to replace it with "Access is denied", and setup stopped half way
+    /// (U094). It waits until the file is free, as long as it takes, unless
+    /// <paramref name="ct"/> stops it: a limit of 20 seconds still failed
+    /// with the folder in Dropbox (U135, 4 November 2026).</summary>
+    internal static void ReplaceRetrying(Action replace, string? path = null, System.Threading.CancellationToken ct = default)
+        => FileAccessRetry.Run(replace, path ?? "", FileWaitReason.BackspaceFile, ct);
 
     /// <summary>Adds read and execute for the service's account to an object's
     /// current permissions, leaving every existing entry as it is.</summary>

@@ -40,7 +40,7 @@ internal sealed class ServiceRunAuthorization
     {
         // Keep the approval handle open against replacement while inspecting and
         // reading it. The installer must publish a new approval atomically.
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var file = FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read), path);
         ServiceInstallationSecurity.ValidateProtectedRecord(path, protectedInstallation);
         if (file.Length is <= 0 or > MaximumApprovalBytes) throw new InvalidDataException("The service approval has an invalid size.");
         var bytes = new byte[checked((int)file.Length)];

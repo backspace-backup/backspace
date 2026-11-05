@@ -24,7 +24,9 @@ internal static class RunHistoryFile
         var records = new List<RunRecord>();
         foreach (var file in files)
         {
-            using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            // Waited out while another program holds it (U135): read as
+            // unreadable, a lock made the history look empty.
+            using var stream = FileAccessRetry.Get(() => new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), file);
             records.AddRange(JsonSerializer.Deserialize<List<RunRecord>>(stream, options)
                 ?? throw new JsonException("History contains no run list."));
         }
@@ -32,7 +34,7 @@ internal static class RunHistoryFile
     }
 
     internal static void Write(string path, List<RunRecord> records, JsonSerializerOptions options,
-        Action<string, string, string>? replace = null, Action<int>? delay = null)
+        Action<string, string, string>? replace = null)
     {
         var recoveries = RecoveryFiles(path).ToArray();
         var latest = recoveries.Select(p => Sequence(path, p)).DefaultIfEmpty(0).Max();
@@ -57,23 +59,16 @@ internal static class RunHistoryFile
             // Otherwise an undeletable stale pending file could override a newer
             // committed outcome on the next read. The new pending copy survives
             // a failure here, so no result depends on deleting the older copy.
-            foreach (var old in recoveries.Where(p => IsKind(path, p, "pending"))) File.Delete(old);
-            for (var attempt = 0; ; attempt++)
+            foreach (var old in recoveries.Where(p => IsKind(path, p, "pending")))
+                FileAccessRetry.Run(() => File.Delete(old), old);
+            // No limit (U135): a run's history waits until another program
+            // (Dropbox, a virus scanner) lets go of the file. 1176/1177 are
+            // never retried: Windows may already have renamed the old file.
+            FileAccessRetry.Run(() =>
             {
-                try
-                {
-                    if (File.Exists(path)) (replace ?? File.Replace)(pending, path, previous);
-                    else File.Move(pending, path);
-                    break;
-                }
-                catch (Exception ex) when (attempt < 5 && FileReplacementErrors.CanRetry(ex))
-                {
-                    // No delay on success; at most 1.55 seconds for a held file.
-                    // Do not retry 1176/1177: Windows may already have renamed
-                    // the old file. Both complete copies remain recoverable.
-                    (delay ?? Thread.Sleep)(50 << attempt);
-                }
-            }
+                if (File.Exists(path)) (replace ?? File.Replace)(pending, path, previous);
+                else File.Move(pending, path);
+            }, path);
         }
         catch
         {

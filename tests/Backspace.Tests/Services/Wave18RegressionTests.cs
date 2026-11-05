@@ -41,17 +41,19 @@ public class Wave18RegressionTests
 
             // Re-open and exclusive-lock the file, simulating a concurrent
             // writer's File.Replace mid-flight.
-            using (var locker = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.Read, FileShare.None))
-            {
-                var locked = new ConfigStore();
-                locked.Load();
-                // Should NOT have wiped the file, should NOT have created
-                // a .broken.* sibling — must have logged & kept defaults.
-                var brokenSiblings = Directory.GetFiles(
-                    Path.GetDirectoryName(AppPaths.ConfigFile)!,
-                    Path.GetFileName(AppPaths.ConfigFile) + ".broken.*");
-                Assert.Empty(brokenSiblings);
-            }
+            // U135: the load now waits the lock out (as long as it takes) and
+            // then loads the real settings: never defaults, never a .broken copy.
+            var locker = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.Read, FileShare.None);
+            var release = System.Threading.Tasks.Task.Delay(1500).ContinueWith(_ => locker.Dispose());
+            var locked = new ConfigStore();
+            locked.Load();
+            release.Wait();
+            Assert.True(locked.IsLoaded);
+            Assert.Single(locked.Current.Backups);
+            var brokenSiblings = Directory.GetFiles(
+                Path.GetDirectoryName(AppPaths.ConfigFile)!,
+                Path.GetFileName(AppPaths.ConfigFile) + ".broken.*");
+            Assert.Empty(brokenSiblings);
 
             // Sanity: original file still loads after the lock releases.
             var reopen = new ConfigStore();

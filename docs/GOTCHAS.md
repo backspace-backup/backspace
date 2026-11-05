@@ -427,7 +427,7 @@ then decides from `service\quit.json` whether the owner's Quit still holds (the
 same sign-in session in the same boot) and stops again within a fraction of a
 second if so (`SystemServiceLifetime`). Because those starts often coincide
 with the owner opening Backspace, the service reads the record with delete
-sharing, and the desktop retries deleting it for up to 20 seconds: Dropbox
+sharing, and the desktop retries deleting it as long as it takes (see below): Dropbox
 also opens it when the portable folder is synced (U121, 4 November 2026: "Scheduled tasks
 are still paused … being used by another process"). When the service stops, it
 keeps reading its backup worker's output until the worker exits: a stopping
@@ -440,3 +440,34 @@ or the User Profile Service as triggers: they fire thousands of times or every
 two minutes. `ServiceController.Stop` also lists dependent services; the owner
 may only stop and query, so `SystemService.StopAndWait` calls `ControlService`
 directly.
+
+## Files another program holds (Dropbox, virus scanners)
+
+Backspace.config sits beside the executable, which is often inside a Dropbox
+folder. Dropbox, virus scanners, the search indexer and the other Backspace
+process (app or service) open files there briefly, so any read, write, move or
+delete can fail with a sharing violation (Windows errors 32 and 33), "access
+denied" (5) or 1175. The rule for every persistent file: retry until it works,
+for as long as it takes, never give up after a fixed time, and never treat a
+locked file as missing, empty or corrupt (U135, 4 November 2026).
+
+- `FileAccessRetry.Run` / `Get` / `RunAsync` retry forever. In the app, a
+  notice appears after a few seconds and lets the person stop that one
+  operation. In the background service, which has no window, the retry logs
+  a warning and ends only with the operation's stop token. Call it from a
+  worker thread, not the UI thread.
+- `StateFileLock.Acquire` without a timeout waits as long as it takes.
+- `ServiceSetup.ReplaceRetrying` and `ServiceNotificationQueue.WriteRecord`
+  go through the same retry. Write records to a fresh temporary name (a fixed
+  `.tmp` name can itself be held), then move it over the record.
+- Never retry Windows errors 1176 and 1177 from `File.Replace`: Windows may
+  already have renamed the original (`FileReplacementErrors.CanRetry`).
+- The service reads `quit.json` in `OnStart`, inside the 30 seconds Windows
+  allows for starting: while the file is held it asks Windows for more time
+  (`RequestAdditionalTime`) instead of guessing.
+- Readers share for writing and deletion where they can
+  (`FileShare.ReadWrite | FileShare.Delete`), so the other process can still
+  replace the file.
+
+Known gap: `ConfigStore` saves while holding its in-memory gate, so a long
+lock during a save also delays code that reads the settings meanwhile.

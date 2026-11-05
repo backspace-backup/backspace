@@ -32,6 +32,11 @@ internal sealed record FileWaitReason(string Title, string StopLabel, string Con
         "The result stays in the list. You can hide it later.");
     internal static readonly FileWaitReason Cleanup = new("Waiting to remove temporary restore files", "Leave temporary files",
         "Stopping leaves the remaining temporary copies in the folder below. Cleanup will be reported as unfinished; it does not delete your backup or recovered destination files.");
+    /// <summary>Any of Backspace's own files (settings, history, schedule,
+    /// records): with the portable folder in Dropbox, Dropbox or a virus
+    /// scanner opens them briefly (U135, 4 November 2026).</summary>
+    internal static readonly FileWaitReason BackspaceFile = new("Waiting for a Backspace file another program is using", "Stop waiting",
+        "Another program, often Dropbox or a virus scanner, has this file open. Backspace keeps trying until it is free; stopping cancels this one operation and leaves the file as it was.");
     internal static readonly FileWaitReason Restore = new("Waiting to place a restored file", "Stop restore",
         "Another program is using this file. Stopping cancels the restore and recovers replaced originals. If a file remains locked during recovery, its saved copy is kept and its location is reported.");
 }
@@ -74,9 +79,10 @@ internal static class FileAccessRetry
         finally { if (notice is not null) { Waiting.TryRemove(notice.Id, out _); Changed?.Invoke(); } }
     }
 
-    internal static void Run(Action action, string path, FileWaitReason reason,
+    internal static void Run(Action action, string path, FileWaitReason? reason = null,
         CancellationToken ct = default, bool directoryCleanup = false)
     {
+        reason ??= FileWaitReason.BackspaceFile;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         FileWaitNotice? notice = null;
         var elapsed = Stopwatch.StartNew();
@@ -110,9 +116,23 @@ internal static class FileAccessRetry
         }
     }
 
+    /// <summary>Runs <paramref name="action"/> until no other program holds
+    /// <paramref name="path"/>: forever, unless stopped (U135). The app shows
+    /// a stoppable notice after a few seconds; the background service, which
+    /// has no window, logs it and keeps trying until it stops.</summary>
+    internal static T Get<T>(Func<T> action, string path, FileWaitReason? reason = null, CancellationToken ct = default)
+    {
+        T result = default!;
+        Run(() => { result = action(); }, path, reason, ct);
+        return result;
+    }
+
+    /// <summary>True for the errors another program holding a file causes.</summary>
+    internal static bool IsLock(Exception error) => IsAccessConflict(error, "", false);
+
     private static bool IsAccessConflict(Exception error, string path, bool directoryCleanup) =>
         OperatingSystem.IsWindows() && error is IOException or UnauthorizedAccessException
-        && (directoryCleanup || !Directory.Exists(path))
+        && (directoryCleanup || path.Length == 0 || !Directory.Exists(path))
         && (FileReplacementErrors.CanRetry(error) || (directoryCleanup && (error.HResult & 0xFFFF) == 145));
 }
 

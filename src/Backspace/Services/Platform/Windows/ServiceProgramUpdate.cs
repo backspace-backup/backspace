@@ -284,7 +284,7 @@ internal static class ServiceProgramUpdate
     private static T ReadTrusted<T>(string root, string name)
     {
         var path = ServicePortableLayout.Record(root, name);
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var file = FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read), path);
         ServiceInstallationSecurity.ValidateProtectedRecord(path, root);
         if (file.Length is <= 0 or > 262144) throw new InvalidDataException("Invalid application update record.");
         return JsonSerializer.Deserialize<T>(file, ServiceRunAuthorization.Json) ?? throw new InvalidDataException();

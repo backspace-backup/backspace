@@ -13,7 +13,9 @@ internal static class ServiceConfigurationComparison
     internal static AppConfig ReadDesktop(string installation)
     {
         var path = Path.Combine(ServicePortableLayout.Config(installation), "config.json");
-        using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        // Shared for writing and deletion, so the app can still save while the
+        // service reads; another program holding it is waited out (U135).
+        using var source = FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), path);
         if (source.Length is <= 0 or > ServiceRunAuthorization.MaximumApprovalBytes)
             throw new InvalidDataException("The saved backup settings could not be checked.");
         SkipByteOrderMark(source);

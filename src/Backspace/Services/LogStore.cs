@@ -272,6 +272,19 @@ public sealed class LogStore
 
     private static List<RunRecord> ReadHistory(string file) => RunHistoryFile.Read(file, JsonOpts);
 
+    /// <summary>Like <see cref="LoadHistory"/>, but a history that can't be
+    /// read throws instead of reading as empty: before copying runs and then
+    /// deleting their source, an empty read lost them (U135).</summary>
+    internal List<RunRecord> LoadHistoryOrThrow(string backupName)
+    {
+        var file = GetHistoryFile(backupName);
+        lock (_gate)
+        {
+            using var transaction = StateFileLock.Acquire(file);
+            return ReadHistory(file);
+        }
+    }
+
     private static IEnumerable<string> LogPaths(RunRecord record)
         => new[] { record.LogPath }.Concat(record.Cells.Select(c => c.LogPath));
 

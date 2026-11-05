@@ -106,8 +106,11 @@ internal sealed class ServiceMigrationProtocol
                 // the source authoritative and requires explicit recovery;
                 // it must not allow a missing vault to be silently reseeded.
                 Progress("reserving-import");
-                using (var receipt = new FileStream(_receipt, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                { receipt.WriteByte(1); receipt.Flush(true); }
+                FileAccessRetry.Run(() =>
+                {
+                    using var receipt = new FileStream(_receipt, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                    receipt.WriteByte(1); receipt.Flush(true);
+                }, _receipt);
                 _vault.ImportIntoNewVault(request.Secrets!);
             }
             else if (!File.Exists(_receipt)) throw new InvalidDataException();
@@ -123,7 +126,7 @@ internal sealed class ServiceMigrationProtocol
                     // Invalidate acceptance BEFORE any possible replacement.
                     // A crash can leave work to retry, never permission to
                     // activate a credential copy that was not reread afterward.
-                    File.Delete(_receipt + ".accepted");
+                    FileAccessRetry.Run(() => File.Delete(_receipt + ".accepted"), _receipt + ".accepted");
                     _vault.ReplaceMigrationCopy(request.Secrets!, current =>
                         current.Count == request.ExpectedCount && Digest(current) == request.ExpectedDigest);
                     return true;
@@ -148,7 +151,7 @@ internal sealed class ServiceMigrationProtocol
                     {
                         using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                         { file.Write(bytes); file.Flush(true); }
-                        ServiceSetup.ReplaceRetrying(() => File.Move(temporary, accepted, overwrite: true));
+                        ServiceSetup.ReplaceRetrying(() => File.Move(temporary, accepted, overwrite: true), accepted);
                     }
                     finally { if (File.Exists(temporary)) File.Delete(temporary); }
                     _accepted?.Invoke();

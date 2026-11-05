@@ -69,7 +69,7 @@ public sealed class FinalPersistenceRegressionTests
     }
 
     [Fact]
-    public async Task Actual_unattended_entry_point_rejects_temporarily_locked_vault_without_changing_bytes()
+    public async Task Actual_unattended_entry_point_waits_out_a_locked_vault_without_changing_bytes()
     {
         using var workspace = new TempWorkspace("unattended-locked-vault");
         var store = new SecretsStore();
@@ -79,8 +79,14 @@ public sealed class FinalPersistenceRegressionTests
         try
         {
             SetService(nameof(ServiceLocator.Secrets), new SecretsStore());
-            using (var locked = new FileStream(AppPaths.SecretsFile, FileMode.Open, FileAccess.Read, FileShare.None))
-                Assert.Equal(4, await InvokeUnattended(RunKind.Backup, "not-a-configured-backup"));
+            // Held by another program: the run waits (U135) instead of failing,
+            // then goes on (here to its own error: the backup does not exist).
+            var locked = new FileStream(AppPaths.SecretsFile, FileMode.Open, FileAccess.Read, FileShare.None);
+            var run = Task.Run(() => InvokeUnattended(RunKind.Backup, "not-a-configured-backup"));
+            await Task.Delay(1500);
+            Assert.False(run.IsCompleted);
+            locked.Dispose();
+            Assert.NotEqual(0, await run);
             Assert.Equal(bytes, File.ReadAllBytes(AppPaths.SecretsFile));
             Assert.Null(ServiceLocator.Secrets.LoadErrorMessage);
             Assert.Equal("keep", ServiceLocator.Secrets.Get("fixture"));

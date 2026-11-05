@@ -87,7 +87,7 @@ internal sealed class SystemBackupService : ServiceBase
         // Started by Windows while the owner had quit Backspace (a resume
         // from sleep, or a start trigger): stay stopped until the next sign-in,
         // restart or Windows start.
-        if (SystemServiceLifetime.StaysQuit(_binding.DataDirectory, out var reason))
+        if (SystemServiceLifetime.StaysQuit(_binding.DataDirectory, out var reason, () => RequestAdditionalTime(2000)))
         {
             log.Information("Staying stopped: {Reason}", reason);
             ExitCode = 0;

@@ -144,7 +144,7 @@ public sealed class SecretsStore
                         file.Flush(flushToDisk: true);
                     }
                     // Never replace a file created after the earlier check.
-                    File.Move(temporary, _path, overwrite: false);
+                    FileAccessRetry.Run(() => File.Move(temporary, _path, overwrite: false), _path);
                 }
                 finally
                 {
@@ -282,7 +282,9 @@ public sealed class SecretsStore
     private Dictionary<string, string> Load(bool preserveBeforeReplacement = false)
     {
         byte[] wrapped;
-        try { wrapped = File.ReadAllBytes(_path); }
+        // Another program holding the vault (Dropbox, a virus scanner) is
+        // waited out, as long as it takes (U135).
+        try { wrapped = FileAccessRetry.Get(() => File.ReadAllBytes(_path), _path); }
         catch (FileNotFoundException) when (!File.Exists(_path + ".bak")) { return new(); }
         catch (DirectoryNotFoundException) { return new(); }
 
@@ -397,21 +399,14 @@ public sealed class SecretsStore
             fs.Write(bytes, 0, bytes.Length);
             fs.Flush(flushToDisk: true);
         }
-        for (var attempt = 0; ; attempt++)
+        // Windows guarantees the original names survive the errors retried
+        // here; an uncertain rename (1176/1177) is never retried. No limit
+        // (U135): the vault waits until another program lets go of it.
+        FileAccessRetry.Run(() =>
         {
-            try
-            {
-                if (File.Exists(path)) File.Replace(tmp, path, destinationBackupFileName: bak);
-                else File.Move(tmp, path);
-                break;
-            }
-            catch (Exception ex) when (attempt < 5 && FileReplacementErrors.CanRetry(ex))
-            {
-                // Windows guarantees the original names survive these errors.
-                // A failed save stays a failure; never retry an uncertain rename.
-                System.Threading.Thread.Sleep(50 << attempt);
-            }
-        }
+            if (File.Exists(path)) File.Replace(tmp, path, destinationBackupFileName: bak);
+            else File.Move(tmp, path);
+        }, path);
         // File.Replace preserves the destination's mode; on Unix the
         // very first launch wrote secrets-key.bin at whatever umask
         // was active, so reassert 0600 after every rename to converge.

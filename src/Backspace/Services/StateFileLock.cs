@@ -30,8 +30,12 @@ internal static class StateFileLock
             return new Lease(path);
         }
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        // Without a limit it waits as long as it takes: the other Backspace
+        // process releases it within moments, and Dropbox or a virus scanner
+        // opening the lock file looks the same. It used to give up after 5 s,
+        // failing backups and losing history records (U135, 4 November 2026).
         var watch = Stopwatch.StartNew();
-        var limit = timeout ?? TimeSpan.FromSeconds(5);
+        var warned = false;
         while (true)
         {
             try
@@ -41,9 +45,15 @@ internal static class StateFileLock
                 _held.Add(path, new Entry(stream));
                 return new Lease(path);
             }
-            catch (IOException) when (watch.Elapsed < limit)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                && (timeout is null || watch.Elapsed < timeout) && (ex is IOException || FileAccessRetry.IsLock(ex)))
             {
-                Thread.Sleep(25);
+                if (!warned && watch.Elapsed > TimeSpan.FromSeconds(5))
+                {
+                    warned = true;
+                    AppLogger.For("StateFileLock").Warning("Waiting for {Path}: another program or Backspace process holds it. Retrying until it is free.", path);
+                }
+                Thread.Sleep(watch.Elapsed < TimeSpan.FromSeconds(1) ? 25 : 250);
             }
         }
     }

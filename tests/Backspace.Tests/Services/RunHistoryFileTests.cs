@@ -36,19 +36,21 @@ public sealed class RunHistoryFileTests
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!,"*.pending-*.json"));
     }
 
+    /// <summary>U135 (4 November 2026): a lock (Dropbox, a virus scanner)
+    /// is waited out however long it lasts; before, the save gave up after
+    /// 1.55 s and the run's record waited for the next append.</summary>
     [Fact]
-    public void PersistentLockKeepsOldAndPendingHistory_AndNextAppendRecoversBoth()
+    public void A_lock_is_waited_out_and_the_history_is_saved()
     {
         using var ws=new TempWorkspace();var path=Path.Combine(ws.Root,"history.json");
         RunHistoryFile.Write(path,new(){Record("first")},Json);
-        var previous=File.ReadAllBytes(path);var delays=0;
-        using(var held=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read))
-            Assert.ThrowsAny<IOException>(()=>RunHistoryFile.Write(path,new(){Record("first"),Record("second")},Json,delay:_=>delays++));
-        Assert.Equal(5,delays);Assert.Equal(previous,File.ReadAllBytes(path));
+        var held=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+        var release=System.Threading.Tasks.Task.Delay(2500).ContinueWith(_=>held.Dispose());
+        var watch=System.Diagnostics.Stopwatch.StartNew();
+        RunHistoryFile.Write(path,new(){Record("first"),Record("second")},Json);
+        release.Wait();
+        Assert.True(watch.Elapsed>=TimeSpan.FromSeconds(2)); // it really waited past the old 1.55 s limit
         Assert.Equal(2,RunHistoryFile.Read(path,Json).Count);
-        var recovered=RunHistoryFile.Read(path,Json);recovered.Add(Record("third"));
-        RunHistoryFile.Write(path,recovered,Json);
-        Assert.Equal(3,RunHistoryFile.Read(path,Json).Count);
         Assert.Single(Directory.GetFiles(ws.Root,"history.json*"));
     }
 
@@ -61,8 +63,7 @@ public sealed class RunHistoryFileTests
         RunHistoryFile.Write(path,new(){Record("first")},Json);
         var calls=0;
         Assert.Throws<IOException>(()=>RunHistoryFile.Write(path,new(){Record("first"),Record("second")},Json,
-            (pending,current,previous)=>{calls++;File.Move(current,previous);throw new IOException("Simulated interrupted Windows replacement",unchecked((int)0x80070000)|error);},
-            _=>throw new Exception("An uncertain rename must not be retried")));
+            (pending,current,previous)=>{calls++;File.Move(current,previous);throw new IOException("Simulated interrupted Windows replacement",unchecked((int)0x80070000)|error);}));
         Assert.Equal(1,calls);Assert.False(File.Exists(path));Assert.True(RunHistoryFile.Exists(path));
         Assert.Equal(2,RunHistoryFile.Read(path,Json).Count);
         RunHistoryFile.Write(path,RunHistoryFile.Read(path,Json),Json);
@@ -78,8 +79,13 @@ public sealed class RunHistoryFileTests
         Assert.Throws<IOException>(()=>RunHistoryFile.Write(path,new(){Record("same",BackupRunStatus.Skipped)},Json,
             (_,_,_)=>throw new IOException("Disk full",unchecked((int)0x80070070))));
         var oldPending=Assert.Single(Directory.GetFiles(ws.Root,"*.pending-*.json"));
-        using(var held=new FileStream(oldPending,FileMode.Open,FileAccess.Read,FileShare.Read))
-            Assert.Throws<IOException>(()=>RunHistoryFile.Write(path,new(){Record("same",BackupRunStatus.Success)},Json));
+        // The old pending copy held by another program: its removal waits (U135),
+        // and the newer outcome is published only after it is gone.
+        var held=new FileStream(oldPending,FileMode.Open,FileAccess.Read,FileShare.Read);
+        var release=System.Threading.Tasks.Task.Delay(1500).ContinueWith(_=>held.Dispose());
+        RunHistoryFile.Write(path,new(){Record("same",BackupRunStatus.Success)},Json);
+        release.Wait();
+        Assert.False(File.Exists(oldPending));
         Assert.Equal(BackupRunStatus.Success,Assert.Single(RunHistoryFile.Read(path,Json)).Status);
         RunHistoryFile.Write(path,RunHistoryFile.Read(path,Json),Json);
         Assert.Equal(BackupRunStatus.Success,Assert.Single(RunHistoryFile.Read(path,Json)).Status);

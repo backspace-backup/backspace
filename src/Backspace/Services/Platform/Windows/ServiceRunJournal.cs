@@ -37,7 +37,7 @@ internal sealed class ServiceRunJournal(string dataDirectory)
 
     private static FileStream? OpenIfPresent(string path)
     {
-        try { return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read); }
+        try { return FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), path); }
         catch (FileNotFoundException) { return null; }
         catch (DirectoryNotFoundException) { return null; }
     }
@@ -51,5 +51,5 @@ internal sealed class ServiceRunJournal(string dataDirectory)
             throw new InvalidDataException("Invalid run receipt.");
         return result;
     }
-    private static void WriteAtomic(string path, byte[] bytes) => ServiceNotificationQueue.WriteRecord(path, bytes, TimeSpan.FromSeconds(20));
+    private static void WriteAtomic(string path, byte[] bytes) => ServiceNotificationQueue.WriteRecord(path, bytes);
 }

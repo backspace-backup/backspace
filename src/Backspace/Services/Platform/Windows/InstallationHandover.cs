@@ -89,7 +89,7 @@ internal static class InstallationHandover
         try
         {
             var target = Path.Combine(other.Installation, "Backspace.exe");
-            ServiceSetup.ReplaceRetrying(() => File.Copy(Environment.ProcessPath!, target, overwrite: true), TimeSpan.FromSeconds(30));
+            ServiceSetup.ReplaceRetrying(() => File.Copy(Environment.ProcessPath!, target, overwrite: true), target);
         }
         finally
         {
@@ -144,7 +144,7 @@ internal static class InstallationHandover
             if (system is not null)
             {
                 // Quitting the other window recorded a Quit; this is a move.
-                try { File.Delete(SystemServiceLifetime.PathFor(SystemService.DataDirectoryFor(here))); } catch (IOException) { }
+                SystemServiceLifetime.DeleteRecord(SystemServiceLifetime.PathFor(SystemService.DataDirectoryFor(here)));
                 RepointService(here);
             }
             WindowsUpdateRuntime.Launch(Path.Combine(here, "Backspace.exe"));
@@ -175,16 +175,24 @@ internal static class InstallationHandover
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern int MessageBoxW(IntPtr owner, string text, string caption, uint type);
 
+    /// <summary>Moves the settings folder. A file another program holds
+    /// (Dropbox, a virus scanner) is waited out, as long as it takes, and the
+    /// original is deleted only after every file was copied whole (U135).</summary>
     private static void MoveDirectory(string from, string to)
     {
-        try { Directory.Move(from, to); return; }
+        try { FileAccessRetry.Run(() => Directory.Move(from, to), ""); return; }
         catch (IOException) when (!string.Equals(Path.GetPathRoot(from), Path.GetPathRoot(to), StringComparison.OrdinalIgnoreCase)) { }
         // Another drive: copy everything, then delete the original.
         foreach (var directory in Directory.EnumerateDirectories(from, "*", SearchOption.AllDirectories))
             Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, directory)));
         Directory.CreateDirectory(to);
         foreach (var file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
-            File.Copy(file, Path.Combine(to, Path.GetRelativePath(from, file)), overwrite: false);
-        Directory.Delete(from, recursive: true);
+        {
+            var copy = Path.Combine(to, Path.GetRelativePath(from, file));
+            FileAccessRetry.Run(() => File.Copy(file, copy, overwrite: true), file);
+            if (new FileInfo(copy).Length != new FileInfo(file).Length)
+                throw new IOException("A settings file was not copied whole. The original folder was kept: " + file);
+        }
+        FileAccessRetry.Run(() => Directory.Delete(from, recursive: true), from, directoryCleanup: true);
     }
 }

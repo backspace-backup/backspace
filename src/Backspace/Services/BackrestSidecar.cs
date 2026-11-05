@@ -175,7 +175,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
 
         // Hold this directory exclusively for the whole daemon lifetime.
         // A second owner must never rewrite its live database or kill it.
-        _dataLease = AcquireDataDirectoryLease(DataDir);
+        _dataLease = AcquireDataDirectoryLease(DataDir, ct);
         try
         {
             RecoverOwnedSidecar();
@@ -287,29 +287,17 @@ public sealed class BackrestSidecar : IAsyncDisposable
         }
     }
 
-    internal static FileStream AcquireDataDirectoryLease(string dataDir)
+    /// <summary>A security scanner or sync client can open the lock file,
+    /// and another Backspace process can own the folder. Either way the
+    /// start waits until it is free, as long as it takes (U135, 4 November
+    /// 2026: 1.55 seconds was a limit); the app shows a notice that can stop
+    /// the wait after a few seconds. The other owner's work is never touched.</summary>
+    internal static FileStream AcquireDataDirectoryLease(string dataDir, CancellationToken ct = default)
     {
         Directory.CreateDirectory(dataDir);
-        // A security scanner or sync client can briefly open the lock file,
-        // including a freshly created one. Only a lock that outlasts the
-        // 1.55-second bounded backoff is reported as another owner.
-        for (var attempt = 0; ; attempt++)
-        {
-            try
-            {
-                return new FileStream(Path.Combine(dataDir, "sidecar.owner.lock"),
-                    FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            }
-            catch (IOException ex) when (attempt < 5 && FileReplacementErrors.CanRetry(ex))
-            {
-                Thread.Sleep(50 << attempt);
-            }
-            catch (IOException ex)
-            {
-                throw new IOException("Another Backspace process is using this engine data folder. " +
-                    "Its running work was left untouched. Try again when that process finishes.", ex);
-            }
-        }
+        var path = Path.Combine(dataDir, "sidecar.owner.lock");
+        return FileAccessRetry.Get(() => new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None),
+            path, FileWaitReason.Engine, ct);
     }
 
     /// <summary>Per-run engine state stays within the portable config
@@ -404,9 +392,11 @@ public sealed class BackrestSidecar : IAsyncDisposable
         try
         {
             if (!File.Exists(AuthFilePath)) return "";
-            return File.ReadAllText(AuthFilePath).Trim();
+            // Waited out while another program holds it (U135): read as
+            // empty, a lock stopped the engine from starting.
+            return FileAccessRetry.Get(() => File.ReadAllText(AuthFilePath), AuthFilePath, FileWaitReason.Engine).Trim();
         }
-        catch { return ""; }
+        catch (Exception ex) when (!FileAccessRetry.IsLock(ex)) { return ""; }
     }
 
     // The file takes its folder's permissions, like every other file in

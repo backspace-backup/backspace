@@ -62,11 +62,17 @@ public sealed class SessionTaskControl
     /// <summary><paramref name="BootId"/> identifies the Windows start the
     /// pause was made in, so a restart ends it (null in earlier records).</summary>
     internal sealed record PauseState(string Generation, InteractiveSessionIdentity? Session, bool Force, uint? BootId = null);
-    private PauseState Read() => !File.Exists(_statePath) ? new("", null, false)
-        : JsonSerializer.Deserialize<PauseState>(File.ReadAllText(_statePath))
+    // With wait, another program holding it (Dropbox, a virus scanner) is
+    // waited out, as long as it takes: a lock used to stop the running
+    // scheduled backup (U135, 4 November 2026). Quit and resume retry their
+    // whole transaction instead, with their own notice.
+    private PauseState Read(bool wait = false, CancellationToken ct = default) => !File.Exists(_statePath) ? new("", null, false)
+        : JsonSerializer.Deserialize<PauseState>(wait
+            ? FileAccessRetry.Get(() => File.ReadAllText(_statePath), _statePath, ct: ct)
+            : File.ReadAllText(_statePath))
             ?? throw new InvalidDataException("The saved task-pause state is unreadable.");
 
-    private void Write(PauseState state)
+    private void Write(PauseState state, bool wait = false)
     {
         var staging = _statePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -76,7 +82,8 @@ public sealed class SessionTaskControl
                 JsonSerializer.Serialize(stream, state);
                 stream.Flush(flushToDisk: true);
             }
-            File.Move(staging, _statePath, overwrite: true);
+            if (wait) FileAccessRetry.Run(() => File.Move(staging, _statePath, overwrite: true), _statePath);
+            else File.Move(staging, _statePath, overwrite: true);
         }
         finally { try { if (File.Exists(staging)) File.Delete(staging); } catch { /* Preserve the original error. */ } }
     }
@@ -87,7 +94,7 @@ public sealed class SessionTaskControl
     internal PauseState ReadSavedPause()
     {
         using var transaction = StateFileLock.Acquire(_statePath);
-        return Read();
+        return Read(wait: true);
     }
 
     public string? PauseForCurrentSession(bool force = false, CancellationToken ct = default)
@@ -164,9 +171,9 @@ public sealed class SessionTaskControl
     internal bool EndPauseIf(Func<PauseState, bool> ended)
     {
         using var transaction = StateFileLock.Acquire(_statePath);
-        var state = Read();
+        var state = Read(wait: true);
         if (state.Session is null || !ended(state)) return false;
-        Write(state with { Session = null });
+        Write(state with { Session = null }, wait: true);
         return true;
     }
 
@@ -180,7 +187,7 @@ public sealed class SessionTaskControl
 #endif
         if (!_sessions.Supported) return false;
         PauseState state;
-        using (StateFileLock.Acquire(_statePath)) state = Read();
+        using (StateFileLock.Acquire(_statePath)) state = Read(wait: true);
         return state.Session is { } paused && paused == _sessions.Current();
     }
 
@@ -226,7 +233,7 @@ public sealed class SessionTaskControl
 #endif
         if (!_sessions.Supported) return true;
         using var transaction = StateFileLock.Acquire(_statePath);
-        var state = Read();
+        var state = Read(wait: true);
         if (IsPaused(state)) return false;
         if (!File.Exists(_runsPath))
         {
@@ -258,7 +265,7 @@ public sealed class SessionTaskControl
                     {
                         await Task.Delay(250, _stop.Token).ConfigureAwait(false);
                         PauseState current;
-                        using (StateFileLock.Acquire(owner._statePath)) current = owner.Read();
+                        using (StateFileLock.Acquire(owner._statePath)) current = owner.Read(wait: true, _stop.Token);
                         if (current.Generation == generation) continue;
                         _work.Cancel();
                         if (current.Force && forceStop is not null) await forceStop().ConfigureAwait(false);

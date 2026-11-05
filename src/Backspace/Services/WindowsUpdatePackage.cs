@@ -243,9 +243,12 @@ internal static class WindowsUpdatePackage
             foreach (var f in plan.Files)
             {
                 var target = Path.Combine(plan.Root, f.Name);
-                if (File.Exists(target)) File.Move(target, Path.Combine(previous, f.Name));
+                // Dropbox or a virus scanner reading a program file (it often
+                // hashes a new Backspace.exe) is waited out, as long as it
+                // takes, instead of rolling the update back (U135).
+                if (File.Exists(target)) FileAccessRetry.Run(() => File.Move(target, Path.Combine(previous, f.Name)), target);
                 afterMove?.Invoke(++moved);
-                File.Move(Path.Combine(plan.Work, "incoming", f.Name), target);
+                FileAccessRetry.Run(() => File.Move(Path.Combine(plan.Work, "incoming", f.Name), target), target);
                 afterMove?.Invoke(++moved);
             }
             // Launcher exceptions roll the entire bundle back, including files
@@ -286,11 +289,11 @@ internal static class WindowsUpdatePackage
             var incoming = Path.Combine(plan.Work, "incoming", f.Name);
             if (File.Exists(previous))
             {
-                if (File.Exists(target)) File.Move(target, incoming);
-                File.Move(previous, target);
+                if (File.Exists(target)) FileAccessRetry.Run(() => File.Move(target, incoming), target);
+                FileAccessRetry.Run(() => File.Move(previous, target), target);
             }
             else if (!plan.PreviouslyPresent.Contains(f.Name, StringComparer.OrdinalIgnoreCase)
-                     && !File.Exists(incoming) && File.Exists(target)) File.Move(target, incoming);
+                     && !File.Exists(incoming) && File.Exists(target)) FileAccessRetry.Run(() => File.Move(target, incoming), target);
         }
         plan.State = "RolledBack"; SavePlan(plan);
     }
@@ -315,12 +318,13 @@ internal static class WindowsUpdatePackage
                 moveFile(stagedPath, planPath, true);
                 return;
             }
-            catch (Exception ex) when (attempt < 5 && FileReplacementErrors.CanRetry(ex))
+            catch (Exception ex) when (FileReplacementErrors.CanRetry(ex))
             {
-                // Security software and sync clients can briefly hold a just-written plan.
-                // Keep the complete staged record and retry only Windows errors known to
-                // leave the previous plan intact; never replay an uncertain rename.
-                delay(50 << attempt);
+                // Security software and sync clients can hold a just-written plan.
+                // Keep the complete staged record and retry, as long as it takes
+                // (U135), only Windows errors known to leave the previous plan
+                // intact; never replay an uncertain rename.
+                delay(Math.Min(1000, 50 << Math.Min(attempt, 5)));
             }
         }
     }

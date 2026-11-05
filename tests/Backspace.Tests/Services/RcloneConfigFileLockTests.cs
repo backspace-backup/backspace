@@ -43,7 +43,7 @@ public sealed class RcloneConfigFileLockTests
     }
 
     [Fact]
-    public void Materialise_reports_a_persistent_lock_without_damaging_the_previous_file()
+    public void Materialise_waits_out_a_lock_without_damaging_the_previous_file()
     {
         if (!OperatingSystem.IsWindows()) return;
         using var workspace = new TempWorkspace();
@@ -52,16 +52,17 @@ public sealed class RcloneConfigFileLockTests
         var path = builder.MaterialiseDestination(destination);
         var original = "# Keep this valid configuration\n" + File.ReadAllText(path);
         File.WriteAllText(path, original);
-        using (var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
-        {
-            var failure = Record.Exception(() => builder.MaterialiseDestination(destination));
-            Assert.True(failure is IOException or UnauthorizedAccessException, failure?.ToString());
-            Assert.Equal(original, File.ReadAllText(path));
-            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, "*.tmp"));
-        }
-        // A later operation can recover normally without a stale mutex or temp.
-        builder.MaterialiseDestination(destination);
+        // Held by another program (Dropbox, a virus scanner): the write waits,
+        // as long as it takes (U135), leaving the previous file whole meanwhile.
+        var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var writing = System.Threading.Tasks.Task.Run(() => builder.MaterialiseDestination(destination));
+        System.Threading.Thread.Sleep(2500);
+        Assert.False(writing.IsCompleted);
+        Assert.Equal(original, File.ReadAllText(path));
+        held.Dispose();
+        writing.GetAwaiter().GetResult();
         Assert.DoesNotContain("Keep this valid configuration", File.ReadAllText(path));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, "*.tmp"));
     }
 
     [Fact]

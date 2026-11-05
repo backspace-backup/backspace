@@ -58,7 +58,7 @@ internal sealed record ServiceWorkerBinding(int Version, string ServiceName, str
     private static ServiceWorkerBinding ReadProtectedBinding(string installation)
     {
         var path = ServicePortableLayout.ExistingRecord(installation, FileName);
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var file = FileAccessRetry.Get(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read), path);
         ServiceInstallationSecurity.ValidateProtectedRecord(path, installation);
         if (file.Length is <= 0 or > 8192) throw new InvalidDataException("Invalid service installation record.");
         var binding = JsonSerializer.Deserialize<ServiceWorkerBinding>(file, ServiceRunAuthorization.Json)
