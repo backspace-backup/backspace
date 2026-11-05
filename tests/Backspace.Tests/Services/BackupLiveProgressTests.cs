@@ -156,36 +156,33 @@ public sealed class BackupLiveProgressTests
         var start = new DateTime(2026, 11, 4, 21, 20, 0, DateTimeKind.Utc);
         long sent = 0;
         var live = new BackupLiveProgress(() => 190_800_000_000, () => sent);
-        var lines = new List<string>();
-        // Ten minutes of reading files already stored, with 20 KB/s of listings,
-        // index and lock writes (the most seen on local_c): never a speed.
-        for (var s = 5; s <= 600; s += 5)
+        var t = 0;
+        string Step(long added)
         {
-            sent += 100_000;
-            lines.Add(live.Next(Operation(0.1 + s / 10_000.0, 1_000_000_000L * s, 120_000_000_000, 100 * s, 110_000), start.AddSeconds(s))!);
+            sent += added;
+            t += 5;
+            return live.Next(Operation(0.1 + t / 10_000.0, 1_000_000_000L * t, 120_000_000_000, 100 * t, 110_000), start.AddSeconds(t))!;
         }
+        // local_c's resumed run while restic read files already stored (4 November,
+        // KB added per five-second step, as its log showed): never a speed.
+        int[] bookkeeping = [2, 2, 6, 1, 1, 2, 1, 1, 71, 62, 875, 0, 0, 0, 102, 102, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 102, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 102,
+            0, 0, 0, 0, 0, 102, 0, 0, 0, 0, 0, 0, 0, 0];
+        var lines = bookkeeping.Select(kb => Step(kb * 1024L)).ToList();
         Assert.All(lines, l => Assert.DoesNotContain("/s", l));
-        Assert.EndsWith(" · 11 MB sent", lines[^1]);
 
-        // Then a slow real upload, 40 KB/s: its speed shows within two minutes.
-        var slow = new List<string>();
-        for (var s = 605; s <= 780; s += 5)
-        {
-            sent += 200_000;
-            slow.Add(live.Next(Operation(0.2 + s / 10_000.0, 1_000_000_000L * s, 120_000_000_000, 100 * s, 110_000), start.AddSeconds(s))!);
-        }
-        var first = slow.FindIndex(l => l.Contains("/s"));
-        Assert.InRange(first, 0, 24);
-        Assert.EndsWith(" sent at 39 KB/s", slow[^1]);
+        // A very slow real upload, 2 KB/s: its speed shows within a minute.
+        var slow = Enumerable.Range(0, 24).Select(_ => Step(10_240)).ToList();
+        Assert.InRange(slow.FindIndex(l => l.Contains("/s")), 0, 12);
+        Assert.EndsWith(" sent at 2.0 KB/s", slow[^1]);
 
-        // The upload stops: the speed goes once the last two minutes carry no data.
-        var after = new List<string>();
-        for (var s = 785; s <= 960; s += 5)
-        {
-            sent += 100_000;
-            after.Add(live.Next(Operation(0.3 + s / 10_000.0, 1_000_000_000L * s, 120_000_000_000, 100 * s, 110_000), start.AddSeconds(s))!);
-        }
+        // It stops, then bookkeeping again: the speed goes.
+        var after = Enumerable.Range(0, 30).Select(i => Step(i % 12 == 0 ? 102_400 : 0)).ToList();
         Assert.DoesNotContain("/s", after[^1]);
+
+        // A fast destination, where data goes out in bursts of a pack: shown too.
+        var fast = Enumerable.Range(0, 12).Select(i => Step(i % 3 == 0 ? 16L << 20 : 0)).ToList();
+        Assert.Contains(" sent at ", fast[^1]);
     }
 
     [Fact]

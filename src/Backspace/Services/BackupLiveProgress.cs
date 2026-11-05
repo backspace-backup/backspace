@@ -42,13 +42,19 @@ internal sealed class BackupLiveProgress
     internal static TimeSpan SpeedWindow = TimeSpan.FromSeconds(30);
     // Whether new data is being sent at all (U133, 4 November 2026): restic
     // reports what it adds only at the end, and the engine's writes include
-    // its own bookkeeping (folder listings, index, lock), up to about 20 KB/s
-    // while it reads files already stored. New data comes in packs of
-    // 16 MiB; 4 MiB in two minutes is twice the most bookkeeping seen and
-    // any upload faster than 35 KB/s. Any speed, however slow, is shown then.
+    // its own bookkeeping (folder listings, index, lock) while it reads files
+    // already stored. That bookkeeping comes in occasional bursts: on
+    // local_c's resumed run, the amount sent grew in under a third of the
+    // five-second steps while restic read stored files, by a few KB or a
+    // burst of up to 875 KB. An upload, however slow, grows it at every step. So new data is being sent when the amount grew
+    // by at least ContinuousBytes in nearly every step of the last minute
+    // (an upload of 1 KB/s or more), or by FlowBytes in two minutes (a fast
+    // destination, where packs of 16 MiB go out in bursts).
     private readonly System.Collections.Generic.Queue<(DateTime At, long Bytes)> _flow = new();
     internal static TimeSpan FlowWindow = TimeSpan.FromMinutes(2);
     internal const long FlowBytes = 4L << 20;
+    internal const long ContinuousBytes = 4 << 10;
+    internal static TimeSpan ContinuousWindow = TimeSpan.FromMinutes(1);
     // Bytes done over the last minutes, for the time left.
     private readonly System.Collections.Generic.Queue<(DateTime At, long Bytes)> _recent = new();
     private (long Files, long Bytes)? _totals;
@@ -93,7 +99,7 @@ internal sealed class BackupLiveProgress
             while (_sent.Count > 2 && nowUtc - _sent.ElementAt(1).At >= SpeedWindow) _sent.Dequeue();
             _flow.Enqueue((nowUtc, stored));
             while (_flow.Count > 2 && nowUtc - _flow.ElementAt(1).At >= FlowWindow) _flow.Dequeue();
-            var flowing = stored - _flow.Peek().Bytes >= FlowBytes;
+            var flowing = stored - _flow.Peek().Bytes >= FlowBytes || Continuous(nowUtc);
             if (flowing && _sent.Peek() is var from && nowUtc > from.At && stored > from.Bytes)
                 rate = (stored - from.Bytes) / (nowUtc - from.At).TotalSeconds;
         }
@@ -116,6 +122,17 @@ internal sealed class BackupLiveProgress
         long expected = 0;
         try { expected = _expectedBytes(); } catch (Exception) { }
         return Format(sample, counting, expected, sent, rate, left);
+    }
+
+    /// <summary>Whether the amount sent grew by at least <see cref="ContinuousBytes"/>
+    /// in all but one of the steps of the last <see cref="ContinuousWindow"/>
+    /// (at least six steps): an upload going on, however slow.</summary>
+    private bool Continuous(DateTime nowUtc)
+    {
+        var recent = _flow.Where(s => nowUtc - s.At <= ContinuousWindow + TimeSpan.FromSeconds(1)).ToArray();
+        if (recent.Length < 7) return false;
+        var steps = recent.Zip(recent.Skip(1), (a, b) => b.Bytes - a.Bytes).ToArray();
+        return steps.Count(d => d >= ContinuousBytes) >= steps.Length - 1;
     }
 
     internal static Sample? Parse(JsonElement? operationBackup)
