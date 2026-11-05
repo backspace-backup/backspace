@@ -232,8 +232,9 @@ much the ticked recommendations leave out of them. On **Filters → Advanced**,
 
 Only cloud-synced folders inside the backup's folders are offered, and only
 rules that can match there: a backup of a Dropbox folder is not offered the
-Windows folder or the profiles' AppData rules. Rules for the profiles
-(`Users/*/…`) apply to a whole drive or a folder under its Users folder.
+Windows folder or the profiles' AppData rules. Rules for the top of a drive
+and for the profiles (`Users/*/…`) apply only when the backup includes a whole
+drive.
 
 Recommendations only name things that can be rebuilt or downloaded again:
 app and browser caches, Windows' own temp folder for each account, package

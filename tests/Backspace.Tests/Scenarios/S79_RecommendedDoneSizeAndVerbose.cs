@@ -93,7 +93,9 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         Button(win, "Apply recommended exclusions")!.Command!.Execute(null);
         ctx.Driver.Pump();
         Assert.True(vm.RecommendedApplied);
-        Assert.Contains(RecommendedFilters.WindowsSystemPatterns[0], vm.FiltersText);
+        // The Windows group's rules that can match in a folder (U148): thumbs.db, not /Windows/.
+        Assert.Contains("thumbs.db", vm.FiltersText);
+        Assert.DoesNotContain("/Windows/", vm.FiltersText);
         win.Close();
         vm.Dispose();
         await Task.CompletedTask;

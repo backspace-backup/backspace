@@ -574,30 +574,20 @@ public static class RecommendedFilters
     /// sources (U148, 5 November 2026: a backup of a Dropbox folder was
     /// offered the Windows folder and every profile's AppData). Rules for the
     /// top of a drive apply only to a whole drive, as the engine scopes them
-    /// (<see cref="FilterTranslator.ScopeToSource"/>); rules for the profiles
-    /// (<c>Users/*/…</c>) to a whole drive or a folder under its Users folder;
-    /// any other rule can match at any depth, so it always applies. No
-    /// sources: every rule applies.</summary>
+    /// (<see cref="FilterTranslator.ScopeToSource"/>). Rules for the profiles
+    /// (<c>Users/*/…</c>) too: the engine matches them below each source, so
+    /// in a folder they would need a Users folder inside it, not the profile the
+    /// folder is in (C:\Users\me\Dropbox has no Users/*/AppData). Any other
+    /// rule can match at any depth, so it always applies. No sources: every
+    /// rule applies.</summary>
     internal static bool AppliesTo(string pattern, IReadOnlyCollection<string>? sources)
     {
         var real = sources?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
         if (real is null || real.Count == 0) return true;
         var p = pattern.Trim();
-        if (IsDriveTopPattern(p)) return real.Any(TreeWalk.IsDriveRoot);
-        if (p.StartsWith("Users/", StringComparison.OrdinalIgnoreCase))
-            return real.Any(s => TreeWalk.IsDriveRoot(s) || UnderProfiles(s));
+        if (IsDriveTopPattern(p) || p.StartsWith("Users/", StringComparison.OrdinalIgnoreCase))
+            return real.Any(s => { try { return TreeWalk.IsDriveRoot(s); } catch (Exception) { return true; } });
         return true;
-    }
-
-    private static bool UnderProfiles(string source)
-    {
-        try
-        {
-            var full = Path.GetFullPath(source);
-            var rel = full[(Path.GetPathRoot(full)?.Length ?? 0)..].Replace('\\', '/').TrimEnd('/');
-            return rel.Equals("Users", StringComparison.OrdinalIgnoreCase) || rel.StartsWith("Users/", StringComparison.OrdinalIgnoreCase);
-        }
-        catch (Exception) { return true; }
     }
 
     private static readonly (string Heading, IReadOnlyList<string> Patterns)[] Groups =

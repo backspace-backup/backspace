@@ -151,6 +151,12 @@ public sealed class S88_BackupSettingsLayoutAndRelevantRules : ScenarioBase
         Assert.DoesNotContain(lines, l => l.StartsWith("Users/", StringComparison.Ordinal));
         Assert.Contains("node_modules/", lines);
         Assert.Contains("thumbs.db", lines);
+        // A Dropbox folder inside a profile: the profile rules match below the
+        // source, where there is no Users folder, so they are not offered either.
+        var inProfile = RecommendedFilters.RenderBlock(true, true, Array.Empty<RecommendedFilters.CloudSyncFolder>(), new[] { @"C:\Users\me\Dropbox" });
+        var profileLines = inProfile.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).ToList();
+        Assert.DoesNotContain(profileLines, l => l.StartsWith("Users/", StringComparison.Ordinal));
+        Assert.Contains("node_modules/", profileLines);
 
         // An existing backup of that folder with the full lists is offered
         // their removal; widening it to a whole drive offers them back.
