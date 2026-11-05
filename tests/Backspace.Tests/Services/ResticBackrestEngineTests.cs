@@ -130,11 +130,20 @@ public class ResticBackrestEngineTests
         // "/x" is a folder, not a whole drive: the always-excluded files that
         // exist only at the top of a drive are not added (U106); Windows' app
         // aliases, which can be anywhere in a profile, are.
-        // On Windows restic gets them in a quicker form that excludes exactly
-        // the same paths under the source (U133): "<root>/**/" is dropped.
-        Assert.Equal(Backspace.Services.Platform.PlatformInfo.IsWindows
-            ? new[] { "*.tmp", "node_modules/", "AppData/Local/Microsoft/WindowsApps/" }
-            : new[] { root + "/**/*.tmp", root + "/**/node_modules/", root + "/**/AppData/Local/Microsoft/WindowsApps/" }, allPatterns);
+        Assert.Equal(new[] { root + "/**/*.tmp", root + "/**/node_modules/", root + "/**/AppData/Local/Microsoft/WindowsApps/" }, allPatterns);
+    }
+
+    /// <summary>U133: restic gets the rules as written. A repeated rule is
+    /// sent once, at its last place: restic's last matching rule decides, so
+    /// keeping the first copy would put "a" before "!b" and back up a path
+    /// both match.</summary>
+    [Fact]
+    public void Repeated_rules_are_sent_once_at_their_last_place()
+    {
+        Assert.Equal(["!b", "a"], ResticBackrestEngine.WithoutRepeats(["a", "!b", "a"]));
+        Assert.Equal(["a", "!b"], ResticBackrestEngine.WithoutRepeats(["a", "a", "!b"]));
+        Assert.Equal(["C:/**/*.tmp", "c:/**/*.TMP"], ResticBackrestEngine.WithoutRepeats(["C:/**/*.tmp", "c:/**/*.TMP"]));
+        Assert.NotEqual(["a", "!b"], ResticBackrestEngine.WithoutRepeats(["a", "!b", "a"]));
     }
 
     [Fact]

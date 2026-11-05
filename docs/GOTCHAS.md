@@ -475,30 +475,29 @@ locked file as missing, empty or corrupt (U135, 4 November 2026).
 Known gap: `ConfigStore` saves while holding its in-memory gate, so a long
 lock during a save also delays code that reads the settings meanwhile.
 
-## Restic's exclusion matching is slow; the rule list it gets is rewritten
+## Restic's exclusion matching is slow
 
 Restic tests every exclusion rule against every path, twice per backup (the
-counting scanner and the archiver), and its `**` handling tries every depth:
-`match` expands the first `**` into 0…n `*` parts and recurses. On local_c's
-273 rules this was 93% of the time to walk C:\ (330 µs a path; restic's own
-`internal/filter` code timed on 743,491 real paths, 4 November 2026). Patterns
-such as `C:/**/*.tmp` cost the most.
+counting scanner and the archiver), on every run, and its `**` handling tries
+every depth: `match` expands the first `**` into 0…n `*` parts and recurses.
+On local_c's 273 rules this was 93% of the time to walk C:\ (330 µs a path;
+restic's own `internal/filter` code timed on 743,491 real paths, 4 November
+2026). Patterns such as `C:/**/*.tmp` cost the most.
 
-`ResticRuleOptimizer` gives restic an equivalent, cheaper list: it drops a
-leading `<source>/**/`, splits `<source>/**/*/**/rest` into two rules with one
-`**` fewer, and leaves out rules another rule covers. Each change is made only
-when proven for every path under the source, by an automaton model of restic's
-exact `match`, including a quirk: the loop bound `i <= len(strs)-len(parts)+1`
-counts the later `**` as one component each, so `C:/**/*/**/node_modules/*`
-does **not** match `C:\a\node_modules\x` (but does match `C:\a\node_modules\x\y`).
-"Obvious" simplifications that ignore this change what is backed up. Removal
-also respects `!` rules between the two. Rules with character classes,
-backslashes, non-ASCII text, `.` or `..` are passed through and never used to
-remove another. On local_c the list went from 273 to 232 rules and restic's
-matching from 242 s to 87 s over the same paths, with identical results on every
-path. Tests: `ResticRuleOptimizerTests` compares against a line-for-line copy of
-restic's matcher on random lists and paths. If restic changes `internal/filter`,
-re-check the model (the `Check` class documents it) before upgrading.
+On Windows the fix is Backspace's restic build
+([engine/restic/README.md](../engine/restic/README.md)), which skips a rule when
+the path lacks text the rule needs, inside restic and with restic's own result.
+Backspace passes the rules to restic as written. A rule-list rewrite (1.1.10
+only) was removed in 1.1.11: with the patched build it saved little, and restic
+should see the user's own rules. Two traps for anyone tempted to rewrite rules
+again:
+
+- `Distinct()` is wrong with `!` rules. Restic's last matching rule decides, so
+  `a`, `!b`, `a` must keep the last `a` (`WithoutRepeats`), not the first.
+- "Obvious" simplifications are wrong at the edges: the loop bound
+  `i <= len(strs)-len(parts)+1` counts each later `**` as one component, so
+  `C:/**/*/**/node_modules/*` does **not** match `C:\a\node_modules\x` (but
+  does match `C:\a\node_modules\x\y`).
 
 ## An interrupted backup leaves data behind until a prune
 

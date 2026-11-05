@@ -533,11 +533,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
             ? $"Previous backup to «{destination.Name}»: {p.When.ToLocalTime():yyyy-MM-dd HH:mm}, snapshot {p.Id[..8]}. Only changes are sent."
             : $"No earlier backup of this folder in «{destination.Name}»: everything is read and sent.");
         var translated = FilterTranslator.TranslateForSource(RecommendedFilters.WithAlwaysExcluded(backup.FiltersText), sourcePath);
-        var rules = translated.Excludes.Distinct().Count() + translated.IExcludes.Distinct().Count();
-        var checkedAs = ResticRuleOptimizer.Optimize(translated.Excludes, false, sourcePath).Count + ResticRuleOptimizer.Optimize(translated.IExcludes, true, sourcePath).Count;
+        var rules = WithoutRepeats(translated.Excludes).Count + WithoutRepeats(translated.IExcludes).Count;
         static string N(int n) => n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
         yield return $"[setup] {N(rules)} exclusion rule{(rules == 1 ? "" : "s")} loaded"
-            + (checkedAs != rules ? $" (checked as {N(checkedAs)} quicker ones that exclude exactly the same files)" : "")
             + (Services.Platform.PlatformInfo.IsWindows && backup.ExcludeCloudFiles ? "; files kept only in the cloud are skipped." : ".");
         yield return Services.Platform.PlatformInfo.IsWindows && backup.UseVss
             ? "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive."
@@ -3077,6 +3075,22 @@ public sealed class ResticBackrestEngine : IBackupEngine
         return true;
     }
 
+    /// <summary>The rules as written, each once. restic applies them in order
+    /// and the last rule that matches a path decides (a "!" rule includes it
+    /// again), so a repeated rule only counts at its last place and its earlier
+    /// copies are left out. Distinct() kept the first copy instead, which could
+    /// move a rule before a "!" rule and change what is backed up (U133).</summary>
+    internal static List<string> WithoutRepeats(IEnumerable<string> rules)
+    {
+        var all = rules.ToList();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var kept = new List<string>(all.Count);
+        for (var i = all.Count - 1; i >= 0; i--)
+            if (seen.Add(all[i])) kept.Add(all[i]);
+        kept.Reverse();
+        return kept;
+    }
+
     internal static BackrestPlan BuildPlanFromBackup(string planId, string repoId, Backup backup, string sourcePath)
     {
         var paths = new List<string> { sourcePath };
@@ -3095,9 +3109,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
             Id = planId,
             Repo = repoId,
             Paths = paths,
-            // The same exclusions in a form restic checks faster (U133).
-            Excludes = ResticRuleOptimizer.Optimize(translated.Excludes, caseInsensitive: false, sourcePath).ToList(),
-            IExcludes = ResticRuleOptimizer.Optimize(translated.IExcludes, caseInsensitive: true, sourcePath).ToList(),
+            Excludes = WithoutRepeats(translated.Excludes),
+            IExcludes = WithoutRepeats(translated.IExcludes),
             BackupFlags = backupFlags,
             // Backrest 1.13's Forget RPC refuses to run without a
             // retention policy on the plan ("forget called with nil

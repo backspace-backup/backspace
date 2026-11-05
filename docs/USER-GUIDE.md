@@ -215,13 +215,11 @@ instead (`cache/*` then `!cache/keep/`). **Filters → Advanced** warns about
 such an exception and shows the fix. Imported Duplicacy include rules are
 translated so that they apply.
 
-The engine checks every rule against every file and folder it looks at, which
-can take most of a large backup's time. Backspace gives it the rules in a
-quicker form: a rule another one already covers is left out, and a rule such
-as `C:/**/*.tmp` is shortened to `*.tmp`, each only when a complete check
-proves that exactly the same files are excluded, for any file under the source.
-Rules it can't check are passed on as written. A backup's log says how many
-rules were loaded and how many the engine checks.
+The engine checks every rule against every file and folder it looks at. With
+hundreds of rules that used to take most of a large backup's time; on Windows,
+Backspace's build of the engine skips a rule at once when a path can't match it,
+which makes this about 5 times faster. The rules are passed on as written; a
+rule repeated in the list is passed once.
 
 **Filters → Recommended** groups the suggested exclusions (Windows system
 files, app caches, cloud-synced folders). A green **✓ Applied** line means
