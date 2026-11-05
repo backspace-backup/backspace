@@ -402,6 +402,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         foreach (var line in Sources)
         {
             if (b.SourceLastSizeBytes.TryGetValue(line.Path, out var bytes) && bytes > 0) line.ShowMeasured(bytes);
+            // A backup the background service ran keeps its size there.
+            else if (ServiceMeasuredSizes.For(b.Id, line.Path) is > 0 and var measured) line.ShowMeasured(measured);
             else line.ShowEstimate(SourceSizeRules.For(b));
         }
 
@@ -750,6 +752,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     {
         var latest = _logs.LoadHistoryByBackupId(Id).Where(r => r.EndedUtc is not null && r.Status is not (BackupRunStatus.Running or BackupRunStatus.NeverRun))
             .OrderBy(r => r.EndedUtc).LastOrDefault();
+        // The run just measured its sources: show those sizes, not the estimate.
+        ServiceMeasuredSizes.Invalidate();
+        foreach (var line in Sources)
+            if (!Snapshot.SourceLastSizeBytes.ContainsKey(line.Path) && ServiceMeasuredSizes.For(Id, line.Path) is > 0 and var measured)
+                line.ShowMeasured(measured);
         if (latest is not null) { Apply(latest); _awaitingBackgroundResult = false; return; }
         IsRunning = false;
         IsQueued = false;
