@@ -131,7 +131,13 @@ public sealed class InfrastructureLifecycleE2ETests
         Assert.True(first.IsRunning, "Starting a second daemon must not kill the first.");
         Assert.True(second.IsRunning);
         Assert.NotEqual(first.Port, second.Port);
-        await Assert.ThrowsAsync<IOException>(() => collision.StartAsync(timeout.Token));
+        // A second owner of the same folder waits (as long as it takes, U135)
+        // without touching the first; here it is stopped after 2 s.
+        using (var wait = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token))
+        {
+            wait.CancelAfter(TimeSpan.FromSeconds(2));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => collision.StartAsync(wait.Token));
+        }
         Assert.Equal(ownerRecord, File.ReadAllText(first.PidFilePath));
         Assert.True(first.IsRunning);
         await first.Client!.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
