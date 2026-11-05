@@ -36,7 +36,9 @@ internal sealed class ChangePlan
     private readonly long[] _bytesBefore;          // all bytes before index i
     private readonly long[] _changedBytesBefore;   // changed bytes before index i
     private readonly int[] _unchangedFilesBefore;  // unchanged files before index i
-    private readonly Dictionary<string, int> _index;
+    // By path hash, so the paths themselves are not kept while a backup runs
+    // (600,000 of them on a whole drive).
+    private readonly Dictionary<ulong, int> _index;
 
     internal int Files => _sizes.Length;
     internal long TotalBytes => _bytesBefore[^1];
@@ -58,7 +60,7 @@ internal sealed class ChangePlan
         _bytesBefore = new long[n + 1];
         _changedBytesBefore = new long[n + 1];
         _unchangedFilesBefore = new int[n + 1];
-        _index = new Dictionary<string, int>(n, StringComparer.OrdinalIgnoreCase);
+        _index = new Dictionary<ulong, int>(n);
         for (var i = 0; i < n; i++)
         {
             var f = files[i];
@@ -68,7 +70,7 @@ internal sealed class ChangePlan
             _bytesBefore[i + 1] = _bytesBefore[i] + f.Size;
             _changedBytesBefore[i + 1] = _changedBytesBefore[i] + (_changed[i] ? f.Size : 0);
             _unchangedFilesBefore[i + 1] = _unchangedFilesBefore[i] + (_changed[i] ? 0 : 1);
-            _index.TryAdd(f.Path, i);
+            _index.TryAdd(Hash(f.Path), i);
         }
     }
 
@@ -83,7 +85,7 @@ internal sealed class ChangePlan
     {
         var i = int.MaxValue;
         foreach (var file in (currentFiles ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
-            if (_index.TryGetValue(TreeWalk.Relative(_root, file), out var at)) i = Math.Min(i, at);
+            if (_index.TryGetValue(Hash(TreeWalk.Relative(_root, file)), out var at)) i = Math.Min(i, at);
         if (i == int.MaxValue) i = (int)Math.Clamp(filesDone, 0, Files);
         var unchangedBytesBefore = _bytesBefore[i] - _changedBytesBefore[i];
         var upTo = _changedBytesBefore[i] + (i < Files && _changed[i] ? _sizes[i] : 0);
@@ -145,6 +147,7 @@ internal sealed class ChangePlanStore(string directory)
 {
     private const string Magic = "BSCHG1";
     internal sealed record Saved(string SnapshotId, double FilesPerSecond, double BytesPerSecond, Dictionary<ulong, (long Size, long WrittenTicks)> Files);
+    internal readonly record struct Entry(ulong PathHash, long Size, long WrittenTicks);
 
     /// <summary>Beside the engines in the owner's %LOCALAPPDATA%\Backspace: a
     /// cache Backspace rebuilds, never part of the portable folder (it would be
@@ -184,6 +187,9 @@ internal sealed class ChangePlanStore(string directory)
     }
 
     internal void Write(string planId, string snapshotId, double filesPerSecond, double bytesPerSecond, IReadOnlyCollection<ChangePlan.FileState> files)
+        => Write(planId, snapshotId, filesPerSecond, bytesPerSecond, files.Select(f => new Entry(ChangePlan.Hash(f.Path), f.Size, f.WrittenTicks)).ToArray());
+
+    internal void Write(string planId, string snapshotId, double filesPerSecond, double bytesPerSecond, IReadOnlyCollection<Entry> files)
     {
         try
         {
@@ -200,7 +206,7 @@ internal sealed class ChangePlanStore(string directory)
                 writer.Write(files.Count);
                 foreach (var f in files)
                 {
-                    writer.Write(ChangePlan.Hash(f.Path));
+                    writer.Write(f.PathHash);
                     writer.Write(f.Size);
                     writer.Write(f.WrittenTicks);
                 }
@@ -221,7 +227,7 @@ internal sealed class ChangePlanner
 {
     private readonly ChangePlanStore _store;
     private readonly string _planId;
-    private readonly Task<(List<ChangePlan.FileState>? Files, ChangePlan? Plan, ChangePlanStore.Saved? Before)> _work;
+    private readonly Task<(ChangePlanStore.Entry[]? Files, ChangePlan? Plan, ChangePlanStore.Saved? Before)> _work;
 
     private ChangePlanner(ChangePlanStore store, string planId, string sourcePath, SourceSizeRules rules, string? previousSnapshotId, CancellationToken ct)
     {
@@ -230,12 +236,12 @@ internal sealed class ChangePlanner
         _work = Task.Run(() =>
         {
             var files = ChangePlan.List(sourcePath, rules, TimeSpan.FromMinutes(3), ct);
-            if (files is null) return (null, null, null);
+            if (files is null) return ((ChangePlanStore.Entry[]?)null, (ChangePlan?)null, (ChangePlanStore.Saved?)null);
             var before = previousSnapshotId is null ? null : store.Read(planId);
             // Only against the snapshot restic compares with.
             var plan = before is not null && string.Equals(before.SnapshotId, previousSnapshotId, StringComparison.OrdinalIgnoreCase)
                 ? new ChangePlan(TreeWalk.Root(sourcePath), files, before.Files) : null;
-            return (files, plan, before);
+            return (files.Select(f => new ChangePlanStore.Entry(ChangePlan.Hash(f.Path), f.Size, f.WrittenTicks)).ToArray(), plan, before);
         }, ct);
     }
 
