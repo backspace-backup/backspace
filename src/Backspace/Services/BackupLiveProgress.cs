@@ -40,6 +40,15 @@ internal sealed class BackupLiveProgress
     // packs (U133).
     private readonly System.Collections.Generic.Queue<(DateTime At, long Bytes)> _sent = new();
     internal static TimeSpan SpeedWindow = TimeSpan.FromSeconds(30);
+    // Whether new data is being sent at all (U133, 4 November 2026): restic
+    // reports what it adds only at the end, and the engine's writes include
+    // its own bookkeeping (folder listings, index, lock), up to about 20 KB/s
+    // while it reads files already stored. New data comes in packs of
+    // 16 MiB; 4 MiB in two minutes is twice the most bookkeeping seen and
+    // any upload faster than 35 KB/s. Any speed, however slow, is shown then.
+    private readonly System.Collections.Generic.Queue<(DateTime At, long Bytes)> _flow = new();
+    internal static TimeSpan FlowWindow = TimeSpan.FromMinutes(2);
+    internal const long FlowBytes = 4L << 20;
     // Bytes done over the last minutes, for the time left.
     private readonly System.Collections.Generic.Queue<(DateTime At, long Bytes)> _recent = new();
     private (long Files, long Bytes)? _totals;
@@ -82,7 +91,10 @@ internal sealed class BackupLiveProgress
         {
             _sent.Enqueue((nowUtc, stored));
             while (_sent.Count > 2 && nowUtc - _sent.ElementAt(1).At >= SpeedWindow) _sent.Dequeue();
-            if (_sent.Peek() is var from && nowUtc > from.At && stored >= from.Bytes)
+            _flow.Enqueue((nowUtc, stored));
+            while (_flow.Count > 2 && nowUtc - _flow.ElementAt(1).At >= FlowWindow) _flow.Dequeue();
+            var flowing = stored - _flow.Peek().Bytes >= FlowBytes;
+            if (flowing && _sent.Peek() is var from && nowUtc > from.At && stored > from.Bytes)
                 rate = (stored - from.Bytes) / (nowUtc - from.At).TotalSeconds;
         }
 
@@ -149,11 +161,10 @@ internal sealed class BackupLiveProgress
             parts.Add(expected ? Of(sample.BytesDone, expectedBytes, estimated: true) : Bytes(sample.BytesDone));
             parts.Add($"{Count(sample.FilesDone)} / {Count(sample.TotalFiles)}+ files");
         }
-        // Below 100 KB/s over half a minute nothing is really being uploaded:
-        // restic reading files already stored sends its listings and index,
-        // up to about 20 KB/s on local_c (4 November 2026). No speed then.
+        // A speed only while new data is being sent (see FlowBytes), however
+        // slow: restic's own bookkeeping alone is no upload.
         if (sentBytes is { } sent)
-            parts.Add(sentPerSecond is >= 100 * 1024 and var rate ? $"{Bytes(sent)} sent at {Bytes((long)rate)}/s" : $"{Bytes(sent)} sent");
+            parts.Add(sentPerSecond is > 0 and var rate ? $"{Bytes(sent)} sent at {Bytes(Math.Max(1, (long)rate))}/s" : $"{Bytes(sent)} sent");
         if (left is { } remaining && remaining < TimeSpan.FromDays(30)) parts.Add(TimeLeft(remaining));
         return Prefix + string.Join(" · ", parts);
     }

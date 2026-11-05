@@ -143,15 +143,18 @@ public class ReviewRound2RegressionTests
             // Make AppPaths.ConfigFile unwritable: open it exclusively
             // in another handle for the duration of the Update. The
             // atomic-write tmp+Replace will fail on Replace.
-            using var locker = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-
-            Assert.Throws<IOException>(() =>
-                store.Update(c => c.Backups.Add(new Backup { Id = "id2", Name = "rolled-back" })));
-
-            // In-memory state should still have ONLY the first backup
-            // because the rollback rewound after Save failed.
+            // U135: the save now waits for the file instead of failing; until
+            // it is saved, the in-memory settings keep ONLY the first backup.
+            var locker = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            var saving = System.Threading.Tasks.Task.Run(() =>
+                store.Update(c => c.Backups.Add(new Backup { Id = "id2", Name = "second" })));
+            System.Threading.Thread.Sleep(1500);
+            Assert.False(saving.IsCompleted);
             Assert.Single(store.Current.Backups);
             Assert.Equal("first", store.Current.Backups[0].Name);
+            locker.Dispose();
+            saving.GetAwaiter().GetResult();
+            Assert.Equal(2, store.Current.Backups.Count);
         }
         finally
         {

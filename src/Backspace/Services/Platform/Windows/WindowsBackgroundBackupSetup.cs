@@ -162,13 +162,14 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
                     request => ServiceVaultReturnProtocol.Exchange(binding, request),
                     () =>
                     {
-                        File.WriteAllText(Path.Combine(_configuration, ServiceRetirement.ReturnedHintFile), "");
+                        var returned = Path.Combine(_configuration, ServiceRetirement.ReturnedHintFile);
+                        FileAccessRetry.Run(() => File.WriteAllText(returned, ""), returned);
                         WaitForElevated(upgrade);
                     });
             }
             finally
             {
-                try { File.Delete(Path.Combine(_configuration, ServiceRetirement.PreparedHintFile)); } catch (Exception) { }
+                FileAccessRetry.DeleteIfExists(Path.Combine(_configuration, ServiceRetirement.PreparedHintFile));
                 upgrade.Dispose();
             }
             return true;
@@ -248,13 +249,13 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
                 var binding = ServiceWorkerBinding.LoadForOwner(_root);
                 if (!binding.Activated) return new QuietApplyOutcome(QuietApplyResult.NeedsApproval);
                 var failure = Path.Combine(_configuration, Program.SetupFailureFile);
-                try { File.Delete(failure); } catch (Exception) { }
+                FileAccessRetry.DeleteIfExists(failure);
                 var code = await ServiceSettingsTask.RunAsync(binding, Executable, CancellationToken.None).ConfigureAwait(false);
                 if (code is null) return new QuietApplyOutcome(QuietApplyResult.NeedsApproval);
                 if (code == ServiceSettingsTask.BusyExitCode) return new QuietApplyOutcome(QuietApplyResult.Busy);
                 if (code == 0) { TaskSchedulerService.NotifyChanged(); return new QuietApplyOutcome(QuietApplyResult.Applied); }
                 string? reason = null;
-                try { if (new FileInfo(failure).Length is > 0 and < 8192) reason = File.ReadAllText(failure).Trim(); } catch (Exception) { }
+                reason = FileAccessRetry.ReadNote(failure);
                 return new QuietApplyOutcome(QuietApplyResult.Failed, reason ?? $"Windows reported code {code}. Your saved settings are kept.");
             }).ConfigureAwait(false);
         }
@@ -301,7 +302,8 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
                         () =>
                         {
                             if (removal is null) { Elevated("--service-retire-complete"); return; }
-                            File.WriteAllText(Path.Combine(_configuration, ServiceRetirement.ReturnedHintFile), "");
+                            var returned = Path.Combine(_configuration, ServiceRetirement.ReturnedHintFile);
+                            FileAccessRetry.Run(() => File.WriteAllText(returned, ""), returned);
                             WaitForElevated(removal);
                         });
                 }
@@ -309,7 +311,7 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
             finally
             {
                 // Release a removal process still waiting for the return.
-                try { File.Delete(Path.Combine(_configuration, ServiceRetirement.PreparedHintFile)); } catch (Exception) { }
+                FileAccessRetry.DeleteIfExists(Path.Combine(_configuration, ServiceRetirement.PreparedHintFile));
                 removal?.Dispose();
             }
             return true;
@@ -325,8 +327,8 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
     private Process StartApprovedAndWait(string hintFile, params string[] args)
     {
         var hint = Path.Combine(_configuration, hintFile);
-        try { File.Delete(hint); } catch (Exception) { }
-        try { File.Delete(FailurePath); } catch (Exception) { }
+        FileAccessRetry.DeleteIfExists(hint);
+        FileAccessRetry.DeleteIfExists(FailurePath);
         var start = new ProcessStartInfo(Executable) { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = _root };
         foreach (var arg in args) start.ArgumentList.Add(arg);
         Process process;
@@ -348,8 +350,7 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
         process.WaitForExit();
         if (process.ExitCode == 0) return;
         string? reason = null;
-        try { if (new FileInfo(FailurePath).Length is > 0 and < 8192) reason = File.ReadAllText(FailurePath).Trim(); File.Delete(FailurePath); }
-        catch (Exception) { }
+        reason = FileAccessRetry.ReadNote(FailurePath, delete: true);
         throw new IOException("Scheduled backups could not be set up. Your backups and settings are unchanged."
             + (string.IsNullOrEmpty(reason) ? " Try again; if it keeps failing, copy this message for support." : " Reason: " + reason));
     }
@@ -364,7 +365,7 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
         // The approved process cannot return its output through the prompt;
         // it leaves its reason in this file instead (Program.ReportSetupFailure).
         var failure = Path.Combine(_configuration, Program.SetupFailureFile);
-        try { File.Delete(failure); } catch (Exception) { }
+        FileAccessRetry.DeleteIfExists(failure);
         try
         {
             using var process = Process.Start(start) ?? throw new IOException("Windows did not start background backup setup.");
@@ -372,8 +373,7 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
             if (process.ExitCode != 0)
             {
                 string? reason = null;
-                try { if (new FileInfo(failure).Length is > 0 and < 8192) reason = File.ReadAllText(failure).Trim(); File.Delete(failure); }
-                catch (Exception) { }
+                reason = FileAccessRetry.ReadNote(failure, delete: true);
                 throw new IOException("Scheduled backups could not be set up. Your backups and settings are unchanged."
                     + (string.IsNullOrEmpty(reason) ? " Try again; if it keeps failing, copy this message for support." : " Reason: " + reason));
             }

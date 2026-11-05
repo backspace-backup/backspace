@@ -30,6 +30,10 @@ public sealed class ConfigStore
 
     private static ILogger _log => AppLogger.For<ConfigStore>();
     private readonly object _gate = new();
+    // Writers (and Load) queue here; _gate is held only briefly, so reading
+    // the settings never waits for a file another program holds (U135).
+    // Lock order: _writeGate, then _gate or the settings file lock.
+    private readonly object _writeGate = new();
     private readonly string _path = AppPaths.ConfigFile;
     private AppConfig _current = new();
     private byte[]? _lastKnownFileHash;
@@ -74,6 +78,7 @@ public sealed class ConfigStore
     {
         AppPaths.EnsureAll();
         bool changed = false;
+        lock (_writeGate)
         lock (_gate)
         {
             using var transaction = StateFileLock.Acquire(_path);
@@ -349,27 +354,25 @@ public sealed class ConfigStore
     private void MutateAndSave(Action<AppConfig> mutate)
     {
         ArgumentNullException.ThrowIfNull(mutate);
-        lock (_gate)
+        lock (_writeGate)
         {
-            if (!_loaded)
-                throw new InvalidOperationException("Settings have not been loaded successfully. Reload them before saving changes.");
+            lock (_gate)
+                if (!_loaded)
+                    throw new InvalidOperationException("Settings have not been loaded successfully. Reload them before saving changes.");
             using var transaction = StateFileLock.Acquire(_path);
             // Refresh INSIDE the inter-process transaction. A scheduled run
             // may have persisted status while the GUI held an older snapshot.
             // A read failure must propagate; falling back would lose its edits.
-            var latest = ReadCurrentFile();
+            var latest = FileAccessRetry.Get(ReadCurrentFile, _path);
             MigrateLegacyNotificationModel(latest);
-            var prior = _current;
-            try
+            mutate(latest);
+            // Written outside _gate: a held file is waited out while readers
+            // keep the settings as last saved; they see the change once saved.
+            var hash = WriteFile(latest);
+            lock (_gate)
             {
-                mutate(latest);
                 _current = latest;
-                Save_NoLock();
-            }
-            catch
-            {
-                _current = prior;
-                throw;
+                _lastKnownFileHash = hash;
             }
         }
     }
@@ -400,7 +403,11 @@ public sealed class ConfigStore
         }
     }
 
-    private void Save_NoLock()
+    private void Save_NoLock() => _lastKnownFileHash = WriteFile(_current, _loaded);
+
+    /// <summary>Writes <paramref name="config"/> to the settings file
+    /// (atomic replace, keeping a .bak) and returns the hash of what was written.</summary>
+    private byte[] WriteFile(AppConfig config, bool loaded = true)
     {
         // Refuse to write while the on-disk config is still unread (a
         // transient IOException or permission issue during Load left
@@ -408,13 +415,13 @@ public sealed class ConfigStore
         // default). Persisting that empty default would silently
         // discard the user's actual config the moment any Update
         // triggers — exactly the regression the audit flagged.
-        if (!_loaded)
+        if (!loaded)
         {
             _log.Warning("Save refused — initial Load has not completed; existing settings were left untouched");
             throw new InvalidOperationException("Settings have not been loaded successfully.");
         }
         AppPaths.EnsureAll();
-        var text = JsonSerializer.Serialize(_current, Json);
+        var text = JsonSerializer.Serialize(config, Json);
         var tmp = _path + $".{Guid.NewGuid():N}.tmp";
         try
         {
@@ -447,9 +454,9 @@ public sealed class ConfigStore
                 else
                     File.Move(tmp, _path);
             }, _path);
-            _lastKnownFileHash = SHA256.HashData(Encoding.UTF8.GetBytes(text));
             _log.Debug("Saved config: {BackupCount} backup(s), {DestCount} destination(s)",
-                _current.Backups.Count, _current.Destinations.Count);
+                config.Backups.Count, config.Destinations.Count);
+            return SHA256.HashData(Encoding.UTF8.GetBytes(text));
         }
         catch (Exception ex)
         {

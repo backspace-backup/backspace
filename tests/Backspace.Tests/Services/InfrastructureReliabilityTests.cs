@@ -30,6 +30,11 @@ public sealed class InfrastructureReliabilityTests
         System.Threading.Thread.Sleep(1500);
         Assert.False(saving.IsCompleted);
         Assert.Equal(prior, File.ReadAllBytes(AppPaths.ConfigFile));
+        // Reading the settings meanwhile doesn't wait for the held file, and
+        // gives them as last saved (U135).
+        var reading = System.Threading.Tasks.Task.Run(() => store.Current.Logging.RetentionDays);
+        Assert.True(reading.Wait(1000));
+        Assert.Equal(44, reading.Result);
         var pending = Assert.Single(Directory.GetFiles(AppPaths.ConfigRoot, "config.json.*.tmp"));
         using (var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(pending)))
             Assert.Equal(88, document.RootElement.GetProperty("logging").GetProperty("retentionDays").GetInt32());
@@ -135,12 +140,19 @@ public sealed class InfrastructureReliabilityTests
         Assert.Equal(44, store.Current.Logging.RetentionDays);
         if (OperatingSystem.IsWindows())
         {
-            using var held = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.Read, FileShare.None);
-            Assert.Throws<IOException>(() => store.UpdateQuiet(c => c.Logging.RetentionDays = 88));
+            // Held so that it can't even be read: the save waits (U135), the
+            // settings stay as last saved meanwhile, then the change lands.
+            var held = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.Read, FileShare.None);
+            var saving = System.Threading.Tasks.Task.Run(() => store.UpdateQuiet(c => c.Logging.RetentionDays = 88));
+            System.Threading.Thread.Sleep(1500);
+            Assert.False(saving.IsCompleted);
             Assert.Equal(44, store.Current.Logging.RetentionDays);
+            held.Dispose();
+            saving.GetAwaiter().GetResult();
+            Assert.Equal(88, store.Current.Logging.RetentionDays);
         }
         var reopened = new ConfigStore(); reopened.Load();
-        Assert.Equal(44, reopened.Current.Logging.RetentionDays);
+        Assert.Equal(OperatingSystem.IsWindows() ? 88 : 44, reopened.Current.Logging.RetentionDays);
     }
 
     [Fact]

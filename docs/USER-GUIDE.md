@@ -110,6 +110,14 @@ restic and rclone it starts) runs only while needed: the background service
 stops it when each run ends, and the open app after 5 minutes without use. The
 next action starts it again, which takes a few seconds.
 
+After each backup (or on its own schedule, if the backup has one), the
+cleanup removes the snapshots its keep policy no longer
+keeps and deletes the stored data only they used. It also runs a full prune
+after a backup that follows one cut short, and at least once a week, which
+deletes data no snapshot uses, such as the first copy of what an interrupted
+backup sent again. While it runs, the storage can't be used by another
+operation.
+
 Each schedule has conditions that also apply to its standalone check and
 prune:
 
@@ -129,8 +137,10 @@ those Windows Update schedules: when to sleep or restart stays your choice
 and Windows'. When the computer sleeps, a backup pauses and carries on when
 it wakes. A backup cut short instead (by a restart, Windows shutting down, a
 power loss, a crash, an update of Backspace or Quit) starts again by itself
-when Backspace runs again, even with "Catch up missed runs" off, and nothing
-already stored is sent again. Its history says "Interrupted", and you get no
+when Backspace runs again, even with "Catch up missed runs" off. What it had
+already stored is reused, except what it sent in its last few minutes: the
+engine records what it stored every 10 minutes, so that part is sent again, and
+the cleanup after the next backup deletes the first copy. Its history says "Interrupted", and you get no
 notification, since there is nothing to do. This applies to scheduled
 backups, and with administrator access to `Backspace --run` from the
 command line as well; a backup started with **Run now** in the window
@@ -205,6 +215,14 @@ instead (`cache/*` then `!cache/keep/`). **Filters → Advanced** warns about
 such an exception and shows the fix. Imported Duplicacy include rules are
 translated so that they apply.
 
+The engine checks every rule against every file and folder it looks at, which
+can take most of a large backup's time. Backspace gives it the rules in a
+quicker form: a rule another one already covers is left out, and a rule such
+as `C:/**/*.tmp` is shortened to `*.tmp`, each only when a complete check
+proves that exactly the same files are excluded, for any file under the source.
+Rules it can't check are passed on as written. A backup's log says how many
+rules were loaded and how many the engine checks.
+
 **Filters → Recommended** groups the suggested exclusions (Windows system
 files, app caches, cloud-synced folders). A green **✓ Applied** line means
 the ticked groups are already in the backup's filters and there is nothing
@@ -264,9 +282,11 @@ Until its count is done, the file total ends with "+", the size is
 Backspace's own count of the source (marked "~", it takes seconds) or the
 last backup's, the percentage is of that size, and no time left is shown.
 The speed is of the data actually sent to the storage, over the last half
-minute. Files that need nothing sent (unchanged, or already stored) are
-checked quickly and don't count, so while the engine reads files the storage
-already holds, the amount sent hardly grows and no speed is shown. That
+minute, and shows whenever new data is being sent, however slowly. Files that
+need nothing sent (unchanged, or already stored) are checked quickly and don't
+count, nor does the engine's own bookkeeping (its folder lists and index), so
+while the engine reads files the storage already holds, the amount sent hardly
+grows and no speed is shown. That
 happens when a backup starts again after an interruption, or has no earlier
 backup to compare with: the engine reads every file to find what the storage
 already holds. The time left follows the pace of the last five minutes, so it

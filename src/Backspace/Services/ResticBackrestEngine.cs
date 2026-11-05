@@ -209,7 +209,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
             {
                 try
                 {
-                    var result = await RunRetentionAsync(client, repoId, planId, backup, ct, lineSink).ConfigureAwait(false);
+                    var prune = await NeedsPruneAsync(client, repoId, planId, started, ct).ConfigureAwait(false);
+                    var result = await RunRetentionAsync(client, repoId, planId, backup, ct, lineSink, prune).ConfigureAwait(false);
                     if (result.Status is not BackrestStatus.Success)
                     {
                         status = BackupRunStatus.Warning;
@@ -282,7 +283,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
         var started = DateTime.UtcNow;
         var terminal = kind == RunKind.Prune
-            ? await RunRetentionAsync(client, repoId, planId, backup, ct, lineSink).ConfigureAwait(false)
+            ? await RunRetentionAsync(client, repoId, planId, backup, ct, lineSink, prune: true).ConfigureAwait(false)
             : await RunRepositoryCheckAsync(client, repoId, backup, ct, lineSink).ConfigureAwait(false);
         return new RunRecord
         {
@@ -337,16 +338,76 @@ public sealed class ResticBackrestEngine : IBackupEngine
         return found ?? throw new InvalidDataException("The engine did not return a stored-data size. No data sample was started.");
     }
 
+    /// <summary>
+    /// Removes the snapshots the retention policy no longer keeps, and the
+    /// stored data nothing uses any more (U131, 4 November 2026). Before, only
+    /// the snapshots were removed ("forget"), so the storage never shrank, and
+    /// the data a cut-short backup had sent stayed there for good: restic lists
+    /// what it sent only every 10 minutes or at the end, so a resumed backup
+    /// sends that data again (local_c: 652 files, about 10 GB, after its
+    /// interruptions). "--prune" deletes what the removed snapshots alone used;
+    /// <paramref name="prune"/> runs a full prune as well, which also deletes
+    /// data no snapshot or list knows about.
+    /// </summary>
     private async Task<BackrestOperation> RunRetentionAsync(BackrestClient client, string repoId,
-        string planId, Backup backup, CancellationToken ct, Action<string>? lineSink)
+        string planId, Backup backup, CancellationToken ct, Action<string>? lineSink, bool prune = false)
     {
         var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
             "/v1.Backrest/GetConfig", new(), ct).ConfigureAwait(false);
-        var command = BuildRetentionCommand(planId, config.Instance, ParseRetentionPolicy(backup.KeepPolicy));
-        if (command is null) return new() { Status = BackrestStatus.Success, DisplayMessage = "Retention keeps every snapshot; no cleanup was needed." };
-        return await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
-            new RunCommandRequest { RepoId = repoId, Command = command },
-            op => op.OperationRunCommand?.Command == command, ct, lineSink).ConfigureAwait(false);
+        var forget = BuildRetentionCommand(planId, config.Instance, ParseRetentionPolicy(backup.KeepPolicy));
+        BackrestOperation? result = null;
+        if (forget is not null)
+        {
+            var command = prune ? forget : forget + " --prune";
+            result = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
+                new RunCommandRequest { RepoId = repoId, Command = command },
+                op => op.OperationRunCommand?.Command == command, ct, lineSink).ConfigureAwait(false);
+            if (result.Status is not BackrestStatus.Success) return result;
+        }
+        if (prune)
+        {
+            var line = "[backspace] Removing stored data no backup uses any more";
+            RaiseLineWritten(line); lineSink?.Invoke(line);
+            return await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
+                new RunCommandRequest { RepoId = repoId, Command = PruneCommand },
+                op => op.OperationRunCommand?.Command == PruneCommand, ct, lineSink).ConfigureAwait(false);
+        }
+        return result ?? new() { Status = BackrestStatus.Success, DisplayMessage = "Retention keeps every snapshot; no cleanup was needed." };
+    }
+
+    internal const string PruneCommand = "prune";
+
+    /// <summary>How often a repository gets a full prune at the latest, for
+    /// leftovers this engine's history can't see (a backup cut short while the
+    /// other Backspace process ran it).</summary>
+    internal static readonly TimeSpan PruneAtLeastEvery = TimeSpan.FromDays(7);
+
+    /// <summary>Whether a full prune is due after this backup: the plan's
+    /// previous backup did not finish (it may have left data behind), or no
+    /// prune has run here for <see cref="PruneAtLeastEvery"/>.</summary>
+    internal static bool NeedsPrune(IReadOnlyList<BackrestOperation> operations, string planId, long beforeMs, DateTime nowUtc)
+    {
+        var previous = operations.Where(op => op.PlanId == planId && op.OperationBackup is not null && op.UnixTimeStartMs < beforeMs)
+            .MaxBy(op => op.UnixTimeStartMs);
+        if (previous is not null && previous.Status is not (BackrestStatus.Success or BackrestStatus.Warning)) return true;
+        var lastPrune = operations.Where(op => op.OperationRunCommand?.Command == PruneCommand && op.Status == BackrestStatus.Success)
+            .Select(op => (long?)op.UnixTimeStartMs).Max();
+        return lastPrune is not { } at || nowUtc - DateTimeOffset.FromUnixTimeMilliseconds(at).UtcDateTime >= PruneAtLeastEvery;
+    }
+
+    private async Task<bool> NeedsPruneAsync(BackrestClient client, string repoId, string planId, DateTime startedUtc, CancellationToken ct)
+    {
+        try
+        {
+            var repoGuid = await ResolveRepoGuidAsync(client, repoId, ct).ConfigureAwait(false);
+            var operations = await GetRepoOperationsAsync(client, repoGuid, ct).ConfigureAwait(false);
+            return NeedsPrune(operations, planId, new DateTimeOffset(startedUtc).ToUnixTimeMilliseconds(), DateTime.UtcNow);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.Debug(ex, "Could not read the engine history to decide on a prune");
+            return false;
+        }
     }
 
     internal static bool IsConfirmedLockFailure(BackrestOperation result) =>
@@ -473,7 +534,10 @@ public sealed class ResticBackrestEngine : IBackupEngine
             : $"No earlier backup of this folder in «{destination.Name}»: everything is read and sent.");
         var translated = FilterTranslator.TranslateForSource(RecommendedFilters.WithAlwaysExcluded(backup.FiltersText), sourcePath);
         var rules = translated.Excludes.Distinct().Count() + translated.IExcludes.Distinct().Count();
-        yield return $"[setup] {rules.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} exclusion rule{(rules == 1 ? "" : "s")} loaded"
+        var checkedAs = ResticRuleOptimizer.Optimize(translated.Excludes, false, sourcePath).Count + ResticRuleOptimizer.Optimize(translated.IExcludes, true, sourcePath).Count;
+        static string N(int n) => n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+        yield return $"[setup] {N(rules)} exclusion rule{(rules == 1 ? "" : "s")} loaded"
+            + (checkedAs != rules ? $" (checked as {N(checkedAs)} quicker ones that exclude exactly the same files)" : "")
             + (Services.Platform.PlatformInfo.IsWindows && backup.ExcludeCloudFiles ? "; files kept only in the cloud are skipped." : ".");
         yield return Services.Platform.PlatformInfo.IsWindows && backup.UseVss
             ? "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive."
@@ -3031,8 +3095,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
             Id = planId,
             Repo = repoId,
             Paths = paths,
-            Excludes = translated.Excludes.Distinct().ToList(),
-            IExcludes = translated.IExcludes.Distinct().ToList(),
+            // The same exclusions in a form restic checks faster (U133).
+            Excludes = ResticRuleOptimizer.Optimize(translated.Excludes, caseInsensitive: false, sourcePath).ToList(),
+            IExcludes = ResticRuleOptimizer.Optimize(translated.IExcludes, caseInsensitive: true, sourcePath).ToList(),
             BackupFlags = backupFlags,
             // Backrest 1.13's Forget RPC refuses to run without a
             // retention policy on the plan ("forget called with nil

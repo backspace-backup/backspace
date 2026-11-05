@@ -130,7 +130,11 @@ public class ResticBackrestEngineTests
         // "/x" is a folder, not a whole drive: the always-excluded files that
         // exist only at the top of a drive are not added (U106); Windows' app
         // aliases, which can be anywhere in a profile, are.
-        Assert.Equal(new[] { root + "/**/*.tmp", root + "/**/node_modules/", root + "/**/AppData/Local/Microsoft/WindowsApps/" }, allPatterns);
+        // On Windows restic gets them in a quicker form that excludes exactly
+        // the same paths under the source (U133): "<root>/**/" is dropped.
+        Assert.Equal(Backspace.Services.Platform.PlatformInfo.IsWindows
+            ? new[] { "*.tmp", "node_modules/", "AppData/Local/Microsoft/WindowsApps/" }
+            : new[] { root + "/**/*.tmp", root + "/**/node_modules/", root + "/**/AppData/Local/Microsoft/WindowsApps/" }, allPatterns);
     }
 
     [Fact]

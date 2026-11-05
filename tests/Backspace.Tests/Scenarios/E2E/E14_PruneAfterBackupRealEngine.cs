@@ -116,7 +116,12 @@ public sealed class E14_PruneAfterBackupRealEngine : BackupE2EBase
         Assert.Equal(3, forgets.Length);
         Assert.All(forgets, op => Assert.Equal("STATUS_SUCCESS", op.Status));
         Assert.DoesNotContain(operations.Operations, op => op.OperationForget is not null);
-        ctx.Report.RecordNote("Real retention operations", $"{forgets.Length} successful forget operations; exactly one revision remains and is byte-compared below.");
+        // U131: the first cleanup is a full prune (none had run in this
+        // storage); later ones remove what the forgotten snapshots used.
+        var prunes = operations.Operations!.Where(op => op.OperationRunCommand?.Command == "prune").ToArray();
+        Assert.Equal("STATUS_SUCCESS", Assert.Single(prunes).Status);
+        Assert.Equal(2, forgets.Count(op => op.OperationRunCommand!.Command.EndsWith(" --prune", StringComparison.Ordinal)));
+        ctx.Report.RecordNote("Real retention operations", $"{forgets.Length} successful forget operations, the last two with --prune, and one full prune; exactly one revision remains and is byte-compared below.");
 
         var outcome = await RestoreEverythingAsync(
             backup, source, dest, "default", restoreDir, CancellationToken.None);

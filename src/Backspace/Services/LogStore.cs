@@ -230,7 +230,7 @@ public sealed class LogStore
                             {
                                 var path = Path.GetFullPath(log);
                                 if (comparer.Equals(Path.GetDirectoryName(path), full)
-                                    && string.Equals(Path.GetExtension(path), ".log", StringComparison.OrdinalIgnoreCase)) File.Delete(path);
+                                    && string.Equals(Path.GetExtension(path), ".log", StringComparison.OrdinalIgnoreCase)) FileAccessRetry.DeleteIfExists(path);
                             }
                             catch (Exception ex) { AppLogger.For<LogStore>().Debug(ex, "Could not delete a removed backup's transcript"); }
                         }
@@ -243,7 +243,7 @@ public sealed class LogStore
                     var others = Directory.EnumerateFileSystemEntries(directory)
                         .Where(e => !Path.GetFileName(e).StartsWith("history.json", StringComparison.OrdinalIgnoreCase)
                                  && !Path.GetFileName(e).StartsWith("timeline.json", StringComparison.OrdinalIgnoreCase));
-                    if (!others.Any()) Directory.Delete(directory, recursive: true);
+                    if (!others.Any()) FileAccessRetry.Run(() => { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }, directory, directoryCleanup: true);
                 }
                 catch (Exception ex) { AppLogger.For<LogStore>().Warning(ex, "A removed backup's history in {Directory} was kept", directory); }
             }

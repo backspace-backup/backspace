@@ -471,3 +471,39 @@ locked file as missing, empty or corrupt (U135, 4 November 2026).
 
 Known gap: `ConfigStore` saves while holding its in-memory gate, so a long
 lock during a save also delays code that reads the settings meanwhile.
+
+## Restic's exclusion matching is slow; the rule list it gets is rewritten
+
+Restic tests every exclusion rule against every path, twice per backup (the
+counting scanner and the archiver), and its `**` handling tries every depth:
+`match` expands the first `**` into 0…n `*` parts and recurses. On local_c's
+273 rules this was 93% of the time to walk C:\ (330 µs a path; restic's own
+`internal/filter` code timed on 743,491 real paths, 4 November 2026). Patterns
+such as `C:/**/*.tmp` cost the most.
+
+`ResticRuleOptimizer` gives restic an equivalent, cheaper list: it drops a
+leading `<source>/**/`, splits `<source>/**/*/**/rest` into two rules with one
+`**` fewer, and leaves out rules another rule covers. Each change is made only
+when proven for every path under the source, by an automaton model of restic's
+exact `match`, including a quirk: the loop bound `i <= len(strs)-len(parts)+1`
+counts the later `**` as one component each, so `C:/**/*/**/node_modules/*`
+does **not** match `C:\a\node_modules\x` (but does match `C:\a\node_modules\x\y`).
+"Obvious" simplifications that ignore this change what is backed up. Removal
+also respects `!` rules between the two. Rules with character classes,
+backslashes, non-ASCII text, `.` or `..` are passed through and never used to
+remove another. On local_c the list went from 273 to 232 rules and restic's
+matching from 242 s to 87 s over the same paths, with identical results on every
+path. Tests: `ResticRuleOptimizerTests` compares against a line-for-line copy of
+restic's matcher on random lists and paths. If restic changes `internal/filter`,
+re-check the model (the `Check` class documents it) before upgrading.
+
+## An interrupted backup leaves data behind until a prune
+
+Restic writes its index (the list of what it stored) every 10 minutes or at the
+end. A backup stopped before that leaves data packs no index lists; the resumed
+backup sends that data again, and `restic check` reports "additional files ...
+likely contain duplicate data". Only `restic prune` deletes them (local_c had 652
+such files after several interruptions). The cleanup after each backup therefore
+runs `forget … --prune`, and a full `prune` after a backup whose previous run did
+not finish, or when Backrest's history shows no successful prune for 7 days.
+Before 1.1.10, cleanup ran `forget` alone, so storage never shrank.

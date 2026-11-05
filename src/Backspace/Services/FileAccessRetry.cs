@@ -127,6 +127,30 @@ internal static class FileAccessRetry
         return result;
     }
 
+    /// <summary>Deletes <paramref name="path"/> if it exists, waiting out
+    /// another program holding it (U135). Other errors are ignored: callers
+    /// use it for notes and hints whose removal is not essential.</summary>
+    internal static void DeleteIfExists(string path, CancellationToken ct = default)
+    {
+        try { Run(() => { if (File.Exists(path)) File.Delete(path); }, path, ct: ct); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        // Stopped from its notice: the file stays, the caller carries on.
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+    }
+
+    /// <summary>A short note another process left in <paramref name="path"/>
+    /// (under 8 KB), or null; a held file is waited out (U135).</summary>
+    internal static string? ReadNote(string path, bool delete = false)
+    {
+        try
+        {
+            var text = Get(() => File.Exists(path) && new FileInfo(path).Length is > 0 and < 8192 ? File.ReadAllText(path).Trim() : null, path);
+            if (delete) DeleteIfExists(path);
+            return string.IsNullOrEmpty(text) ? null : text;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
     /// <summary>True for the errors another program holding a file causes.</summary>
     internal static bool IsLock(Exception error) => IsAccessConflict(error, "", false);
 

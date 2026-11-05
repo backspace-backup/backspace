@@ -110,32 +110,25 @@ public class ReviewRound3And4RegressionTests
             store.Load();
             store.Update(c => c.Backups.Add(new Backup { Id = "base", Name = "base" }));
 
-            using var locker = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-
-            // Subscribe a Changed handler that triggers an inner Update.
-            // The locked file makes the inner's Save throw IOException.
+            // U135: a held file is waited out instead of failing the save.
+            // Until it is saved, memory and disk agree on the "base" backup
+            // only, and no change is announced.
+            var locker = new FileStream(AppPaths.ConfigFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
             int handlerInvocations = 0;
-            store.Changed += (_, __) =>
-            {
-                handlerInvocations++;
-                // Inner Update throws because the file is locked.
-                // The exception bubbles into RaiseChanged's try/catch
-                // which swallows it (intentional — handler failures
-                // shouldn't break the outer state).
-            };
-
-            // The outer Update succeeds reading the lock — wait, the
-            // outer's Save would also fail. Test instead: outer's
-            // mutate then Save throws because the file is locked. Even
-            // though no handler ran (RaiseChanged is outside the try),
-            // verify _current reflects the outer-frame snapshot
-            // rollback.
-            Assert.Throws<IOException>(() =>
-                store.Update(c => c.Backups.Add(new Backup { Id = "rolled-back", Name = "rolled-back" })));
-
-            // After rollback, _current still has only the "base" backup.
+            store.Changed += (_, __) => handlerInvocations++;
+            var saving = System.Threading.Tasks.Task.Run(() =>
+                store.Update(c => c.Backups.Add(new Backup { Id = "later", Name = "later" })));
+            System.Threading.Thread.Sleep(1500);
+            Assert.False(saving.IsCompleted);
             Assert.Single(store.Current.Backups);
             Assert.Equal("base", store.Current.Backups[0].Name);
+            Assert.Equal(0, handlerInvocations);
+            locker.Dispose();
+            saving.GetAwaiter().GetResult();
+            Assert.Equal(2, store.Current.Backups.Count);
+            Assert.Equal(1, handlerInvocations);
+            var reopened = new ConfigStore(); reopened.Load();
+            Assert.Equal(2, reopened.Current.Backups.Count);
         }
         finally
         {

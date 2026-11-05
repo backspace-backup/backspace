@@ -103,7 +103,9 @@ internal sealed class TestRestoreContext
         }
         finally
         {
-            try { if (File.Exists(temp)) File.Delete(temp); } catch { /* Preserve the original save error. */ }
+            // Waits out a held file (U135); other errors are ignored to
+            // preserve the original save error.
+            FileAccessRetry.DeleteIfExists(temp);
         }
     }
 

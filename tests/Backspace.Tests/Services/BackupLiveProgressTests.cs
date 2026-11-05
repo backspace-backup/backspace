@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Backspace.Services;
@@ -143,6 +144,48 @@ public sealed class BackupLiveProgressTests
         Assert.StartsWith("[progress] 53.3% · Backing up · 94 / 177 GB · 385,715 / 586,925 files",
             BackupLiveProgress.Format(new(53.3, 190_100_000_000, 101_000_000_000, 586_925, 385_715), false, 190_800_000_000, null, null));
         Assert.Equal("880 MB / ~178 GB", BackupLiveProgress.Of(922_746_880, 190_800_000_000, estimated: true));
+    }
+
+    /// <summary>U133 (4 November 2026, owner's reply): any speed proves the
+    /// backup is doing something, but only for data actually backed up. A slow
+    /// real upload shows its speed; restic's bookkeeping while it reads files
+    /// already stored never does, however long it lasts.</summary>
+    [Fact]
+    public void Any_real_upload_shows_its_speed_and_bookkeeping_none()
+    {
+        var start = new DateTime(2026, 11, 4, 21, 20, 0, DateTimeKind.Utc);
+        long sent = 0;
+        var live = new BackupLiveProgress(() => 190_800_000_000, () => sent);
+        var lines = new List<string>();
+        // Ten minutes of reading files already stored, with 20 KB/s of listings,
+        // index and lock writes (the most seen on local_c): never a speed.
+        for (var s = 5; s <= 600; s += 5)
+        {
+            sent += 100_000;
+            lines.Add(live.Next(Operation(0.1 + s / 10_000.0, 1_000_000_000L * s, 120_000_000_000, 100 * s, 110_000), start.AddSeconds(s))!);
+        }
+        Assert.All(lines, l => Assert.DoesNotContain("/s", l));
+        Assert.EndsWith(" · 11 MB sent", lines[^1]);
+
+        // Then a slow real upload, 40 KB/s: its speed shows within two minutes.
+        var slow = new List<string>();
+        for (var s = 605; s <= 780; s += 5)
+        {
+            sent += 200_000;
+            slow.Add(live.Next(Operation(0.2 + s / 10_000.0, 1_000_000_000L * s, 120_000_000_000, 100 * s, 110_000), start.AddSeconds(s))!);
+        }
+        var first = slow.FindIndex(l => l.Contains("/s"));
+        Assert.InRange(first, 0, 24);
+        Assert.EndsWith(" sent at 39 KB/s", slow[^1]);
+
+        // The upload stops: the speed goes once the last two minutes carry no data.
+        var after = new List<string>();
+        for (var s = 785; s <= 960; s += 5)
+        {
+            sent += 100_000;
+            after.Add(live.Next(Operation(0.3 + s / 10_000.0, 1_000_000_000L * s, 120_000_000_000, 100 * s, 110_000), start.AddSeconds(s))!);
+        }
+        Assert.DoesNotContain("/s", after[^1]);
     }
 
     [Fact]
