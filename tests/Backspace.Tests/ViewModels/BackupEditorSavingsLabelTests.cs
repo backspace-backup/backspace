@@ -62,7 +62,7 @@ public class BackupEditorSavingsLabelTests
     {
         using var vm = new BackupEditorViewModel(new Backspace.Models.Backup(), isNew: true);
         vm.RecEstimatedSavingsBytes = 12L * 1024 * 1024 * 1024; // 12 GiB
-        Assert.Contains("(the recommended ones and your own) leave out", vm.RecEstimatedSavingsLabel); Assert.DoesNotContain("this PC", vm.RecEstimatedSavingsLabel);
+        Assert.StartsWith("The ticked recommended exclusions leave out", vm.RecEstimatedSavingsLabel); Assert.DoesNotContain("this PC", vm.RecEstimatedSavingsLabel);
         Assert.Contains("12", vm.RecEstimatedSavingsLabel);
     }
 

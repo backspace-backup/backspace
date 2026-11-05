@@ -41,7 +41,10 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         backup.SourcePaths.Add(System.IO.Path.Combine(ctx.RootDir, "src"));
         var vm = new BackupEditorViewModel(backup, isNew: false);
         Assert.True(vm.HasRecommendationUpdate);
-        Assert.Contains(vm.RecommendedAdditions, c => c.Pattern == "/Config.Msi/");
+        // U148: /Config.Msi/ is for the top of a drive and this backup is of a
+        // folder, so it is not added, and /pagefile.sys is offered for removal.
+        Assert.DoesNotContain(vm.RecommendedAdditions, c => c.Pattern == "/Config.Msi/");
+        Assert.Contains(vm.RecommendedRemovals, c => c.Pattern == "/pagefile.sys");
         Assert.Contains(vm.RecommendedAdditions, c => c.Pattern == DeclinedAddition);
         Assert.Contains(vm.RecommendedRemovals, c => c.Pattern == "Config.Msi/");
         Assert.Contains(vm.RecommendedRemovals, c => c.Pattern == DeclinedRemoval);
@@ -57,7 +60,7 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         // The saved rules are untouched until the person chooses.
         Assert.Equal(SavedByEarlierVersion(), vm.FiltersText);
         ctx.Snapshot(win, "update offered while editing",
-            "Filters > Recommended: 'Updated recommendations' lists each addition (such as /Config.Msi/ and node_modules/) and each removal (Config.Msi/ and the old Packages rule) with its own ticked checkbox. The saved rules are unchanged.");
+            "Filters > Recommended: 'Updated recommendations' lists each addition (such as node_modules/) and each removal (Config.Msi/, the old Packages rule, and /pagefile.sys, which can't match in a folder) with its own ticked checkbox. The saved rules are unchanged.");
 
         // Untick one addition and one removal through their checkboxes.
         CheckBoxFor(win, DeclinedAddition).IsChecked = false;
@@ -73,7 +76,7 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         ctx.Driver.Pump();
         var lines = vm.FiltersText.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).ToList();
         // Ticked changes applied.
-        Assert.Contains("/Config.Msi/", lines);
+        Assert.DoesNotContain("/pagefile.sys", lines);
         Assert.DoesNotContain("Config.Msi/", lines);
         // Unticked changes not applied.
         Assert.DoesNotContain(DeclinedAddition, lines);

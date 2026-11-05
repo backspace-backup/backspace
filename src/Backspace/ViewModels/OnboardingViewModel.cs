@@ -633,11 +633,14 @@ public sealed partial class OnboardingViewModel : ViewModelBase
             if (ApplyRecommendedExclusions)
             {
                 var defaults = RecommendedFilters.SuggestForSources(sourcePaths);
-                var cloud = RecommendedFilters.DetectCloudSyncFolders().ToList();
+                // Only cloud folders and rules that apply to these folders (U148).
+                var cloud = RecommendedFilters.DetectCloudSyncFolders()
+                    .Where(c => BackupEditorViewModel.InsideSources(c.Path, sourcePaths)).ToList();
                 Working.FiltersText = RecommendedFilters.RenderBlock(
                     defaults.ExcludeWindowsSystem,
                     defaults.ExcludeCachesAndJunk,
-                    cloud);
+                    cloud,
+                    sourcePaths);
             }
 
             // Persist + register schedule.

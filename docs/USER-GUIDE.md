@@ -225,8 +225,15 @@ rule repeated in the list is passed once.
 files, app caches, cloud-synced folders). A green **✓ Applied** line means
 the ticked groups are already in the backup's filters and there is nothing
 left to do; **Apply recommended exclusions** is enabled again only when you
-change a tick. **Estimate savings** reads the sources and says how much the
-exclusions skip on this PC.
+change a tick. **Estimate savings** reads the backup's folders and says how
+much the ticked recommendations leave out of them. On **Filters → Advanced**,
+**Count** says how much all the rules leave out, your own included, and
+**Simulate** lists what each rule keeps or leaves out.
+
+Only cloud-synced folders inside the backup's folders are offered, and only
+rules that can match there: a backup of a Dropbox folder is not offered the
+Windows folder or the profiles' AppData rules. Rules for the profiles
+(`Users/*/…`) apply to a whole drive or a folder under its Users folder.
 
 Recommendations only name things that can be rebuilt or downloaded again:
 app and browser caches, Windows' own temp folder for each account, package
@@ -535,7 +542,9 @@ not imported; set them up in Settings.
 
 When Backspace's recommended exclusions change, your saved backups keep their
 rules. Editing a backup lists the additions and removals for the groups it
-uses, each with a checkbox. **Apply ticked changes** applies the ticked ones;
+uses, each with a checkbox: rules added to the lists, rules missing from the
+backup's block (one you deleted is offered again), and rules that can't match
+in the backup's folders (offered again if you add a whole drive). **Apply ticked changes** applies the ticked ones;
 the unticked ones are not suggested again for that backup, and
 **Don't suggest these again** declines them all. Declined suggestions are
 counted below the list; **Show hidden suggestions** lists them again, unticked. A declined suggestion

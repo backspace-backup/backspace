@@ -315,6 +315,9 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         RefreshFilterExceptionWarning();
         RefreshRecommendedStatus();
         if (_ignoredRecommendationChanges is not null) RefreshRecommendationUpdate();
+        // The count was of the rules before this edit.
+        try { _allRulesCts?.Cancel(); } catch { }
+        AllRulesSavingsBytes = -1;
         if (_suppressFilterTouchTracking) return;
         _userTouchedFilters = true;
     }
@@ -370,16 +373,58 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         0 when RecScannedBytes == 0 =>
             "Couldn't read any files under your sources to estimate savings. " +
             "Check the source paths exist and have files.",
+        // Only the ticked recommendations (U149, 5 November 2026): what all
+        // the rules leave out is on the Advanced tab.
         _  => RecEstimatedTruncated
-              ? $"All this backup's exclusion rules (the recommended ones and your own) leave out at least {HumanBytes(RecEstimatedSavingsBytes)} of its folders (the count stopped early: the folders are too large to read in full)."
-              : $"All this backup's exclusion rules (the recommended ones and your own) leave out {HumanBytes(RecEstimatedSavingsBytes)} of its folders.",
+              ? $"The ticked recommended exclusions leave out at least {HumanBytes(RecEstimatedSavingsBytes)} of this backup's folders (the count stopped early: the folders are too large to read in full)."
+              : $"The ticked recommended exclusions leave out {HumanBytes(RecEstimatedSavingsBytes)} of this backup's folders.",
     };
+
+    /// <summary>What all of this backup's rules leave out of its folders, for
+    /// the Advanced tab (U149): -1 not counted, -2 counting.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(AllRulesSavingsLabel))] private long _allRulesSavingsBytes = -1;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(AllRulesSavingsLabel))] private bool _allRulesTruncated;
+
+    public string AllRulesSavingsLabel => AllRulesSavingsBytes switch
+    {
+        -1 => "Not counted yet: Count measures what all these rules leave out of this backup's folders.",
+        -2 => "Counting what all these rules leave out…",
+        _ => AllRulesTruncated
+            ? $"All these rules leave out at least {HumanBytes(AllRulesSavingsBytes)} of this backup's folders (the count stopped early: the folders are too large to read in full)."
+            : $"All these rules leave out {HumanBytes(AllRulesSavingsBytes)} of this backup's folders.",
+    };
+
+    private CancellationTokenSource? _allRulesCts;
+
+    [RelayCommand]
+    private async Task CountAllRulesAsync()
+    {
+        var prev = _allRulesCts;
+        _allRulesCts = new CancellationTokenSource();
+        try { prev?.Cancel(); prev?.Dispose(); } catch { }
+        var ct = _allRulesCts.Token;
+        AllRulesSavingsBytes = -2;
+        AllRulesTruncated = false;
+        try
+        {
+            var est = await ServiceLocator.Savings.ComputeAsync(SourcePaths.ToList(), FiltersText ?? "", ct);
+            if (ct.IsCancellationRequested) return;
+            AllRulesTruncated = est.Truncated;
+            AllRulesSavingsBytes = est.ExcludedBytes;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _log.Warning(ex, "Counting what all rules leave out failed");
+            AllRulesSavingsBytes = -1;
+        }
+    }
     private CancellationTokenSource? _savingsCts;
 
     /// <summary>True when the ticked exclusions are already in this backup's
     /// filters, so Apply has nothing left to do (U105).</summary>
     public bool RecommendedApplied => RecommendedFilters.IsApplied(FiltersText, RecExcludeWindowsSystem,
-        RecExcludeCachesAndJunk, DetectedCloudFolders.Where(c => c.IsSelected).Select(c => c.Folder).ToList());
+        RecExcludeCachesAndJunk, DetectedCloudFolders.Where(c => c.IsSelected).Select(c => c.Folder).ToList(), SourcePaths);
 
     public string RecommendedStatus => RecommendedApplied
         ? "✓ Applied. These exclusions are part of this backup's filters, so there is nothing more to do here. Change a tick to adjust them."
@@ -531,6 +576,9 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             if (SourcePaths.Count > 0) SourcesError = null;
             SyncChipsFromPaths(e);
             ShowCloudFoldersInSources();
+            // Rules that can't match in the new folders, or now can (U148).
+            if (_ignoredRecommendationChanges is not null) RefreshRecommendationUpdate();
+            RefreshRecommendedStatus();
             // Re-render the recommended filters block whenever sources
             // change (so newly-added cloud-sync detections etc. get
             // included). DON'T overwrite the toggle states — the
@@ -914,12 +962,12 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
 
     private void RefreshRecommendationUpdate()
     {
-        var update = RecommendedFilters.CheckForUpdates(FiltersText, _ignoredRecommendationChanges);
+        var update = RecommendedFilters.CheckForUpdates(FiltersText, _ignoredRecommendationChanges, SourcePaths);
         RecommendedAdditions.Clear();
         RecommendedRemovals.Clear();
         foreach (var p in update.Add) RecommendedAdditions.Add(new RecommendationChangeChoice(p));
         foreach (var p in update.Remove) RecommendedRemovals.Add(new RecommendationChangeChoice(p));
-        var all = RecommendedFilters.CheckForUpdates(FiltersText);
+        var all = RecommendedFilters.CheckForUpdates(FiltersText, sources: SourcePaths);
         var current = all.Add.Concat(all.Remove).ToList();
         // A declined change that today's lists no longer suggest is stale:
         // never shown again, and dropped so a later return is offered afresh.
@@ -978,7 +1026,8 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         var block = RecommendedFilters.RenderBlock(
             includeWindowsSystem: RecExcludeWindowsSystem,
             includeCachesAndJunk: RecExcludeCachesAndJunk,
-            cloudExcludes: cloudPicks);
+            cloudExcludes: cloudPicks,
+            sources: SourcePaths);
         // Programmatic write — don't flip _userTouchedFilters or auto-
         // application turns off the moment we run.
         _suppressFilterTouchTracking = true;
@@ -1021,7 +1070,9 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         try
         {
             var sources = SourcePaths.ToList();
-            var filters = FiltersText ?? "";
+            // The ticked recommendations alone (U149), as Apply writes them.
+            var filters = RecommendedFilters.RenderBlock(RecExcludeWindowsSystem, RecExcludeCachesAndJunk,
+                DetectedCloudFolders.Where(c => c.IsSelected).Select(c => c.Folder).ToList(), sources);
             var est = await ServiceLocator.Savings.ComputeAsync(sources, filters, ct);
 
             if (ct.IsCancellationRequested) return;

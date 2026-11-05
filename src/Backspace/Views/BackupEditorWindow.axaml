@@ -12,6 +12,30 @@
         WindowStartupLocation="CenterOwner">
 
   <Window.Styles>
+    <!-- U150 (5 November 2026): Fluent's tab headers are 24 px with a
+         48 px strip, which made this window's tabs the largest text on
+         screen. Headers are now the size of the main window's section
+         titles, sub-tabs a step smaller, and cards a little tighter. -->
+    <Style Selector="TabControl.editor-tabs > TabItem">
+      <Setter Property="FontSize" Value="16"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="MinHeight" Value="38"/>
+      <Setter Property="Padding" Value="2,0"/>
+      <Setter Property="Margin" Value="0,0,24,0"/>
+    </Style>
+    <Style Selector="TabControl.sub > TabItem">
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="FontWeight" Value="Normal"/>
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="Padding" Value="2,0"/>
+      <Setter Property="Margin" Value="0,0,20,0"/>
+    </Style>
+    <Style Selector="TabControl.sub > TabItem:selected">
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="Border.surface">
+      <Setter Property="Padding" Value="20,16"/>
+    </Style>
     <Style Selector="RadioButton.check-choice">
       <Setter Property="Padding" Value="10,0,0,0"/>
       <Setter Property="FontSize" Value="15"/>
@@ -35,10 +59,10 @@
     </Style>
   </Window.Styles>
 
-  <Grid RowDefinitions="Auto,*,Auto" Margin="38,30,38,26">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="28,20,28,18">
 
-    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,22">
-      <StackPanel Grid.Column="0" Spacing="8">
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+      <StackPanel Grid.Column="0" Spacing="4">
         <TextBlock Classes="page-title" Text="{Binding HeaderTitle}"/>
         <TextBlock Classes="page-subtitle" MaxWidth="720"
                    Text="You can refine anything later and switch easy/advanced mode at any time."/>
@@ -69,7 +93,7 @@
       </StackPanel>
     </Grid>
 
-    <TabControl Grid.Row="1" Background="Transparent" BorderThickness="0">
+    <TabControl Grid.Row="1" Classes="editor-tabs" Background="Transparent" BorderThickness="0" Padding="0">
 
       <!-- =========== TAB: Overview =========== -->
       <TabItem Header="Overview" FontFamily="{DynamicResource BS.Font.Body}">
@@ -80,7 +104,7 @@
              Spacing now lives as Margin on the inner StackPanel. -->
         <ScrollViewer VerticalScrollBarVisibility="Visible"
                       HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Spacing="18" Margin="0,18,0,0">
+          <StackPanel Spacing="14" Margin="0,10,0,0">
 
             <!-- (Validation summary moved to the footer, just above
                  Cancel/Save, so it's always visible regardless of how
@@ -516,7 +540,7 @@
                  last real card, so layout-measure rounding errors or
                  FluentTheme quirks can't leave the last item just outside
                  the scrollable range. Gives visual breathing room too. -->
-            <Border Height="40" Background="Transparent"/>
+            <Border Height="24" Background="Transparent"/>
 
           </StackPanel>
         </ScrollViewer>
@@ -525,7 +549,7 @@
       <!-- =========== TAB: Schedule =========== -->
       <TabItem Header="Schedule">
         <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Spacing="18" Margin="0,18,0,24">
+          <StackPanel Spacing="14" Margin="0,10,0,24">
 
             <Border Classes="surface">
               <StackPanel Spacing="16">
@@ -730,7 +754,7 @@
                  clipped on real Windows even when the user scrolled
                  to the maximum, because the surface's measured
                  extent stopped at the last card edge. -->
-            <Border Height="40" Background="Transparent"/>
+            <Border Height="24" Background="Transparent"/>
 
           </StackPanel>
         </ScrollViewer>
@@ -749,24 +773,23 @@
                to read multi-page filter files comfortably).
            -->
       <TabItem Header="Filters">
-        <TabControl Classes="sub" Margin="0,8,0,0">
+        <TabControl Classes="sub" Margin="0,4,0,0" Padding="0">
           <!-- Recommended sub-tab. -->
           <TabItem Header="Recommended">
-            <ScrollViewer VerticalScrollBarVisibility="Visible" Padding="0,12,0,12">
-              <StackPanel Spacing="14">
-                <TextBlock Classes="body"
-                           Text="Filter rules control what gets skipped in the backup. Tick the boxes below to insert recommended exclusions. Edit your own rules on the Advanced sub-tab; they stay in the custom block above the recommended rules."
-                           Foreground="{DynamicResource BS.Brush.FgSecondary}"
+            <ScrollViewer VerticalScrollBarVisibility="Visible" Padding="0,8,0,8">
+              <StackPanel Spacing="12">
+                <TextBlock Classes="dim" FontSize="13"
+                           Text="Tick the recommended exclusions you want, then Apply. Your own rules, on the Advanced tab, stay above the recommended block."
                            TextWrapping="Wrap"/>
 
                 <!-- Backspace's recommended lists changed since this backup was
                      set up (U057). Shown only when editing; the saved rules
                      never change by themselves. -->
-                <Border Classes="surface" Padding="18,16" IsVisible="{Binding HasRecommendationUpdate}">
+                <Border Classes="surface" IsVisible="{Binding HasRecommendationUpdate}">
                   <StackPanel Spacing="10">
                     <TextBlock Classes="section-title" Text="Updated recommendations" Margin="0"/>
                     <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
-                               Text="Backspace's recommended exclusions changed since this backup was set up. Your backup keeps its current rules unless you update them. Untick any change you don't want; it won't be suggested again for this backup."/>
+                               Text="Backspace's recommended exclusions changed since this backup was set up, some are missing from its block, or some no longer apply to its folders. Your backup keeps its current rules unless you update them. Untick any change you don't want; it won't be suggested again for this backup."/>
                     <StackPanel IsVisible="{Binding HasRecommendedAdditions}" Spacing="2">
                       <TextBlock Classes="label-caps" Text="{Binding RecommendedAdditions.Count, StringFormat='NOW RECOMMENDED: ADD ({0})'}"/>
                       <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
@@ -783,7 +806,7 @@
                       </ScrollViewer>
                     </StackPanel>
                     <StackPanel IsVisible="{Binding HasRecommendedRemovals}" Spacing="2">
-                      <TextBlock Classes="label-caps" Text="{Binding RecommendedRemovals.Count, StringFormat='NO LONGER RECOMMENDED: REMOVE ({0})'}"/>
+                      <TextBlock Classes="label-caps" Text="{Binding RecommendedRemovals.Count, StringFormat='TO REMOVE: NO LONGER RECOMMENDED, OR OUTSIDE THIS BACKUP’S FOLDERS ({0})'}"/>
                       <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding RecommendedRemovals}">
                           <ItemsControl.ItemTemplate>
@@ -815,11 +838,9 @@
                      by marker comments so re-applying replaces it in
                      place instead of duplicating; anything outside the
                      markers (the user's own rules) is preserved. -->
-                <Border Classes="surface" Padding="18,16">
+                <Border Classes="surface">
                   <StackPanel Spacing="10">
                     <TextBlock Classes="section-title" Text="Recommended exclusions" Margin="0"/>
-                    <TextBlock Classes="helper" Margin="0"
-                               Text="Tick what you'd like skipped, then click Apply. We'll update the labelled recommended block below your custom rules, keeping your own rules intact."/>
                     <!-- Says whether the ticks are already in the filters, so
                          the person knows when this section is done (U105). -->
                     <TextBlock Margin="0" TextWrapping="Wrap" FontSize="13" FontWeight="SemiBold"
@@ -904,21 +925,28 @@
                each pane carries the label + helper text so it's
                obvious which side is which. -->
           <TabItem Header="Advanced">
-            <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="0,12,0,0">
-              <TextBlock Grid.Row="0"
-                         Classes="body" Margin="0,0,0,10"
-                         Foreground="{DynamicResource BS.Brush.FgSecondary}"
+            <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="0,8,0,0">
+              <TextBlock Grid.Row="0" Name="RuleSyntax"
+                         Classes="dim" FontSize="13" Margin="0,0,0,8"
                          TextWrapping="Wrap"
-                         Text="Free-form exclusion rules: one glob per line. Bare lines (e.g. `*.tmp`, `cache/`) are case-insensitive on Windows and case-sensitive on macOS/Linux (the platform default). `#` lines are comments. Leading `/` anchors a pattern to the source root; trailing `/` matches directories only; `*` matches one path segment, `**` matches across slashes. Backspace backs up everything that no rule excludes."/>
-              <!-- Grid so the hint wraps instead of clipping at narrow
-                   window widths (horizontal StackPanels defeat Wrap). -->
-              <Grid Grid.Row="1" ColumnDefinitions="Auto,10,*" Margin="0,0,0,12">
+                         ToolTip.Tip="Rules ignore upper and lower case on Windows and respect it on macOS and Linux. A rule starting with ! keeps what an earlier rule excluded."
+                         Text="One rule per line; # starts a comment. A leading / ties a rule to the top of each source folder, a trailing / matches folders only, * matches within a name and ** across folders. Everything no rule excludes is backed up."/>
+              <!-- One toolbar row (U150, U149): Simulate lists what each rule
+                   does; Count measures what all of them leave out. A Grid so
+                   the result wraps instead of clipping. -->
+              <Grid Grid.Row="1" ColumnDefinitions="Auto,8,Auto,12,*" Margin="0,0,0,10">
                 <Button Grid.Column="0" Classes="ghost" Content="Simulate"
                         VerticalAlignment="Center"
+                        ToolTip.Tip="Checks your rules against the files on disk. The right pane shows what would end up in the snapshot."
                         Command="{Binding RunFilterSimulationCommand}"/>
-                <TextBlock Grid.Column="2" Classes="dim" VerticalAlignment="Center"
-                           TextWrapping="Wrap"
-                           Text="Checks your rules against the files on disk. The right pane shows what would end up in the snapshot."/>
+                <Button Grid.Column="2" Classes="ghost" Content="Count"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="Measures how much all these rules leave out of this backup's folders."
+                        Command="{Binding CountAllRulesCommand}"/>
+                <TextBlock Grid.Column="4" Name="AllRulesSavings" VerticalAlignment="Center"
+                           TextWrapping="Wrap" FontSize="13"
+                           Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                           Text="{Binding AllRulesSavingsLabel}"/>
               </Grid>
               <!-- U127: an exception below a folder excluded whole keeps nothing. -->
               <Border Grid.Row="2" Name="DeadExceptionWarning" Margin="0,0,0,12"
@@ -932,11 +960,8 @@
               </Border>
               <Grid Grid.Row="3" ColumnDefinitions="*,16,*" RowDefinitions="Auto,*">
                 <!-- LEFT header. -->
-                <StackPanel Grid.Column="0" Grid.Row="0" Margin="0,0,0,6" Spacing="2">
-                  <TextBlock Classes="label-caps" Text="FILTER RULES"/>
-                  <TextBlock Classes="helper" FontSize="11"
-                             Text="Edit these rules. Saved with the backup."/>
-                </StackPanel>
+                <TextBlock Grid.Column="0" Grid.Row="0" Margin="0,0,0,4" Classes="label-caps"
+                           Text="RULES · SAVED WITH THE BACKUP"/>
                 <!-- LEFT pane. -->
                 <Border Grid.Column="0" Grid.Row="1"
                         BorderBrush="{DynamicResource BS.Brush.BorderSubtle}"
@@ -955,11 +980,8 @@
                 </Border>
 
                 <!-- RIGHT header. -->
-                <StackPanel Grid.Column="2" Grid.Row="0" Margin="0,0,0,6" Spacing="2">
-                  <TextBlock Classes="label-caps" Text="SIMULATION OUTPUT"/>
-                  <TextBlock Classes="helper" FontSize="11"
-                             Text="Read-only. Click Simulate above to refresh. Text is selectable so you can copy a path."/>
-                </StackPanel>
+                <TextBlock Grid.Column="2" Grid.Row="0" Margin="0,0,0,4" Classes="label-caps"
+                           Text="SIMULATION · READ-ONLY, SELECTABLE"/>
                 <!-- RIGHT pane. ReadOnly TextBox (not TextBlock) so the
                      user can select and copy individual paths from the
                      output — the prior TextBlock made the right side
@@ -996,7 +1018,7 @@
          row — the previous placement at the top of the Overview tab
          scrolled offscreen the moment the user moved down the form,
          which made "why is Save disabled?" hard to debug. -->
-    <StackPanel Grid.Row="2" Spacing="12" Margin="0,18,0,0">
+    <StackPanel Grid.Row="2" Spacing="10" Margin="0,12,0,0">
       <Border Classes="validation-summary" IsVisible="{Binding HasAnyError}">
         <!-- Grid (not StackPanel Horizontal) so wrap can actually wrap. -->
         <Grid ColumnDefinitions="Auto,10,*">
