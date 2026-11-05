@@ -157,12 +157,24 @@ if (-not (Test-Path $BackrestOutPath)) {
 
 if (-not (Test-Path $ResticOutPath)) {
     $resticArch = if ($arch -eq 'arm64') { 'arm64' } else { 'amd64' }
-    Fetch-FromGitHubRelease `
-        -RepoSlug 'restic/restic' `
-        -ReleaseTag $versions.restic `
-        -AssetPattern "^restic_[0-9.]+_windows_$resticArch\.zip$" `
-        -InnerBinaryName 'restic_*.exe' `
-        -OutPath $ResticOutPath
+    if ($versions.resticBackspace -and $resticArch -eq 'amd64') {
+        # Backspace's Windows restic build (engine/restic/README.md): the
+        # official source with a faster exclusion matcher (U137).
+        $build = $versions.resticBackspace
+        Fetch-FromGitHubRelease `
+            -RepoSlug 'backspace-backup/backspace' `
+            -ReleaseTag "engine-restic-$build" `
+            -AssetPattern ("^restic_" + [regex]::Escape($build.Substring(1)) + "_windows_amd64\.zip$") `
+            -InnerBinaryName 'restic_*.exe' `
+            -OutPath $ResticOutPath
+    } else {
+        Fetch-FromGitHubRelease `
+            -RepoSlug 'restic/restic' `
+            -ReleaseTag $versions.restic `
+            -AssetPattern "^restic_[0-9.]+_windows_$resticArch\.zip$" `
+            -InnerBinaryName 'restic_*.exe' `
+            -OutPath $ResticOutPath
+    }
 } else {
     Write-Host "[fetch-backrest] $ResticOutPath already present, skipping."
 }

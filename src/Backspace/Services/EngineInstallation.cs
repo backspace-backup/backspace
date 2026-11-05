@@ -141,6 +141,10 @@ internal static class EngineInstallation
         {
             "backrest.exe" when Pinned("backrest") is { } v
                 => ($"https://github.com/garethgeorge/backrest/releases/download/{v}/backrest_Windows_x86_64.zip", "backrest.exe"),
+            // Backspace's restic build (engine/restic, U137): the official
+            // source with a faster exclusion matcher, until restic ships it.
+            "restic.exe" when Pinned("resticBackspace") is { } b
+                => ($"https://github.com/backspace-backup/backspace/releases/download/engine-restic-{b}/restic_{b[1..]}_windows_amd64.zip", $"restic_{b[1..]}_windows_amd64.exe"),
             "restic.exe" when Pinned("restic") is { } v
                 => ($"https://github.com/restic/restic/releases/download/{v}/restic_{v[1..]}_windows_amd64.zip", $"restic_{v[1..]}_windows_amd64.exe"),
             "rclone.exe" when Pinned("rclone") is { } v

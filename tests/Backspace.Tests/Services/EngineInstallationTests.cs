@@ -138,6 +138,12 @@ public sealed class EngineInstallationTests
             EngineInstallation.Origin(manifest, "restic.exe"));
         Assert.Equal(("https://downloads.rclone.org/v1.74.1/rclone-v1.74.1-windows-amd64.zip", "rclone-v1.74.1-windows-amd64/rclone.exe"),
             EngineInstallation.Origin(manifest, "rclone.exe"));
+        // U137: with Backspace's own restic build pinned, restic comes from its
+        // engine release (engine/restic); the other engines are unchanged.
+        var patched = manifest with { Engines = new(manifest.Engines!) { ["resticBackspace"] = "v0.19.1-backspace.1" } };
+        Assert.Equal(("https://github.com/backspace-backup/backspace/releases/download/engine-restic-v0.19.1-backspace.1/restic_0.19.1-backspace.1_windows_amd64.zip", "restic_0.19.1-backspace.1_windows_amd64.exe"),
+            EngineInstallation.Origin(patched, "restic.exe"));
+        Assert.Equal(EngineInstallation.Origin(manifest, "rclone.exe"), EngineInstallation.Origin(patched, "rclone.exe"));
         // A build without pinned versions (1.1.0) still uses its own release.
         Assert.Equal(("https://github.com/backspace-backup/backspace/releases/download/v1.1.0/restic.exe", (string?)null),
             EngineInstallation.Origin(new EngineInstallation.Manifest("1.1.0", new Dictionary<string, string>(), true), "restic.exe"));

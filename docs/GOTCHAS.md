@@ -153,7 +153,10 @@ restart, is recorded separately in the Review desk.
 ## Engine upgrades require a compatibility check
 
 Build downloads use the versions in `src/Backspace/engine-versions.json`.
-The current pins are Backrest 1.14.1 and restic 0.19.1. Do not replace
+The current pins are Backrest 1.14.1 and restic 0.19.1; on Windows, restic is
+Backspace's build of 0.19.1 with a faster exclusion matcher
+(`resticBackspace`, [engine/restic/README.md](../engine/restic/README.md)): an
+upgrade rebases its patch and builds a new one. Do not replace
 those tags with `latest`: a successful backup alone does not establish
 compatibility. Backrest 1.14.1 lists snapshot files using its configured
 `repo_id`; operation queries still use the canonical repository guid.
