@@ -255,10 +255,12 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 }
             }
         }
+        var stats = BackupLiveProgress.Stats(terminal.OperationBackup);
         return new RunRecord
         {
             BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Backup,
             StartedUtc = started, EndedUtc = DateTime.UtcNow, Status = status,
+            FilesNew = stats?.New ?? 0, FilesModified = stats?.Changed ?? 0, BytesUploaded = stats?.Added ?? 0,
             Summary = $"Backup result: {terminal.Status}. {details}".Trim(),
             Checks = checks,
             Errors = status == BackupRunStatus.Failed

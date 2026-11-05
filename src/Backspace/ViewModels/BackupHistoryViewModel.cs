@@ -39,15 +39,32 @@ public sealed partial class BackupHistoryViewModel : ObservableObject
             foreach (var run in _runs.Where(r => r.BackupId == _backup.Id && (SelectedFilter == "All activity" || r.Kind == RunKind.Backup)).OrderByDescending(r => r.StartedUtc))
                 Rows.Add(new(run.Id, _backup.Id, run.StartedUtc, run.Status,
                     run.Kind switch { RunKind.TestRestore => run.TriggeredAutomatically ? "Automatic test restore" : "Test restore", RunKind.Check => "Repository check", _ => run.Kind.ToString() }, run.Summary,
-                    HasLog(run)));
+                    HasLog(run)) { Added = Added(run) });
         OnPropertyChanged(nameof(IsEmpty));
     }
+    /// <summary>"476 new · 157 changed · 1.6 GB added" for a backup (U142):
+    /// recorded with the run, or read from its own log's recap for runs saved
+    /// before the figures were recorded.</summary>
+    internal static string Added(RunRecord run)
+    {
+        if (run.Kind != RunKind.Backup || run.Status is not (BackupRunStatus.Success or BackupRunStatus.Warning)) return "";
+        var stats = run.FilesNew + run.FilesModified > 0 || run.BytesUploaded > 0
+            ? (run.FilesNew, run.FilesModified, run.BytesUploaded)
+            : BackupLiveProgress.StatsFromLog(run.LogPath) ?? run.Cells.Select(c => BackupLiveProgress.StatsFromLog(c.LogPath)).FirstOrDefault(s => s is not null);
+        if (stats is not { } s) return "";
+        var c = System.Globalization.CultureInfo.InvariantCulture;
+        return $"{s.Item1.ToString("N0", c)} new · {s.Item2.ToString("N0", c)} changed · {BackupLiveProgress.Bytes(s.Item3)} added";
+    }
+
     private static bool HasLog(RunRecord? run) => run is not null
         && (run.LogKeptByService || System.IO.File.Exists(run.LogPath) || run.Cells.Any(c => System.IO.File.Exists(c.LogPath)));
 }
 
 public sealed record BackupHistoryRow(string RunId, string BackupId, DateTime When, BackupRunStatus Status, string Kind, string Summary, bool HasLog)
 {
+    /// <summary>What a backup added (U142), or empty.</summary>
+    public string Added { get; init; } = "";
+    public bool HasAdded => Added.Length > 0;
     public string Timestamp => When.ToLocalTime().ToString("ddd d MMM yyyy · HH:mm:ss") + " · " + HumanFormat.Ago(When);
     public string Result => Status switch { BackupRunStatus.Success => "Passed", BackupRunStatus.Failed => "Failed", BackupRunStatus.Skipped => "Skipped / cancelled", BackupRunStatus.Warning => "Needs attention", _ => Status.ToString() };
     public bool Failed => Status == BackupRunStatus.Failed;

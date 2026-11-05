@@ -135,4 +135,13 @@ public sealed class CellOutcome
     /// for cells that failed during init, leaving "Selected run"
     /// blank for the user.</summary>
     public string LogPath { get; set; } = "";
+
+    /// <summary>What this cell's backup added, from restic's summary (U142):
+    /// new and changed files, and the data added to the storage.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int FilesNew { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int FilesModified { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public long BytesAdded { get; set; }
 }

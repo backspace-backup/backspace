@@ -690,6 +690,7 @@ public sealed partial class BackupOrchestrator
                 cell.Status = lastRun.Status;
                 cell.Summary = lastRun.Summary;
                 cell.Duration = DateTime.UtcNow - started;
+                (cell.FilesNew, cell.FilesModified, cell.BytesAdded) = (lastRun.FilesNew, lastRun.FilesModified, lastRun.BytesUploaded);
                 // Carry the per-attempt log file path up so the
                 // LogsView's "Selected run" pane has something to
                 // render. Earlier this was only set on init failures,
@@ -801,6 +802,10 @@ public sealed partial class BackupOrchestrator
     private static void MergeCellInto(RunRecord run, CellOutcome cell)
     {
         run.Checks.AddRange(cell.Checks);
+        // What each cell added, summed for the run (U142).
+        run.FilesNew += cell.FilesNew;
+        run.FilesModified += cell.FilesModified;
+        run.BytesUploaded += cell.BytesAdded;
         // We don't have per-cell bytes/files in CellOutcome today —
         // they live on the RunRecord returned from the runner, which
         // RunCellWithRetryAsync currently discards. If we need per-cell

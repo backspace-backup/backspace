@@ -38,7 +38,7 @@ public sealed class S84_BackgroundRunLogsInHistory : ScenarioBase
         RunRecord Run(int hoursAgo, BackupRunStatus status, string summary, string? log)
         {
             string path = "";
-            if (log is not null) { path = Path.Combine(serviceLogs, log); File.WriteAllText(path, "[recap] " + summary); }
+            if (log is not null) { path = Path.Combine(serviceLogs, log); File.WriteAllText(path, "[recap] Backup complete: 601,922 files (190 GB) checked · 14,145 new, 239 changed, 587,538 unchanged · 12 GB added to the storage · took 59m 40s · snapshot a4042f53"); }
             return new RunRecord { BackupId = backup.Id, BackupName = backup.Name, StartedUtc = now.AddHours(-hoursAgo), EndedUtc = now.AddHours(-hoursAgo).AddMinutes(20), Status = status, Summary = summary, LogPath = path };
         }
         var records = new[]
@@ -65,6 +65,8 @@ public sealed class S84_BackgroundRunLogsInHistory : ScenarioBase
         Assert.Equal(2, buttons.Count);
         var notes = window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible && t.Text?.StartsWith("Detailed log unavailable") == true).ToList();
         Assert.Single(notes);
+        // U142: what each backup added, read by the service from its own log for runs saved before.
+        Assert.Equal(2, window.GetVisualDescendants().OfType<TextBlock>().Count(t => t.IsEffectivelyVisible && t.Text == "14,145 new · 239 changed · 12 GB added"));
 
         var row = window.GetVisualDescendants().OfType<Border>().First(b => b.Classes.Contains("history-row"));
         var before = row.BorderBrush;
@@ -73,7 +75,7 @@ public sealed class S84_BackgroundRunLogsInHistory : ScenarioBase
         await ctx.Driver.PumpAsync(100);
         Assert.NotEqual(before?.ToString(), row.BorderBrush?.ToString());
         ctx.Snapshot(window, "background-runs-offer-their-log",
-            "All activity for local_c with three background-service runs. The two whose log the service still keeps show Open log; only the interrupted run, which has no log, says Detailed log unavailable. The pointer is over the first card: its own rounded outline brightens, with no square highlight around it.");
+            "All activity for local_c with three background-service runs. The two whose log the service still keeps show Open log and what they added (14,145 new · 239 changed · 12 GB added, read from the run's own log); only the interrupted run, which has no log, says Detailed log unavailable. The pointer is over the first card: its own rounded outline brightens, with no square highlight around it.");
         ctx.Report.RecordNote("Limits", "Real ServiceHistoryProtocol and desktop ServiceHistoryCache in headless Avalonia; the named pipe between them is replaced by a direct call. Opening the log goes through the existing transcript pipe, which this scenario does not exercise.");
     }
 }

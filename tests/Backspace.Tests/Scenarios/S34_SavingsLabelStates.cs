@@ -95,7 +95,7 @@ public sealed class S34_SavingsLabelStates : ScenarioBase
         Assert.True(matchedEstimate.ExcludedBytes > 0,
             $"Source with node_modules/ subdir should match a recommended exclusion. " +
             $"Got excluded={matchedEstimate.ExcludedBytes}.");
-        Assert.Contains("Estimated savings", vm.RecEstimatedSavingsLabel);
+        Assert.Contains("leave out", vm.RecEstimatedSavingsLabel);
 
         ctx.Report.RecordNote(
             "case 3 matched source",

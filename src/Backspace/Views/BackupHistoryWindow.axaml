@@ -36,6 +36,7 @@
                     <Button Grid.Column="1" Content="Open log" Classes="ghost" IsVisible="{Binding HasLog}" Click="OnOpenLog" VerticalAlignment="Top"/>
                   </Grid>
                   <TextBlock Text="{Binding Timestamp}" Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
+                  <TextBlock Text="{Binding Added}" IsVisible="{Binding HasAdded}" TextWrapping="Wrap" FontWeight="SemiBold"/>
                   <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="14"/>
                   <TextBlock IsVisible="{Binding !HasLog}" Text="Detailed log unavailable; the saved result is kept here." Classes="dim" TextWrapping="Wrap"/>
                 </StackPanel>

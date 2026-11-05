@@ -62,7 +62,7 @@ public class BackupEditorSavingsLabelTests
     {
         using var vm = new BackupEditorViewModel(new Backspace.Models.Backup(), isNew: true);
         vm.RecEstimatedSavingsBytes = 12L * 1024 * 1024 * 1024; // 12 GiB
-        Assert.Contains("Estimated savings:", vm.RecEstimatedSavingsLabel);
+        Assert.Contains("(the recommended ones and your own) leave out", vm.RecEstimatedSavingsLabel); Assert.DoesNotContain("this PC", vm.RecEstimatedSavingsLabel);
         Assert.Contains("12", vm.RecEstimatedSavingsLabel);
     }
 
@@ -81,5 +81,23 @@ public class BackupEditorSavingsLabelTests
         var label = vm.RecEstimatedSavingsLabel;
         Assert.Contains("time cap", label);
         Assert.DoesNotContain("narrow source folders", label);
+    }
+}
+
+/// <summary>U148: a backup of D: was offered "OneDrive C:\…" as a cloud folder to
+/// leave out. Only cloud folders inside the backup's folders are offered.</summary>
+public sealed class CloudFoldersInSourcesTests
+{
+    [Fact]
+    public void Only_cloud_folders_inside_the_sources_are_offered()
+    {
+        const string oneDrive = @"C:\Users\erwin\OneDrive";
+        Assert.False(Backspace.ViewModels.BackupEditorViewModel.InsideSources(oneDrive, [@"D:\"]));
+        Assert.True(Backspace.ViewModels.BackupEditorViewModel.InsideSources(oneDrive, [@"D:\", @"C:\"]));
+        Assert.True(Backspace.ViewModels.BackupEditorViewModel.InsideSources(oneDrive, [@"C:\Users\erwin\"]));
+        // The source is the cloud folder itself or inside it: leaving it out would leave out everything.
+        Assert.False(Backspace.ViewModels.BackupEditorViewModel.InsideSources(oneDrive, [oneDrive]));
+        Assert.False(Backspace.ViewModels.BackupEditorViewModel.InsideSources(oneDrive, [oneDrive + @"\Documents"]));
+        Assert.False(Backspace.ViewModels.BackupEditorViewModel.InsideSources(oneDrive, [@"C:\Users\erwin\One"]));
     }
 }

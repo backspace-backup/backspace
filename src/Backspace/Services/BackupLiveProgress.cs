@@ -357,6 +357,47 @@ internal sealed class BackupLiveProgress
             + (s.TryGetProperty("snapshotId", out var id) && id.GetString() is { Length: >= 8 } snapshot ? $" · snapshot {snapshot[..8]}" : "");
     }
 
+    /// <summary>New and changed files and the data added, from restic's
+    /// summary of a finished backup (U142), or null without one.</summary>
+    internal static (int New, int Changed, long Added)? Stats(JsonElement? operationBackup)
+    {
+        if (operationBackup is not { ValueKind: JsonValueKind.Object } backup
+            || !backup.TryGetProperty("lastStatus", out var last) || last.ValueKind != JsonValueKind.Object
+            || !last.TryGetProperty("summary", out var s) || s.ValueKind != JsonValueKind.Object) return null;
+        return ((int)Number(s, "filesNew"), (int)Number(s, "filesChanged"), (long)Number(s, "dataAdded"));
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex StatsRx = new(
+        @"· ([\d,]+) new, ([\d,]+) changed, [\d,]+ unchanged · (\d+(?:\.\d)?) (B|KB|MB|GB|TB) added", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>The same figures read back from a recap line, for runs saved
+    /// before they were recorded (to the precision the line shows).</summary>
+    internal static (int New, int Changed, long Added)? StatsFromRecap(string line)
+    {
+        if (!line.StartsWith(RecapPrefix, StringComparison.Ordinal) || StatsRx.Match(line) is not { Success: true } m) return null;
+        var scale = Array.IndexOf(new[] { "B", "KB", "MB", "GB", "TB" }, m.Groups[4].Value);
+        return (int.Parse(m.Groups[1].Value, NumberStyles.AllowThousands, CultureInfo.InvariantCulture),
+            int.Parse(m.Groups[2].Value, NumberStyles.AllowThousands, CultureInfo.InvariantCulture),
+            (long)(double.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture) * Math.Pow(1024, scale)));
+    }
+
+    /// <summary>The recap's figures from the end of a run's log, or null.</summary>
+    internal static (int New, int Changed, long Added)? StatsFromLog(string path)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return null;
+            using var file = new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
+            file.Position = Math.Max(0, file.Length - 64 * 1024);
+            using var reader = new System.IO.StreamReader(file);
+            (int, int, long)? found = null;
+            while (reader.ReadLine() is { } line)
+                if (StatsFromRecap(line) is { } stats) found = stats;
+            return found;
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException) { return null; }
+    }
+
     private static readonly System.Text.RegularExpressions.Regex CheckedRx = new(
         @"^\[recap\] Backup complete: [\d,]+ files \((\d+(?:\.\d)?) (B|KB|MB|GB|TB)\) checked", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 

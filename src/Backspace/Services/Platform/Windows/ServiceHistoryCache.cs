@@ -96,8 +96,12 @@ internal sealed class ServiceHistoryCache
             received.AddRange(response.Runs);
             // Existing older metadata stays in the desktop cache, even after
             // the service expires its detailed transcripts. Once this page
-            // reaches a known outcome, no older page needs to be downloaded.
-            if (response.Runs.Any(r => known.Contains(r.Id))) break;
+            // reaches known outcomes that are all unchanged, no older page needs
+            // to be downloaded. A known outcome that changed (U138: the service
+            // now says whether it keeps the run's log) means older ones may have
+            // too, so paging goes on.
+            var seen = response.Runs.Where(r => known.Contains(r.Id)).ToList();
+            if (seen.Count > 0 && seen.All(r => observed[r.Id] == JsonSerializer.Serialize(r, ServiceRunAuthorization.Json))) break;
             cursor = response.NextAfterRunId;
             if (cursor is not null && (!cursors.Add(cursor) || response.Runs.Length == 0 || cursors.Count > 1000))
                 throw new InvalidDataException("The service history page did not advance.");

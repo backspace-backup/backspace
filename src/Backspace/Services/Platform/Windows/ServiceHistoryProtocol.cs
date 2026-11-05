@@ -48,6 +48,11 @@ internal sealed class ServiceHistoryProtocol(Func<string, List<RunRecord>> readH
                 // Whether its log can be read through the transcript pipe,
                 // which reads the run's own LogPath (U138).
                 copy.LogKeptByService = !string.IsNullOrWhiteSpace(records[index].LogPath) && File.Exists(records[index].LogPath);
+                // Runs saved before their figures were recorded (U142): read
+                // them from the recap at the end of the run's own log.
+                if (copy.Kind == RunKind.Backup && copy.FilesNew == 0 && copy.FilesModified == 0 && copy.BytesUploaded == 0
+                    && copy.LogKeptByService && BackupLiveProgress.StatsFromLog(records[index].LogPath) is { } stats)
+                    (copy.FilesNew, copy.FilesModified, copy.BytesUploaded) = stats;
                 copy.LogPath = "";
                 foreach (var cell in copy.Cells) cell.LogPath = "";
                 page.Add(copy);

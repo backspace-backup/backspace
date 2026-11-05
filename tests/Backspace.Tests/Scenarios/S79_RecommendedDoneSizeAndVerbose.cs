@@ -80,7 +80,7 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         Button(win, "Apply recommended exclusions")!.BringIntoView();
         ctx.Driver.Pump();
         ctx.Snapshot(win, "applied and done",
-            "Recommended exclusions after approving the suggestions: a green '✓ Applied … nothing more to do here' line, a greyed-out Apply button and 'Estimated savings: 3.0 MB on this PC.'");
+            "Recommended exclusions after approving the suggestions: a green '✓ Applied … nothing more to do here' line, a greyed-out Apply button and the amount all its exclusion rules leave out of its folders (3.0 MB).");
 
         // Changing a tick means there is something to apply again.
         vm.RecExcludeWindowsSystem = true;

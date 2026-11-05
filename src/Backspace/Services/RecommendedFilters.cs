@@ -284,6 +284,10 @@ public static class RecommendedFilters
         "Users/*/.gradle/caches/",
         "Users/*/AppData/Local/pip/cache/",
         "Users/*/AppData/Local/go-build/",
+        // Go's module cache (GOMODCACHE): go downloads each module again
+        // from its proxy when the folder is missing; 'go clean -modcache'
+        // empties it (U141).
+        "Users/*/go/pkg/mod/",
 
         // macOS / cross-platform metadata noise (when backing up a
         // mixed-OS share).

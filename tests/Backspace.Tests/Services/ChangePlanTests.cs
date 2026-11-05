@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using Backspace.Models;
 using Backspace.Services;
 using Backspace.Tests.TestHelpers;
 using Xunit;
@@ -172,5 +173,43 @@ public sealed class ChangePlanTests
     {
         Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 23.4% · Backing up · changes 3.1 / ~9.0 GB · 504,701 / 601,922 files, 190 GB · 881 MB sent at 3.8 MB/s · about 25 min left"));
         Assert.Null(BackupLiveProgress.CountedTotal("[progress] 2.0% · Backing up · changes 0 / ~9.0 GB · 4,701 / ~601,922 files, ~190 GB"));
+    }
+}
+
+/// <summary>U142: each backup in a backup's activity says what it added.</summary>
+public sealed class RunAddedTests
+{
+    private const string Recap = "[recap] Backup complete: 601,922 files (190 GB) checked · 14,145 new, 239 changed, 587,538 unchanged · 12 GB added to the storage · took 59m 40s · snapshot a4042f53";
+
+    [Fact]
+    public void The_figures_come_from_restics_summary_or_its_recap_line()
+    {
+        var op = JsonSerializer.SerializeToElement(new { lastStatus = new { summary = new { filesNew = "476", filesChanged = "157", dataAdded = "1717986918", totalDuration = 1154.0 } } });
+        Assert.Equal((476, 157, 1_717_986_918L), BackupLiveProgress.Stats(op));
+        Assert.Equal((14_145, 239, 12L << 30), BackupLiveProgress.StatsFromRecap(Recap));
+        Assert.Null(BackupLiveProgress.StatsFromRecap("[progress] 12% · Backing up"));
+    }
+
+    [Fact]
+    public void Activity_rows_show_what_each_backup_added_even_for_runs_saved_before()
+    {
+        using var ws = new TempWorkspace("run-added");
+        var log = Path.Combine(ws.Root, "run.log");
+        File.WriteAllLines(log, new[] { "[setup] 273 exclusion rules loaded.", Recap, "[backspace] Finishing snapshot history" });
+        var recorded = new RunRecord { BackupId = "b", Status = BackupRunStatus.Success, FilesNew = 476, FilesModified = 157, BytesUploaded = 1_717_986_918 };
+        var older = new RunRecord { BackupId = "b", Status = BackupRunStatus.Success, LogPath = log };
+        var failed = new RunRecord { BackupId = "b", Status = BackupRunStatus.Failed, LogPath = log };
+        Assert.Equal("476 new · 157 changed · 1.6 GB added", Backspace.ViewModels.BackupHistoryViewModel.Added(recorded));
+        Assert.Equal("14,145 new · 239 changed · 12 GB added", Backspace.ViewModels.BackupHistoryViewModel.Added(older));
+        Assert.Equal("", Backspace.ViewModels.BackupHistoryViewModel.Added(failed));
+
+        // A background run: the service reads its own log and sends the figures, not the path.
+        var protocol = new Backspace.Services.Platform.Windows.ServiceHistoryProtocol(_ => new List<RunRecord> { older });
+        var reply = JsonSerializer.Deserialize<Backspace.Services.Platform.Windows.ServiceHistoryProtocol.Response>(
+            protocol.Dispatch(JsonSerializer.SerializeToUtf8Bytes(new Backspace.Services.Platform.Windows.ServiceHistoryProtocol.Request(1, "b"), Backspace.Services.Platform.Windows.ServiceRunAuthorization.Json)),
+            Backspace.Services.Platform.Windows.ServiceRunAuthorization.Json)!;
+        var sent = Assert.Single(reply.Runs);
+        Assert.Equal("", sent.LogPath);
+        Assert.Equal((14_145, 239, 12L << 30), (sent.FilesNew, sent.FilesModified, sent.BytesUploaded));
     }
 }

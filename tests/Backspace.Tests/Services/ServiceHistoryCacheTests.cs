@@ -94,6 +94,27 @@ public sealed class ServiceHistoryCacheTests
         Assert.Equal(2, cache.ReadCached("backup").Count);
     }
 
+    /// <summary>U138: a run older than the first page also gets Open log once the
+    /// service says it keeps its log: a changed known run means older pages are read too.</summary>
+    [Fact]
+    public async Task Older_runs_are_updated_when_known_runs_changed()
+    {
+        using var workspace = new TempWorkspace();
+        var directory = Path.Combine(workspace.Root, "cache");
+        var recent = new RunRecord { BackupId = "backup", StartedUtc = new DateTime(2026, 11, 5) };
+        var old = new RunRecord { BackupId = "backup", StartedUtc = new DateTime(2026, 10, 1) };
+        RunRecord Copy(RunRecord r, bool kept) => new() { Id = r.Id, BackupId = r.BackupId, StartedUtc = r.StartedUtc, LogKeptByService = kept };
+        var kept = false;
+        var cache = new ServiceHistoryCache(directory, (request, _) => Task.FromResult(request.AfterRunId is null
+            ? new ServiceHistoryProtocol.Response(1, new[] { Copy(recent, kept) }, recent.Id)
+            : new ServiceHistoryProtocol.Response(1, new[] { Copy(old, kept) })));
+        await cache.RefreshAsync("backup", CancellationToken.None); // as saved by 1.1.10: no flag
+        Assert.All(cache.ReadCached("backup"), r => Assert.False(r.LogKeptByService));
+        kept = true; // the updated service
+        await cache.RefreshAsync("backup", CancellationToken.None);
+        Assert.All(cache.ReadCached("backup"), r => Assert.True(r.LogKeptByService));
+    }
+
     [Fact]
     public void Explicit_review_configuration_does_not_connect_to_an_adjacent_service()
     {

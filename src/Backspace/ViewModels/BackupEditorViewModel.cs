@@ -371,8 +371,8 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             "Couldn't read any files under your sources to estimate savings. " +
             "Check the source paths exist and have files.",
         _  => RecEstimatedTruncated
-              ? $"Estimated savings: at least {HumanBytes(RecEstimatedSavingsBytes)} (estimate truncated; sources too large to fully scan)."
-              : $"Estimated savings: {HumanBytes(RecEstimatedSavingsBytes)} on this PC.",
+              ? $"All this backup's exclusion rules (the recommended ones and your own) leave out at least {HumanBytes(RecEstimatedSavingsBytes)} of its folders (the count stopped early: the folders are too large to read in full)."
+              : $"All this backup's exclusion rules (the recommended ones and your own) leave out {HumanBytes(RecEstimatedSavingsBytes)} of its folders.",
     };
     private CancellationTokenSource? _savingsCts;
 
@@ -417,6 +417,29 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     /// detected; the UI hides the section in that case.</summary>
     public ObservableCollection<CloudExcludeChoice> DetectedCloudFolders { get; } = new();
     public bool HasDetectedCloudFolders => DetectedCloudFolders.Count > 0;
+    // Every cloud folder found on this PC; only those inside this backup's
+    // folders are offered (U148: a backup of D: was offered OneDrive on C:).
+    private readonly List<CloudExcludeChoice> _allCloudFolders = new();
+
+    /// <summary>True when <paramref name="folder"/> lies inside one of the
+    /// sources, so excluding it changes what the backup holds.</summary>
+    internal static bool InsideSources(string folder, IEnumerable<string> sources)
+    {
+        string Full(string p) { try { return System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(p)); } catch { return p; } }
+        var f = Full(folder);
+        return sources.Any(s => !string.IsNullOrWhiteSpace(s)
+            && f.StartsWith(Full(s).TrimEnd('\\', '/') + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void ShowCloudFoldersInSources()
+    {
+        var shown = _allCloudFolders.Where(c => InsideSources(c.Path, SourcePaths)).ToList();
+        if (shown.SequenceEqual(DetectedCloudFolders)) return;
+        DetectedCloudFolders.Clear();
+        foreach (var c in shown) DetectedCloudFolders.Add(c);
+        OnPropertyChanged(nameof(HasDetectedCloudFolders));
+        RefreshRecommendedStatus();
+    }
 
     // ---- healthchecks ----
     [ObservableProperty] private string? _healthcheckId;
@@ -507,6 +530,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             // clears the error so it doesn't outlive its meaning.
             if (SourcePaths.Count > 0) SourcesError = null;
             SyncChipsFromPaths(e);
+            ShowCloudFoldersInSources();
             // Re-render the recommended filters block whenever sources
             // change (so newly-added cloud-sync detections etc. get
             // included). DON'T overwrite the toggle states — the
@@ -624,8 +648,9 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
                 choice.IsSelected = RecommendedFilters.CloudLine(folder) is { } line
                     && saved.CloudLines.Contains(line, StringComparer.OrdinalIgnoreCase);
             choice.PropertyChanged += (_, _) => RefreshRecommendedStatus();
-            DetectedCloudFolders.Add(choice);
+            _allCloudFolders.Add(choice);
         }
+        ShowCloudFoldersInSources();
 
         foreach (var d in ServiceLocator.Config.Current.Destinations) AvailableDestinations.Add(d);
         foreach (var t in working.Targets)
