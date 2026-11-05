@@ -84,7 +84,7 @@ public sealed class TestRestoreService
             // waited. Never overwrite its terminal record with a stale resume.
             if (resumed)
             {
-                journal = JsonSerializer.Deserialize<TestRestoreJournal>(await File.ReadAllTextAsync(journalPath, cts.Token))
+                journal = JsonSerializer.Deserialize<TestRestoreJournal>(FileAccessRetry.Get(() => File.ReadAllText(journalPath), journalPath, ct: cts.Token))
                     ?? throw new IOException("Empty test restore journal.");
                 if (journal.State is not ("running" or "paused"))
                     throw new IOException("This saved Test restore has already ended. Reopen its saved result instead of resuming it.");
@@ -222,7 +222,7 @@ public sealed class TestRestoreService
             if (Path.GetFileName(path).StartsWith("history-", StringComparison.Ordinal)) continue;
             try
             {
-                var journal = JsonSerializer.Deserialize<TestRestoreJournal>(await File.ReadAllTextAsync(path))
+                var journal = JsonSerializer.Deserialize<TestRestoreJournal>(FileAccessRetry.Get(() => File.ReadAllText(path), path))
                     ?? throw new IOException("Empty test restore journal.");
                 if (_loaded.ContainsKey(journal.Id)) continue;
                 if (!Guid.TryParseExact(journal.Id, "N", out _) || Path.GetFileName(path) != journal.Id + ".json")

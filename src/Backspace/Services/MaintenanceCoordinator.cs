@@ -203,7 +203,10 @@ public sealed class MaintenanceCoordinator
 #endif
             return handle;
         }
+        // Held: by another operation, or briefly by Dropbox or a virus
+        // scanner ("access denied" included, U135). The caller waits and retries.
         catch (IOException) { return null; }
+        catch (UnauthorizedAccessException ex) when (FileAccessRetry.IsLock(ex)) { return null; }
     }
 
     private void Release(string reason)

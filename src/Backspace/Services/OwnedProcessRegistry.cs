@@ -87,7 +87,7 @@ internal static class OwnedProcessRegistry
 
     internal static Ownership? Read(string path)
     {
-        try { return JsonSerializer.Deserialize<Ownership>(File.ReadAllText(path)); }
+        try { return JsonSerializer.Deserialize<Ownership>(FileAccessRetry.Get(() => File.ReadAllText(path), path)); }
         catch { return null; }
     }
 
@@ -125,7 +125,7 @@ internal static class OwnedProcessRegistry
             }
         }
         if (inspect(ownership.Child) is Presence.Missing or Presence.Different)
-            File.Delete(path);
+            FileAccessRetry.Run(() => File.Delete(path), path);
     }
 
     internal static void Sweep()

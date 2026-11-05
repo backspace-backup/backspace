@@ -228,7 +228,7 @@ public sealed class BackupRemoval
     private List<Pending> Load()
     {
         using var transaction = StateFileLock.Acquire(_path);
-        try { return File.Exists(_path) ? JsonSerializer.Deserialize<List<Pending>>(File.ReadAllText(_path)) ?? new() : new(); }
+        try { return File.Exists(_path) ? JsonSerializer.Deserialize<List<Pending>>(FileAccessRetry.Get(() => File.ReadAllText(_path), _path)) ?? new() : new(); }
         catch (JsonException ex)
         {
             // Never discard the record: keep the unreadable copy for support.
@@ -241,7 +241,7 @@ public sealed class BackupRemoval
     private void Save(List<Pending> pending)
     {
         using var transaction = StateFileLock.Acquire(_path);
-        if (pending.Count == 0) { try { File.Delete(_path); } catch (FileNotFoundException) { } return; }
+        if (pending.Count == 0) { try { FileAccessRetry.Run(() => File.Delete(_path), _path); } catch (FileNotFoundException) { } return; }
         TestRestoreContext.WriteAtomic(_path, pending);
     }
 }

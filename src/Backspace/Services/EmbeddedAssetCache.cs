@@ -17,7 +17,9 @@ internal static class EmbeddedAssetCache
         {
             try
             {
-                using var existing = File.OpenRead(target);
+                // A scanner holding it is waited out (U135) rather than taken as
+                // a reason to replace a file that may be loaded right now.
+                using var existing = FileAccessRetry.Get(() => File.OpenRead(target), target);
                 if (existing.Length == resource.Length - start &&
                     CryptographicOperations.FixedTimeEquals(expectedHash, SHA256.HashData(existing)))
                     return false;

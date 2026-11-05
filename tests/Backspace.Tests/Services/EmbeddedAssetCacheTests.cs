@@ -34,18 +34,20 @@ public class EmbeddedAssetCacheTests : IDisposable
     }
 
     [Fact]
-    public void Locked_target_survives_failed_replacement_without_temporary_leftovers()
+    public void A_held_target_is_waited_out_then_replaced_without_temporary_leftovers()
     {
+        // U135: a scanner or Dropbox holding the file is waited out; the file
+        // stays as it was meanwhile.
         var target = Path.Combine(_workspace.ConfigRoot, "locked.bin");
         File.WriteAllBytes(target, [1, 2, 3]);
-        using (var locked = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.None))
-        using (var resource = new MemoryStream([4, 5, 6]))
-        {
-            var error = Record.Exception(() => EmbeddedAssetCache.WriteIfDifferent(resource, target));
-            Assert.True(error is IOException or UnauthorizedAccessException,
-                $"Expected Windows to reject replacement of the locked file, got {error?.GetType().Name ?? "success"}.");
-        }
-        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(target));
+        var locked = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.None);
+        using var resource = new MemoryStream([4, 5, 6]);
+        var writing = System.Threading.Tasks.Task.Run(() => EmbeddedAssetCache.WriteIfDifferent(resource, target));
+        System.Threading.Thread.Sleep(1500);
+        Assert.False(writing.IsCompleted);
+        locked.Dispose();
+        Assert.True(writing.GetAwaiter().GetResult());
+        Assert.Equal(new byte[] { 4, 5, 6 }, File.ReadAllBytes(target));
         Assert.Empty(Directory.GetFiles(_workspace.ConfigRoot, "*.tmp"));
     }
 

@@ -68,7 +68,7 @@ internal sealed class TestRestoreContext
         Control = control;
         Journal = journal; _path = path; _session = session; _historyPath = historyPath;
         _history = File.Exists(historyPath)
-            ? JsonSerializer.Deserialize<Dictionary<string, DateTime>>(File.ReadAllText(historyPath)) ?? new()
+            ? JsonSerializer.Deserialize<Dictionary<string, DateTime>>(FileAccessRetry.Get(() => File.ReadAllText(historyPath), historyPath)) ?? new()
             : new();
     }
 
