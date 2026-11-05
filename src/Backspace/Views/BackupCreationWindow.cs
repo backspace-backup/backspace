@@ -50,6 +50,10 @@ public sealed class BackupCreationWindow
         _initialMode = existing.LastEditMode;
     }
 
+    /// <summary>Opens on the destinations: the easy steps at their
+    /// destinations step (U147); the advanced editor shows them on its first tab.</summary>
+    public bool StartAtDestinations { get; init; }
+
     /// <summary>True iff the user clicked "Save and run" in either mode.
     /// Parent reads this on close to decide whether to fire the
     /// orchestrator after persisting.</summary>
@@ -88,6 +92,7 @@ public sealed class BackupCreationWindow
             if (mode == BackupEditMode.Easy)
             {
                 var w = new OnboardingWindow(snapshot, _isFirstBackup, _isEdit);
+                if (StartAtDestinations && w.DataContext is OnboardingViewModel steps) steps.CurrentStep = 2;
                 await w.ShowDialog<bool>(owner);
                 if (w.SwitchToAdvanced)
                 {

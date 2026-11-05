@@ -405,7 +405,10 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             {
                 var fresh = new BackupCardViewModel(b, showActions: true, showProgress: true, logs: _logs);
                 fresh.PropertyChanged += OnCardCheckStateChanged;
-                fresh.EditDestinationRequested = id => EditDestinationByIdAsync(id);
+                // A destination on the card opens the backup's own
+                // destinations step, where an existing destination is picked
+                // or edited (U147), not a form for one destination.
+                fresh.EditDestinationRequested = _ => EditBackupAsync(fresh, atDestinations: true);
                 Cards.Insert(i, fresh);
             }
         }
@@ -707,10 +710,12 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     }
 
     [RelayCommand]
-    private async Task Edit(BackupCardViewModel card)
+    private Task Edit(BackupCardViewModel card) => EditBackupAsync(card, atDestinations: false);
+
+    private async Task EditBackupAsync(BackupCardViewModel card, bool atDestinations)
     {
         if (card is null) return;
-        var owner = Owner();
+        var owner = TestRestoreOwner?.Invoke() ?? Owner();
         if (owner is null) return;
         var b = card.Snapshot;
 
@@ -718,7 +723,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         // detects "edit" mode by being constructed with a non-null
         // existing backup and opens in the mode the user last used for
         // that backup (Backup.LastEditMode).
-        var dlg = new BackupCreationWindow(b);
+        var dlg = new BackupCreationWindow(b) { StartAtDestinations = atDestinations };
         var result = await dlg.ShowDialog<Backup?>(owner);
         if (result is not null)
         {

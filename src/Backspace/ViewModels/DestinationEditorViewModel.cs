@@ -331,9 +331,24 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     public DestinationEditorViewModel(Destination working, bool isNew)
         : this(working, isNew, simplifiedMode: false) { }
 
+    private static readonly System.Text.Json.JsonSerializerOptions CopyJson = new()
+    {
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+    };
+
+    /// <summary>A separate copy of every saved field of <paramref name="d"/>.</summary>
+    internal static Destination CopyOf(Destination d)
+        => System.Text.Json.JsonSerializer.Deserialize<Destination>(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(d, CopyJson), CopyJson)!;
+
     public DestinationEditorViewModel(Destination working, bool isNew, bool simplifiedMode)
     {
-        Working = working;
+        // An existing destination is edited as a copy, so closing without
+        // saving leaves the saved one as it was (U146: the backup card passed
+        // the live settings object, and a cancelled change from Dropbox to
+        // Google Drive stayed, ready to be written by the next save). The
+        // caller stores the returned copy on Save.
+        Working = isNew ? working : CopyOf(working);
+        working = Working;
         _originalOneDriveDriveId = working.OneDriveDriveId;
         _originalOneDriveDriveType = working.OneDriveDriveType;
         _originalOneDriveAppFolderId = working.OneDriveAppFolderId;
