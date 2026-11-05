@@ -335,6 +335,18 @@ The list is read from the two snapshots right after the backup, so it adds a
 little time, and only Verbose shows it. **Clear view** appears on the live
 view only; a saved run's log can't be cleared.
 
+A backup's **History** lists its runs, each backup with what it added
+("14,145 new · 239 changed · 12 GB added"). **Files added** shows those files
+without Verbose: a map of the folders they are in, each box sized by the bytes
+of its new and changed files, like WinDirStat, and the largest files. Click a
+folder to open it; **Up** goes back. It compares the backup's snapshot with
+the one before, by size and date, reading only their file lists (cached on
+this computer), so it works as long as both snapshots are kept. Sizes are of
+the files; the storage received less where parts were already stored.
+**Open log** shows the run's log. Runs the background service made are read
+from its logs in the portable folder, in full, even while the service is
+stopped.
+
 A backup that gets stuck fails instead of running forever. If the engine
 leaves every status check unanswered for 10 minutes, or a backup's counts
 (files and bytes found and done) don't move for 60 minutes, Backspace stops it

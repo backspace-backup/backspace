@@ -78,7 +78,7 @@ public sealed class InfrastructureLifecycleE2ETests
         await sidecar.Client.CallAsync<BackrestConfig, BackrestConfig>("/v1.Backrest/SetConfig", cfg, timeout.Token);
         var saved = await sidecar.Client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
             "/v1.Backrest/GetConfig", new(), timeout.Token);
-        Assert.Equal(new[] { "--use-fs-snapshot", "--exclude-cloud-files", "--limit-upload", "123" },
+        Assert.Equal(new[] { "--no-scan", "--use-fs-snapshot", "--exclude-cloud-files", "--limit-upload", "123" },
             Assert.Single(saved.Plans).BackupFlags);
         Assert.DoesNotContain("backupFlags", File.ReadAllText(System.IO.Path.Combine(sidecar.DataDir, "config.json")));
     }

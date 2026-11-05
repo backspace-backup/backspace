@@ -1,0 +1,68 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Backspace.ViewModels" xmlns:v="using:Backspace.Views"
+        x:Class="Backspace.Views.RunChangesWindow" x:DataType="vm:RunChangesViewModel"
+        Title="What this backup added - Backspace" Width="1080" Height="720" MinWidth="640" MinHeight="460"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource BS.Brush.BgBase}">
+  <!-- U143 (5 November 2026): the files one backup added or changed, as a
+       map of the folders they are in (area = bytes) and a list of the largest. -->
+  <Grid Margin="24,20,24,18" RowDefinitions="Auto,Auto,*,Auto,Auto">
+    <StackPanel Spacing="4">
+      <TextBlock Classes="page-title" Text="{Binding Title}"/>
+      <TextBlock Classes="page-subtitle" Text="{Binding Subtitle}"/>
+    </StackPanel>
+
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,10,*,Auto" Margin="0,14,0,10">
+      <Button Grid.Column="0" Classes="ghost" Content="Up" Command="{Binding UpCommand}" IsEnabled="{Binding CanGoUp}"
+              ToolTip.Tip="Back to the folder that holds this one"/>
+      <TextBlock Grid.Column="2" Name="MapLocation" Classes="mono" FontSize="13" VerticalAlignment="Center"
+                 TextTrimming="CharacterEllipsis" Text="{Binding Location}" ToolTip.Tip="{Binding TopFolder}"/>
+      <TextBlock Grid.Column="3" Name="ChangeSummary" FontWeight="SemiBold" VerticalAlignment="Center" Text="{Binding Summary}"/>
+    </Grid>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,16,320">
+      <Border Classes="surface" Padding="6">
+        <Panel>
+          <v:ChangeTreemap Name="Map" Node="{Binding Current}"/>
+          <StackPanel IsVisible="{Binding IsLoading}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+            <ProgressBar IsIndeterminate="True" Width="220"/>
+            <TextBlock Text="{Binding Status}" HorizontalAlignment="Center" TextWrapping="Wrap" MaxWidth="420"/>
+          </StackPanel>
+        </Panel>
+      </Border>
+      <Border Grid.Column="2" Classes="surface" Padding="14,12">
+        <Grid RowDefinitions="Auto,*">
+          <TextBlock Classes="label-caps" Text="LARGEST FILES" Margin="0,0,0,8"/>
+          <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl Name="Largest" ItemsSource="{Binding LargestFiles}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:ChangedFileRow">
+                  <Grid ColumnDefinitions="*,Auto" Margin="0,0,6,8" ToolTip.Tip="{Binding Folder}">
+                    <StackPanel>
+                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" FontSize="13"/>
+                      <TextBlock Text="{Binding Folder}" Classes="dim" FontSize="11" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                      <TextBlock Text="{Binding Size}" FontSize="13" FontWeight="SemiBold" HorizontalAlignment="Right"/>
+                      <TextBlock Text="{Binding Change}" Classes="dim" FontSize="11" HorizontalAlignment="Right"/>
+                    </StackPanel>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <TextBlock Grid.Row="3" Name="HoverInfo" Margin="0,10,0,0" Classes="mono" FontSize="12" TextTrimming="CharacterEllipsis"
+               Text="{Binding HoverText}"/>
+    <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+      <StackPanel Spacing="2" VerticalAlignment="Center">
+        <TextBlock Name="StatusNote" Text="{Binding Status}" IsVisible="{Binding !IsLoading}" TextWrapping="Wrap" FontSize="13"/>
+        <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
+                   Text="Each box is a folder or file, sized by the bytes of the files this backup added or changed. Click a folder to open it. Sizes are of the files; the storage received less when parts were already stored."/>
+      </StackPanel>
+      <Button Grid.Column="1" Classes="ghost" Content="Close" Click="OnClose" VerticalAlignment="Bottom" Margin="16,0,0,0"/>
+    </Grid>
+  </Grid>
+</Window>

@@ -33,7 +33,12 @@
                       <TextBlock Text="{Binding Result}" FontWeight="SemiBold" FontSize="17" Classes="result" Classes.passed="{Binding Passed}" Classes.failed="{Binding Failed}"/>
                       <TextBlock Text="{Binding Kind}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                     </StackPanel>
-                    <Button Grid.Column="1" Content="Open log" Classes="ghost" IsVisible="{Binding HasLog}" Click="OnOpenLog" VerticalAlignment="Top"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                      <!-- U143: the files this backup added, as a map and a list. -->
+                      <Button Content="Files added" Classes="ghost" IsVisible="{Binding CanShowChanges}" Click="OnShowChanges"
+                              ToolTip.Tip="Shows the files this backup added or changed, by folder"/>
+                      <Button Content="Open log" Classes="ghost" IsVisible="{Binding HasLog}" Click="OnOpenLog"/>
+                    </StackPanel>
                   </Grid>
                   <TextBlock Text="{Binding Timestamp}" Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
                   <TextBlock Text="{Binding Added}" IsVisible="{Binding HasAdded}" TextWrapping="Wrap" FontWeight="SemiBold"/>

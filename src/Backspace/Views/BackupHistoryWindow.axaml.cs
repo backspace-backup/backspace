@@ -13,6 +13,16 @@ public partial class BackupHistoryWindow : Window
         KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Escape) { e.Handled = true; Close(); } };
     }
     private void OnClose(object? sender, RoutedEventArgs e) => Close();
+    private async void OnShowChanges(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { DataContext: BackupHistoryRow row } || DataContext is not BackupHistoryViewModel vm) return;
+        if (vm.RunFor(row.RunId) is not { Run: { } run } found) return;
+        var changes = new RunChangesViewModel(found.Backup, run);
+        var window = new RunChangesWindow { DataContext = changes };
+        window.Show(this);
+        await changes.LoadAsync(ServiceLocator.Engine);
+    }
+
     private void OnOpenLog(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control { DataContext: BackupHistoryRow row }) return;

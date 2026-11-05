@@ -612,7 +612,12 @@ test harness to give each test its own isolated config dir.
    oversized single record produces an explicit error. Returned records are
    copies with private transcript paths removed; `LogKeptByService` says whether
    the service still has the run's transcript, so its row in a backup's activity
-   offers Open log (U138). The service does not write
+   offers Open log (U138). The desktop reads those transcripts, and the service's
+   `history.json` that maps runs to them, straight from
+   `Backspace.config\service\logs\engine` (`ServiceLogFiles`): they inherit the
+   portable folder's permissions, so the desktop account can read them, in full,
+   with the service stopped. Reading in this direction gives the desktop nothing
+   it could not already open. The transcript pipe below is the fallback. The service does not write
    into the desktop's writable history directory. `ServiceHistoryCache` pulls
    pages in the ordinary desktop process and saves them beneath the adjacent
    configuration folder. `LogStore` merges those outcomes into history and the

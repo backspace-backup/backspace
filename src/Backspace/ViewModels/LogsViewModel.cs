@@ -929,7 +929,16 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         {
             return;
         }
-        if (value is null || string.IsNullOrEmpty(value.LogPath))
+        // A run the background service made: its log is in the portable
+        // folder, read like the app's own (U138). The service is asked only
+        // when the file can't be found.
+        var logPath = value?.LogPath;
+        if (value is not null && string.IsNullOrEmpty(logPath))
+        {
+            try { logPath = ServiceLogFiles.LogPaths(value).FirstOrDefault(); }
+            catch (Exception ex) { _log.Debug(ex, "Could not look up the service's log of {RunId}", value.Id); }
+        }
+        if (value is null || string.IsNullOrEmpty(logPath))
         {
             _logTextRaw = "";
             LogText = "";
@@ -942,7 +951,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(DisplayText));
             return;
         }
-        if (!File.Exists(value.LogPath))
+        if (!File.Exists(logPath))
         {
             // Per-cell logs from old runs may have been pruned. Surface
             // a plain message rather than rendering as empty so the
@@ -953,7 +962,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             _logTextRaw = "";
             LogText =
                 "[The log file for this run is no longer on disk.]\n\n" +
-                $"Expected at: {value.LogPath}\n" +
+                $"Expected at: {logPath}\n" +
                 "Older logs are pruned automatically by the retention policy.";
             OnPropertyChanged(nameof(DisplayText));
             return;
@@ -963,7 +972,8 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         // got the click; the actual read runs off the UI thread.
         _logTextRaw = "";
         LogText = "Loading…";
-        var path = value.LogPath;
+        var path = logPath;
+        var runId = value.Id;
         _ = System.Threading.Tasks.Task.Run(() =>
         {
             // Outer try/catch so anything past the read (Dispatcher.Post
@@ -1030,7 +1040,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
                         // tag bumps on every assignment so out-of-
                         // order completions can't clobber.
                         if (_logLoadGen != thisGen) return;
-                        if (SelectedRun?.LogPath != path) return;
+                        if (SelectedRun?.Id != runId) return;
                         // Persisted log files are RAW (every persistence
                         // path writes the unfiltered restic stream).
                         // Stash the raw text so a later verbose toggle

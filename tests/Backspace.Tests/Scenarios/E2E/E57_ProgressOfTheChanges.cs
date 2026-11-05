@@ -83,6 +83,20 @@ public sealed class E57_ProgressOfTheChanges : BackupE2EBase
             Assert.Contains(log, l => l.StartsWith("[recap] Backup complete: ", StringComparison.Ordinal) && !l.StartsWith("[recap] Backup complete: 0 files", StringComparison.Ordinal));
         }
         finally { BackupLiveProgress.Interval = interval; }
+
+        // U143: what the second backup added, from its snapshot and the one before.
+        var runs = ServiceLocator.Logs.LoadHistory(backup.Name);
+        var latestRun = runs.OrderByDescending(r => r.StartedUtc).First();
+        var cell = latestRun.Cells.Single();
+        var snapshot = RunChanges.SnapshotOf(latestRun, cell);
+        Assert.False(string.IsNullOrEmpty(snapshot), "No snapshot in the recap of " + cell.LogPath);
+        var changes = await RunChanges.LoadAsync(fixture.Engine, backup, source, dest, "default", snapshot!, null, CancellationToken.None);
+        Assert.NotNull(changes);
+        Assert.NotNull(changes!.PreviousId);
+        var added = Assert.Single(changes.Files);
+        Assert.EndsWith("zz-large.bin", added.Path);
+        Assert.True(added.IsNew);
+        Assert.Equal(400L << 20, added.Size);
         File.Delete(large);
     }
 }

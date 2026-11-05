@@ -39,9 +39,12 @@ public sealed partial class BackupHistoryViewModel : ObservableObject
             foreach (var run in _runs.Where(r => r.BackupId == _backup.Id && (SelectedFilter == "All activity" || r.Kind == RunKind.Backup)).OrderByDescending(r => r.StartedUtc))
                 Rows.Add(new(run.Id, _backup.Id, run.StartedUtc, run.Status,
                     run.Kind switch { RunKind.TestRestore => run.TriggeredAutomatically ? "Automatic test restore" : "Test restore", RunKind.Check => "Repository check", _ => run.Kind.ToString() }, run.Summary,
-                    HasLog(run)) { Added = Added(run) });
+                    HasLog(run)) { Added = Added(run), CanShowChanges = run.Kind == RunKind.Backup && run.Status is BackupRunStatus.Success or BackupRunStatus.Warning });
         OnPropertyChanged(nameof(IsEmpty));
     }
+    /// <summary>The backup and the run a row stands for, to show what it added (U143).</summary>
+    internal (Backup Backup, RunRecord? Run) RunFor(string runId) => (_backup, _byId.GetValueOrDefault(runId));
+
     /// <summary>"476 new · 157 changed · 1.6 GB added" for a backup (U142):
     /// recorded with the run, or read from its own log's recap for runs saved
     /// before the figures were recorded.</summary>
@@ -57,13 +60,16 @@ public sealed partial class BackupHistoryViewModel : ObservableObject
     }
 
     private static bool HasLog(RunRecord? run) => run is not null
-        && (run.LogKeptByService || System.IO.File.Exists(run.LogPath) || run.Cells.Any(c => System.IO.File.Exists(c.LogPath)));
+        && (run.LogKeptByService || System.IO.File.Exists(run.LogPath) || run.Cells.Any(c => System.IO.File.Exists(c.LogPath))
+            || string.IsNullOrEmpty(run.LogPath) && ServiceLogFiles.LogPaths(run).Count > 0);
 }
 
 public sealed record BackupHistoryRow(string RunId, string BackupId, DateTime When, BackupRunStatus Status, string Kind, string Summary, bool HasLog)
 {
     /// <summary>What a backup added (U142), or empty.</summary>
     public string Added { get; init; } = "";
+    /// <summary>A backup that made a snapshot: its added files can be shown (U143).</summary>
+    public bool CanShowChanges { get; init; }
     public bool HasAdded => Added.Length > 0;
     public string Timestamp => When.ToLocalTime().ToString("ddd d MMM yyyy · HH:mm:ss") + " · " + HumanFormat.Ago(When);
     public string Result => Status switch { BackupRunStatus.Success => "Passed", BackupRunStatus.Failed => "Failed", BackupRunStatus.Skipped => "Skipped / cancelled", BackupRunStatus.Warning => "Needs attention", _ => Status.ToString() };
