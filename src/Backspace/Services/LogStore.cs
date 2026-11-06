@@ -49,8 +49,8 @@ public sealed class LogStore
             var root = AppContext.BaseDirectory.TrimEnd('\\');
             if (Platform.Windows.ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot))
             {
-                try { local.AddRange(Platform.Windows.ServiceRetiredHistory.Read(root, backupId)); }
-                catch (Exception ex) { AppLogger.For<LogStore>().Warning(ex, "Retained service history could not be read"); }
+                try { local.AddRange(Platform.Windows.ServiceHistoryFiles.Read(root, backupId)); }
+                catch (Exception ex) { AppLogger.For<LogStore>().Warning(ex, "The background service's history could not be read"); }
             }
         }
         if (_serviceHistory is not null)
@@ -59,16 +59,68 @@ public sealed class LogStore
                 .Select(g => g.LastOrDefault(r => !string.IsNullOrEmpty(r.LogPath)) ?? g.Last()).OrderByDescending(r => r.StartedUtc).ToList(); }
             catch (Exception ex) { AppLogger.For<LogStore>().Warning(ex, "Saved background history is unavailable for {Backup}", backupId); }
         }
-#endif
+        return local.GroupBy(r => r.Id).Select(g => g.LastOrDefault(r => !string.IsNullOrEmpty(r.LogPath)) ?? g.Last())
+            .OrderByDescending(r => r.StartedUtc).ToList();
+#else
         return local;
+#endif
     }
 
     public void RefreshBackgroundHistory(string backupId)
     {
 #if WINDOWS
-        if (!string.IsNullOrEmpty(backupId)) _serviceHistory?.RequestRefresh(backupId);
+        if (string.IsNullOrEmpty(backupId)) return;
+        if (_serviceHistory is not null) { _serviceHistory.RequestRefresh(backupId); return; }
+        // The version-3 service's files are read on every load (U138): tell
+        // the views only when they changed since this backup last looked.
+        if (_explicitEngineLogsRoot is not null) return;
+        var signature = ServiceFilesSignature();
+        if (signature.Length == 0 || _seenServiceFiles.TryGetValue(backupId, out var seen) && seen == signature) return;
+        _seenServiceFiles[backupId] = signature;
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try { HistoryRefreshed?.Invoke(backupId); } catch { /* views reload on their own next refresh */ }
+        });
 #endif
     }
+
+#if WINDOWS
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _seenServiceFiles = new(StringComparer.Ordinal);
+
+    /// <summary>When and how large the service's history files are, all
+    /// backups together: it changes whenever the service records a run.</summary>
+    private static (DateTime At, string Value) _lastSignature;
+
+    private static string ServiceFilesSignature()
+    {
+        // Every card asks on the same tick: look once for all of them.
+        var last = _lastSignature;
+        if (DateTime.UtcNow - last.At < TimeSpan.FromSeconds(1) && last.Value is not null) return last.Value;
+        var value = ReadServiceFilesSignature();
+        _lastSignature = (DateTime.UtcNow, value);
+        return value;
+    }
+
+    private static string ReadServiceFilesSignature()
+    {
+        try
+        {
+            var root = AppContext.BaseDirectory.TrimEnd('\\');
+            if (!Platform.Windows.ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot)) return "";
+            var logs = Path.Combine(Platform.Windows.SystemService.DataDirectoryFor(root), "logs", "engine");
+            if (!Directory.Exists(logs)) return "";
+            var parts = new System.Text.StringBuilder();
+            foreach (var directory in Directory.EnumerateDirectories(logs).Order(StringComparer.OrdinalIgnoreCase))
+                foreach (var name in new[] { "history.json", "timeline.json" })
+                {
+                    var file = new FileInfo(Path.Combine(directory, name));
+                    if (file.Exists) parts.Append(file.FullName).Append('|').Append(file.LastWriteTimeUtc.Ticks).Append('|').Append(file.Length).Append(';');
+                }
+            return parts.ToString();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return ""; }
+    }
+#endif
 
     /// <summary>Every transcript has its own identity even when operations
     /// start in the same second or source folders share their final name.</summary>
@@ -157,6 +209,9 @@ public sealed class LogStore
                         TriggeredAutomatically = r.TriggeredAutomatically, StartedUtc = r.StartedUtc,
                         EndedUtc = r.EndedUtc, Status = r.Status, Summary = r.Summary, Checks = r.Checks,
                         LogPath = r.LogPath,
+                        // What it added and freed stays after its log expires (U142).
+                        FilesNew = r.FilesNew, FilesModified = r.FilesModified, BytesUploaded = r.BytesUploaded,
+                        SnapshotsRemoved = r.SnapshotsRemoved, BytesFreed = r.BytesFreed,
                     }).ToList();
                 WriteTimeline(timelinePath, timeline);
                 timelineSaved = true;

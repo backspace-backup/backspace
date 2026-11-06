@@ -82,6 +82,13 @@ public sealed class RunRecord
     public int FilesModified { get; set; }
     public int FilesRemoved { get; set; }
 
+    /// <summary>What the cleanup after this run removed (U142): old backups
+    /// the keep rules no longer keep, and the storage that freed.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int SnapshotsRemoved { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public long BytesFreed { get; set; }
+
     public List<string> Errors { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
 
@@ -144,4 +151,9 @@ public sealed class CellOutcome
     public int FilesModified { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public long BytesAdded { get; set; }
+    /// <summary>What this cell's cleanup removed (U142).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int SnapshotsRemoved { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public long BytesFreed { get; set; }
 }

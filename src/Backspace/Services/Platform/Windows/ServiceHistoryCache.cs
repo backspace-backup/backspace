@@ -12,8 +12,10 @@ using Backspace.Models;
 
 namespace Backspace.Services.Platform.Windows;
 
-/// <summary>The ordinary desktop pulls metadata and writes its own portable
-/// cache. Neither a cache path nor its contents are sent to the service.</summary>
+/// <summary>For the earlier services (versions 1 and 2), whose data only their
+/// own account could read: the ordinary desktop pulls metadata and writes its
+/// own portable cache. Neither a cache path nor its contents are sent to the
+/// service. The version-3 service's files are read directly (U138).</summary>
 internal sealed class ServiceHistoryCache
 {
     private readonly string _directory;
@@ -32,6 +34,9 @@ internal sealed class ServiceHistoryCache
     internal static ServiceHistoryCache? ForDesktop(string installation, string configurationRoot)
     {
         if (!ServiceOwnerSecrets.Applies(installation, configurationRoot)) return null;
+        // The version-3 service's history is read from its files
+        // (ServiceHistoryFiles, U138): only earlier services are asked.
+        if (SystemService.ForCopy(installation) is not null) return null;
         return new(Path.Combine(configurationRoot, "logs", "service-history"), async (request, token) =>
         {
             if (ServiceWorkerBinding.ForDesktop(installation) is not { } binding) return new(1, Array.Empty<RunRecord>());

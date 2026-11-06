@@ -12,7 +12,9 @@ using Backspace.Models;
 namespace Backspace.Services.Platform.Windows;
 
 /// <summary>The owner requests a recorded run, never a privileged file path.
-/// Return a bounded tail of its existing transcript without writing desktop files.</summary>
+/// Return a bounded tail of its existing transcript without writing desktop files.
+/// Served only by the earlier services (versions 1 and 2), whose logs only
+/// their own account could read.</summary>
 internal sealed class ServiceTranscriptProtocol(string logsRoot, Func<string, List<RunRecord>> readHistory)
 {
     internal const int TailBytes = 64 * 1024;
@@ -115,7 +117,9 @@ internal sealed class ServiceTranscriptProtocol(string logsRoot, Func<string, Li
     {
         var root = AppContext.BaseDirectory.TrimEnd('\\');
         if (!ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot) || ServiceWorkerBinding.ForDesktop(root) is not { } binding) return null;
-        if (!binding.CanRun) return null;
+        // The version-3 service serves no transcripts: its logs are read
+        // from the portable folder (U138). Only earlier services are asked.
+        if (!binding.CanRun || binding.IsSystem) return null;
         using var service = new System.ServiceProcess.ServiceController(binding.ServiceName);
         if (service.Status == System.ServiceProcess.ServiceControllerStatus.Stopped) service.Start();
         service.WaitForStatus(System.ServiceProcess.ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));

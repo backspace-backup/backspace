@@ -929,15 +929,10 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         {
             return;
         }
-        // A run the background service made: its log is in the portable
-        // folder, read like the app's own (U138). The service is asked only
-        // when the file can't be found.
+        // A run the background service made names its log in the portable
+        // folder, read like the app's own (U138). Only the earlier services
+        // (versions 1 and 2), whose logs only they could read, are asked.
         var logPath = value?.LogPath;
-        if (value is not null && string.IsNullOrEmpty(logPath))
-        {
-            try { logPath = ServiceLogFiles.LogPaths(value).FirstOrDefault(); }
-            catch (Exception ex) { _log.Debug(ex, "Could not look up the service's log of {RunId}", value.Id); }
-        }
         if (value is null || string.IsNullOrEmpty(logPath))
         {
             _logTextRaw = "";

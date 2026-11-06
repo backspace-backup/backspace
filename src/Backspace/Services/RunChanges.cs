@@ -35,9 +35,11 @@ internal static class RunChanges
     /// that cell's log (the app's own, or the background service's).</summary>
     internal static string? SnapshotOf(RunRecord run, CellOutcome cell)
     {
-        foreach (var path in new[] { cell.LogPath, ServiceLogFiles.CellLogPath(run, cell.SourcePath, cell.DestinationName) })
+        // A background run's cells name the service's logs as they are on
+        // this computer (ServiceHistoryFiles, U138).
+        var path = cell.LogPath;
+        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
         {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
             try
             {
                 using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);

@@ -605,6 +605,19 @@ test harness to give each test its own isolated config dir.
    authorize backup plans, migrate secrets, install a service or make the
    existing scheduler safe for before-sign-in production use.
 
+   The version-3 service (Windows' own account) writes its history and logs in
+   `Backspace.config\service\logs\engine`, where they inherit the portable
+   folder's permissions. The desktop reads them there directly
+   (`ServiceHistoryFiles`, U138): every run from `history.json` and
+   `timeline.json`, and each log in full, with the service running or stopped.
+   A recorded log path is used only if it is a `.log` inside that folder; after
+   the portable folder moves, the file of the same name in the same backup
+   folder is used. Reading in this direction gives the desktop nothing it could
+   not already open, and this service serves no history or transcript pipe.
+   `LogStore` tells the views to reload when those history files change.
+
+   The earlier services (versions 1 and 2, a virtual service account) kept their
+   data in a folder only their own account could read. For them only,
    `ServiceHistoryProtocol` adds a separate authenticated, read-only history
    endpoint. A request names a backup ID and an optional run-ID cursor, never
    a filesystem path. Pages are limited by both record count and serialized
@@ -612,12 +625,7 @@ test harness to give each test its own isolated config dir.
    oversized single record produces an explicit error. Returned records are
    copies with private transcript paths removed; `LogKeptByService` says whether
    the service still has the run's transcript, so its row in a backup's activity
-   offers Open log (U138). The desktop reads those transcripts, and the service's
-   `history.json` that maps runs to them, straight from
-   `Backspace.config\service\logs\engine` (`ServiceLogFiles`): they inherit the
-   portable folder's permissions, so the desktop account can read them, in full,
-   with the service stopped. Reading in this direction gives the desktop nothing
-   it could not already open. The transcript pipe below is the fallback. The service does not write
+   offers Open log. The service does not write
    into the desktop's writable history directory. `ServiceHistoryCache` pulls
    pages in the ordinary desktop process and saves them beneath the adjacent
    configuration folder. `LogStore` merges those outcomes into history and the
@@ -951,7 +959,7 @@ test harness to give each test its own isolated config dir.
    The elevated helper enables its existing backup/restore privileges for these
    operations; it does not grant new privileges to the desktop account.
    Successful removal switches desktop credentials and operation locks back to
-   ordinary portable mode. `ServiceRetiredHistory` retains old runs and relocates
+   ordinary portable mode. `ServiceHistoryFiles` retains old runs and relocates
    their transcript paths within the adjacent configuration folder. Re-enabling
    archives the completed service data under the same configuration folder and
    creates a new registration; it never replaces an existing archive. Updating

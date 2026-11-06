@@ -118,6 +118,11 @@ deletes data no snapshot uses, such as the first copy of what an interrupted
 backup sent again. While it runs, the storage can't be used by another
 operation.
 
+The log ends the cleanup with what it removed ("[cleanup] 2 old backups removed
+· 1.3 GB freed in the storage"), and the backup’s **History** adds "1.3 GB
+freed" to its run when something was freed. With what each backup added, it
+shows why the storage doesn’t only grow.
+
 Each schedule has conditions that also apply to its standalone check and
 prune:
 
@@ -337,7 +342,9 @@ little time, and only Verbose shows it. **Clear view** appears on the live
 view only; a saved run's log can't be cleared.
 
 A backup's **History** lists its runs, each backup with what it added
-("14,145 new · 239 changed · 12 GB added"). **Files added** shows those files
+("14,145 new · 239 changed · 12 GB added · 1.3 GB freed", the last part
+only when its cleanup freed space); a cleanup on its own schedule lists what
+it removed and freed. **Files added** shows those files
 without Verbose: a map of the folders they are in, each box sized by the bytes
 of its new and changed files, like WinDirStat, and the largest files. Click a
 folder to open it; **Up** goes back. It compares the backup's snapshot with
@@ -345,8 +352,8 @@ the one before, by size and date, reading only their file lists (cached on
 this computer), so it works as long as both snapshots are kept. Sizes are of
 the files; the storage received less where parts were already stored.
 **Open log** shows the run's log. Runs the background service made are read
-from its logs in the portable folder, in full, even while the service is
-stopped.
+from its history and logs in the portable folder, in full, even while the
+service is stopped; the app never asks the service for them.
 
 A backup that gets stuck fails instead of running forever. If the engine
 leaves every status check unanswered for 10 minutes, or a backup's counts

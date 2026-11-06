@@ -176,15 +176,14 @@ internal sealed class SystemBackupService : ServiceBase
             var commands = ServeCommandsAsync();
             var handoff = Handoff(vault)?.ServeAsync(_binding.ServiceName + "-migration", _binding.ServiceSid, _binding.OwnerSid, _stop.Token)
                 ?? Task.Delay(Timeout.Infinite, _stop.Token);
-            var history = new ServiceHistoryProtocol(new LogStore().LoadTimelineByBackupId)
-                .ServeAsync(_binding.ServiceName + "-history", _binding.ServiceSid, _binding.OwnerSid, _stop.Token);
-            var transcripts = new ServiceTranscriptProtocol(AppPaths.EngineLogsRoot, new LogStore().LoadTimelineByBackupId)
-                .ServeAsync(_binding, _stop.Token);
+            // No history or transcript pipe (U138, 6 November 2026): the
+            // desktop reads this service's history and logs from the portable
+            // folder, where they inherit its permissions.
             var notifications = new ServiceNotificationProtocol(new(_binding.DataDirectory)).ServeAsync(_binding, _stop.Token);
             var schedule = new ScheduleLoop(new(Path.Combine(_binding.DataDirectory, "schedule-state.json"),
                 SchedulePlans, RunScheduledAsync, plan => ScheduleConditions.Blocked(plan, _scheduleDestinations,
                     ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable), ScheduleConditions.OnBattery)).RunAsync(_stop.Token);
-            var ended = await Task.WhenAny(secrets, commands, handoff, history, transcripts, notifications, schedule).ConfigureAwait(false);
+            var ended = await Task.WhenAny(secrets, commands, handoff, notifications, schedule).ConfigureAwait(false);
             await ended.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }

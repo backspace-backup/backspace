@@ -84,38 +84,61 @@ public sealed class RunChangesTests
     }
 }
 
-/// <summary>U138: the background service's logs are read from the portable folder.</summary>
-public sealed class ServiceLogFilesTests
+/// <summary>U138: the version-3 service's history and logs are read from the
+/// portable folder, with no pipe and without starting the service.</summary>
+public sealed class ServiceHistoryFilesTests
 {
-    [Fact]
-    public void A_service_run_is_found_and_its_log_read_even_after_the_folder_moved()
+    private static readonly JsonSerializerOptions Json = new()
     {
-        var folder = Path.Combine(ServiceLogFiles.Root, "local_c-" + Guid.NewGuid().ToString("N")[..8]);
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+    };
+
+    [Fact]
+    public void Service_runs_are_read_with_their_logs_even_after_the_folder_moved()
+    {
+        var root = Path.Combine(AppPaths.ConfigRoot, "u138-" + Guid.NewGuid().ToString("N")[..8]);
+        var folder = Path.Combine(Backspace.Services.Platform.Windows.SystemService.DataDirectoryFor(root), "logs", "engine", "local_c");
         Directory.CreateDirectory(folder);
         try
         {
             var log = Path.Combine(folder, "20261105-103350-cell.log");
             File.WriteAllText(log, "[recap] Backup complete: 1 files (1 KB) checked · 1 new, 0 changed, 0 unchanged · 1 KB added to the storage · took 1s · snapshot 0123abcd\n");
-            var runId = Guid.NewGuid().ToString("N");
-            // Recorded under the folder's old place: only the name still matches.
+            // Recorded under the folder's old place: only the backup folder and name still match.
             var recorded = Path.Combine(@"D:\Old\Backspace.config\service\logs\engine\local_c", Path.GetFileName(log));
-            var run = new RunRecord
+            var runId = Guid.NewGuid().ToString("N");
+            RunRecord Run(string id, string backup, DateTime started, string logPath) => new()
             {
-                Id = runId, BackupId = "b1", BackupName = "local_c", Kind = RunKind.Backup, Status = BackupRunStatus.Success, LogPath = recorded,
-                Cells = { new CellOutcome { SourcePath = @"C:\", DestinationName = "Drive", Status = BackupRunStatus.Success, LogPath = recorded } },
+                Id = id, BackupId = backup, BackupName = "local_c", Kind = RunKind.Backup, Status = BackupRunStatus.Success,
+                StartedUtc = started, EndedUtc = started.AddMinutes(1), LogPath = logPath, FilesNew = 1, BytesUploaded = 1024,
+                Cells = { new CellOutcome { SourcePath = @"C:\", DestinationName = "Drive", Status = BackupRunStatus.Success, LogPath = logPath } },
             };
-            File.WriteAllText(Path.Combine(folder, "history.json"), JsonSerializer.Serialize(new[] { run },
-                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } }));
+            var now = DateTime.UtcNow;
+            // The service keeps its latest runs in history.json and every run, compactly, in timeline.json.
+            File.WriteAllText(Path.Combine(folder, "history.json"), JsonSerializer.Serialize(new[]
+            {
+                Run(runId, "b1", now, recorded),
+                Run(Guid.NewGuid().ToString("N"), "other", now, recorded),
+                Run(Guid.NewGuid().ToString("N"), "b1", now.AddHours(-1), @"D:\Old\Backspace.config\service\logs\engine\local_c\gone.log"),
+                Run(Guid.NewGuid().ToString("N"), "b1", now.AddHours(-2), @"C:\Windows\win.ini"),
+            }, Json));
+            var oldest = new RunRecord { Id = Guid.NewGuid().ToString("N"), BackupId = "b1", BackupName = "local_c", Kind = RunKind.Backup,
+                Status = BackupRunStatus.Success, StartedUtc = now.AddDays(-60), EndedUtc = now.AddDays(-60), FilesNew = 7, BytesUploaded = 5000 };
+            File.WriteAllText(Path.Combine(folder, "timeline.json"), JsonSerializer.Serialize(new[] { oldest }, Json));
 
-            // The desktop's copy has no paths, as the service sends it.
-            var copy = new RunRecord { Id = runId, BackupId = "b1", Kind = RunKind.Backup, Status = BackupRunStatus.Success, LogKeptByService = true,
-                Cells = { new CellOutcome { SourcePath = @"C:\", DestinationName = "Drive", Status = BackupRunStatus.Success } } };
-            Assert.Equal(new[] { log }, ServiceLogFiles.LogPaths(copy));
-            Assert.Equal("0123abcd", RunChanges.SnapshotOf(copy, copy.Cells[0]));
-            // Another backup's run of the same id is not taken.
-            Assert.Empty(ServiceLogFiles.LogPaths(new RunRecord { Id = runId, BackupId = "other" }));
-            Assert.Empty(ServiceLogFiles.LogPaths(new RunRecord { Id = Guid.NewGuid().ToString("N"), BackupId = "b1" }));
+            var runs = Backspace.Services.Platform.Windows.ServiceHistoryFiles.SystemServiceRuns(root, "b1");
+            Assert.Equal(4, runs.Count); // the other backup's run in the same folder is not taken
+            var latest = runs.Single(r => r.Id == runId);
+            Assert.Equal(log, latest.LogPath);
+            Assert.Equal(log, latest.Cells.Single().LogPath);
+            Assert.Equal("0123abcd", RunChanges.SnapshotOf(latest, latest.Cells.Single()));
+            // A log that is gone keeps its path, so the log view says so; a
+            // path that is not a .log is never handed on.
+            Assert.False(File.Exists(runs.Single(r => r.StartedUtc == now.AddHours(-1)).LogPath));
+            Assert.Equal("", runs.Single(r => r.StartedUtc == now.AddHours(-2)).LogPath);
+            // A run past the latest ones still shows, with what it added.
+            var old = runs.Single(r => r.Id == oldest.Id);
+            Assert.Equal((7, 5000L), (old.FilesNew, old.BytesUploaded));
         }
-        finally { Directory.Delete(folder, recursive: true); }
+        finally { Directory.Delete(root, recursive: true); }
     }
 }

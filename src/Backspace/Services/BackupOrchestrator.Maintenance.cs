@@ -198,9 +198,13 @@ public sealed partial class BackupOrchestrator
                     LastError = status == BackupRunStatus.Failed ? result?.Errors.FirstOrDefault() ?? summary : null,
                     Duration = result is null ? TimeSpan.Zero : (result.EndedUtc ?? DateTime.UtcNow) - result.StartedUtc,
                     LogPath = result?.LogPath ?? "", AttemptsMade = result is null ? 0 : 1,
+                    SnapshotsRemoved = result?.SnapshotsRemoved ?? 0, BytesFreed = result?.BytesFreed ?? 0,
                 });
                 if (result is not null)
                 {
+                    // What each cleanup freed, summed for the run (U142).
+                    aggregate.SnapshotsRemoved += result.SnapshotsRemoved;
+                    aggregate.BytesFreed += result.BytesFreed;
                     aggregate.Checks.AddRange(result.Checks);
                     aggregate.Errors.AddRange(result.Errors);
                     aggregate.Warnings.AddRange(result.Warnings);

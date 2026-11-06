@@ -50,18 +50,29 @@ public sealed partial class BackupHistoryViewModel : ObservableObject
     /// before the figures were recorded.</summary>
     internal static string Added(RunRecord run)
     {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        // What the cleanup after it freed (U142, 6 November 2026), only when
+        // it freed something: with what was added, it shows why the storage
+        // doesn't only grow.
+        var freed = run.BytesFreed > 0 ? $"{BackupLiveProgress.Bytes(run.BytesFreed)} freed" : "";
+        if (run.Kind == RunKind.Prune && run.Status is (BackupRunStatus.Success or BackupRunStatus.Warning) && freed.Length > 0)
+            return run.SnapshotsRemoved switch
+            {
+                0 => freed,
+                1 => "1 old backup removed · " + freed,
+                var n => $"{n.ToString("N0", culture)} old backups removed · {freed}",
+            };
         if (run.Kind != RunKind.Backup || run.Status is not (BackupRunStatus.Success or BackupRunStatus.Warning)) return "";
         var stats = run.FilesNew + run.FilesModified > 0 || run.BytesUploaded > 0
             ? (run.FilesNew, run.FilesModified, run.BytesUploaded)
             : BackupLiveProgress.StatsFromLog(run.LogPath) ?? run.Cells.Select(c => BackupLiveProgress.StatsFromLog(c.LogPath)).FirstOrDefault(s => s is not null);
-        if (stats is not { } s) return "";
-        var c = System.Globalization.CultureInfo.InvariantCulture;
-        return $"{s.Item1.ToString("N0", c)} new · {s.Item2.ToString("N0", c)} changed · {BackupLiveProgress.Bytes(s.Item3)} added";
+        if (stats is not { } s) return freed;
+        var added = $"{s.Item1.ToString("N0", culture)} new · {s.Item2.ToString("N0", culture)} changed · {BackupLiveProgress.Bytes(s.Item3)} added";
+        return freed.Length > 0 ? added + " · " + freed : added;
     }
 
     private static bool HasLog(RunRecord? run) => run is not null
-        && (run.LogKeptByService || System.IO.File.Exists(run.LogPath) || run.Cells.Any(c => System.IO.File.Exists(c.LogPath))
-            || string.IsNullOrEmpty(run.LogPath) && ServiceLogFiles.LogPaths(run).Count > 0);
+        && (run.LogKeptByService || System.IO.File.Exists(run.LogPath) || run.Cells.Any(c => System.IO.File.Exists(c.LogPath)));
 }
 
 public sealed record BackupHistoryRow(string RunId, string BackupId, DateTime When, BackupRunStatus Status, string Kind, string Summary, bool HasLog)
