@@ -1390,6 +1390,11 @@ public sealed class ResticBackrestEngine : IBackupEngine
             return new RestoreOpResult(0, 0, 0, 0, RestoreTerminalStatus.Success, null);
         ValidateRestoreTarget(targetPath);
         await new CloudDestinationPreflight(_secrets).CheckAsync(destination, ct).ConfigureAwait(false);
+#if WINDOWS
+        // restic removes its lock there afterwards: the backup folder is held
+        // so that delete can't be sent elsewhere (U152).
+        using var heldRepository = Platform.Windows.RepositoryHold.For(destination, create: false, ct);
+#endif
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var (snapshotId, repoGuid) = await ResolveSnapshotIdAsync(
             backup, sourcePath, destination, storageName, revision, ct, expectedSnapshotId).ConfigureAwait(false);

@@ -80,6 +80,28 @@ public sealed class HandleRenameTests
         finally { Directory.Delete(destinationFolder); }
     }
 
+    /// <summary>Between two restored files, the recovery folder (where the
+    /// journal is appended) and the restore folder can't be swapped for links.</summary>
+    [Fact]
+    public void The_recovery_folder_and_restore_folder_stay_put_until_the_restore_finishes()
+    {
+        using var ws = new TempWorkspace("handle-rename-journal");
+        var (root, _, staging) = Restore(ws);
+        File.WriteAllText(Path.Combine(staging, "a.txt"), "a");
+        File.WriteAllText(Path.Combine(staging, "b.txt"), "b");
+        File.WriteAllText(Path.Combine(root, "a.txt"), "original a"); // replaced: its original goes to recovery
+        var output = new Backspace.Services.RestoreOutputTransaction();
+        output.Publish(Path.Combine(staging, "a.txt"), Path.Combine(root, "a.txt"), root, true, TestContext.Current.CancellationToken);
+        var recovery = Assert.Single(Directory.GetDirectories(root, ".backspace-undo-*"));
+        Assert.Throws<IOException>(() => Directory.Move(recovery, recovery + "-away"));
+        Assert.Throws<IOException>(() => Directory.Move(root, root + "-away"));
+        output.Publish(Path.Combine(staging, "b.txt"), Path.Combine(root, "b.txt"), root, true, TestContext.Current.CancellationToken);
+        output.Commit();
+        Assert.False(Directory.Exists(recovery));
+        Assert.Equal("a", File.ReadAllText(Path.Combine(root, "a.txt")));
+        Directory.Move(root, root + "-moved"); // released once finished
+    }
+
     [Fact]
     public void A_restore_folder_reached_through_a_link_is_refused()
     {

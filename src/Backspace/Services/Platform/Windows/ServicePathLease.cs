@@ -67,7 +67,7 @@ internal sealed class ServicePathLease : IDisposable
                 {
                     var error = Marshal.GetLastWin32Error();
                     marker.Dispose();
-                    throw new IOException("The approved folder could not be protected: " + leaf,
+                    throw new IOException("The approved folder could not be protected: " + leaf + " (" + new Win32Exception(error).Message + ")",
                         new Win32Exception(error));
                 }
                 lease._markers.Add(marker);
@@ -121,8 +121,17 @@ internal sealed class ServicePathLease : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)] private struct AttributeTag { public uint Attributes; public uint ReparseTag; }
+    /// <summary>Opens by the long-path form: a guard file inside a deep
+    /// restore or test-restore folder easily passes 260 characters.</summary>
+    private static SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template)
+    {
+        var full = Path.GetFullPath(name);
+        var extended = full.StartsWith(@"\\?\", StringComparison.Ordinal) ? full
+            : full.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC" + full[1..] : @"\\?\" + full;
+        return CreateFileW(extended, access, share, security, creation, flags, template);
+    }
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+    private static extern SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetFileInformationByHandleEx(SafeFileHandle handle, int kind, out AttributeTag information, uint size);

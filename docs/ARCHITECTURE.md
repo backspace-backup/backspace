@@ -720,13 +720,24 @@ test harness to give each test its own isolated config dir.
    those renames and is incorrect. The worker excludes only its own generated
    marker names from snapshots. It retains handles through engine disposal.
    The version-3 service (U100) places no markers in the owner's source
-   folders, but holds every folder of each repository on this PC this way:
-   the repository folder, `index`, `keys`, `locks`, `snapshots`, `data` and
-   each `data\xx`; before the first backup the service makes the repository
-   folder itself and holds it (U152). An external drive lets every account write by default, and a
-   subfolder emptied and turned into a link while restic deletes there as
-   SYSTEM would delete any file. A link already in place stops the run.
-   restic's check, backup and prune ignore the markers. Network/removable destinations remain unsupported
+   folders. `RepositoryHold` instead holds every folder of a repository on
+   this PC this way while the engine works there, for each backup, check,
+   cleanup and restore, in the service and the app alike (U152): the
+   repository folder, `keys`, `locks`, `index`, `snapshots`, `data` and
+   `data\00` to `data\ff`. Missing ones are made first, under the hold
+   (restic would otherwise make them during the run, unheld); for a first
+   backup the whole set is made, one folder at a time, each held before the
+   next, starting from the nearest existing folder, which is checked for links
+   first. A folder holding something other than a repository gets none. An
+   external drive or a folder on a second drive lets every account modify it
+   by default, and restic deletes its lock files and old packs by name: a
+   folder emptied and turned into a link would send those deletes onto any
+   file, as SYSTEM in the service. A link already in place stops that part of
+   the run. restic's init, check, backup and prune accept the made folders and
+   ignore the markers, except directly in `data`: restic opens every entry
+   there as a folder, and an open marker makes its listing fail (check and
+   prune retry for many minutes, then stop). `data` is therefore held only
+   through its 256 held subfolders and keeps no marker. Network/removable destinations remain unsupported
    by this unactivated service worker. See Microsoft's
    [reparse-point restrictions](https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-points)
    for the nonempty-directory and name-surrogate rules.

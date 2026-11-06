@@ -254,6 +254,28 @@ public sealed partial class BackupOrchestrator
                         continue;
                     }
 
+#if WINDOWS
+                    // A backup folder on this PC is held, every folder of it,
+                    // while the engine works there: another account must not
+                    // be able to turn one into a link that sends the engine's
+                    // deletes onto other files (U152).
+                    Platform.Windows.RepositoryHold? repositoryHold;
+                    try { repositoryHold = Platform.Windows.RepositoryHold.For(dest, create: true, ct); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or System.ComponentModel.Win32Exception)
+                    {
+                        var reason = $"The backup folder {dest.PathOrSubpath} could not be held safely, so nothing was written there: {ex.Message}";
+                        _log.Warning(ex, "Not running cell {Src}→{Dest}: the repository folder could not be held", sourcePath, dest.Name);
+                        final.Cells.Add(new CellOutcome
+                        {
+                            SourcePath = sourcePath, DestinationName = dest.Name, StorageName = target.StorageName,
+                            Status = BackupRunStatus.Failed, Summary = reason, LastError = reason,
+                        });
+                        final.Errors.Add($"[{sourcePath} → {dest.Name}] {reason}");
+                        continue;
+                    }
+                    using var heldRepository = repositoryHold;
+#endif
+
                     // Per-cell progress lifecycle: report start → forward
                     // every stdout line through the progress service so
                     // the BackupCard can render a live percentage → mark

@@ -67,44 +67,6 @@ public sealed class ServicePathLeaseTests
         finally { Directory.Delete(link); }
     }
 
-    /// <summary>U152: the service holds every folder of a repository on this
-    /// PC while it works, so another account cannot empty one and turn it
-    /// into a link while restic deletes there as Windows itself.</summary>
-    [Fact]
-    public void Repository_folders_are_held_and_a_planted_link_stops_the_run()
-    {
-        using var ws = new TempWorkspace();
-        var repository = ws.Sub("repo");
-        foreach (var name in new[] { "index", "keys", "locks", "snapshots", Path.Combine("data", "00"), Path.Combine("data", "ab") })
-            Directory.CreateDirectory(Path.Combine(repository, name));
-        File.WriteAllText(Path.Combine(repository, "config"), "c");
-        var folders = ServiceApprovedWorker.RepositoryFolders(repository).ToList();
-        Assert.Equal(new[] { "", "index", "keys", "locks", "snapshots", "data", Path.Combine("data", "00"), Path.Combine("data", "ab") }
-                .Select(f => Path.Combine(repository, f)).Select(Path.TrimEndingDirectorySeparator),
-            folders.Select(Path.TrimEndingDirectorySeparator));
-        using (var lease = ServicePathLease.Acquire(folders))
-        {
-            var empty = Path.Combine(repository, "data", "ab");
-            // Kept from being emptied (guard file) and from being renamed away.
-            Assert.Single(Directory.EnumerateFileSystemEntries(empty));
-            Assert.Throws<IOException>(() => Directory.Move(empty, empty + "-moved"));
-            Assert.ThrowsAny<Exception>(() => File.Delete(Directory.EnumerateFiles(empty).Single()));
-            // restic can still add and remove its files.
-            File.WriteAllText(Path.Combine(empty, "ab01"), "pack");
-            File.Move(Path.Combine(empty, "ab01"), Path.Combine(empty, "ab02"));
-            File.Delete(Path.Combine(empty, "ab02"));
-        }
-        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(repository, "data", "ab"))); // guard files go with the lease
-
-        // Before the first backup: the folder is made, then held, so no link can take its name first.
-        var fresh = Path.Combine(ws.Root, "new", "repo");
-        var first = ServiceApprovedWorker.RepositoryFolders(fresh).ToList();
-        Assert.Equal(new[] { fresh }, first);
-        Assert.True(Directory.Exists(fresh));
-        using (ServicePathLease.Acquire(first))
-            Assert.Throws<IOException>(() => Directory.Move(fresh, fresh + "-moved"));
-    }
-
     [Fact]
     public void PinnedSourceAndAncestorsCannotBeRenamedButNormalFileChangesStillWork()
     {
@@ -131,6 +93,25 @@ public sealed class ServicePathLeaseTests
         AfterRelease(() => Directory.Move(source, Path.Combine(parent, "replacement")));
         Assert.True(File.Exists(Path.Combine(parent, "replacement", "document.txt")));
         Assert.Empty(Directory.GetFiles(Path.Combine(parent, "replacement"), ".backspace-path-guard-*"));
+    }
+
+    /// <summary>A restore or test restore can be deep: the guard file's full
+    /// name then passes 260 characters (U152, found by E49).</summary>
+    [Fact]
+    public void A_folder_whose_guard_name_passes_260_characters_is_held()
+    {
+        using var ws = new TempWorkspace();
+        var deep = ws.Root;
+        while (deep.Length < 250) deep = Path.Combine(deep, new string('d', 40));
+        Directory.CreateDirectory(deep);
+        using (var lease = ServicePathLease.Acquire(new[] { deep }))
+        {
+            var guard = Path.Combine(deep, Assert.Single(lease.MarkerNames));
+            Assert.True(guard.Length > 260, guard.Length.ToString());
+            Assert.Contains(guard, Directory.GetFiles(deep));
+            Assert.Throws<IOException>(() => Directory.Move(deep, deep + "-away"));
+        }
+        Assert.Empty(Directory.GetFiles(deep));
     }
 
     [Fact]

@@ -523,6 +523,41 @@ that stay open (mail stores, databases, virtual disks) for as long as they
 stay open. Backspace's own listing (`ChangePlan`) uses that data only for the
 progress estimate.
 
+### Where a backup's time goes now (for future speed work)
+
+Measured on the owner's PC, backing up C:\ with local_c's 273 rules, little
+changed since the previous backup, 5–6 November 2026, Backspace's patched
+restic build:
+
+| Stage | Before | Now | What did it |
+|---|---|---|---|
+| Exclusion matching | 93% of the walk (330 µs a path) | small | Rule pre-check in Backspace's restic build (section above) |
+| Restic's CPU for the walk | 252 s | 110 s | `--no-scan`: one walk instead of two |
+| Walk time (wall clock) | 124 s | 102 s | same |
+| Look-up of each file and folder (`os.Lstat`, `GetFileAttributesEx`) | 60% of the 252 s CPU (two look-ups per entry) | 53.5 s of the 110 s CPU (49%) | Kept, see above |
+
+The look-up is now the largest single cost of a backup where little changed.
+Uploads are separate: they depend on how much changed and on the destination.
+
+Options already measured, so nobody repeats them:
+
+- **The folder listing's size and date instead of the look-up:** would take
+  the walk from about 102 s to 50–55 s, but misses changes to files held open
+  for writing (above). Rejected.
+- **`GetFileInformationByName`** (Windows 11 24H2), a cheaper exact look-up:
+  exact, but no faster: 15.4 s against 15.8 s on the 266,602 entries of
+  `C:\Windows\WinSxS`.
+- **Telling which files another program holds open for writing,** to use the
+  listing for the rest: Windows has no cheap way to ask.
+
+The remaining large lever is the **NTFS change journal**, which lists exactly
+the files changed since the previous backup, so unchanged files need no
+look-up at all. It means a substantial change to restic of Backspace's own:
+the journal position for each drive, a full walk whenever the journal was
+reset or overflowed, Windows only, and unlikely to be accepted upstream. A
+mistake in it would silently skip changed files, so it needs its own design
+and the owner's go-ahead before any work.
+
 ## An interrupted backup leaves data behind until a prune
 
 Restic writes its index (the list of what it stored) every 10 minutes or at the

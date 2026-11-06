@@ -85,6 +85,15 @@ internal static class HandleRename
         Rename(item, folder, Path.GetFileName(destination), destination);
     }
 
+    /// <summary>Throws unless the open file is really at
+    /// <paramref name="path"/> inside the restore folder: checked before
+    /// anything is written to it.</summary>
+    internal static void RequireAt(SafeFileHandle handle, string path, string root, string rootLocation)
+    {
+        if (!SamePath(ExactPathDelete.FinalPath(handle), Expected(root, rootLocation, path)))
+            throw new IOException($"{path} no longer leads into the restore folder; nothing was written to it.");
+    }
+
     private static bool Inside(string root, string path)
     {
         var relative = Path.GetRelativePath(Path.GetFullPath(root), Path.GetFullPath(path));

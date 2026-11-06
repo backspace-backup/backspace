@@ -89,7 +89,7 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         Assert.Same(first, vm.ActiveRestores.SelectedSession);
         ctx.Snapshot(main, "real-sample-progress", "The orange Test restore label, real recovered-byte progress and Cancel button are visible in Restores.");
         await first.Completion.WaitAsync(deadline.Token); await ctx.Driver.PumpAsync(150);
-        Assert.Equal(RestoreTerminalStatus.Success, first.Status);
+        Assert.True(first.Status == RestoreTerminalStatus.Success, $"{first.Status}: {string.Join(" | ", Latest().Cells.Single().Results.Where(r => r.Status != FileVerifyStatus.Recovered).Take(3).Select(r => r.Path + ": " + r.Detail))}");
         var firstJournal = Latest();
         Assert.Equal(75, firstJournal.Cells.Single().Results.Count);
         Assert.All(firstJournal.Cells.Single().Results, r => Assert.Equal(FileVerifyStatus.Recovered, r.Status));
@@ -98,7 +98,7 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
 
         var second = await Start(false);
         await second.Completion.WaitAsync(deadline.Token); await ctx.Driver.PumpAsync(150);
-        Assert.Equal(RestoreTerminalStatus.Success, second.Status);
+        Assert.True(second.Status == RestoreTerminalStatus.Success, $"{second.Status}: {second.ErrorMessage ?? second.Detail}");
         var secondJournal = Latest();
         Assert.Empty(firstJournal.Cells.Single().Files.Select(f => f.Path).Intersect(secondJournal.Cells.Single().Files.Select(f => f.Path)));
         Assert.All(secondJournal.Cells.Single().Results, r => Assert.Equal(FileVerifyStatus.Recovered, r.Status));

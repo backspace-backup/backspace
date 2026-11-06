@@ -97,20 +97,14 @@ internal static class ServiceApprovedWorker
         // guard files are placed in them, and a missing source is reported by
         // the run itself instead of stopping the worker (lab VM, 2 November 2026).
         using var paths = binding.IsSystem ? null : ServicePathLease.Acquire(LocalPathsFor(run), stop);
-        // Its backup folders on this PC are another matter: other accounts may
-        // be able to change one (an external drive lets every account write by
-        // default). A subfolder swapped for a link would turn the engine's
-        // deletes, made as Windows itself, onto any file (U152). Each of the
-        // repository's folders is held, with a guard file that keeps it from
-        // being emptied and turned into a link, for the whole operation; a
-        // link found already in place stops the run. Restic ignores the files.
-        using var repositories = binding.IsSystem ? ServicePathLease.Acquire(RepositoryFoldersFor(run), stop) : null;
+        // Its backup folders on this PC are held, every folder of them, for
+        // each destination while the engine works there (RepositoryHold, in
+        // the orchestrator, U152).
         // These are this operation's own temporary guard files, not user data.
         // Keep them out of snapshots, including VSS snapshots taken while held.
-        foreach (var lease in new[] { paths, repositories })
-            if (lease is not null)
-                foreach (var approvedBackup in run.Configuration.Backups)
-                    approvedBackup.FiltersText += "\n" + string.Join("\n", lease.MarkerNames);
+        if (paths is not null)
+            foreach (var approvedBackup in run.Configuration.Backups)
+                approvedBackup.FiltersText += "\n" + string.Join("\n", paths.MarkerNames);
 
         // All process-local state and engine scratch belongs to the service.
         // A caller's inherited portable-config/TEMP overrides cannot redirect it.
@@ -186,49 +180,6 @@ internal static class ServiceApprovedWorker
                 return $"The backup folder of «{destination.Name}» is missing ({destination.PathOrSubpath}). Reconnect the drive it is on, or choose another folder for this destination.";
         }
         return null;
-    }
-
-    /// <summary>The folders of this run's repositories on this PC: each
-    /// repository's own folder and the folders restic keeps in it, or, before
-    /// the first backup, the nearest folder that exists on the way to it.</summary>
-    internal static IEnumerable<string> RepositoryFoldersFor(ServiceRunAuthorization.AuthorizedRun run)
-    {
-        foreach (var target in run.Backup.Targets)
-        {
-            var destination = run.Configuration.Destinations.Single(d => d.Id == target.DestinationId);
-            string? repository = destination.Kind switch
-            {
-                DestinationKind.ExternalDrive => ServiceExternalDrives.ConnectedPath(destination),
-                DestinationKind.LocalFolder => ServiceInstallationSecurity.CanonicalLocalPath(destination.PathOrSubpath),
-                _ => null,
-            };
-            if (repository is null) continue;
-            foreach (var folder in RepositoryFolders(repository)) yield return folder;
-        }
-    }
-
-    internal static IEnumerable<string> RepositoryFolders(string repository)
-    {
-        // Before the first backup the folder is made here, so that it is held
-        // like the rest: holding only the folder above it would still let
-        // another account put a link at its name before restic creates it
-        // (U152). An empty folder is not a repository: the drive check still
-        // treats it as missing.
-        if (!Directory.Exists(repository))
-        {
-            Directory.CreateDirectory(repository);
-            yield return repository;
-            yield break;
-        }
-        yield return repository;
-        foreach (var name in new[] { "index", "keys", "locks", "snapshots", "data" })
-        {
-            var folder = Path.Combine(repository, name);
-            if (!Directory.Exists(folder)) continue;
-            yield return folder;
-            if (name == "data")
-                foreach (var pack in Directory.EnumerateDirectories(folder)) yield return pack;
-        }
     }
 
     internal static IEnumerable<string> LocalPathsFor(ServiceRunAuthorization.AuthorizedRun run)

@@ -137,6 +137,10 @@ public sealed partial class BackupOrchestrator
                     }
                     try
                     {
+#if WINDOWS
+                        // Held while the engine works there, as for backups (U152).
+                        using var heldRepository = Platform.Windows.RepositoryHold.For(dest, create: false, linked.Token);
+#endif
                         var cell = await engineCall(_engine, backup, src, dest, target.StorageName, linked.Token);
                         var status = cell.Status;
                         var summary = cell.Summary;
