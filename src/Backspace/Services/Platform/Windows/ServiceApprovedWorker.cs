@@ -209,11 +209,15 @@ internal static class ServiceApprovedWorker
 
     internal static IEnumerable<string> RepositoryFolders(string repository)
     {
+        // Before the first backup the folder is made here, so that it is held
+        // like the rest: holding only the folder above it would still let
+        // another account put a link at its name before restic creates it
+        // (U152). An empty folder is not a repository: the drive check still
+        // treats it as missing.
         if (!Directory.Exists(repository))
         {
-            var existing = Path.GetDirectoryName(repository);
-            while (existing is not null && !Directory.Exists(existing)) existing = Path.GetDirectoryName(existing);
-            if (existing is not null) yield return existing;
+            Directory.CreateDirectory(repository);
+            yield return repository;
             yield break;
         }
         yield return repository;

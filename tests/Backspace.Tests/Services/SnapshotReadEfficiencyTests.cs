@@ -119,19 +119,19 @@ public sealed class SnapshotReadEfficiencyTests
 
     private static string Node(string path, string type, long size = 0) => JsonSerializer.Serialize(new { struct_type = "node", path, type, size });
 
-    /// <summary>U152: a link to another computer in a snapshot is never offered
-    /// for a test restore, the mounted drive or a single-file restore: creating
-    /// it makes Windows sign in there as whoever restores.</summary>
+    /// <summary>U152: a link in a snapshot is never offered for a test restore,
+    /// the mounted drive or a single-file restore: creating one that leads to
+    /// another computer makes Windows sign in there as whoever restores, and
+    /// restic's listing doesn't say where a link leads. The line below is the
+    /// shape restic 0.19.1 prints for a link (a junction, backed up for real).</summary>
     [Fact]
-    public void Links_to_another_computer_are_left_out_and_local_links_kept()
+    public void Links_are_left_out_of_the_listing()
     {
         var listing = Tree();
         listing.Accept(Node("/C/source/report.txt", "file", 10));
-        listing.Accept(JsonSerializer.Serialize(new { struct_type = "node", path = "/C/source/remote", type = "symlink", size = 0, linktarget = @"\\attacker\share\x" }));
-        listing.Accept(JsonSerializer.Serialize(new { struct_type = "node", path = "/C/source/remote2", type = "symlink", size = 0, linktarget = "//attacker/share/x" }));
-        listing.Accept(JsonSerializer.Serialize(new { struct_type = "node", path = "/C/source/local", type = "symlink", size = 0, linktarget = @"C:\data\x" }));
+        listing.Accept("{\"name\":\"jn\",\"type\":\"symlink\",\"path\":\"/C/source/jn\",\"uid\":0,\"gid\":0,\"mode\":134218166,\"permissions\":\"Lrw-rw-rw-\",\"mtime\":\"2026-11-06T02:27:04.0581786-10:00\",\"atime\":\"2026-11-06T02:27:04.0581786-10:00\",\"ctime\":\"2026-11-06T02:27:04.0581786-10:00\",\"message_type\":\"node\",\"struct_type\":\"node\"}");
         Assert.True(listing.IsComplete);
-        Assert.Equal(new[] { "report.txt", "local" }, listing.Nodes.Select(n => n.Path).Where(p => p != ""));
+        Assert.Equal(new[] { "report.txt" }, listing.Nodes.Select(n => n.Path).Where(p => p != ""));
     }
 
     [Theory]

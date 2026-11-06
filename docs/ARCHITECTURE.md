@@ -284,10 +284,17 @@ and reports their location; it cannot report successful cleanup. Staging is
 deleted by `SafeTreeDelete`: each folder is opened without following a link,
 checked, and held so it can be neither renamed nor replaced while its contents
 go; a link inside is removed itself, never its target. A restore target other
-accounts can change cannot steer the deletion elsewhere (U152). Snapshot
-listings leave out links to another computer (`\\server\share`), which
-Windows would sign in to while creating them, so they are never offered for a
-test restore, the mounted drive or a single-file restore. A mounted snapshot
+accounts can change cannot steer the deletion elsewhere (U152). Restored items
+are published, and rolled back, by `HandleRename`: the item and the folder it
+goes into are opened without following a link, both must really be inside the
+restore folder as it was when publishing began, and the item is renamed
+relative to the open folder; nothing is copied across drives. A folder swapped
+for a link can then neither carry the owner's files out of their profile nor
+put a planted file into it. Snapshot listings leave out links: restic's
+listing doesn't say where a link leads, and creating one to another computer
+(`\\server\share`) makes Windows sign in there, so none is offered for a test
+restore, the mounted drive or a single-file restore; restoring its folder still
+brings it back. A mounted snapshot
 grants read access to the account that mounted it and to SYSTEM only, since
 its volume is reachable from every account through `\\?\GLOBALROOT`.
 
@@ -618,7 +625,9 @@ test harness to give each test its own isolated config dir.
    time it starts, kept in `Backspace.config\service\pipe-names`, which only
    the owner and Windows can read; clients read it before each connection.
    The names were predictable, so another account could create one while
-   the service was stopped and make it fail to start (U152).
+   the service was stopped and make it fail to start (U152). The return pipe,
+   created only while the sign-ins go back to the owner, also carries that
+   return's random ID, which only the owner receives.
    Administrators and SYSTEM remain trusted. This transport does not itself
    authorize backup plans, migrate secrets, install a service or make the
    existing scheduler safe for before-sign-in production use.
@@ -713,8 +722,8 @@ test harness to give each test its own isolated config dir.
    The version-3 service (U100) places no markers in the owner's source
    folders, but holds every folder of each repository on this PC this way:
    the repository folder, `index`, `keys`, `locks`, `snapshots`, `data` and
-   each `data\xx`, or before the first backup the nearest existing folder
-   (U152). An external drive lets every account write by default, and a
+   each `data\xx`; before the first backup the service makes the repository
+   folder itself and holds it (U152). An external drive lets every account write by default, and a
    subfolder emptied and turned into a link while restic deletes there as
    SYSTEM would delete any file. A link already in place stops the run.
    restic's check, backup and prune ignore the markers. Network/removable destinations remain unsupported

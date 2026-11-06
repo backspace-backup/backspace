@@ -1353,11 +1353,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 else return;
                 if (relative.Split('/').Any(segment => segment is "." or ".."))
                 { _invalid = true; return; }
-                // A link to another computer (\\server\share) is left out:
-                // creating it makes Windows connect there and sign in as
+                // Links are left out: creating one to another computer
+                // (\\server\share) makes Windows connect there and sign in as
                 // whoever restores, Windows itself for a background test
-                // restore (U152). Restoring its folder still brings it back.
-                if (parsed.type == "symlink" && LeadsToAnotherComputer(parsed.linktarget)) return;
+                // restore (U152). restic's listing doesn't say where a link
+                // leads, so none is offered for a test restore, the mounted
+                // drive or a single-file restore. Restoring its folder still
+                // brings it back.
+                if (parsed.type == "symlink") return;
                 var directory = parsed.type == "dir";
                 var modified = DateTime.TryParse(parsed.mtime, out var mt) ? mt.ToUniversalTime() : DateTime.MinValue;
                 _nodes.Add(new(relative, directory, directory ? 0 : parsed.size, modified));
@@ -1365,14 +1368,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
         }
     }
 
-    /// <summary>A link target on another computer or a device, which Windows
-    /// would open while creating the link.</summary>
-    internal static bool LeadsToAnotherComputer(string? target) =>
-        target is not null && target.Replace('/', '\\').StartsWith(@"\\", StringComparison.Ordinal);
-
     private sealed class ResticLsLine
     {
-        public string? linktarget { get; set; }
         public string? id { get; set; }
         public string? struct_type { get; set; }
         public string? name { get; set; }

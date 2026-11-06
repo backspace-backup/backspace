@@ -67,12 +67,21 @@ internal sealed class ServiceVaultReturnProtocol(string returnId, string receipt
         { return Error("return-needs-recovery"); }
     }
 
+    /// <summary>The return pipe exists only while the sign-ins go back, and its
+    /// name carries this return's random ID, which only the owner receives
+    /// (through the authenticated runs pipe). Another account that lists the
+    /// pipes cannot create it first and block turning administrator access
+    /// off (U152).</summary>
+    internal static string PipeName(ServiceWorkerBinding binding, string returnId) =>
+        Guid.TryParseExact(returnId, "N", out _) ? binding.ServiceName + "-return-" + returnId
+            : throw new ArgumentException("Invalid return ID.");
+
     internal static bool Hash(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigit);
     private static byte[] Error(string code) => JsonSerializer.SerializeToUtf8Bytes(new Response(1, Error: code), ServiceRunAuthorization.Json);
 
     internal async Task ServeAsync(ServiceWorkerBinding binding, CancellationToken stop)
     {
-        using var listener = BackupServicePipe.CreateListener(binding.ServiceName + "-return", binding.ServiceSid, binding.OwnerSid);
+        using var listener = BackupServicePipe.CreateListener(PipeName(binding, returnId), binding.ServiceSid, binding.OwnerSid);
         while (!stop.IsCancellationRequested)
         {
             await listener.WaitForConnectionAsync(stop).ConfigureAwait(false);
@@ -98,7 +107,7 @@ internal sealed class ServiceVaultReturnProtocol(string returnId, string receipt
     private static async Task<Response> ExchangeAsync(ServiceWorkerBinding binding, Request request)
     {
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-return", binding.ServiceSid, TimeSpan.FromSeconds(10), stop.Token).ConfigureAwait(false);
+        using var pipe = await BackupServicePipe.ConnectAsync(PipeName(binding, request.ReturnId), binding.ServiceSid, TimeSpan.FromSeconds(10), stop.Token).ConfigureAwait(false);
         var payload = JsonSerializer.SerializeToUtf8Bytes(request, ServiceRunAuthorization.Json);
         byte[]? response = null;
         try

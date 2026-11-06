@@ -16,7 +16,11 @@ internal sealed class RestoreOutputTransaction
     private sealed record Entry(string Destination, string? Original, string Returned, string Fingerprint, bool DirectoryLink)
     {
         public bool Published { get; set; }
+        /// <summary>The restore folder this item belongs to.</summary>
+        public string Root { get; init; } = "";
     }
+    /// <summary>Where each restore folder really was when publishing began.</summary>
+    private readonly Dictionary<string, string> _locations = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly List<Entry> _entries = new();
     private readonly List<string> _createdDirectories = new();
     private readonly Dictionary<string, string> _roots = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -47,6 +51,9 @@ internal sealed class RestoreOutputTransaction
             recovery = Path.Combine(targetRoot, ".backspace-undo-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(recovery); _roots.Add(targetRoot, recovery);
         }
+#if WINDOWS
+        if (!_locations.ContainsKey(targetRoot)) _locations[targetRoot] = Platform.Windows.HandleRename.FolderLocation(targetRoot);
+#endif
         var directoryLink = (File.GetAttributes(staged) & FileAttributes.Directory) != 0;
         string fingerprint = "";
         FileAccessRetry.Run(() => fingerprint = Fingerprint(staged), staged, FileWaitReason.Restore, ct);
@@ -57,7 +64,7 @@ internal sealed class RestoreOutputTransaction
             if (Directory.Exists(destination)) throw new IOException("A folder occupies a restored file's destination: " + destination);
             original = Path.Combine(recovery, Guid.NewGuid().ToString("N") + ".original");
         }
-        var entry = new Entry(destination, original, Path.Combine(recovery, Guid.NewGuid().ToString("N") + ".returned"), fingerprint, directoryLink);
+        var entry = new Entry(destination, original, Path.Combine(recovery, Guid.NewGuid().ToString("N") + ".returned"), fingerprint, directoryLink) { Root = targetRoot };
         // A forced process exit must not leave anonymous original copies. This
         // append-only map is flushed before an original is moved out of place.
         var journalPath = Path.Combine(recovery, "recovery.jsonl");
@@ -72,13 +79,13 @@ internal sealed class RestoreOutputTransaction
             FileAccessRetry.Run(() =>
             {
                 ResticBackrestEngine.ValidateRestoreTarget(Path.GetDirectoryName(destination)!);
-                File.Move(destination, original);
+                MoveItem(destination, original, targetRoot, directory: false);
             }, destination, FileWaitReason.Restore, ct);
         _entries.Add(entry);
         FileAccessRetry.Run(() =>
         {
             ResticBackrestEngine.ValidateRestoreTarget(Path.GetDirectoryName(destination)!);
-            if (directoryLink) Directory.Move(staged, destination); else File.Move(staged, destination);
+            MoveItem(staged, destination, targetRoot, directoryLink);
         }, staged, FileWaitReason.Restore, ct);
         entry.Published = true;
     }
@@ -107,18 +114,18 @@ internal sealed class RestoreOutputTransaction
                     // Move first, then identify the item we actually obtained.
                     // If another program replaced/edited it, preserve that edit;
                     // never delete it merely because the pathname matches.
-                    MoveForRecovery(entry.Destination, entry.Returned, entry.DirectoryLink);
+                    MoveForRecovery(entry.Destination, entry.Returned, entry.Root, entry.DirectoryLink);
                     if (Fingerprint(entry.Returned) != entry.Fingerprint)
                     {
                         if (!Exists(entry.Destination))
-                            MoveForRecovery(entry.Returned, entry.Destination, entry.DirectoryLink);
+                            MoveForRecovery(entry.Returned, entry.Destination, entry.Root, entry.DirectoryLink);
                         throw new IOException("Another program changed " + entry.Destination + "; both versions were preserved.");
                     }
                 }
                 if (entry.Original is not null)
                 {
                     if (Exists(entry.Destination)) throw new IOException("Another item now occupies " + entry.Destination + "; the original was preserved.");
-                    MoveForRecovery(entry.Original, entry.Destination, directory: false);
+                    MoveForRecovery(entry.Original, entry.Destination, entry.Root, directory: false);
                 }
             }
             catch (Exception ex) { errors.Add(ex.Message); }
@@ -145,13 +152,13 @@ internal sealed class RestoreOutputTransaction
     // renamed into the recovery folder. A failed rename leaves both names
     // intact, so retry briefly; a lock that outlasts the 1.55-second bounded
     // backoff keeps the saved copy and is reported for manual recovery.
-    private static void MoveForRecovery(string source, string destination, bool directory)
+    private void MoveForRecovery(string source, string destination, string root, bool directory)
     {
         for (var attempt = 0; ; attempt++)
         {
             try
             {
-                if (directory) Directory.Move(source, destination); else File.Move(source, destination);
+                MoveItem(source, destination, root, directory);
                 return;
             }
             catch (Exception ex) when (attempt < 5 && FileReplacementErrors.CanRetry(ex))
@@ -160,6 +167,17 @@ internal sealed class RestoreOutputTransaction
             }
         }
     }
+    /// <summary>Moves by handle on Windows: never through a folder swapped
+    /// for a link after the restore began (U152).</summary>
+    private void MoveItem(string source, string destination, string root, bool directory)
+    {
+#if WINDOWS
+        Platform.Windows.HandleRename.Move(source, destination, root, _locations[root]);
+#else
+        if (directory) Directory.Move(source, destination); else File.Move(source, destination);
+#endif
+    }
+
     private static bool Exists(string path) => File.Exists(path) || Directory.Exists(path) || new FileInfo(path).LinkTarget is not null;
     private static string Fingerprint(string path)
     {

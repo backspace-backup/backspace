@@ -96,9 +96,13 @@ public sealed class ServicePathLeaseTests
         }
         Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(repository, "data", "ab"))); // guard files go with the lease
 
-        // Before the first backup: the nearest folder that exists is held.
-        Assert.Equal(new[] { Path.TrimEndingDirectorySeparator(ws.Root) },
-            ServiceApprovedWorker.RepositoryFolders(Path.Combine(ws.Root, "new", "repo")).Select(f => Path.TrimEndingDirectorySeparator(f)));
+        // Before the first backup: the folder is made, then held, so no link can take its name first.
+        var fresh = Path.Combine(ws.Root, "new", "repo");
+        var first = ServiceApprovedWorker.RepositoryFolders(fresh).ToList();
+        Assert.Equal(new[] { fresh }, first);
+        Assert.True(Directory.Exists(fresh));
+        using (ServicePathLease.Acquire(first))
+            Assert.Throws<IOException>(() => Directory.Move(fresh, fresh + "-moved"));
     }
 
     [Fact]
