@@ -130,6 +130,10 @@ public static class ResticRepoLayout
         psi.ArgumentList.Add("-r");
         psi.ArgumentList.Add(path);
         psi.ArgumentList.Add("--no-cache");
+        // Reading the config needs no lock: restic would otherwise write one
+        // into a folder the owner hasn't adopted yet, and delete it by name
+        // (U152, round 5).
+        psi.ArgumentList.Add("--no-lock");
         psi.ArgumentList.Add("cat");
         psi.ArgumentList.Add("config");
         psi.Environment["RESTIC_PASSWORD"] = password ?? "";
@@ -139,6 +143,14 @@ public static class ResticRepoLayout
         // Encrypted=false still validates correctly.
         if (string.IsNullOrEmpty(password))
             psi.ArgumentList.Add("--insecure-no-password");
+#if WINDOWS
+        // Held while restic reads it: the folder can't be swapped meanwhile.
+        IDisposable? held;
+        try { held = Platform.Windows.RepositoryHold.For(path, create: false, ct); }
+        catch (Exception ex) when (ex is System.Security.SecurityException or IOException or UnauthorizedAccessException)
+        { return Verdict.VerificationUnavailable; }
+        using var heldRepository = held;
+#endif
         using var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
         // 10s ceiling: restic cat config is O(1) on the repo size
         // — should be done in well under a second on a local folder.

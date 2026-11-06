@@ -124,6 +124,24 @@ public sealed class HandleRenameTests
         Directory.Move(parent, parent + "-moved"); // released once the restore ends
     }
 
+    /// <summary>A test restore deletes its own temporary folder before its
+    /// output is finished (rolled back or committed). The recovery folder's
+    /// hold is released first; otherwise the deletion waited forever on it
+    /// (found by E49 in round 5).</summary>
+    [Fact]
+    public void A_test_restore_folder_can_be_deleted_before_its_output_is_finished()
+    {
+        using var ws = new TempWorkspace("handle-rename-verify");
+        var (root, _, staging) = Restore(ws);
+        File.WriteAllText(Path.Combine(staging, "a.txt"), "a");
+        var output = new Backspace.Services.RestoreOutputTransaction();
+        output.Publish(Path.Combine(staging, "a.txt"), Path.Combine(root, "a.txt"), root, true, TestContext.Current.CancellationToken);
+        output.ReleaseHolds();
+        Backspace.Services.ResticBackrestEngine.DeleteRestoreStaging(root, TestContext.Current.CancellationToken);
+        Assert.False(Directory.Exists(root));
+        output.Rollback(); // finishing afterwards finds nothing left and doesn't fail
+    }
+
     [Fact]
     public void A_restore_folder_reached_through_a_link_is_refused()
     {

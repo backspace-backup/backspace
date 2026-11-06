@@ -1953,11 +1953,20 @@ public sealed class ResticBackrestEngine : IBackupEngine
     private static IDisposable? HoldRepository(Destination destination, bool create, CancellationToken ct)
     {
 #if WINDOWS
-        return create ? Platform.Windows.RepositoryHold.For(destination, create: true, ct)
-            : Platform.Windows.RepositoryHold.Use(destination, ct);
+        if (!create) return Platform.Windows.RepositoryHold.Use(destination, ct);
+        // A backup's own hold makes the folders; the shared one (taken once
+        // they exist) outlasts the call while Backrest's follow-ups run.
+        var made = Platform.Windows.RepositoryHold.For(destination, create: true, ct);
+        try { return new Holds(made, Platform.Windows.RepositoryHold.Use(destination, ct)); }
+        catch { made?.Dispose(); throw; }
 #else
         return null;
 #endif
+    }
+
+    private sealed class Holds(IDisposable? first, IDisposable? second) : IDisposable
+    {
+        public void Dispose() { second?.Dispose(); first?.Dispose(); }
     }
 
     internal static void ValidateRestoreTarget(string target)

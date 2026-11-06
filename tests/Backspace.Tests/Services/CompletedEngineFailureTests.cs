@@ -58,8 +58,7 @@ public sealed class CompletedEngineFailureTests
         // Only this disposable repository is damaged: simulate interruption after
         // key creation but before publishing its config. Never repair it in the app.
         File.Delete(Path.Combine(destination.PathOrSubpath, "config"));
-        var before = Directory.GetFiles(destination.PathOrSubpath, "*", SearchOption.AllDirectories)
-            .ToDictionary(file => file, file => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))));
+        var before = Contents(destination.PathOrSubpath);
         Assert.NotEmpty(before);
         await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, workspace.Sub("backrest"));
         var engine = new ResticBackrestEngine(sidecar, secrets);
@@ -69,8 +68,7 @@ public sealed class CompletedEngineFailureTests
         Assert.Contains("unfinished repository setup", Assert.Single(run.Cells).LastError);
         Assert.Contains("repository already contains keys", Assert.Single(run.Cells).LastError);
         Assert.Equal(1, Assert.Single(Assert.Single(logs.LoadHistoryByBackupId(backup.Id)).Cells).AttemptsMade);
-        var after = Directory.GetFiles(destination.PathOrSubpath, "*", SearchOption.AllDirectories)
-            .ToDictionary(file => file, file => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))));
+        var after = Contents(destination.PathOrSubpath);
         Assert.Equal(before.OrderBy(pair => pair.Key), after.OrderBy(pair => pair.Key));
         Assert.False(File.Exists(Path.Combine(destination.PathOrSubpath, "config")));
     }
@@ -101,8 +99,7 @@ public sealed class CompletedEngineFailureTests
             finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
             Assert.True(process.ExitCode == 0, await stdout + await stderr);
         }
-        var before = Directory.GetFiles(destination.PathOrSubpath, "*", SearchOption.AllDirectories)
-            .ToDictionary(file => file, file => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))));
+        var before = Contents(destination.PathOrSubpath);
         await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, workspace.Sub("backrest"));
         var engine = new ResticBackrestEngine(sidecar, secrets);
         var run = await Orchestrator(config, secrets, logs, engine).RunBackupAsync(backup, deadline.Token);
@@ -110,8 +107,7 @@ public sealed class CompletedEngineFailureTests
         var cell = Assert.Single(run.Cells);
         Assert.Equal(1, cell.AttemptsMade);
         Assert.Contains("already holds another backup", cell.LastError);
-        var after = Directory.GetFiles(destination.PathOrSubpath, "*", SearchOption.AllDirectories)
-            .ToDictionary(file => file, file => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))));
+        var after = Contents(destination.PathOrSubpath);
         Assert.Equal(before.OrderBy(pair => pair.Key), after.OrderBy(pair => pair.Key));
     }
 
@@ -168,14 +164,12 @@ public sealed class CompletedEngineFailureTests
             try { File.Delete(Path.Combine(destination.PathOrSubpath, "config")); break; }
             catch (IOException ex) when (attempt < 20 && (ex.HResult & 0xFFFF) == 32) { await Task.Delay(100, deadline.Token); }
         }
-        var before = Directory.GetFiles(destination.PathOrSubpath, "*", SearchOption.AllDirectories)
-            .ToDictionary(file => file, file => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))));
+        var before = Contents(destination.PathOrSubpath);
         var run = await Orchestrator(config, secrets, logs, engine).RunBackupAsync(backup, deadline.Token);
         Assert.Equal(BackupRunStatus.Failed, run.Status);
         Assert.Equal(1, Assert.Single(run.Cells).AttemptsMade);
         Assert.Contains("repository does not exist", Assert.Single(run.Cells).LastError);
-        var after = Directory.GetFiles(destination.PathOrSubpath, "*", SearchOption.AllDirectories)
-            .ToDictionary(file => file, file => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))));
+        var after = Contents(destination.PathOrSubpath);
         Assert.NotEmpty(before);
         Assert.Equal(before.OrderBy(pair => pair.Key), after.OrderBy(pair => pair.Key));
         Assert.False(File.Exists(Path.Combine(destination.PathOrSubpath, "config")));
@@ -260,4 +254,12 @@ public sealed class CompletedEngineFailureTests
             return Task.FromResult(Result);
         }
     }
+
+    /// <summary>Every file of the folder with its hash, leaving out the guard
+    /// files Backspace keeps open while the engine may still work there
+    /// (U152): they are not repository content and vanish when released.</summary>
+    private static System.Collections.Generic.Dictionary<string, string> Contents(string folder) =>
+        Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
+            .Where(file => !Path.GetFileName(file).StartsWith(Backspace.Services.Platform.Windows.RepositoryHold.GuardPrefix, StringComparison.Ordinal))
+            .ToDictionary(file => file, file => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))));
 }

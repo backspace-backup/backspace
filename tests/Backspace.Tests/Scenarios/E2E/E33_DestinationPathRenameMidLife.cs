@@ -110,6 +110,12 @@ public sealed class E33_DestinationPathRenameMidLife : BackupE2EBase
         // This is external fixture preparation, not the app's locate action.
         // Completed engine work and filesystem filters can release handles a
         // moment later. Bound that settling period; a persistent holder fails.
+        // The backup folder stays held while the engine runs (U152, round
+        // 5), as when a person moves it with Backspace open: the move waits
+        // until the engine stops after its idle time. Stop it now.
+        var idleAfter = EngineIdleStop.IdleAfter;
+        try { EngineIdleStop.IdleAfter = TimeSpan.Zero; Assert.True(await EngineIdleStop.CheckAsync(), "The idle engine did not stop."); }
+        finally { EngineIdleStop.IdleAfter = idleAfter; }
         var renameDeadline = DateTime.UtcNow.AddSeconds(2);
         var renameWaits = 0;
         while (true)
@@ -140,14 +146,14 @@ public sealed class E33_DestinationPathRenameMidLife : BackupE2EBase
             Assert.Equal(folderOld, editorVm.PathOrSubpath);
             Assert.Equal(folderOld, ServiceLocator.Config.Current.Destinations.Single(d => d.Id == dest.Id).PathOrSubpath);
 
-            var savedPasswordRef = clone.StoragePasswordRef;
-            clone.StoragePasswordRef = ServiceLocator.Secrets.PutNew("e33-wrong", "deliberately-wrong-password");
+            var savedPasswordRef = editorVm.Working.StoragePasswordRef;
+            editorVm.Working.StoragePasswordRef = ServiceLocator.Secrets.PutNew("e33-wrong", "deliberately-wrong-password");
             var rejected = editorVm.LocateRepositoryAtPathAsync(editor, folderNew);
             dialog = await WaitForDialog(ctx, editor, rejected);
             ctx.Snapshot(dialog, "wrong-password-refused", "A real repository with the wrong saved password is refused. The old destination path remains unchanged.");
             Click(dialog, "OK"); await rejected;
             Assert.Equal(folderOld, editorVm.PathOrSubpath);
-            clone.StoragePasswordRef = savedPasswordRef;
+            editorVm.Working.StoragePasswordRef = savedPasswordRef;
 
             var empty = ctx.MakeLocalDestination("empty-location");
             var startFresh = editorVm.LocateRepositoryAtPathAsync(editor, empty);

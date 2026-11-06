@@ -129,7 +129,7 @@ public sealed class DuplicacyFilterTranslatorTests
         Assert.Null(DuplicacyFilterTranslator.ToGlobs(lots[2..]));
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"translation took {watch.Elapsed}");
 
-        var rules = FilterTranslator.CompileRules("*a*a*a*a*a*a*a*a*a*a*a*a*b", compiled: false);
+        var rules = FilterTranslator.CompileRules("*a*a*a*a*a*a*a*a*a*a*a*a*b");
         watch.Restart();
         var result = FilterTranslator.Evaluate(rules, new string('a', 5000));
         Assert.False(result.Excluded);

@@ -677,6 +677,9 @@ public sealed class BackupVerifier
             {
                 if (ServiceLocator.Maintenance.IsBlocked)
                     throw new IOException("The backup engine has not confirmed that it stopped. Restart Backspace before removing these files.");
+                // The batch's output is finished only after this returns; its
+                // recovery folder, held until then, is inside this folder.
+                context?.Control?.Output.ReleaseHolds();
                 await Task.Run(() => ResticBackrestEngine.DeleteRestoreStaging(verifyRoot)).ConfigureAwait(false);
             }
             catch (Exception ex)

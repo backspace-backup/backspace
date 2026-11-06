@@ -57,15 +57,28 @@ internal sealed class RepositoryHold : IDisposable
     private static readonly object SharedGate = new();
     private static readonly Dictionary<string, (RepositoryHold Hold, int Users)> SharedHolds = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Whether the engine (Backrest) is running in this process.
+    /// Set by the engine when it starts.</summary>
+    internal static Func<bool> EngineRunning = () => false;
+    /// <summary>Repositories kept held until the engine stops.</summary>
+    private static readonly HashSet<string> EngineSession = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Holds the repository of <paramref name="destination"/> for
     /// one engine call (U152, round 4): every call that runs restic there
     /// (listing revisions or files, restoring, cleaning up, changing the
     /// password) writes and deletes a lock file by name. Calls on the same
-    /// repository, nested or concurrent, share one hold, released when the
-    /// last of them ends. Returns null when the repository isn't on this PC.</summary>
+    /// repository, nested or concurrent, share one hold. Backrest goes on
+    /// running restic there by itself after a call returns (indexing after
+    /// a backup or a new repository, statistics after a cleanup: round 5),
+    /// so a call that ends while the engine runs leaves the hold in place
+    /// until the engine stops (<see cref="EndEngineSession"/>; it stops
+    /// after five idle minutes). Returns null when the repository isn't on
+    /// this PC.</summary>
     internal static IDisposable? Use(Destination destination, CancellationToken cancellation = default)
+        => LocalPath(destination) is { } path ? Use(path, cancellation) : null;
+
+    internal static IDisposable Use(string path, CancellationToken cancellation = default)
     {
-        if (LocalPath(destination) is not { } path) return null;
         var key = Path.GetFullPath(path);
         lock (SharedGate)
         {
@@ -85,11 +98,34 @@ internal sealed class RepositoryHold : IDisposable
             if (Interlocked.Exchange(ref _released, 1) != 0) return;
             lock (SharedGate)
             {
-                if (!SharedHolds.TryGetValue(key, out var shared)) return;
-                if (shared.Users > 1) { SharedHolds[key] = (shared.Hold, shared.Users - 1); return; }
-                SharedHolds.Remove(key);
-                shared.Hold.Dispose();
+                bool running;
+                try { running = EngineRunning(); } catch { running = true; }
+                if (running && EngineSession.Add(key)) Release(key, keep: true);
+                else Release(key, keep: false);
             }
+        }
+    }
+
+    /// <summary>Under <see cref="SharedGate"/>: drops one user of the
+    /// hold, or, with <paramref name="keep"/>, turns the caller's use into
+    /// the engine session's.</summary>
+    private static void Release(string key, bool keep)
+    {
+        if (keep || !SharedHolds.TryGetValue(key, out var shared)) return;
+        if (shared.Users > 1) { SharedHolds[key] = (shared.Hold, shared.Users - 1); return; }
+        SharedHolds.Remove(key);
+        shared.Hold.Dispose();
+    }
+
+    /// <summary>The engine has stopped, and with it everything it ran:
+    /// the repositories kept for it are released (unless a call still
+    /// holds one).</summary>
+    internal static void EndEngineSession()
+    {
+        lock (SharedGate)
+        {
+            foreach (var key in EngineSession) Release(key, keep: false);
+            EngineSession.Clear();
         }
     }
 
@@ -114,11 +150,21 @@ internal sealed class RepositoryHold : IDisposable
             while (missing.TryPop(out var next)) { Directory.CreateDirectory(next); Hold(next, cancellation); }
         }
 
-        // Without create (a check, a listing, a restore), a folder that isn't
-        // a repository gets no repository folders. With create (a backup),
-        // restic's init would make them anyway, even in a folder that already
-        // holds something, so they are made here first, held (round 4).
-        if (!create && !File.Exists(Path.Combine(repository, "config"))) return;
+        // restic's folders are made only where restic itself would make them:
+        // in a restic repository (a config and a keys folder), or for a backup
+        // where there is no config yet, which restic's init is about to fill,
+        // even in a folder that already holds something (round 4). A folder
+        // with another program's config (Duplicacy storage has one) gets
+        // none: restic's init refuses it and nothing else writes there.
+        var config = File.Exists(Path.Combine(repository, "config"));
+        var restic = config && Directory.Exists(Path.Combine(repository, "keys"));
+        if (!restic && !(create && !config))
+        {
+            // Not a repository (yet): only the folder itself is held, so it
+            // can't be swapped meanwhile (round 5).
+            if (!made) Hold(repository, cancellation);
+            return;
+        }
 
         // restic opens everything directly in "data" as a folder: a guard file
         // there stops its listing (check and prune retry for many minutes, then

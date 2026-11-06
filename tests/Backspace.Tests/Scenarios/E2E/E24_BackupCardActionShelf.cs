@@ -123,10 +123,10 @@ public sealed class E24_BackupCardActionShelf : BackupE2EBase
         // run a second full backup serially with this scenario.
         var nonDestructive = new (string Label, System.Windows.Input.ICommand Command, object? Param)[]
         {
-            // Edit: opens BackupCreationWindow modally — the test
-            // harness has no MainWindow so Owner() returns null and
-            // the command returns early. Confirms the null-owner
-            // guard short-circuits cleanly rather than NRE-ing.
+            // Edit: opens BackupCreationWindow modally over the test
+            // window (since U146 the card's commands use the test
+            // owner). The scenario closes it unsaved below; the
+            // command must then finish without changing the backup.
             ("Edit",          vm.EditCommand,         card),
             // RestoreFiles: navigates to the Restore page + fires a
             // preselect event. Safe synchronous fire-and-forget.
@@ -145,6 +145,11 @@ public sealed class E24_BackupCardActionShelf : BackupE2EBase
                 if (cmd is CommunityToolkit.Mvvm.Input.IAsyncRelayCommand a)
                 {
                     var execution = a.ExecuteAsync(param);
+                    if (label == "Edit")
+                    {
+                        ctx.Driver.Pump();
+                        host.OwnedWindows.Single().Close(); // the editor, closed unsaved
+                    }
                     if (label == "Test restore")
                     {
                         ctx.Driver.Pump();

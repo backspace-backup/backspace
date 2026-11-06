@@ -22,7 +22,11 @@ internal sealed class RestoreOutputTransaction
     /// <summary>The recovery folders, and the folders above them, held until
     /// the restore is finished (U152).</summary>
     private readonly List<IDisposable> _holds = new();
-    private void ReleaseHolds() { foreach (var hold in _holds) hold.Dispose(); _holds.Clear(); }
+    /// <summary>Also called by a test restore before it deletes its own
+    /// temporary folder: the output there is finished (rolled back or
+    /// committed) only after that, and a held recovery folder could not be
+    /// deleted meanwhile.</summary>
+    internal void ReleaseHolds() { foreach (var hold in _holds) hold.Dispose(); _holds.Clear(); }
     /// <summary>Where each restore folder really was when publishing began.</summary>
     private readonly Dictionary<string, string> _locations = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly List<Entry> _entries = new();

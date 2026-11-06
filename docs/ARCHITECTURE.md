@@ -267,7 +267,12 @@ their registry sessions do not report completion before that finalization.
 Rollback checks file contents before removing output. A concurrent user edit
 is preserved alongside recovery copies and reported as an error. Each original
 move has a flushed path map under `.backspace-undo-*`; a crash can leave that
-folder for manual recovery. This is not automatic crash recovery. Verified
+folder for manual recovery. This is not automatic crash recovery. The
+`.backspace-undo-*` folder is held, with the folders above it, until the
+restore is finished, and the path map is checked to be the real file before
+anything is written to it (U152). A test restore releases that hold before
+it deletes its own temporary folder, since its output is finished only
+afterwards. Verified
 temporary batches release their publication records to keep memory bounded.
 Placing verified files also retries brief Windows sharing locks. Each file
 move rechecks its destination parent and refuses to overwrite a file that
@@ -737,14 +742,27 @@ test harness to give each test its own isolated config dir.
    it: backups, checks, cleanups and restores, but also listing revisions or
    files, forgetting a snapshot and changing the password, since each writes
    and deletes a restic lock file by name. Calls on one repository share one
-   hold (`RepositoryHold.Use`), released when the last ends; the folders that
-   exist are held in one batch (about 0.1 s). Missing ones are made first,
+   hold (`RepositoryHold.Use`); the folders that exist are held in one batch
+   (about 0.1 s). Backrest also runs restic there by itself: it unlocks
+   repositories an interrupted operation left marked as it starts, and
+   schedules follow-ups (indexing after a backup, a forget or a new
+   repository, statistics after a cleanup) that outlive the call. So the
+   engine holds every drive-letter repository in its configuration from just
+   before Backrest starts until it is ready (`HoldLocalRepositories`; a link
+   already planted stops the start), and a call that ends while Backrest runs
+   leaves its repository held until Backrest has stopped
+   (`RepositoryHold.EndEngineSession`, after five idle minutes or on quit).
+   Meanwhile Windows can't safely remove an external drive whose backup was
+   just used. Missing ones are made first,
    under the hold (restic would otherwise make them during the run, unheld);
    for a first backup the whole set is made, one folder at a time, each held
    before the next, starting from the nearest existing folder, which is
    checked for links first, even when the folder already holds something
-   (restic's init would make them there anyway). Outside a backup, a folder
-   that isn't a repository gets none. An
+   (restic's init would make them there anyway). They are made only where
+   restic would make them: in a restic repository (a `config` file and a
+   `keys` folder), or for a backup where there is no `config` yet. Any other
+   folder, including another program's backup storage (Duplicacy's has a
+   `config`), is held but gets none. An
    external drive or a folder on a second drive lets every account modify it
    by default, and restic deletes its lock files and old packs by name: a
    folder emptied and turned into a link would send those deletes onto any
