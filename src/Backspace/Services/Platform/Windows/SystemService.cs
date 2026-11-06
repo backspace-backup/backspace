@@ -102,8 +102,8 @@ internal static class SystemService
         catch (SecurityException) { return null; }
     }
 
-    /// <summary>Run by the service itself once the owner's saved sign-ins are
-    /// verified in its vault: from then on it keeps them.</summary>
+    /// <summary>Run by the service itself once it opened the portable vault with
+    /// the key the owner's app sent (U153): from then on it counts as set up.</summary>
     internal static void MarkActivated(string serviceName)
     {
         using var parameters = Registry.LocalMachine.OpenSubKey(ServicesKey + "\\" + serviceName + "\\Parameters", writable: true)
@@ -113,8 +113,8 @@ internal static class SystemService
 
     /// <summary>Administrator approval: creates this account's service for
     /// <paramref name="installation"/>, or points the existing one at it, and
-    /// starts it. The owner's saved sign-ins then reach it through the
-    /// handoff (<see cref="ServiceVaultHandoff"/>).</summary>
+    /// starts it. It then gets this computer's vault key from the owner's app
+    /// (<see cref="ServiceVaultUnlock"/>, U153).</summary>
     internal static Registration Install(string installation, string ownerSid, string engineRoot, bool moved = false)
     {
         ServiceRegistration.RequireAdministrator();

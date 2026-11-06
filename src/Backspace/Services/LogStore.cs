@@ -41,7 +41,7 @@ public sealed class LogStore
         if (_explicitServiceInstallation is not null) return _explicitServiceInstallation;
         if (_explicitEngineLogsRoot is not null) return null;
         var root = AppContext.BaseDirectory.TrimEnd('\\');
-        return Platform.Windows.ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot) ? root : null;
+        return Platform.Windows.ServicePortableLayout.IsPortableConfig(root, AppPaths.ConfigRoot) ? root : null;
 #else
         return null;
 #endif

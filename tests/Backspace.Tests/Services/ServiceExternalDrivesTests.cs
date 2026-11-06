@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Threading;
 using Backspace.Models;
 using Backspace.Services.Platform.Windows;
 using Backspace.Tests.TestHelpers;
@@ -12,8 +11,7 @@ namespace Backspace.Tests.Services;
 /// <summary>
 /// U061: backups to an external drive run in the background service. A
 /// connected drive's folder is backed up, an unplugged one is left out (the
-/// run skips it), and a folder the service cannot write is prepared by the
-/// settings task before the run starts.
+/// run skips it), and a missing folder on a connected drive is named.
 /// </summary>
 public sealed class ServiceExternalDrivesTests
 {
@@ -36,13 +34,11 @@ public sealed class ServiceExternalDrivesTests
         var folder = ws.Sub("Backup");
         var (config, backup, drive) = Setup(SystemLetter, folder);
         var run = new ServiceRunAuthorization.AuthorizedRun("r", backup, config, RunKind.Backup);
-        Assert.Contains(ServiceInstallationSecurity.CanonicalLocalPath(folder), ServiceApprovedWorker.LocalPathsFor(run));
-        Assert.Equal(new[] { ServiceInstallationSecurity.CanonicalLocalPath(folder) }, ServiceExternalDrives.ConnectedRoots(config));
+        Assert.Equal(ServiceInstallationSecurity.CanonicalLocalPath(folder), ServiceExternalDrives.ConnectedPath(drive));
 
         drive.ExpectedDriveLetter = UnusedLetter;
         drive.PathOrSubpath = UnusedLetter + @"\Backup\Backspace\local_dropbox";
-        Assert.DoesNotContain(ServiceApprovedWorker.LocalPathsFor(run), p => p.StartsWith(UnusedLetter, StringComparison.OrdinalIgnoreCase));
-        Assert.Empty(ServiceExternalDrives.ConnectedRoots(config));
+        Assert.Null(ServiceExternalDrives.ConnectedPath(drive));
         // Unplugged is not a failure the host has to explain: the run skips it.
         Assert.Null(ServiceApprovedWorker.MissingDestination(run));
     }
@@ -67,22 +63,12 @@ public sealed class ServiceExternalDrivesTests
     }
 
     [Fact]
-    public void The_settings_task_is_asked_only_when_the_folder_cannot_be_written()
+    public void The_access_probe_leaves_nothing_behind()
     {
         using var ws = new TempWorkspace();
-        var target = Path.Combine(ws.Root, "Backup");
-        var (config, backup, _) = Setup(SystemLetter, target);
-        var binding = (ServiceWorkerBinding)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(ServiceWorkerBinding));
-        var asked = 0;
-        // Not there yet: the task is asked; it makes the folder, as SYSTEM does.
-        var left = ServiceExternalDrives.EnsureAccess(binding, backup, config, TimeSpan.FromSeconds(20), CancellationToken.None,
-            _ => { asked++; Directory.CreateDirectory(target); return true; });
-        Assert.Equal(1, asked);
-        Assert.Empty(left);
-        // Writable now: nothing is asked.
-        ServiceExternalDrives.EnsureAccess(binding, backup, config, TimeSpan.FromSeconds(5), CancellationToken.None, _ => { asked++; return true; });
-        Assert.Equal(1, asked);
+        var target = ws.Sub("Backup");
         Assert.True(ServiceExternalDrives.CanWrite(target));
-        Assert.Empty(Directory.GetFiles(target)); // the access probe leaves nothing behind
+        Assert.Empty(Directory.GetFiles(target));
+        Assert.False(ServiceExternalDrives.CanWrite(Path.Combine(ws.Root, "not-made-yet")));
     }
 }

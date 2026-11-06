@@ -272,7 +272,7 @@ public sealed class SessionTaskControlTests
         {
             OwnedProcessRegistry.Ownership? engine = null;
             var deadline = DateTime.UtcNow.AddSeconds(60);
-            var engineRoot = Path.Combine(ws.ConfigRoot, "engine-runs");
+            var engineRoot = Path.Combine(ws.ConfigRoot, "engine", "engine-runs"); // this computer's working files (U153)
             var locks = Path.Combine(destination.PathOrSubpath, "locks");
             while (DateTime.UtcNow < deadline && !process.HasExited)
             {

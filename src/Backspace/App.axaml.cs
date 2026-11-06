@@ -65,6 +65,9 @@ public partial class App : Application
 #if WINDOWS
         Backspace.Services.WinFsp.WinFspNativeLoader.EnsureRegistered();
 #endif
+        // The window that asks for the saved-passwords password (U153); tests
+        // install their own script before this runs.
+        VaultGate.Prompt ??= new Views.VaultPasswordPrompt();
 
         ServiceLocator.InitializeCore();
 
@@ -247,9 +250,6 @@ public partial class App : Application
                 // locked file can then be explained and cancelled in the UI.
                 try { if (!startedInBackground) await System.Threading.Tasks.Task.Run(() => new SessionTaskControl().ResumeOnGuiLaunch(taskResume.Token)); }
                 catch (OperationCanceledException) { /* The waiting panel explains that tasks stay paused. */ }
-                // Unfinished removal of administrator access: the sidebar offers to
-                // finish it; a second dialog about paused tasks only confused (U078).
-                catch (ServiceRemovalPendingException ex) { AppLogger.For<App>().Information(ex.Message); }
                 catch (Exception ex)
                 {
                     AppLogger.For<App>().Error(ex, "Could not resume scheduled tasks");
@@ -286,6 +286,11 @@ public partial class App : Application
                         await DestructiveConfirmWindow.ShowInfoAsync(
                             desktop.MainWindow!,
                             title: warning.Title, subtitle: warning.Message);
+                    // Saved passwords (U153): a locked vault shows a banner,
+                    // never a dialog; the earlier per-computer files are moved
+                    // once, after asking for a password.
+                    await VaultStartup.RunAsync(startupSecrets, askToConvert: !startedInBackground && !QuitRequested
+                        && desktop.MainWindow?.IsVisible == true);
                 }
                 catch (Exception ex)
                 {
@@ -343,7 +348,7 @@ public partial class App : Application
         {
             var root = AppContext.BaseDirectory.TrimEnd('\\');
             if (!OperatingSystem.IsWindows() || !string.Equals(Environment.ProcessPath, System.IO.Path.Combine(root, "Backspace.exe"), StringComparison.OrdinalIgnoreCase)
-                || !Services.Platform.Windows.ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot)) return null;
+                || !Services.Platform.Windows.ServicePortableLayout.IsPortableConfig(root, AppPaths.ConfigRoot)) return null;
             return Services.Platform.Windows.InstallationHandover.Find(root);
         }
         catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Could not look for another copy of Backspace"); return null; }
@@ -353,9 +358,7 @@ public partial class App : Application
         Services.Platform.Windows.InstallationHandover.Other other)
     {
         var thisVersion = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "";
-        var reason = other.ThisCopyHasSettings ? "Moving isn't offered because this folder has backups of its own."
-            : other.HasLegacyService ? "Moving isn't offered until that copy's administrator access is upgraded: open it and choose Finish setup in Settings."
-            : null;
+        var reason = other.ThisCopyHasSettings ? "Moving isn't offered because this folder has backups of its own." : null;
         var window = new Views.InstallationChoiceWindow(other.Installation, other.Version, thisVersion, reason is null, reason);
         desktop.MainWindow = window;
         var choice = await window.AskAsync();

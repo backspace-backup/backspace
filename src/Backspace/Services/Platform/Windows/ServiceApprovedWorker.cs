@@ -49,24 +49,9 @@ internal static class ServiceApprovedWorker
         var installation = ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\'));
         var binding = ServiceWorkerBinding.Load(installation);
         binding.ValidateWorkerIdentity();
-        if (!binding.CanRun) throw new SecurityException("Credential handoff and service setup must finish before a backup starts.");
-        ServiceRunAuthorization.AuthorizedRun run;
-        if (binding.IsSystem)
-        {
-            // Version 3 (U100): the owner's settings as saved, read now.
-            run = SystemServiceRuns.Authorize(installation, backupId, operation, ownerCommand);
-        }
-        else
-        {
-            // Inspect every shipped dependency, not just the apphost. The installed
-            // directory and all ancestors must prevent replacement by an ordinary user.
-            ServiceInstallationSecurity.ValidateCodeTree(installation, binding.DataDirectory, binding.ServiceSid);
-            foreach (var binary in new[] { "Backspace.exe", "backrest.exe", "restic.exe", "rclone.exe" })
-                ServiceInstallationSecurity.ValidateCodeFile(Path.Combine(installation, binary), installation);
-            var policy = ServiceRunAuthorization.Load(ServicePortableLayout.ExistingRecord(installation, "service-approval.json"), installation, binding.OwnerSid);
-            run = policy.Authorize(JsonSerializer.SerializeToUtf8Bytes(
-                new ServiceRunAuthorization.Request(1, revision, backupId, operation), ServiceRunAuthorization.Json), ownerCommand);
-        }
+        if (!binding.CanRun) throw new SecurityException("Service setup must finish (open Backspace on this computer) before a backup starts.");
+        // The owner's settings as saved, read now (U100).
+        var run = SystemServiceRuns.Authorize(installation, backupId, operation, ownerCommand);
 
         // Serialize workers across sessions using a private file, not the
         // interactive user's Local\\ mutex namespace. No automatic replay.
@@ -75,15 +60,10 @@ internal static class ServiceApprovedWorker
         var workerLock = Path.Combine(binding.DataDirectory, "worker.lock");
         using var exclusive = FileAccessRetry.Get(() => new FileStream(workerLock,
             FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None), workerLock, ct: stop);
-        var vault = new SecretsStore(new DpapiSecretsEncryption(), Path.Combine(binding.DataDirectory, "secrets.bin"));
-        vault.WithMigrationSnapshot(_ => true, requireExisting: true);
-        ServiceWorkerPrivileges.EnableExistingBackupRights();
-        // A connected external drive the service cannot write yet is prepared
-        // by the settings task first (U061).
-        // Windows' own account can already write there (version 3).
-        if (!binding.IsSystem) ServiceExternalDrives.EnsureAccess(binding, run.Backup, run.Configuration, TimeSpan.FromMinutes(2), stop);
         var reasonPath = Path.Combine(binding.DataDirectory, ServiceNetworkShares.ReasonFile);
         try { File.Delete(reasonPath); } catch (IOException) { }
+        var vault = OpenVault(binding, installation, reasonPath);
+        ServiceWorkerPrivileges.EnableExistingBackupRights();
         IDisposable shares;
         try { shares = ServiceNetworkShares.Connect(run.Backup, run.Configuration, vault); }
         catch (ShareConnectionException ex)
@@ -93,23 +73,19 @@ internal static class ServiceApprovedWorker
             throw;
         }
         using var _shares = shares;
-        // Version 3 (U100) trusts the owner's folders as the owner does: no
-        // guard files are placed in them, and a missing source is reported by
-        // the run itself instead of stopping the worker (lab VM, 2 November 2026).
-        using var paths = binding.IsSystem ? null : ServicePathLease.Acquire(LocalPathsFor(run), stop);
-        // Its backup folders on this PC are held, every folder of them, for
-        // each destination while the engine works there (RepositoryHold, in
-        // the orchestrator, U152).
-        // These are this operation's own temporary guard files, not user data.
-        // Keep them out of snapshots, including VSS snapshots taken while held.
-        if (paths is not null)
-            foreach (var approvedBackup in run.Configuration.Backups)
-                approvedBackup.FiltersText += "\n" + string.Join("\n", paths.MarkerNames);
+        // The service trusts the owner's folders as the owner does: no guard
+        // files are placed in them, and a missing source is reported by the run
+        // itself instead of stopping the worker (lab VM, 2 November 2026). Its
+        // backup folders on this PC are held, every folder of them, for each
+        // destination while the engine works there (RepositoryHold, in the
+        // orchestrator, U152).
 
         // All process-local state and engine scratch belongs to the service.
         // A caller's inherited portable-config/TEMP overrides cannot redirect it.
         Environment.SetEnvironmentVariable("BACKSPACE_CONFIG_ROOT", binding.DataDirectory);
-        var scratch = Path.Combine(binding.DataDirectory, "scratch");
+        // Engine scratch is on this computer, beside its other working files,
+        // never in the synced portable folder (U153).
+        var scratch = EngineWorkPaths.ScratchDir;
         Directory.CreateDirectory(scratch);
         foreach (var key in new[] { "TEMP", "TMP", "TMPDIR" }) Environment.SetEnvironmentVariable(key, scratch);
         Environment.SetEnvironmentVariable("BACKSPACE_NO_UPDATE_CHECK", "1");
@@ -138,7 +114,7 @@ internal static class ServiceApprovedWorker
             {
                 version = 1, approvalRevision = run.Revision, serviceSid = binding.ServiceSid,
                 ownerSid = binding.OwnerSid, backupId, operation, finishedUtc = DateTime.UtcNow,
-                vaultReadVerified = true, administrator = false, run = result,
+                vaultReadVerified = true, vaultId = vault.VaultId, administrator = false, run = result,
             }, ServiceRunAuthorization.Json);
             var reportPath = Path.Combine(binding.DataDirectory, "last-service-run.json");
             // A fresh temporary name, and no limit on waiting for another
@@ -156,6 +132,25 @@ internal static class ServiceApprovedWorker
             HasVerifiedVssIdentity = false;
             AppLogger.Shutdown();
         }
+    }
+
+    /// <summary>The credentials this run uses. Version 3 opens the portable
+    /// vault with the service's own key copy (U153); when it can't, the run
+    /// stops before any engine starts and the reason goes into its history.</summary>
+    private static SecretsStore OpenVault(ServiceWorkerBinding binding, string installation, string reasonPath)
+    {
+        var vault = ServiceVaultUnlock.ServiceVault(installation, EngineWorkPaths.MachineRoot);
+        string? reason = vault.Refresh() switch
+        {
+            VaultState.Locked => VaultLockedException.LockedMessage,
+            VaultState.Unreadable => vault.LoadErrorMessage ?? "Backspace can't open its saved passwords. Open Backspace on this computer to see why.",
+            VaultState.NoVault when File.Exists(ServiceVaultUnlock.LegacyVaultPath(binding.DataDirectory))
+                => "Open Backspace on this computer to finish moving your saved passwords; background backups wait until then.",
+            _ => null,
+        };
+        if (reason is null) return vault;
+        FileAccessRetry.Run(() => File.WriteAllText(reasonPath, reason), reasonPath);
+        throw new VaultLockedException(vault.State == VaultState.NoVault ? VaultState.Locked : vault.State, reason);
     }
 
     /// <summary>Why a worker that ended without a result could not run, when
@@ -180,34 +175,6 @@ internal static class ServiceApprovedWorker
                 return $"The backup folder of «{destination.Name}» is missing ({destination.PathOrSubpath}). Reconnect the drive it is on, or choose another folder for this destination.";
         }
         return null;
-    }
-
-    internal static IEnumerable<string> LocalPathsFor(ServiceRunAuthorization.AuthorizedRun run)
-    {
-        // Repository maintenance does not read the original source. Only an
-        // explicitly requested comparison with today's originals needs those
-        // paths during a check; ordinary test restores use repository hashes.
-        if (run.Kind == RunKind.Backup || (run.Kind == RunKind.Check
-            && run.Backup.CheckRestoreFiles && run.Backup.RestoreCheckOptions.CompareOriginals))
-            foreach (var path in run.Backup.SourcePaths) yield return ServiceInstallationSecurity.CanonicalLocalPath(path);
-        foreach (var target in run.Backup.Targets)
-        {
-            var destination = run.Configuration.Destinations.Single(d => d.Id == target.DestinationId);
-            // A network share has no local path to hold; the worker connects to
-            // it with its saved credentials (U071). Without them it stays with
-            // the tray app and is never approved for the service.
-            if (destination.Kind == DestinationKind.NetworkShare)
-            {
-                if (!NetworkSharePath.ServiceCanReach(destination))
-                    throw new NotSupportedException("Backups to a network share without a saved user name and password run from the tray app, not the background service.");
-                continue;
-            }
-            // An unplugged drive is left out; its part of the run is skipped.
-            if (destination.Kind == DestinationKind.ExternalDrive && ServiceExternalDrives.ConnectedPath(destination) is { } external)
-                yield return external;
-            if (destination.Kind == DestinationKind.LocalFolder)
-                yield return ServiceInstallationSecurity.CanonicalLocalPath(destination.PathOrSubpath);
-        }
     }
 
     private sealed class WorkerScheduler : IScheduler

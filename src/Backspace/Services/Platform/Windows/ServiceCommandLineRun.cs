@@ -15,18 +15,8 @@ internal static class ServiceCommandLineRun
 {
     internal static ServiceWorkerBinding? FindBinding(string root, string configuration)
     {
-        if (!ServiceOwnerSecrets.Applies(root, configuration)) return null;
-        if (SystemService.ForCopy(root) is { } system)
-            return system.Activated ? system.Binding : null;
-        if (ServiceRetirement.Read(root) is { Stage: "complete" }) return null;
-        var path = ServicePortableLayout.Record(root, ServiceWorkerBinding.FileName);
-        try { _ = File.GetAttributes(path); }
-        catch (FileNotFoundException) { return null; }
-        catch (DirectoryNotFoundException) { return null; }
-        ServiceRetirement.RequireNotRetiring(root);
-        var binding = ServiceWorkerBinding.LoadForOwner(root);
-        if (!binding.Activated) throw new IOException("Finish setup in Settings → Administrator access before using command-line backups.");
-        return binding;
+        if (!ServicePortableLayout.IsPortableConfig(root, configuration)) return null;
+        return SystemService.ForCopy(root) is { Activated: true } system ? system.Binding : null;
     }
 
     /// <summary>True when this copy's background service is set up and active.</summary>
@@ -53,27 +43,14 @@ internal static class ServiceCommandLineRun
         try
         {
             if (FindBinding(root, AppPaths.ConfigRoot) is not { } found) return false;
-            if (found.IsSystem)
-            {
-                // Version 3 (U100): the saved settings are what the service runs.
-                var saved = ServiceConfigurationComparison.ReadDesktop(root);
-                if (saved.Backups.SingleOrDefault(b => b.Id == backup.Id) is not { } current || !SystemServiceRuns.CanRun(current, saved)) return false;
-                (binding, revision) = (found, Guid.NewGuid().ToString("N"));
-            }
-            else
-            {
-                var approval = ServiceRunAuthorization.Load(ServicePortableLayout.Record(root, "service-approval.json"), root, found.OwnerSid).Snapshot();
-                if (File.Exists(ServicePortableLayout.Record(root, ServiceConfigurationUpdate.FileName))
-                    || !ServiceConfigurationComparison.Equivalent(approval.Configuration, ServiceConfigurationComparison.ReadDesktop(root))
-                    || approval.Configuration.Backups.SingleOrDefault(b => b.Id == backup.Id) is not { Enabled: true } approved
-                    || !SchedulePlan.ServiceCanRun(approved, approval.Configuration.Destinations))
-                    return false;
-                (binding, revision) = (found, approval.Revision);
-            }
+            // The saved settings are what the service runs (U100).
+            var saved = ServiceConfigurationComparison.ReadDesktop(root);
+            if (saved.Backups.SingleOrDefault(b => b.Id == backup.Id) is not { } current || !SystemServiceRuns.CanRun(current, saved)) return false;
+            (binding, revision) = (found, Guid.NewGuid().ToString("N"));
         }
         catch (Exception ex) when (ex is IOException or System.Security.SecurityException or InvalidDataException or UnauthorizedAccessException)
         {
-            AppLogger.For<BackupWindowsService>().Information(ex, "Run now stays in the desktop for {Backup}", backup.Name);
+            AppLogger.For<SystemBackupService>().Information(ex, "Run now stays in the desktop for {Backup}", backup.Name);
             return false;
         }
         await ServiceScheduledRun.RunApprovedAsync(root, binding, revision, backup.Id, "backup", cancellation,
@@ -96,15 +73,8 @@ internal static class ServiceCommandLineRun
     {
         if (operation is not ("backup" or "check" or "prune") || name is null && operation != "backup")
             throw new ArgumentException("Unsupported command-line operation.");
-        AppConfig configuration;
-        string revision;
-        if (binding.IsSystem) { configuration = ServiceConfigurationComparison.ReadDesktop(root); revision = Guid.NewGuid().ToString("N"); }
-        else
-        {
-            var approval = ServiceRunAuthorization.Load(ServicePortableLayout.Record(root, "service-approval.json"), root, binding.OwnerSid).Snapshot();
-            ServiceConfigurationComparison.RequireCurrent(root, approval.Configuration);
-            (configuration, revision) = (approval.Configuration, approval.Revision);
-        }
+        var configuration = ServiceConfigurationComparison.ReadDesktop(root);
+        var revision = Guid.NewGuid().ToString("N");
         var backups = SelectBackups(configuration, name);
         if (backups.Count == 0)
         {

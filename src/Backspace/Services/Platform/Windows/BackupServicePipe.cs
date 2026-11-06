@@ -37,10 +37,10 @@ internal static class BackupServicePipe
         return $"O:{service.Value}G:{service.Value}D:P(A;;GA;;;{service.Value})(A;;GA;;;SY)(A;;0x{ClientAccess:x};;;{owner.Value})";
     }
 
-    /// <summary>A virtual service account (versions 1 and 2) or Windows' own
-    /// account (version 3, U100). No ordinary account can own a pipe as either.</summary>
+    /// <summary>Windows' own account (U100), which the background service runs
+    /// as. No ordinary account can own a pipe as it.</summary>
     internal static bool IsServiceIdentity(SecurityIdentifier sid)
-        => sid.Value.StartsWith("S-1-5-80-", StringComparison.Ordinal) || sid.Value == SystemService.LocalSystemSid;
+        => sid.Value == SystemService.LocalSystemSid;
 
     internal static NamedPipeServerStream CreateListener(string name, string serviceSid, string ownerSid)
     {

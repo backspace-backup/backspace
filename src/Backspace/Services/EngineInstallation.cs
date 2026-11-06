@@ -63,32 +63,8 @@ internal static class EngineInstallation
     {
         get
         {
-            if (Current is not { Release: true } manifest || LegacyServiceInUse) return AppPaths.ExeDirectory;
+            if (Current is not { Release: true } manifest) return AppPaths.ExeDirectory;
             return Path.Combine(Root, SetId(manifest));
-        }
-    }
-
-    /// <summary>A background service set up before 1.1 (a virtual service
-    /// account) keeps running the engines beside Backspace.exe until the
-    /// one-time upgrade replaces it (U100): they stay there until then.</summary>
-    internal static bool LegacyServiceInUse
-    {
-        get
-        {
-#if WINDOWS
-            if (!OperatingSystem.IsWindows()) return false;
-            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
-            if (identity.User?.Value.StartsWith("S-1-5-80-", StringComparison.Ordinal) == true) return true;
-            var root = AppPaths.ExeDirectory.TrimEnd(Path.DirectorySeparatorChar);
-            try
-            {
-                return File.Exists(Platform.Windows.ServicePortableLayout.Record(root, Platform.Windows.ServiceWorkerBinding.FileName))
-                    && Platform.Windows.ServiceRetirement.Read(root) is not { Stage: "complete" };
-            }
-            catch (Exception) { return true; }
-#else
-            return false;
-#endif
         }
     }
 
@@ -258,7 +234,7 @@ internal static class EngineInstallation
     /// older background service) is locked and removed on a later start.</summary>
     private static void RemoveLegacyCopies(Manifest manifest)
     {
-        if (!manifest.Release || LegacyServiceInUse || !IsComplete(Directory, manifest)) return;
+        if (!manifest.Release || !IsComplete(Directory, manifest)) return;
         foreach (var name in manifest.Files.Keys)
         {
             var beside = Path.Combine(AppPaths.ExeDirectory, name);

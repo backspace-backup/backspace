@@ -36,7 +36,7 @@ public sealed class FinalPersistenceRegressionTests
         var fake = Assert.IsType<InMemoryBackupEngine>(ServiceLocator.Engine);
         var priorCalls = fake.Calls.Count;
         var bytes = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x12 };
-        File.WriteAllBytes(AppPaths.SecretsFile, bytes);
+        File.WriteAllBytes(AppPaths.VaultFile, bytes);
         try
         {
             SetService(nameof(ServiceLocator.Config), config);
@@ -46,16 +46,18 @@ public sealed class FinalPersistenceRegressionTests
                 SetService(nameof(ServiceLocator.Secrets), new SecretsStore());
                 Assert.Null(ServiceLocator.Secrets.LoadErrorMessage);
                 Assert.Equal(4, await InvokeUnattended(kind, backup.Name));
-                Assert.Equal(bytes, File.ReadAllBytes(AppPaths.SecretsFile));
+                Assert.Equal(bytes, File.ReadAllBytes(AppPaths.VaultFile));
                 Assert.NotNull(ServiceLocator.Secrets.LoadErrorMessage);
             }
             Assert.Equal(0, operationsStarted);
             Assert.Equal(priorCalls, fake.Calls.Count);
             Assert.Contains("saved credentials are unavailable", errors.ToString());
-            Assert.Empty(Directory.GetFiles(workspace.ConfigRoot, "secrets.bin.unreadable-*"));
+            Assert.Empty(Directory.GetFiles(workspace.ConfigRoot, "vault.bin.unreadable-*"));
 
             // Valid, explicitly recovered credentials proceed past this gate;
             // a nonexistent backup has the normal distinct exit2 result.
+            File.Delete(AppPaths.VaultFile);
+            ServiceLocator.Secrets.Create("");
             ServiceLocator.Secrets.Set("recovered", "fixture-value");
             Assert.Equal(2, await InvokeUnattended(kind, "not-a-configured-backup"));
         }
@@ -74,20 +76,20 @@ public sealed class FinalPersistenceRegressionTests
         using var workspace = new TempWorkspace("unattended-locked-vault");
         var store = new SecretsStore();
         store.Set("fixture", "keep");
-        var bytes = File.ReadAllBytes(AppPaths.SecretsFile);
+        var bytes = File.ReadAllBytes(AppPaths.VaultFile);
         var original = ServiceLocator.Secrets;
         try
         {
             SetService(nameof(ServiceLocator.Secrets), new SecretsStore());
             // Held by another program: the run waits (U135) instead of failing,
             // then goes on (here to its own error: the backup does not exist).
-            var locked = new FileStream(AppPaths.SecretsFile, FileMode.Open, FileAccess.Read, FileShare.None);
+            var locked = new FileStream(AppPaths.VaultFile, FileMode.Open, FileAccess.Read, FileShare.None);
             var run = Task.Run(() => InvokeUnattended(RunKind.Backup, "not-a-configured-backup"));
             await Task.Delay(1500);
             Assert.False(run.IsCompleted);
             locked.Dispose();
             Assert.NotEqual(0, await run);
-            Assert.Equal(bytes, File.ReadAllBytes(AppPaths.SecretsFile));
+            Assert.Equal(bytes, File.ReadAllBytes(AppPaths.VaultFile));
             Assert.Null(ServiceLocator.Secrets.LoadErrorMessage);
             Assert.Equal("keep", ServiceLocator.Secrets.Get("fixture"));
         }

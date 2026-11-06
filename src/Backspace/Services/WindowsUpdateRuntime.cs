@@ -49,9 +49,6 @@ internal static class WindowsUpdateRuntime
         try
         {
             WindowsUpdatePackage.RejectReparse(root); WindowsUpdatePackage.RejectReparse(exe);
-#if WINDOWS
-            if (Platform.Windows.ServiceProgramUpdateDesktop.Applies(root)) { reason = ""; return true; }
-#endif
             var probe = Path.Combine(root, ".backspace-write-test-" + Guid.NewGuid().ToString("N"));
             using (File.Create(probe)) { }
             File.Delete(probe);
@@ -62,15 +59,6 @@ internal static class WindowsUpdateRuntime
 
     internal static void ApplyPendingAfterExit(bool enginesStopped)
     {
-#if WINDOWS
-        if (Platform.Windows.ServiceProgramUpdateDesktop.Pending is { } serviceUpdate)
-        {
-            Platform.Windows.ServiceProgramUpdateDesktop.Pending = null;
-            Pending = null;
-            Platform.Windows.ServiceProgramUpdateDesktop.ApplyAfterExit(serviceUpdate, enginesStopped);
-            return;
-        }
-#endif
         var plan = Pending; Pending = null;
         if (plan is null) return;
         bool installed = false;

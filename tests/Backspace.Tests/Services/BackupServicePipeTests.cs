@@ -14,7 +14,7 @@ namespace Backspace.Tests.Services;
 
 public sealed class BackupServicePipeTests
 {
-    private const string ServiceSid = "S-1-5-80-101-202-303-404-505";
+    private const string ServiceSid = "S-1-5-18";
     private const string OwnerSid = "S-1-5-21-101-202-303-1001";
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(3);
 

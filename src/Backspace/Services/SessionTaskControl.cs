@@ -20,23 +20,13 @@ public sealed class SessionTaskControl
     private readonly bool _resolveService;
     private readonly bool _externallyCheckedSession;
 #if WINDOWS
-    private bool _usedService;
-    private Platform.Windows.ServiceSessionClient? Service()
-    {
-        if (!_resolveService) return null;
-        var client = Platform.Windows.ServiceSessionClient.ForDesktop();
-        if (client is not null) _usedService = true;
-        else if (_usedService) throw new IOException("The background service registration is missing. The local task-pause record was not used.");
-        return client;
-    }
-
     /// <summary>The version-3 background service of this copy (U100). Quit
     /// stops it; opening Backspace or signing in starts it again.</summary>
     private Platform.Windows.SystemService.Registration? SystemService()
     {
         if (!_resolveService || !OperatingSystem.IsWindows()) return null;
         var root = AppContext.BaseDirectory.TrimEnd('\\');
-        return Platform.Windows.ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot) ? Platform.Windows.SystemService.ForCopy(root) : null;
+        return Platform.Windows.ServicePortableLayout.IsPortableConfig(root, AppPaths.ConfigRoot) ? Platform.Windows.SystemService.ForCopy(root) : null;
     }
 #endif
     public const string PausedMessage = "Backspace was quit for this Windows sign-in session. Open Backspace to resume tasks, or sign out of Windows.";
@@ -100,7 +90,6 @@ public sealed class SessionTaskControl
     public string? PauseForCurrentSession(bool force = false, CancellationToken ct = default)
     {
 #if WINDOWS
-        if (Service() is { } service) return service.Pause(force, ct);
         if (SystemService() is { } system)
         {
             var generation = _sessions.Supported && _sessions.Current() is { } current ? PauseForSession(current, force, ct) : Guid.NewGuid().ToString("N");
@@ -135,7 +124,6 @@ public sealed class SessionTaskControl
     public void ResumeOnGuiLaunch(CancellationToken ct = default)
     {
 #if WINDOWS
-        if (Service() is { } service) { service.Resume(ct); return; }
         if (SystemService() is { } system) Platform.Windows.SystemServiceLifetime.Resume(system, TimeSpan.FromSeconds(30));
 #endif
         if (!_sessions.Supported) return;
@@ -153,7 +141,6 @@ public sealed class SessionTaskControl
     public void CancelQuit(string? generation, CancellationToken ct = default)
     {
 #if WINDOWS
-        if (Service() is { } service) { if (generation is not null) service.CancelQuit(generation, ct); return; }
         if (generation is not null && SystemService() is { } system) Platform.Windows.SystemServiceLifetime.Resume(system, TimeSpan.FromSeconds(30));
 #endif
         if (!_sessions.Supported || generation is null) return;
@@ -181,10 +168,6 @@ public sealed class SessionTaskControl
     /// A start at sign-in then stays closed.</summary>
     public bool CurrentSessionPaused()
     {
-#if WINDOWS
-        if (Service() is { } service)
-            return service.SavedPause() is { Session: { } saved } && saved == _sessions.Current();
-#endif
         if (!_sessions.Supported) return false;
         PauseState state;
         using (StateFileLock.Acquire(_statePath)) state = Read(wait: true);
@@ -196,7 +179,6 @@ public sealed class SessionTaskControl
         get
         {
 #if WINDOWS
-            if (Service() is { } service) return service.HasRunningTasks();
             if (SystemService() is { Activated: true } system && SystemServiceRunning(system)) return true;
 #endif
             if (!_sessions.Supported || !Directory.Exists(Path.GetDirectoryName(_runsPath))) return false;
@@ -227,10 +209,6 @@ public sealed class SessionTaskControl
     public bool TryBeginUnattended(out UnattendedLease? lease, Func<Task>? forceStop = null)
     {
         lease = null;
-#if WINDOWS
-        if (Service() is not null)
-            throw new InvalidOperationException("Background backup is managed by the Windows service. Use its approved schedule to start unattended work.");
-#endif
         if (!_sessions.Supported) return true;
         using var transaction = StateFileLock.Acquire(_statePath);
         var state = Read(wait: true);

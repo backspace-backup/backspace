@@ -72,19 +72,6 @@ internal static class DesktopSchedule
             var root = AppContext.BaseDirectory.TrimEnd('\\');
             try { Platform.Windows.ServiceScheduleRegistration.StartIfStopped(root); }
             catch (Exception ex) { log.Warning(ex, "Could not start the background service"); }
-            // An earlier version's SYSTEM tasks go with the next settings update,
-            // which the owner may start without a prompt. Do it now, even when
-            // Backspace starts in the tray and no window opens.
-            try
-            {
-                var binding = Platform.Windows.ServiceWorkerBinding.LoadForOwner(root);
-                if (binding.Activated && Platform.Windows.ServiceScheduleRegistration.HasLegacyTasks(binding))
-                {
-                    var outcome = new Platform.Windows.WindowsBackgroundBackupSetup().ApplyChangesQuietlyAsync().GetAwaiter().GetResult();
-                    log.Information("Moved earlier Windows tasks into the background service: {Result}", outcome.Result);
-                }
-            }
-            catch (Exception ex) { log.Warning(ex, "Could not move earlier Windows tasks into the background service yet"); }
         }
 #endif
     }
@@ -112,8 +99,34 @@ internal static class DesktopSchedule
     private static string? Blocked(SchedulePlan plan)
     {
         if (ServiceLocator.Orchestrator.IsRunning(plan.Backup.Id)) return "it is already running";
+        if (VaultBlocked() is { } locked) return locked;
         return ScheduleConditions.Blocked(plan, ServiceLocator.Config.Current.Destinations,
             ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable);
+    }
+
+    private static int _vaultAlertSent;
+
+    /// <summary>While the saved passwords are locked on this computer (or not
+    /// yet moved), scheduled runs wait instead of failing, and one alert asks
+    /// to unlock them (U153). The password is never asked by a background run.</summary>
+    internal static string? VaultBlocked()
+    {
+        VaultState state;
+        bool pending;
+        try { state = ServiceLocator.Secrets.Refresh(); pending = ServiceLocator.Secrets.ConversionPending; }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException) { return null; }
+        if (state is VaultState.Unlocked || (state == VaultState.NoVault && !pending))
+        {
+            Interlocked.Exchange(ref _vaultAlertSent, 0);
+            return null;
+        }
+        if (Interlocked.Exchange(ref _vaultAlertSent, 1) == 0)
+            _ = ServiceLocator.Notifier.NotifyAsync("Scheduled backups are waiting",
+                pending ? "Open Backspace and choose a password for your saved passwords. Scheduled backups run once that is done."
+                : state == VaultState.Unreadable ? "Backspace can't open your saved passwords. Open Backspace to see what to do."
+                : "Your saved passwords are locked on this computer. Open Backspace and enter their password once; scheduled backups then run.",
+                NotificationSeverity.Warning);
+        return "the saved passwords are locked on this computer";
     }
 
     private static async Task<bool> RunAsync(SchedulePlan plan, CancellationToken ct)

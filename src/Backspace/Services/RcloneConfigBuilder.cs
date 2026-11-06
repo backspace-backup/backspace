@@ -23,10 +23,9 @@ namespace Backspace.Services;
 /// The output is plain INI with one key=value per line, which is the
 /// canonical rclone.conf format. We don't use rclone's
 /// <c>config_encryption</c> feature; the OAuth refresh tokens carried
-/// here are already DPAPI-protected in SecretsStore until the moment
-/// we materialise this file, and the file lives under our config
-/// root (which has user-private permissions on every supported
-/// platform).
+/// here are encrypted in SecretsStore until the moment we materialise
+/// this file, and the file lives in this computer's working folder
+/// (<see cref="EngineWorkPaths"/>), never in the synced portable folder.
 /// </summary>
 public sealed class RcloneConfigBuilder
 {
@@ -34,8 +33,10 @@ public sealed class RcloneConfigBuilder
 
     public RcloneConfigBuilder(SecretsStore secrets) => _secrets = secrets;
 
-    /// <summary>Default location for the materialised config.</summary>
-    public static string DefaultPath => Path.Combine(AppPaths.ConfigRoot, "rclone.conf");
+    /// <summary>Default location for the materialised config: on this
+    /// computer only, never in the portable folder, since it holds readable
+    /// cloud tokens (U153). It is rebuilt from the vault before each use.</summary>
+    public static string DefaultPath => EngineWorkPaths.RcloneConfigFile;
 
     public async System.Threading.Tasks.Task EnsureDriveIdentityAsync(Destination destination,
         System.Threading.CancellationToken ct, ConfigStore? config = null)
@@ -118,7 +119,7 @@ public sealed class RcloneConfigBuilder
     /// from replacing another destination's refreshed token or remote section.</summary>
     public string MaterialiseDestination(Destination destination, IReadOnlyList<RcloneOAuthApp>? oauthApps = null)
     {
-        var target = Path.Combine(AppPaths.ConfigRoot, "rclone-remotes", ResticUriResolver.RcloneRemoteNameFor(destination) + ".conf");
+        var target = Path.Combine(EngineWorkPaths.RcloneRemotesDir, ResticUriResolver.RcloneRemoteNameFor(destination) + ".conf");
         // Import a refreshed token from the old shared file when upgrading.
         if (!File.Exists(target) && File.Exists(DefaultPath))
         {
@@ -138,7 +139,9 @@ public sealed class RcloneConfigBuilder
             l.IndexOf('=') is var equals && equals > 0 && l[..equals].Trim() == "token");
         if (tokenLine is null) return;
         var token = tokenLine[(tokenLine.IndexOf('=') + 1)..].Trim();
-        if (IsNewerToken(token, _secrets.Get(destination.OAuthTokenRef))) _secrets.Set(destination.OAuthTokenRef, token);
+        // Compared and saved in one vault transaction: a sign-in saved
+        // meanwhile by another process is never overwritten blindly.
+        _secrets.SetIfNewer(destination.OAuthTokenRef, token, IsNewerToken);
     }
 
     internal static bool IsNewerToken(string candidate, string current)

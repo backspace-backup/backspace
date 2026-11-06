@@ -12,7 +12,7 @@ namespace Backspace.Services.Platform.Windows;
 /// <summary>Return a frozen service vault to its ordinary owner. This endpoint
 /// exists only after administrator retirement preparation. It cannot modify
 /// either vault or choose any path; acceptance is a private durable receipt.</summary>
-internal sealed class ServiceVaultReturnProtocol(string returnId, string receiptPath, SecretsStore vault)
+internal sealed class ServiceVaultReturnProtocol(string returnId, string receiptPath, LegacySecretsVault vault)
 {
     internal sealed record Request(int Version, string Command, string ReturnId,
         string? ExpectedDigest = null, int? ExpectedCount = null, string? OwnerCiphertextSha256 = null);
@@ -44,7 +44,7 @@ internal sealed class ServiceVaultReturnProtocol(string returnId, string receipt
                     { CryptographicOperations.ZeroMemory(response); throw new IOException("The vault is too large to return in one verified exchange."); }
                     return response;
                 }
-                if (map.Count != request.ExpectedCount || ServiceMigrationProtocol.Digest(map) != request.ExpectedDigest)
+                if (map.Count != request.ExpectedCount || VaultFile.Digest(map) != request.ExpectedDigest)
                     throw new IOException("The returned credentials do not match the service vault.");
                 // The service remains frozen even after acceptance. The
                 // administrator still has to verify the local encrypted file
@@ -55,7 +55,7 @@ internal sealed class ServiceVaultReturnProtocol(string returnId, string receipt
                 {
                     using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                     { file.Write(receipt); file.Flush(true); }
-                    ServiceSetup.ReplaceRetrying(() => File.Move(temporary, receiptPath, overwrite: true));
+                    FileAccessRetry.Run(() => File.Move(temporary, receiptPath, overwrite: true), receiptPath);
                 }
                 finally { if (File.Exists(temporary)) File.Delete(temporary); }
                 return JsonSerializer.SerializeToUtf8Bytes(new Response(1), ServiceRunAuthorization.Json);
@@ -131,27 +131,27 @@ internal static class ServiceVaultReturn
 {
     /// <summary>The caller holds the ordinary vault transaction from before
     /// freezing the service until the elevated removal has finished.</summary>
-    internal static void Transfer(SecretsStore owner, string ownerPath, string returnId,
+    internal static void Transfer(LegacySecretsVault owner, string ownerPath, string returnId,
         Func<ServiceVaultReturnProtocol.Request, ServiceVaultReturnProtocol.Response> exchange,
         Action finishRemoval)
     {
         owner.WithMigrationSnapshot(previous =>
         {
-            var expectedOwner = ServiceMigrationProtocol.Digest(previous);
+            var expectedOwner = VaultFile.Digest(previous);
             var exported = exchange(new(1, "export", returnId));
             if (exported.Version != 1 || exported.Error is not null || exported.Secrets is null)
                 throw new IOException("The frozen service vault could not be read. Its credentials have been preserved.");
             var map = exported.Secrets;
-            var digest = ServiceMigrationProtocol.Digest(map);
+            var digest = VaultFile.Digest(map);
             // Preserve .bak, publish atomically, and reread through the owner's
             // actual encryption provider. No successful write alone is proof.
             // A retry after declined elevation already has the current map.
             // Keep its encrypted bytes and the pre-return .bak unchanged.
             if (expectedOwner != digest)
-                owner.ReplaceMigrationCopy(map, current => ServiceMigrationProtocol.Digest(current) == expectedOwner);
+                owner.ReplaceMigrationCopy(map, current => VaultFile.Digest(current) == expectedOwner);
             owner.WithMigrationSnapshot(saved =>
             {
-                if (saved.Count != map.Count || ServiceMigrationProtocol.Digest(saved) != digest)
+                if (saved.Count != map.Count || VaultFile.Digest(saved) != digest)
                     throw new CryptographicException("The returned credentials failed verification. Service removal was not authorized.");
                 using var held = new FileStream(ownerPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                 var ciphertextHash = Convert.ToHexString(SHA256.HashData(held));

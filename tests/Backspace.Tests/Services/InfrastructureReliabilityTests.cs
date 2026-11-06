@@ -223,8 +223,8 @@ public sealed class InfrastructureReliabilityTests
     public void Secrets_stale_instances_reload_for_reads_writes_and_removes()
     {
         using var workspace = new TempWorkspace();
-        var first = new SecretsStore(new PlainEncryption());
-        var second = new SecretsStore(new PlainEncryption());
+        var first = new SecretsStore();
+        var second = new SecretsStore();
         Assert.False(first.TryGet("a", out _));
         Assert.False(second.TryGet("b", out _));
         first.Set("a", "first");
@@ -243,13 +243,13 @@ public sealed class InfrastructureReliabilityTests
     {
         if (!OperatingSystem.IsWindows()) return;
         using var workspace = new TempWorkspace();
-        var first = new SecretsStore(new PlainEncryption());
+        var first = new SecretsStore();
         first.Set("existing", "keep-me");
-        var original = File.ReadAllBytes(AppPaths.SecretsFile);
-        var second = new SecretsStore(new PlainEncryption());
+        var original = File.ReadAllBytes(AppPaths.VaultFile);
+        var second = new SecretsStore();
         // Held by another program (Dropbox, a virus scanner): the read waits,
         // as long as it takes (U135), and never reads as corrupt or empty.
-        var held = new FileStream(AppPaths.SecretsFile, FileMode.Open, FileAccess.Read, FileShare.None);
+        var held = new FileStream(AppPaths.VaultFile, FileMode.Open, FileAccess.Read, FileShare.None);
         var reading = System.Threading.Tasks.Task.Run(() => second.Get("existing"));
         System.Threading.Thread.Sleep(1500);
         Assert.False(reading.IsCompleted);
@@ -257,7 +257,7 @@ public sealed class InfrastructureReliabilityTests
         Assert.Equal("keep-me", reading.GetAwaiter().GetResult());
         Assert.Null(second.LoadErrorMessage);
         Assert.Null(second.PreservedCorruptPath);
-        Assert.Equal(original, File.ReadAllBytes(AppPaths.SecretsFile));
+        Assert.Equal(original, File.ReadAllBytes(AppPaths.VaultFile));
         Assert.Empty(Directory.GetFiles(AppPaths.ConfigRoot, "*.unreadable-*"));
         Assert.False(second.TryGet("new", out _));
         second.Set("new", "retry-success");
@@ -269,14 +269,14 @@ public sealed class InfrastructureReliabilityTests
     {
         if (!OperatingSystem.IsWindows()) return;
         using var workspace = new TempWorkspace();
-        var store = new SecretsStore(new PlainEncryption());
+        var store = new SecretsStore();
         store.Set("existing", "synthetic-first");
-        var held = new FileStream(AppPaths.SecretsFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var held = new FileStream(AppPaths.VaultFile, FileMode.Open, FileAccess.Read, FileShare.Read);
         var saving = Task.Run(() => store.Set("new", "synthetic-second"));
         try { await Task.Delay(150, TestContext.Current.CancellationToken); Assert.False(saving.IsCompleted); }
         finally { held.Dispose(); }
         await saving.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-        var reopened = new SecretsStore(new PlainEncryption());
+        var reopened = new SecretsStore();
         Assert.Equal("synthetic-first", reopened.Get("existing"));
         Assert.Equal("synthetic-second", reopened.Get("new"));
     }
@@ -285,22 +285,22 @@ public sealed class InfrastructureReliabilityTests
     public void Secrets_missing_primary_with_backup_cannot_silently_create_empty_vault()
     {
         using var workspace = new TempWorkspace();
-        var store = new SecretsStore(new PlainEncryption());
+        var store = new SecretsStore();
         store.Set("existing", "synthetic-first");
-        File.Move(AppPaths.SecretsFile, AppPaths.SecretsFile + ".bak");
-        var retained = File.ReadAllBytes(AppPaths.SecretsFile + ".bak");
-        Assert.Throws<FileNotFoundException>(() => store.Set("replacement", "must-not-replace"));
-        Assert.False(File.Exists(AppPaths.SecretsFile));
-        Assert.Equal(retained, File.ReadAllBytes(AppPaths.SecretsFile + ".bak"));
+        File.Move(AppPaths.VaultFile, AppPaths.VaultFile + ".bak", overwrite: true);
+        var retained = File.ReadAllBytes(AppPaths.VaultFile + ".bak");
+        Assert.Throws<VaultLockedException>(() => store.Set("replacement", "must-not-replace"));
+        Assert.False(File.Exists(AppPaths.VaultFile));
+        Assert.Equal(retained, File.ReadAllBytes(AppPaths.VaultFile + ".bak"));
     }
 
     [Fact]
     public async Task Secrets_concurrent_independent_instances_preserve_all_values()
     {
         using var workspace = new TempWorkspace();
-        var stores = Enumerable.Range(0, 16).Select(_ => new SecretsStore(new PlainEncryption())).ToArray();
+        var stores = Enumerable.Range(0, 16).Select(_ => new SecretsStore()).ToArray();
         await Task.WhenAll(stores.Select((store, i) => Task.Run(() => store.Set($"key-{i}", $"value-{i}"))));
-        var reopened = new SecretsStore(new PlainEncryption());
+        var reopened = new SecretsStore();
         for (var i = 0; i < stores.Length; i++) Assert.Equal($"value-{i}", reopened.Get($"key-{i}"));
     }
 

@@ -4,9 +4,9 @@ using System.Threading;
 
 namespace Backspace.Services;
 
-/// <summary>A non-thread-affine gate. Activated Windows services share protected
-/// file locks with the desktop; ordinary portable copies retain their existing
-/// session semaphore names.</summary>
+/// <summary>A non-thread-affine gate. With the background service set up, it
+/// and the desktop share file locks (SystemServiceLocks); ordinary portable
+/// copies retain their existing session semaphore names.</summary>
 internal sealed class CrossProcessGate(string name) : IDisposable
 {
     private Semaphore? _semaphore;
@@ -17,16 +17,9 @@ internal sealed class CrossProcessGate(string name) : IDisposable
     {
         if (_held) throw new InvalidOperationException("This operation already holds its gate.");
 #if WINDOWS
-        var context = Platform.Windows.ServiceCoordinationFiles.Current();
-        if (context is not null)
-        {
-            _file = Platform.Windows.ServiceCoordinationFiles.TryOpen(context,
-                Platform.Windows.ServiceCoordinationFiles.Name(name), exclusive: true);
-            return _held = _file is not null;
-        }
         if (Platform.Windows.SystemServiceLocks.Directory() is { } shared)
         {
-            _file = Platform.Windows.SystemServiceLocks.TryOpen(shared, Platform.Windows.ServiceCoordinationFiles.Name(name), exclusive: true);
+            _file = Platform.Windows.SystemServiceLocks.TryOpen(shared, Platform.Windows.SystemServiceLocks.Name(name), exclusive: true);
             return _held = _file is not null;
         }
 #endif

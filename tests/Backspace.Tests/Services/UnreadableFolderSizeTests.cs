@@ -51,7 +51,7 @@ public sealed class UnreadableFolderSizeTests
         };
         try
         {
-            using var workspace = new TempWorkspace("unreadable-size");
+            using var workspace = new TempWorkspace("unreadable-size", vault: false);
             File.WriteAllText(Path.Combine(workspace.Root, "a.txt"), "hello");
             // U129: the service counts (with the rights of its backups) and the
             // app uses its answer instead of reading the folder itself.
@@ -82,7 +82,7 @@ public sealed class UnreadableFolderSizeTests
     [Fact]
     public void A_count_made_for_the_app_is_reused_by_the_service_backups_and_not_counted_again()
     {
-        using var workspace = new TempWorkspace("size-estimate-cache");
+        using var workspace = new TempWorkspace("size-estimate-cache", vault: false);
         var source = Directory.CreateDirectory(Path.Combine(workspace.Root, "source")).FullName;
         File.WriteAllBytes(Path.Combine(source, "a.bin"), new byte[700]);
         var serviceFolder = Directory.CreateDirectory(Path.Combine(workspace.Root, "service")).FullName;
@@ -103,7 +103,7 @@ public sealed class UnreadableFolderSizeTests
     [Fact]
     public async Task The_service_lists_a_folder_and_returns_only_totals()
     {
-        using var workspace = new TempWorkspace("service-measure");
+        using var workspace = new TempWorkspace("service-measure", vault: false);
         Directory.CreateDirectory(Path.Combine(workspace.Root, "sub"));
         File.WriteAllBytes(Path.Combine(workspace.Root, "sub", "data.bin"), new byte[1234]);
         File.WriteAllBytes(Path.Combine(workspace.Root, "top.bin"), new byte[66]);
@@ -129,7 +129,7 @@ public sealed class UnreadableFolderSizeTests
     [Fact]
     public void The_service_accepts_a_measurement_request_only_for_a_local_folder()
     {
-        using var workspace = new TempWorkspace("service-measure-request");
+        using var workspace = new TempWorkspace("service-measure-request", vault: false);
         ServiceHostRequest Parse(object request) => ServiceHostRequest.Parse(JsonSerializer.SerializeToUtf8Bytes(request));
         Assert.Equal(workspace.Root, Parse(new { version = 1, command = "measure", path = workspace.Root }).Path);
         Assert.Throws<InvalidDataException>(() => Parse(new { version = 1, command = "measure", path = "relative\\folder" }));
@@ -164,7 +164,7 @@ public sealed class UnreadableFolderSizeTests
         var withNegation = ResticBackrestEngine.BuildPlanFromBackup("plan", "repo", new Backspace.Models.Backup { FiltersText = "!/hiberfil.sys" }, @"C:\");
         Assert.EndsWith("hiberfil.sys", withNegation.IExcludes.Concat(withNegation.Excludes).Last(p => p.Contains("hiberfil")));
 
-        using var workspace = new TempWorkspace("essential-size");
+        using var workspace = new TempWorkspace("essential-size", vault: false);
         File.WriteAllBytes(Path.Combine(workspace.Root, "pagefile.sys"), new byte[5000]);
         Directory.CreateDirectory(Path.Combine(workspace.Root, "System Volume Information"));
         File.WriteAllBytes(Path.Combine(workspace.Root, "System Volume Information", "tracking.log"), new byte[7000]);

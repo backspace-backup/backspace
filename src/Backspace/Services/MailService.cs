@@ -187,7 +187,8 @@ public sealed class MailService
     /// (success, detail) — the caller surfaces detail in a banner.
     /// </summary>
     public async Task<(bool ok, string detail)> SendTestAsync(
-        MailSettings testSettings, IReadOnlyList<string> recipients, CancellationToken ct)
+        MailSettings testSettings, IReadOnlyList<string> recipients, CancellationToken ct,
+        IReadOnlyDictionary<string, string>? keys = null)
     {
         if (testSettings.Provider == MailProvider.Disabled)
             return (false, "Pick a provider first.");
@@ -207,10 +208,10 @@ public sealed class MailService
             switch (testSettings.Provider)
             {
                 case MailProvider.Resend:
-                    await SendViaResendAsync(testSettings, recipients, subject, body, ct);
+                    await SendViaResendAsync(testSettings, recipients, subject, body, ct, keys);
                     break;
                 case MailProvider.Mailgun:
-                    await SendViaMailgunAsync(testSettings, recipients, subject, body, ct);
+                    await SendViaMailgunAsync(testSettings, recipients, subject, body, ct, keys);
                     break;
             }
             return (true, $"Sent. Check the inbox of: {string.Join(", ", recipients)}.");
@@ -244,11 +245,16 @@ public sealed class MailService
 
     // ---- Resend ----
 
+    /// <summary>A key typed for a test send stays in memory (U153); saved
+    /// ones come from the vault.</summary>
+    private string Resolve(string reference, IReadOnlyDictionary<string, string>? keys)
+        => keys is not null && keys.TryGetValue(reference, out var typed) ? typed : _secrets.Get(reference);
+
     private async Task SendViaResendAsync(
         MailSettings m, IReadOnlyList<string> recipients,
-        string subject, string plainBody, CancellationToken ct)
+        string subject, string plainBody, CancellationToken ct, IReadOnlyDictionary<string, string>? keys = null)
     {
-        var apiKey = m.ResendApiKeyRef is null ? null : _secrets.Get(m.ResendApiKeyRef);
+        var apiKey = m.ResendApiKeyRef is null ? null : Resolve(m.ResendApiKeyRef, keys);
         if (string.IsNullOrEmpty(apiKey)) throw new InvalidOperationException(
             "Resend API key is not set. Paste your re_… key in Settings → Email.");
 
@@ -340,9 +346,9 @@ public sealed class MailService
 
     private async Task SendViaMailgunAsync(
         MailSettings m, IReadOnlyList<string> recipients,
-        string subject, string plainBody, CancellationToken ct)
+        string subject, string plainBody, CancellationToken ct, IReadOnlyDictionary<string, string>? keys = null)
     {
-        var apiKey = m.MailgunApiKeyRef is null ? null : _secrets.Get(m.MailgunApiKeyRef);
+        var apiKey = m.MailgunApiKeyRef is null ? null : Resolve(m.MailgunApiKeyRef, keys);
         if (string.IsNullOrEmpty(apiKey)) throw new InvalidOperationException(
             "Mailgun API key is not set. Paste your private API key in Settings → Email.");
         var domain = NormaliseMailgunDomain(m.MailgunDomain);

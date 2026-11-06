@@ -1,112 +1,75 @@
 using System;
 using System.IO;
-using System.Linq;
-using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Backspace.Services;
-using Backspace.Services.Platform;
 using Backspace.Tests.TestHelpers;
 using Xunit;
 
 namespace Backspace.Tests.Services;
 
+/// <summary>Start-up checks of the saved passwords (U153): a damaged vault
+/// warns and is kept as it is; a locked one does not warn (the Backups page
+/// shows a banner instead); a file another program holds is waited out.</summary>
 public sealed class SecretsStartupWarningTests
 {
     [Fact]
-    public async Task Unavailable_decryption_context_can_recover_without_replacing_any_saved_secret()
+    public async Task A_damaged_vault_warns_and_its_bytes_are_kept_across_launches()
     {
-        using var workspace = new TempWorkspace();
-        var crypto = new SessionEncryption();
-        var store = new SecretsStore(crypto);
-        store.Set("test-ref", "original-value");
-        var original = File.ReadAllBytes(AppPaths.SecretsFile);
-
-        crypto.CanDecrypt = false;
-        var warning = await SecretsStartupWarning.CheckAsync(store);
-        Assert.NotNull(warning);
-        if (PlatformInfo.IsWindows)
-        {
-            Assert.Contains("First, sign in", warning.Message);
-            Assert.Contains("passwords do not need replacing", warning.Message);
-        }
-        Assert.Equal(original, File.ReadAllBytes(AppPaths.SecretsFile));
-        Assert.Empty(Directory.GetFiles(workspace.ConfigRoot, "secrets.bin.unreadable-*"));
-
-        // Models becoming able to decrypt in a different logon context. This
-        // does not claim to execute a real Windows sign-in or scheduled task.
-        crypto.CanDecrypt = true;
-        Assert.Null(await SecretsStartupWarning.CheckAsync(store));
-        Assert.Equal("original-value", store.Get("test-ref"));
-        Assert.Equal(original, File.ReadAllBytes(AppPaths.SecretsFile));
-    }
-
-    private sealed class SessionEncryption : ISecretsEncryption
-    {
-        public bool CanDecrypt { get; set; } = true;
-        public string DisplayName => "Synthetic session test";
-        public byte[] Protect(byte[] cleartext, byte[] entropy) => cleartext;
-        public byte[] Unprotect(byte[] ciphertext, byte[] entropy) => CanDecrypt
-            ? ciphertext : throw new CryptographicException("Synthetic session cannot decrypt");
-    }
-
-    [Fact]
-    public async Task Startup_opens_lazy_vault_preserves_corrupt_bytes_and_warns_without_any_prior_read()
-    {
-        using var workspace = new TempWorkspace();
+        using var workspace = new TempWorkspace(vault: false);
         var bytes = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
-        File.WriteAllBytes(AppPaths.SecretsFile, bytes);
+        File.WriteAllBytes(AppPaths.VaultFile, bytes);
         var store = new SecretsStore();
         Assert.Null(store.LoadErrorMessage);
         var warning = await SecretsStartupWarning.CheckAsync(store);
         Assert.NotNull(warning);
         Assert.Equal("Saved passwords couldn't be opened", warning.Title);
-        Assert.Contains("before reconnecting destinations", warning.Message);
-        Assert.NotNull(store.PreservedCorruptPath);
-        Assert.Equal(bytes, File.ReadAllBytes(store.PreservedCorruptPath));
-        Assert.Equal(bytes, File.ReadAllBytes(AppPaths.SecretsFile));
-        Assert.Empty(Directory.GetFiles(workspace.ConfigRoot, "secrets.bin.unreadable-*"));
+        Assert.Equal(bytes, File.ReadAllBytes(AppPaths.VaultFile));
         var nextLaunch = await SecretsStartupWarning.CheckAsync(new SecretsStore());
         Assert.NotNull(nextLaunch);
-        Assert.Equal(warning.Title, nextLaunch.Title);
-        Assert.Equal(bytes, File.ReadAllBytes(AppPaths.SecretsFile));
+        Assert.Equal(bytes, File.ReadAllBytes(AppPaths.VaultFile));
+        Assert.Empty(Directory.GetFiles(workspace.ConfigRoot, "vault.bin.unreadable-*"));
     }
 
     [Fact]
-    public async Task Startup_temporary_lock_warns_without_replacing_secrets_and_retries_successfully()
+    public async Task A_locked_vault_does_not_warn_at_start()
+    {
+        using var workspace = new TempWorkspace(vault: false);
+        new SecretsStore().Create("pw");
+        Directory.Delete(EngineWorkPaths.KeysDirectory, recursive: true);
+        var store = new SecretsStore();
+        Assert.Null(await SecretsStartupWarning.CheckAsync(store));
+        Assert.Equal(VaultState.Locked, store.State);
+    }
+
+    [Fact]
+    public async Task A_file_held_by_another_program_is_waited_out_without_a_warning()
     {
         using var workspace = new TempWorkspace();
         var initial = new SecretsStore();
         initial.Set("test-ref", "keep-original-value");
-        var original = File.ReadAllBytes(AppPaths.SecretsFile);
+        var original = File.ReadAllBytes(AppPaths.VaultFile);
         var store = new SecretsStore();
-        // Held by another program (Dropbox, a virus scanner): the check waits
-        // it out (U135, with the app's notice after a few seconds) instead of
-        // warning, and never touches the vault.
-        var locked = new FileStream(AppPaths.SecretsFile, FileMode.Open, FileAccess.Read, FileShare.None);
+        var locked = new FileStream(AppPaths.VaultFile, FileMode.Open, FileAccess.Read, FileShare.None);
         var check = SecretsStartupWarning.CheckAsync(store);
         await Task.Delay(1500);
         Assert.False(check.IsCompleted);
         locked.Dispose();
         Assert.Null(await check);
-        Assert.Null(store.LoadErrorMessage);
-        Assert.Null(store.PreservedCorruptPath);
-        Assert.Empty(Directory.GetFiles(workspace.ConfigRoot, "secrets.bin.unreadable-*"));
-        Assert.Equal(original, File.ReadAllBytes(AppPaths.SecretsFile));
-        Assert.Null(await SecretsStartupWarning.CheckAsync(store));
+        Assert.Equal(original, File.ReadAllBytes(AppPaths.VaultFile));
         Assert.Equal("keep-original-value", store.Get("test-ref"));
     }
 
     [Fact]
-    public async Task Startup_valid_or_absent_vault_has_no_warning_or_credential_file_mutation()
+    public async Task A_valid_or_absent_vault_has_no_warning_and_is_not_written()
     {
-        using var workspace = new TempWorkspace();
+        using var workspace = new TempWorkspace(vault: false);
         Assert.Null(await SecretsStartupWarning.CheckAsync(new SecretsStore()));
-        Assert.False(File.Exists(AppPaths.SecretsFile));
+        Assert.False(File.Exists(AppPaths.VaultFile));
         var store = new SecretsStore();
+        store.Create("");
         store.Set("test-ref", "unchanged");
-        var original = File.ReadAllBytes(AppPaths.SecretsFile);
+        var original = File.ReadAllBytes(AppPaths.VaultFile);
         Assert.Null(await SecretsStartupWarning.CheckAsync(new SecretsStore()));
-        Assert.Equal(original, File.ReadAllBytes(AppPaths.SecretsFile));
-        Assert.DoesNotContain(Directory.EnumerateFiles(workspace.ConfigRoot), f => f.Contains("unreadable-", StringComparison.Ordinal));
+        Assert.Equal(original, File.ReadAllBytes(AppPaths.VaultFile));
     }
 }

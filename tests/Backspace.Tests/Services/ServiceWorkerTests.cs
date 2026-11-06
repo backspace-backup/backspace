@@ -49,55 +49,6 @@ public sealed class ServiceWorkerTests
         Assert.Equal("Approved name", store.Current.Backups[0].Name);
     }
 
-    private static ServiceRunAuthorization.AuthorizedRun Run(DestinationKind kind, string source = @"C:\Approved")
-    {
-        var backup = new Backup { Id = "backup", SourcePaths = { source }, Targets = { new() { DestinationId = "dest" } } };
-        return new("revision", backup, new() { Backups = { backup }, Destinations = { new() { Id = "dest", Kind = kind, PathOrSubpath = @"D:\Approved" } } }, RunKind.Backup);
-    }
-
-    [Fact]
-    public void WorkerPinsBothSourceAndLocalRepository()
-        => Assert.Equal(new[] { @"C:\Approved", @"D:\Approved" }, ServiceApprovedWorker.LocalPathsFor(Run(DestinationKind.LocalFolder)).ToArray());
-
-    [Theory]
-    [InlineData(RunKind.Check)] [InlineData(RunKind.Prune)]
-    public void RepositoryMaintenanceDoesNotRequireTheOriginalSource(RunKind kind)
-    {
-        var run = Run(DestinationKind.LocalFolder, @"\\offline-server\source") with { Kind = kind };
-        run.Backup.CheckRestoreFiles = true;
-        Assert.Equal(new[] { @"D:\Approved" }, ServiceApprovedWorker.LocalPathsFor(run).ToArray());
-    }
-
-    [Fact]
-    public void ExplicitOriginalComparisonStillProtectsSourcePaths()
-    {
-        var run = Run(DestinationKind.LocalFolder) with { Kind = RunKind.Check };
-        run.Backup.CheckRestoreFiles = true;
-        run.Backup.RestoreCheckOptions = run.Backup.RestoreCheckOptions with { CompareOriginals = true };
-        Assert.Equal(new[] { @"C:\Approved", @"D:\Approved" }, ServiceApprovedWorker.LocalPathsFor(run).ToArray());
-        run.Backup.CheckRestoreFiles = false;
-        Assert.Equal(new[] { @"D:\Approved" }, ServiceApprovedWorker.LocalPathsFor(run).ToArray());
-    }
-
-    // External drives run in the service since U061 (ServiceExternalDrivesTests);
-    // a network share without saved credentials is still refused (U071).
-    [Fact]
-    public void NetworkShareAdmissionFailsClosed()
-        => Assert.Throws<NotSupportedException>(() => ServiceApprovedWorker.LocalPathsFor(Run(DestinationKind.NetworkShare)).ToArray());
-
-    [Fact]
-    public void A_network_share_with_saved_credentials_holds_no_local_path()
-    {
-        var run = Run(DestinationKind.NetworkShare);
-        var share = run.Configuration.Destinations.Single(d => d.Kind == DestinationKind.NetworkShare);
-        share.PathOrSubpath = @"\\nas\backups\pc"; share.NetworkUsername = "backup"; share.NetworkPasswordRef = "dest:x:netpw";
-        Assert.Equal(new[] { @"C:\Approved" }, ServiceApprovedWorker.LocalPathsFor(run).ToArray());
-    }
-
-    [Fact]
-    public void WorkerDoesNotTreatNetworkSourcesAsLocalPaths()
-        => Assert.Throws<SecurityException>(() => ServiceApprovedWorker.LocalPathsFor(Run(DestinationKind.LocalFolder, @"\\server\share")).ToArray());
-
     [Fact]
     public void OrdinaryProcessCannotClaimTheVssServiceCapability()
         => Assert.False(ServiceApprovedWorker.HasVerifiedVssIdentity);

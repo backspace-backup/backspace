@@ -83,7 +83,7 @@ internal sealed class ServiceNotificationQueue(string directory, Func<DateTime>?
                 using var file = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None);
                 file.Write(bytes); file.Flush(true);
             }, temporary, FileWaitReason.BackspaceFile, ct);
-            ServiceSetup.ReplaceRetrying(() => File.Move(temporary, path, overwrite: true), path, ct);
+            FileAccessRetry.Run(() => File.Move(temporary, path, overwrite: true), path, ct: ct);
         }
         finally
         {
@@ -93,7 +93,7 @@ internal sealed class ServiceNotificationQueue(string directory, Func<DateTime>?
     }
 
     internal static void Publish(string pending, string path, Action<string, string>? replace = null)
-        => ServiceSetup.ReplaceRetrying(() => (replace ?? ((source, target) => File.Move(source, target, overwrite: true)))(pending, path), path);
+        => FileAccessRetry.Run(() => (replace ?? ((source, target) => File.Move(source, target, overwrite: true)))(pending, path), path);
 
     internal static void Validate(BackgroundNotification notice)
     {

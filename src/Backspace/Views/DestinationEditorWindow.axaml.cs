@@ -62,7 +62,7 @@ public partial class DestinationEditorWindow : Window
         // async void exception trap.
         try
         {
-            var result = _vm.Save();
+            var result = await _vm.SaveAsync();
             if (result is null) return;
 
             if (!string.IsNullOrEmpty(_vm.GeneratedStoragePassword))
@@ -92,6 +92,9 @@ public partial class DestinationEditorWindow : Window
     {
         try
         {
+            // Restic must never change a repository's key that the vault
+            // can't then record: the vault is open before the dialog (U153).
+            if (!await _vm.EnsureVaultForPasswordChangeAsync()) return;
             var blockingReason = _vm.CheckCanChangeStoragePassword();
             if (blockingReason is not null)
             {

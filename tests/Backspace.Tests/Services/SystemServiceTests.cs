@@ -51,7 +51,6 @@ public sealed class SystemServiceTests
     {
         var binding = new SystemService.Registration(SystemService.NameFor(Owner), Owner, @"C:\Backspace\Backspace.exe",
             @"C:\Users\me\AppData\Local\Backspace\bin", Guid.NewGuid().ToString("N"), true).Binding;
-        Assert.True(binding.IsSystem);
         Assert.True(binding.CanRun);
         Assert.Equal("S-1-5-18", binding.ServiceSid);
         Assert.Equal(@"C:\Backspace", binding.Installation);
@@ -61,16 +60,6 @@ public sealed class SystemServiceTests
         Assert.Contains(Owner, descriptor);
         Assert.DoesNotContain(";;;WD)", descriptor);
         Assert.DoesNotContain(";;;AU)", descriptor);
-    }
-
-    [Fact]
-    public void A_version_3_binding_is_never_written_into_the_old_record_format()
-    {
-        var v2 = new ServiceWorkerBinding(2, "Backspace-" + Guid.NewGuid().ToString("N"), Owner, @"C:\B\Backspace.config\windows-service\data", true);
-        var json = JsonSerializer.Serialize(v2, ServiceRunAuthorization.Json);
-        Assert.DoesNotContain("installation", json);
-        Assert.DoesNotContain("engineRoot", json);
-        Assert.Equal(v2, JsonSerializer.Deserialize<ServiceWorkerBinding>(json, ServiceRunAuthorization.Json));
     }
 
     private static InteractiveSessionIdentity Session(long logon = 100) => new(2, logon, "PC\\ME");
@@ -223,29 +212,5 @@ public sealed class SystemServiceTests
         var share = Config();
         share.Destinations[0] = new Destination { Id = "d1", Name = "NAS", Kind = DestinationKind.NetworkShare, PathOrSubpath = @"\\nas\backups" };
         Assert.False(SystemServiceRuns.CanRun(share.Backups[0], share));
-    }
-
-    [Fact]
-    public void The_upgrade_keeps_the_earlier_service_history_and_its_transcripts()
-    {
-        using var ws = new TempWorkspace();
-        var oldLogs = ws.Sub(@"old\logs\engine");
-        var oldStore = new LogStore(oldLogs);
-        var transcript = Path.Combine(oldLogs, "Documents", "20261101-020000-backup.log");
-        Directory.CreateDirectory(Path.GetDirectoryName(transcript)!);
-        File.WriteAllText(transcript, "restic output");
-        var run = new RunRecord { Id = Guid.NewGuid().ToString("N"), BackupId = "b1", BackupName = "Documents",
-            StartedUtc = DateTime.UtcNow.AddHours(-3), Status = BackupRunStatus.Success, LogPath = transcript };
-        oldStore.AppendRun(run);
-        var newLogs = Path.Combine(ws.Root, "new", "logs", "engine");
-
-        SystemServiceUpgrade.CopyHistory(oldLogs, newLogs);
-        SystemServiceUpgrade.CopyHistory(oldLogs, newLogs); // Retried: nothing is doubled.
-
-        var copied = new LogStore(newLogs).LoadHistory("Documents");
-        var single = Assert.Single(copied);
-        Assert.Equal(run.Id, single.Id);
-        Assert.Equal(Path.Combine(newLogs, "Documents", "20261101-020000-backup.log"), single.LogPath);
-        Assert.Equal("restic output", File.ReadAllText(single.LogPath));
     }
 }

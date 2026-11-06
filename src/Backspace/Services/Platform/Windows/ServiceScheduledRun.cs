@@ -12,7 +12,7 @@ namespace Backspace.Services.Platform.Windows;
 /// <summary>Run now, Save and run, and the owner's command line, sent to the
 /// background service. The client starts the approved run, then keeps it
 /// alive with heartbeats and follows it to its result; the backup runs in the
-/// restricted service account. The service runs its own schedule itself.</summary>
+/// service. The service runs its own schedule itself.</summary>
 internal static class ServiceScheduledRun
 {
     internal sealed record Response(int Version, string? RunId, string State, int? ExitCode, string? Error);
@@ -21,23 +21,9 @@ internal static class ServiceScheduledRun
     internal static async Task<int> RunApprovedAsync(string installation, ServiceWorkerBinding binding,
         string revision, string backupId, string operation, CancellationToken cancellation, Action<string>? status = null)
     {
-        ServiceRunAuthorization.AuthorizedRun run;
-        if (binding.IsSystem)
-        {
-            // Version 3 (U100) runs the settings as saved; the revision is unused.
-            revision = Guid.NewGuid().ToString("N");
-            run = SystemServiceRuns.Authorize(installation, backupId, operation, ownerCommand: true);
-        }
-        else
-        {
-            ServiceRetirement.RequireNotRetiring(installation);
-            ServiceProgramUpdate.RequireNoPending(installation);
-            ServiceRegistration.VerifyInstalled(binding, Path.Combine(installation, "Backspace.exe"));
-            var approval = ServiceRunAuthorization.Load(ServicePortableLayout.ExistingRecord(installation, "service-approval.json"), installation, binding.OwnerSid);
-            run = approval.Authorize(JsonSerializer.SerializeToUtf8Bytes(
-                new ServiceRunAuthorization.Request(1, revision, backupId, operation), ServiceRunAuthorization.Json), ownerCommand: true);
-            ServiceConfigurationComparison.RequireCurrent(installation, run.Configuration);
-        }
+        // The service runs the settings as saved (U100); the revision is unused.
+        revision = Guid.NewGuid().ToString("N");
+        var run = SystemServiceRuns.Authorize(installation, backupId, operation, ownerCommand: true);
         var request = new ServiceHostRequest(1, "start-cli", revision, backupId, operation);
         ServiceHostRequest.Parse(JsonSerializer.SerializeToUtf8Bytes(request, ServiceRunAuthorization.Json));
         var schedule = operation switch
@@ -53,7 +39,6 @@ internal static class ServiceScheduledRun
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
         return await RunAsync(request, async (message, token) =>
         {
-            if (message.Command == "start-cli" && !binding.IsSystem) ServiceConfigurationComparison.RequireCurrent(installation, run.Configuration);
             using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-runs",
                 binding.ServiceSid, ExchangeTimeout, token).ConfigureAwait(false);
             await BackupServicePipe.WriteMessageAsync(pipe,

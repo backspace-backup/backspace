@@ -32,6 +32,10 @@ internal static class SystemServiceLocks
         return directory;
     }
 
+    /// <summary>The lock file for a named gate.</summary>
+    internal static string Name(string logicalName)
+        => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(logicalName))) + ".lock";
+
     /// <summary>Opens a lock file; null while another process holds it.</summary>
     internal static FileStream? TryOpen(string directory, string name, bool exclusive)
     {

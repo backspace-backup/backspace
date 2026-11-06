@@ -72,12 +72,13 @@ service per Windows account, named `Backspace-<12 hex of the owner SID's
 SHA-256>`, runs as LocalSystem with the command `"<copy>\Backspace.exe"
 --system-service <name>` (`SystemService`). Nothing changes any file or
 folder permission. Its record (version 3, owner SID, the owner's engine
-folder, the handoff ID, whether the sign-ins were handed over) lives in
+folder, whether it is set up) lives in
 `HKLM\SYSTEM\CurrentControlSet\Services\<name>\Parameters`, which only
 administrators can change; the installation is the folder of the registered
-command. Its working files (its vault, schedule state, run status, worker
-logs and history) are in `Backspace.config\service`, an ordinary folder.
-The service's security descriptor lets the owner query, start and stop it.
+command. Its schedule state, run status, worker logs and history are in
+`Backspace.config\service`, an ordinary folder; its engine working files and
+its copy of the vault key are in the owner's `%LOCALAPPDATA%\Backspace`
+(U153). The service's security descriptor lets the owner query, start and stop it.
 
 `SystemBackupService` reads the owner's `config.json` as saved, every minute
 and before each run (`SystemServiceRuns`): there is no approval record and no
@@ -87,22 +88,24 @@ Backups with custom engine arguments, or network shares without saved
 credentials, stay with the tray app. The service enables the backup and
 restore rights of its token before starting workers, so restic reads every
 selected file whatever its permissions; workers inherit the enabled rights.
-It sets `BACKSPACE_ENGINE_ROOT` to the owner's `%LOCALAPPDATA%\Backspace\bin`.
+It sets `BACKSPACE_ENGINE_ROOT` to the owner's `%LOCALAPPDATA%\Backspace\bin`
+and `BACKSPACE_MACHINE_ROOT` to the folder above it.
 Window and service share operation locks in the owner's
 `%LOCALAPPDATA%\Backspace\locks` (`SystemServiceLocks`), outside any synced
 folder.
 
 Setup is one approval: `--system-service-setup` creates or repoints the
-service and starts it; the desktop then hands the saved sign-ins over
-(`ServiceVaultHandoff`, unchanged), and the service records the hand-over
-itself (`SystemService.MarkActivated`). From then on the service's vault,
-encrypted for Windows' own account, is the only authority; the desktop reads
-and writes through the `-secrets` pipe (`ServiceOwnerSecrets`). Pipes are
+service and starts it; the desktop then sends it this computer's vault key
+(`ServiceVaultUnlock`, `unlock` on the runs pipe), and the service, once the
+key opens `vault.bin`, records that it is set up itself
+(`SystemService.MarkActivated`). Both read and write the same `vault.bin`;
+nothing is copied (see "Saved passwords" under Storage locations). Pipes are
 owned by `S-1-5-18` and open only to the owner; clients verify the owner of
-the pipe object. Removal freezes the vault (`freeze` on the runs pipe),
-takes the sign-ins back (`ServiceVaultReturn`), then one approval runs
-`--system-service-remove`; the history stays readable from
-`Backspace.config\service`.
+the pipe object. Removal needs one approval (`--system-service-remove`) and
+deletes the service's key copies; the history stays readable from
+`Backspace.config\service`. A service not yet converted to the vault still
+holds the sign-ins in its earlier vault: removal then freezes it and takes
+them back first (`ServiceVaultReturn`).
 
 Quit stops the service without a prompt (`SystemServiceLifetime`): the desktop
 records its sign-in session and boot in `service\quit.json`, then stops it.
@@ -114,16 +117,6 @@ Quit while the same sign-in session exists in the same boot, which covers
 waking from sleep or hibernation, and otherwise deletes it. Updates stop the
 service, replace `Backspace.exe` like any portable copy and start it again
 (`WindowsUpdateRuntime.ApplyPendingAfterExit`).
-
-**Upgrade from the 1.0 service.** Backspace 1.0 installed a virtual-account
-service with protected records in `Backspace.config\windows-service` and
-permission changes recorded at setup. Its code remains only to retire it:
-`--system-service-upgrade` (one approval) freezes it, waits for the desktop to
-take the sign-ins back, restores every recorded permission
-(`ServiceRetirement.Complete`), copies its history and transcripts into
-`Backspace.config\service` (`SystemServiceUpgrade`), deletes the protected
-folders, then installs version 3. Until then that service keeps running from
-the engines beside `Backspace.exe` (`EngineInstallation.LegacyServiceInUse`).
 
 **One copy per Windows account** (`InstallationHandover`): a GUI started from a
 folder other than the one the service or the sign-in entry uses offers to
@@ -357,38 +350,10 @@ can be exceeded by the last whole file selected for each source/destination.
 
 `WindowsUpdateRuntime` shares a process-lifetime file lease with GUI, scheduled and helper runs. Replacement requires its exclusive lease after the GUI closes and owned engines stop. The application operation gate also prevents new work during a requested restart. Replacement journals the old and new program files and rolls back failures; configuration is outside that file list. A recovery launcher can restore the previous bundle. A successful process start is not proof of a healthy new GUI: native launch/crash behavior remains an acceptance-test requirement. The immediately preceding bundle is retained. Older completed update records can be removed after the next successful replacement; unknown or unfinished records are preserved.
 
-Only portable Windows x64 single-file builds in non-linked folders support installation. Ordinary copies require a writable folder; an activated service copy uses Windows administrator approval as described below. Other builds keep the manual release-page action. The internal `--recover-update` path runs before engine/configuration initialization. Each update keeps a separate recovery executable in its work folder, so rollback never moves the file that is running recovery. The launcher waits for that process and preserves its exit code, including after the failure prompt. Recovery opens the restored app through the Windows shell to keep its output separate from the launcher's captured output; the launcher can then finish while the restored app stays open.
+Only portable Windows x64 single-file builds in non-linked folders support installation. Other builds keep the manual release-page action. The internal `--recover-update` path runs before engine/configuration initialization. Each update keeps a separate recovery executable in its work folder, so rollback never moves the file that is running recovery. The launcher waits for that process and preserves its exit code, including after the failure prompt. Recovery opens the restored app through the Windows shell to keep its output separate from the launcher's captured output; the launcher can then finish while the restored app stays open.
 
 With the version-3 service an update is an ordinary portable update: the
-service is stopped while `Backspace.exe` is replaced, then started again. Only
-a service set up by Backspace 1.0 still uses the protected transaction below.
-`ServiceProgramUpdate` provides that separate protected replacement transaction
-for an activated 1.0 Windows service. It accepts a stable release tag and a staging
-ID, then fetches that exact release from the official GitHub API after elevation.
-It pins the owner's staged archive against replacement, verifies the official
-size and checksum again, and extracts only the four portable executables into
-the protected control folder. No caller-supplied URL, hash or executable path
-authorizes replacement. Its pending record blocks new service work. It disables
-service restart, replaces the bundle, and updates the permission-recovery
-journal to identify the new files while retaining the original ACLs. Recovery
-rolls an incomplete replacement back or finishes enabling an already verified
-replacement. Ordinary update recovery refuses these service-specific plans.
-The Settings update button stages its download under the owner's portable data
-folder, closes Backspace, then invokes `--service-update <tag> <staging-id>` with
-Windows administrator approval. The elevated helper writes a protected result
-for that attempt; the ordinary caller checks its identity and exit code before
-reopening the GUI without elevation. The public download is then disposable;
-the previous program files and recovery runner stay in the protected work folder.
-After a successful service update, older completed or rolled-back work folders
-are removed. The latest rollback bundle stays available. Unknown, unfinished,
-redirected or mismatched records are retained rather than swept away.
-`--service-recover-update <plan>` restores the previous version, including after
-a completed update. `--finish-pending` instead completes the recorded recovery
-decision after interruption. A launcher from an older attempt cannot replace a
-newer update. Ordinary GUI startup offers recovery before opening a pending
-bundle; if the executable itself is missing, the retained recovery launcher can
-still run. Native UAC, Settings clicks and live GitHub delivery require separate
-acceptance checks; automated backend coverage does not establish those results.
+service is stopped while `Backspace.exe` is replaced, then started again.
 
 Removal of superseded update work retries only Windows sharing violations,
 for a bounded 1.55 seconds. Each retry repeats containment and reparse checks.
@@ -427,20 +392,24 @@ Backspace/                          ← repo root (folder name may vary locally)
 ## Storage locations (on the user's machine)
 
 Everything is **portable**: the app keeps all state in one folder next to
-the executable. Settings, history and credentials never live elsewhere.
-Reproducible caches do, in `%LOCALAPPDATA%\Backspace`: `bin` (the engines, checked
-against the fingerprints built into Backspace.exe and fetched again when
-missing), `winfsp` (the WinFsp installer and library extracted from
-Backspace.exe), `verify` (scratch for restore checks) and `locks` (operation
-locks shared with the background service). All are recreated when missing.
-Optional system changes are listed in the user guide: the background service
-(administrator access), the sign-in start entry, and the WinFsp driver.
+the executable. Settings, history and credentials never live elsewhere; the
+credentials travel in `vault.bin`, encrypted with the person's password
+(U153). Reproducible caches and this computer's working files live in
+`%LOCALAPPDATA%\Backspace`: `bin` (the engines, checked against the
+fingerprints built into Backspace.exe and fetched again when missing),
+`winfsp` (the WinFsp installer and library extracted from Backspace.exe),
+`verify` (scratch for restore checks), `locks` (operation locks shared with
+the background service), `keys` (this computer's copies of the vault key) and
+`engine\<16 hex>` (the engine's working files, below). All are recreated when
+missing. Optional system changes are listed in the user guide: the background
+service (administrator access), the sign-in start entry, and the WinFsp driver.
 
 - `<exe-dir>/Backspace.config/config.json` — app settings, backups, destinations
-- `<exe-dir>/Backspace.config/secrets.bin` — encrypted secrets (API keys, OAuth tokens, storage passwords)
+- `<exe-dir>/Backspace.config/vault.bin` — the saved credentials (storage passwords, cloud sign-ins, API keys), one file for the app and the background service. See "Saved passwords (the vault)" below.
+- `<exe-dir>/Backspace.config/vault-conversion.json` — only while the one-time move from the earlier files is unfinished: its stage, vault id, count and digest, never a value.
+- `<exe-dir>/Backspace.config/secrets.bin` — the earlier credential file (Windows-protected for one account on one computer). Read only by the one-time move, and deleted after the first successful run on `vault.bin`.
 - `<exe-dir>/Backspace.config/pending-removals.json` — removed backups whose stored copies are still to be erased; absent when nothing is waiting
-- `<exe-dir>/Backspace.config/backrest/` — the GUI-owned Backrest data directory. Scheduled runs and elevated VSS helpers use isolated directories under `engine-runs/` so one process cannot shut down another process's daemon.
-- `<exe-dir>/Backspace.config/rclone-remotes/` — one generated remote configuration per cloud destination; refreshing one account cannot erase another.
+- `%LOCALAPPDATA%/Backspace/engine/<16 hex of SHA-256 of the upper-case configuration folder>/` — this computer's engine working files (`EngineWorkPaths`): `backrest/` (the GUI-owned Backrest data directory: its config.json holds every repository password in readable form, plus its sign-in files, operation database, operation logs and mount cache), `rclone-remotes/` (one generated remote per cloud destination, with its token), `rclone.conf`, `engine-runs/` (isolated directories for scheduled runs and elevated VSS helpers, so one process cannot shut down another's daemon) and, for the background service, `scratch/`. Never in the synced folder; rebuilt at start from the settings and the vault (seed configuration, sign-in, plans and repositories through `EnsurePlanAndRepo`, rclone remotes). Backrest's operation database starts empty on a new computer; run history is unaffected (below). The service's folder is named after `Backspace.config\service`. `BACKSPACE_MACHINE_ROOT` overrides `%LOCALAPPDATA%\Backspace` (tests; the service sets it to the owner's folder); a test configuration outside an executable's folder without it uses `<config>\engine`.
 - `<exe-dir>/Backspace.config/test-restores/` — saved test-restore plans, completed batch results and sample history. Temporary recovered files live separately under `verify/`.
 - `<exe-dir>/Backspace.config/logs/app/` — Serilog daily-rolling Backspace logs
 - `<exe-dir>/Backspace.config/logs/engine/<backup-name>/` — per-run engine transcripts (restic stdout via Backrest)
@@ -465,7 +434,7 @@ requires that driver to be installed with administrator approval. Normal
 restore does not require it. The service points at the portable executable
 wherever it is and changes no permission (see Windows snapshot protection).
 Records written while another process briefly reads them are replaced with
-retries for up to 20 seconds (`ServiceSetup.ReplaceRetrying`, U094). Removing a
+retries (`FileAccessRetry.Run`, U094, U135). Removing a
 backup that never ran, from a destination never set up, erases nothing there
 (`BackupRemoval.NothingStored`).No separate application
 installation or external persistent-data folder is authorized. Reinstallable
@@ -475,6 +444,78 @@ new computer. That exception does not include unique settings or credentials.
 
 The `BACKSPACE_CONFIG_ROOT` env var overrides the location — used by the
 test harness to give each test its own isolated config dir.
+
+### Saved passwords (the vault, U153)
+
+`SecretsStore` keeps every credential in `Backspace.config\vault.bin`
+(`VaultFile`): the marker `BSVAULT1`, a 4-byte header length, a JSON header
+`{v, id, kdf:{alg:"pbkdf2-sha256", iter, salt}, noPassword, wrap:{nonce, ct, tag}}`
+and a body of a 12-byte nonce, the AES-256-GCM ciphertext of the JSON
+credential map and its 16-byte tag. A random 32-byte vault key encrypts the
+body (associated data `BSVAULT1|body|<id>|v1`); the header wraps that key with
+a key derived by PBKDF2-HMAC-SHA256 (600,000 iterations, 16-byte salt, the
+password in NFC as UTF-8; associated data binds the id, the KDF settings and
+the no-password flag). An empty password is allowed: the file then says
+`noPassword` and its contents are only obscured; it opens on any computer
+without a question. Changing the password rewrites only the header, so other
+computers' key copies keep working. Headers asking for fewer than 100,000
+iterations, a newer format, a damaged body or a missing file with a `.bak`
+beside it are refused and kept as they are, never overwritten; the only
+replacement is the explicit "start over" (the file is kept as
+`vault.bin.unreadable-*`).
+
+Each computer keeps a copy of the vault key, protected by Windows for the
+account (DPAPI), in `%LOCALAPPDATA%\Backspace\keys\<vault id>.user.bin`
+(`VaultKeyCache`); the background service keeps its own, protected for
+Windows' own account, as `<vault id>.service.bin` in the owner's folder.
+States (`VaultState`): `NoVault` (nothing saved yet), `Unlocked`, `Locked` (no
+usable key copy here; a key copy that no longer opens the body is stale and
+deleted) and `Unreadable`. `Get` while locked throws `VaultLockedException`,
+so readiness checks and runs say "locked", not "missing"; `Set`/`Remove`/
+`PutNew` need `Unlocked`. Every read-modify-write holds the `StateFileLock`
+and reloads inside it; writes are atomic with a `.bak`; another program
+holding the file is waited out without a limit. `SetIfNewer` compares and
+replaces in one transaction (rclone's refreshed tokens,
+`RcloneConfigBuilder.ImportRefreshedToken`).
+
+The store never asks. `VaultGate` asks through `IVaultPrompt`
+(`VaultPasswordWindow`; tests script it) only when needed: before a
+credential is saved (destination Save, the change-storage-password dialog,
+cloud Connect, the Healthchecks key in the backup editor, Settings keys and
+client secrets) and before an action reads one (Run now, Test restore,
+restore, browse, mount, locating a moved repository). Without a vault the
+first save asks to choose a password; a cancelled question saves nothing.
+The test email keeps typed keys in memory. At start a locked vault shows a
+banner on the Backups page (`VaultBannerViewModel`), never a dialog
+(`VaultStartup`); desktop scheduled runs wait with one alert
+(`DesktopSchedule.VaultBlocked`). Settings → Saved passwords shows the state
+and changes the password.
+
+**The background service** opens the same `vault.bin` with its key copy
+(`ServiceVaultUnlock`). The app sends the key over the owner's authenticated
+runs pipe (`unlock`) when it sets the service up, after creating or unlocking
+the vault, and at start; the service keeps it only when it opens the vault,
+then counts as set up (`SystemService.MarkActivated`). While it has no key,
+its runs fail before any engine starts with "Open Backspace on this computer
+and enter your password once."
+
+**The one-time move** (`VaultConversion`, `WindowsVaultConversionHost`) of an
+install from before the vault: at start, with the earlier `secrets.bin` and no
+`vault.bin`, the app asks once to choose a password. It freezes the service
+and takes its earlier vault (`service\secrets.bin`) back over the return pipe
+(`ServiceVaultReturnProtocol`); the service's copy wins and the desktop's
+fills the gaps; newer tokens from every old rclone file are taken
+(`IsNewerToken`). It writes `vault.bin.tmp`, reopens it with the password,
+compares count and digest, publishes it without replacing anything and saves
+the key copy. The service then checks that `vault.bin` holds every entry of
+its earlier vault before keeping its key; it is thawed. The old engine folders
+move to this computer under each sidecar owner lock; the old rclone files,
+engine runs and service scratch are deleted. The earlier `secrets.bin` files
+go after the first successful run on `vault.bin`. Each stage is recorded in
+`vault-conversion.json` and resumes at the next start; nothing old is deleted
+before `vault.bin` and the service's confirmation. This code exists only for
+installs made before the vault and can be removed once the owner's install
+is converted.
 
 ## Design principles (stick to these)
 
@@ -556,7 +597,7 @@ test harness to give each test its own isolated config dir.
    are noticed; a saved change wakes it.
    Who runs the loop: `DesktopSchedule` in the tray app, in process, through
    the orchestrator like Run now, unless the background service owns the
-   schedule; then `BackupWindowsService` runs it with the approved settings.
+   schedule; then `SystemBackupService` runs it with the saved settings.
    Quit stops the tray app, so nothing runs until it starts again. The app
    starts at sign-in through the person's own entry (`SignInStart`: the
    HKCU Run value on Windows, a LaunchAgent on macOS, an XDG autostart file on
@@ -577,25 +618,9 @@ test harness to give each test its own isolated config dir.
    record and cancelled when Quit changes its generation. A start at sign-in
    exits when the current session is paused. A failed pause write keeps the GUI
    open with an explanation.
-   For an activated service, the desktop sends these actions through
-   `ServiceSessionProtocol`. The pause record and running-work handle stay in
-   the private service folder beside the portable executable. Requests cannot
-   supply file paths. Windows supplies the pipe client's session ID; a pause
-   must name that session and the configured owner. The service ends the
-   pause when Windows reports that session's sign-out (`OnSessionChange`), when
-   the saved logon predates the last restart, or when the session no longer
-   exists. Sleep, hibernation, locking and disconnecting keep it. The service
-   retains the running handle until its worker exits, including after
-   cancellation. A quick reopen preserves the generation that stops old work.
-   Service restart retains the pause; an invalid run request is rejected
-   without terminating the command listener.
-   This describes the current implementation, not a prohibition on a service:
-   before-sign-in backups must also support passwordless accounts. A future
-   service must use an administrator-protected executable and protected storage
-   inside the portable folder. Windows service registration can point at that
-   existing executable; it does not require a second application installation.
-   Windows does not require Program Files, a drive-root folder or any particular
-   folder name. Where Backspace lives, and who may change its files, is the
+   With the background service, Quit stops it (`SystemServiceLifetime`, see
+   Windows snapshot protection); the desktop's own pause record covers the
+   tray app's runs. Where Backspace lives, and who may change its files, is the
    owner's decision (27-28 October 2026): any local folder is accepted,
    including a drive root, a folder shared with other files, or a shared
    parent such as C:\Users\Public\Downloads. Setup does not change the
@@ -603,51 +628,28 @@ test harness to give each test its own isolated config dir.
    Accepted risk: any program running as an account that can modify those
    files (for example the owner's, or every account's in a shared folder) can
    replace Backspace.exe or an engine and have the privileged service run it.
-   Portable restic or Duplicacy started from a SYSTEM service or task carries
-   the same risk; installers avoid it by using Program Files. Only network
-   drives, which the service cannot reach before sign-in, and read-only
-   folders are refused. Do not change permissions on unrelated parent folders. A service must authenticate its
-   clients and authorize individual backup plans; copying arbitrary desktop
-   configuration, hooks, executable paths or environment overrides into a more
-   privileged worker is unsafe. Preserve the user's existing encrypted vault
-   while designing and testing any separate unattended secret storage.
+   Portable restic started from a SYSTEM service carries the same risk;
+   installers avoid it by using Program Files. Only network drives, which the
+   service cannot reach before sign-in, and read-only folders are refused
+   (`ServiceInstallationSecurity.ValidateServiceLocation`). Do not change
+   permissions on unrelated parent folders.
 
-    `ServiceInstallationSecurity` validates the service's own protected state
-    before it is trusted: ordinary accounts must not be able to change or
-    replace the windows-service folder's records or read its private data.
-    The program files are checked only for presence, location and links; their
-    permissions are the owner's choice, and folders above windows-service are
-    not checked. Links, remote paths,
-    alternate data streams and ambiguous path spellings are rejected. The
-    registration step must establish these boundaries before starting the
-    service; this validator does not itself register or activate anything.
-    The code-tree check permits the separately validated private data folder
-    beneath the program folder, without treating writable history and vault
-    files as executable code. No other writable or redirected child is exempt.
-
-    `BackupServicePipe` implements the local transport boundary for that
-   service work; it is not yet connected to the production scheduler. The
-   listener must run as its configured virtual service account. Its Windows
-   ACL admits only the configured owner, the service and SYSTEM, rejects
-   remote connections, and does not grant clients permission to create a
-   competing pipe instance. Before sending data, the client verifies the
-   kernel object's owner against the expected service SID. An ordinary
-   process cannot impersonate the service by claiming its name or PID.
-   Clients allow identification only, not impersonation of the desktop
-   account. Messages have explicit size limits and cancellation deadlines.
-   Each pipe name ends with a random part the version-3 service picks every
-   time it starts, kept in `Backspace.config\service\pipe-names`, which only
-   the owner and Windows can read; clients read it before each connection.
-   The names were predictable, so another account could create one while
-   the service was stopped and make it fail to start (U152). The return pipe,
-   created only while the sign-ins go back to the owner, also carries that
-   return's random ID, which only the owner receives.
-   Administrators and SYSTEM remain trusted. This transport does not itself
-   authorize backup plans, migrate secrets, install a service or make the
-   existing scheduler safe for before-sign-in production use.
+   `BackupServicePipe` is the local transport to the service. Its Windows ACL
+   admits only the owner and SYSTEM, rejects remote connections, and does not
+   grant clients permission to create a competing pipe instance. Before
+   sending data, the client verifies that the kernel object's owner is
+   `S-1-5-18`. Clients allow identification only, not impersonation of the
+   desktop account. Messages have explicit size limits and deadlines. Each
+   pipe name ends with a random part the service picks every time it starts,
+   kept in `Backspace.config\service\pipe-names`; clients read it before each
+   connection (U152). The runs pipe accepts a fixed vocabulary
+   (`ServiceHostRequest`): activity, start, cancel, heartbeat, measure, freeze,
+   thaw and `unlock` (the vault key, U153). The return pipe, created only while
+   an unconverted service's earlier vault goes back to the owner, also carries
+   that return's random ID, which only the owner receives.
 
    The version-3 service (Windows' own account) writes its history and logs in
-   `Backspace.configservicelogsengine`, where they inherit the portable
+   `Backspace.config\service\logs\engine`, where they inherit the portable
    folder's permissions. The desktop reads them there directly
    (`ServiceHistoryFiles`, U138): every run from `history.json` and
    `timeline.json`, and each log in full, with the service running or stopped.
@@ -655,8 +657,7 @@ test harness to give each test its own isolated config dir.
    the portable folder moves, the file of the same name in the same backup
    folder is used. Reading in this direction gives the desktop nothing it could
    not already open. No service serves a history or transcript pipe: the
-   earlier services (versions 1 and 2) are not supported for this, as no other
-   installation needs a migration path (6 November 2026).
+   earlier services (versions 1 and 2) are gone (6 November 2026).
 
    `LogStore` merges the service's runs into history and the timeline, and
    tells the views to reload when the service's history files change. That
@@ -683,181 +684,14 @@ test harness to give each test its own isolated config dir.
    updates while still displaying new lines. Completed runs show their saved log
    file; the final live tail is not treated as an entire saved transcript.
 
-   `SecretsStore` can open an explicit trusted path for a separate service
-   identity. Its migration snapshot refuses an unreadable source. The
-   synchronous migration transaction keeps the source vault locked through
-   transfer, target verification and activation, preventing a concurrent
-   refresh from being silently lost. Import is one-time: it checks an
-   encryption/decryption round trip, flushes a temporary file, then publishes
-   without replacing an existing target. The original vault is retained.
-   These primitives do not activate migration themselves; registration and the
-   authenticated service dispatcher must complete and verify the handoff.
-
-   `ServiceSecretsBackend` routes existing `SecretsStore` consumers to one
-   service-owned vault. `ServiceSecretsProtocol` permits only validate, get,
-   set and remove, with bounded fields and strict JSON parsing. It accepts no
-   file paths, executable commands or full-vault export. Every operation holds
-   the vault transaction through the read check and mutation; a missing or
-   unreadable service vault cannot be replaced by an automatic token refresh.
-   The client authenticates the service before sending a secret and never
-   falls back to the retained desktop vault. Writes are not automatically
-   retried after a lost response. Enabling this backend still requires the
-   protected installation binding and verified migration. Ordinary desktop
-   construction uses `ServiceOwnerSecrets` only for the executable's adjacent
-   configuration folder; test overrides and private worker data stay isolated.
-   Each operation holds the original vault transaction while resolving the
-   protected binding. Before activation it uses the original provider; after
-   activation it uses the authenticated service endpoint, starting the service
-   if necessary. An already-open desktop therefore follows the provider switch.
-   Invalid binding or service access fails explicitly without a local fallback.
-
-   `ServiceRunAuthorization` reads an administrator-protected approval with
-   an owner SID, revision and configuration digest. A desktop request can name
-   only an approved backup, the current revision and backup/check/prune; it
-   cannot supply configuration, an executable, arguments or a restore target.
-   Unknown and duplicate JSON fields, disabled plans, stale revisions and
-   maintenance without its approved schedule are rejected. Each authorized
-   run receives a separate configuration copy. The service host must reload
-   approvals when installation changes, validate runtime paths and keep
-   untrusted desktop files out of the privileged worker; the authorization
-   parser alone does not establish those execution boundaries.
-
-   `ServicePathLease` holds an approved local directory and its ancestors
-   against deletion/renaming while a privileged operation uses the path.
-   Initial handles also deny write sharing until reparse checks and terminal
-   guard creation finish. Each terminal folder receives a unique zero-byte,
-   hidden, delete-on-close marker that cannot be removed while held. The folder
-   therefore cannot become an empty junction target; pinned child directories
-   keep its ancestors nonempty. Read/write sharing is then permitted without a
-   gap in protection, allowing child-file atomic saves and restic repository
-   initialization. Keeping write sharing denied for the entire operation blocks
-   those renames and is incorrect. The worker excludes only its own generated
-   marker names from snapshots. It retains handles through engine disposal.
-   The version-3 service (U100) places no markers in the owner's source
-   folders. `RepositoryHold` instead holds every folder of a repository on
-   this PC this way while the engine works there, in the service and the app
-   alike (U152): the repository folder, `keys`, `locks`, `index`,
-   `snapshots`, `data` and `data\00` to `data\ff`. Every
-   `ResticBackrestEngine` call that runs restic against a repository takes
-   it: backups, checks, cleanups and restores, but also listing revisions or
-   files, forgetting a snapshot and changing the password, since each writes
-   and deletes a restic lock file by name. Calls on one repository share one
-   hold (`RepositoryHold.Use`); the folders that exist are held in one batch
-   (about 0.1 s). Backrest also runs restic there by itself: it unlocks
-   repositories an interrupted operation left marked as it starts, and
-   schedules follow-ups (indexing after a backup, a forget or a new
-   repository, statistics after a cleanup) that outlive the call. So the
-   engine holds every drive-letter repository in its configuration from just
-   before Backrest starts until it is ready (`HoldLocalRepositories`; a link
-   already planted stops the start), and a call that ends while Backrest runs
-   leaves its repository held until Backrest has stopped
-   (`RepositoryHold.EndEngineSession`, after five idle minutes or on quit).
-   Meanwhile Windows can't safely remove an external drive whose backup was
-   just used. Missing ones are made first,
-   under the hold (restic would otherwise make them during the run, unheld);
-   for a first backup the whole set is made, one folder at a time, each held
-   before the next, starting from the nearest existing folder, which is
-   checked for links first, even when the folder already holds something
-   (restic's init would make them there anyway). They are made only where
-   restic would make them: in a restic repository (a `config` file and a
-   `keys` folder), or for a backup where there is no `config` yet. Any other
-   folder, including another program's backup storage (Duplicacy's has a
-   `config`), is held but gets none. An
-   external drive or a folder on a second drive lets every account modify it
-   by default, and restic deletes its lock files and old packs by name: a
-   folder emptied and turned into a link would send those deletes onto any
-   file, as SYSTEM in the service. A link already in place stops that part of
-   the run. restic's init, check, backup and prune accept the made folders and
-   ignore the markers, except directly in `data`: restic opens every entry
-   there as a folder, and an open marker makes its listing fail (check and
-   prune retry for many minutes, then stop). `data` is therefore held only
-   through its 256 held subfolders and keeps no marker. Network/removable destinations remain unsupported
-   by this unactivated service worker. See Microsoft's
-   [reparse-point restrictions](https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-points)
-   for the nonempty-directory and name-surrogate rules.
-
-   The hidden `--service-worker` entry connects these boundaries to the real
-   orchestrator. It loads an administrator-protected installation binding,
-   requires the actual noninteractive virtual service identity with Backup
-   Operators membership, validates shipped code, opens the existing service
-   vault, and holds approved local paths through engine disposal. A private
-   file lock serializes workers across sessions. It enables only backup rights
-   already assigned to that account; it cannot grant rights or register tasks.
-   Applying approved settings preserves newer run and recovery outcomes.
-   Environment overrides cannot redirect its configuration or scratch space.
-   Backup operations hold both source and repository paths. Standalone checks
-   and cleanup hold only repositories, so an unavailable original source does
-   not prevent maintenance. A check explicitly configured to compare restored
-   files with today's originals still protects those source paths. Network
-   sources and removable/network destinations currently fail admission; they
-   are not silently run without path protection. Registration, scheduling and
-   desktop handoff use the integration described below. Current acceptance
-   results and remaining release checks are recorded in the local Review desk.
-
-   `BackupWindowsService` supplies the SCM host for this protected worker. Its
-   authenticated run endpoint accepts only status, cancellation of the current
-   run ID, or an approved backup/check/prune request. It reloads the protected
-   approval for each start, rejects concurrent starts, records admission before
-   replying, and keeps uncertain interrupted runs distinct from success. A
-   child waits for its host's admission signal before touching a repository;
-   the host first attaches it to the process-lifetime job. Service shutdown
-   requests cooperative cancellation, then terminates a child that exceeds the
-   shutdown allowance. The separate credential endpoint opens only the existing
-   service vault. This host does not install itself, migrate credentials or
-   register schedules; desktop activation remains separate.
-
-   The service keeps the schedule itself: `BackupWindowsService` starts with
-   Windows (automatic start) and runs `ScheduleLoop` with the approved
-   configuration. It waits while an update, removal or settings change is
-   pending, and while the owner's saved settings differ from the approved ones
-   (when the service account can read them). A due plan is authorized against
-   the approved revision, admitted through the Quit pause, and run by one worker
-   at a time; a busy slot keeps it due. A time limit or battery stop is
-   delivered to the worker like Quit's cooperative cancellation.
-   `ServiceScheduledRun` serves Run now and the owner's command line. It asks
-   the restricted service to run the approved operation and follows it. It
-   checks every 250 ms during the first 15 seconds, then every five seconds.
-   These checks renew a run-specific, monotonic 30-second lease. If the client
-   disappears, the service requests cancellation within two seconds of lease
-   expiry, then allows 15 seconds before terminating the worker tree. The worker
-   slot stays occupied until exit is confirmed.
-   Lost start replies are not replayed; uncertain results cannot become success.
-   An explicit busy refusal waits before trying admission again. Terminal
-   receipts are retained by run ID, so another backup starting cannot hide the
-   result its predecessor's client is still waiting to collect.
-   Public `--run`, `--run-all`, `--check` and `--prune` commands use
-   `ServiceCommandLineRun` when the adjacent portable configuration has an
-   activated service. The current Windows owner is checked before dispatch;
-   the CLI sends the approved backup ID and revision, never paths or credentials.
-   Its `start-cli` request shares scheduled-run pause handling and the liveness
-   lease, so closing or cancelling the command cannot silently detach its worker.
-   An explicit owner command may check or prune an enabled, approved backup
-   without adding a maintenance schedule; automatic requests still require that
-   schedule. Both routes use the approved retention settings and independently
-   validate the worker's virtual-service identity. Unknown names, ambiguous names,
-   disabled backups and unapplied settings fail without starting another engine.
-   `ServiceScheduleRegistration` keeps the installation's protected task folder,
-   which now holds only the "Apply saved settings" task (no trigger). Activation
-   registers it disabled and enables it after the verified provider switch.
-   Folders made by earlier versions also held one SYSTEM task per backup and a
-   sign-in task for alerts; preparation, enabling and the settings task remove
-   them after validating each one, and the desktop treats them as a pending
-   settings change. Setting the service to start automatically also starts it;
-   the owner's app starts a stopped service again when it opens. Settings →
-   Administrator access explicitly enables this integration through
-   `WindowsBackgroundBackupSetup`; opening Settings only inspects it.
-   With the service, `AppScheduler.UpsertTask` checks the current approval.
-   During activation, `ServiceLegacyTasks` archives and disables this copy's
-   recognized older tasks before enabling replacements, then removes them.
-   Matching requires the exact Windows owner, known task-name form and complete
-   action for this executable and a known fallback helper location. A matching
-   name alone is insufficient. Original cmd wrappers are compared without
-   executing them. An active old task blocks completion until its operation ends;
-   migration does not kill it or re-enable S4U. Original definitions remain in the
-   adjacent protected control folder for inspection. Setup reports remaining
-   recognized tasks as unfinished rather than claiming migration succeeded.
-   Service lifecycle, native acceptance and release qualification remain separate
-   checks; a visible setup button is not evidence that those checks passed.
+   The worker (`--service-worker-owned` / `--service-worker-cli`,
+   `ServiceApprovedWorker`) runs one operation the service admitted: it checks
+   that it runs as the installed service, opens the portable vault with the
+   service's key copy (a locked vault stops it before any engine starts, with
+   the reason in the run's history), connects network shares with their saved
+   credentials, sets its configuration and scratch to the service's folders
+   (scratch on this computer, U153) and runs the ordinary orchestrator. Its
+   report (`last-service-run.json`) names the vault it used.
 
    Background workers persist desktop alerts through `ServiceNotificationQueue`
    in their private adjacent data folder before exiting. Email delivery stays in
@@ -877,9 +711,8 @@ test harness to give each test its own isolated config dir.
    sign-in (see the scheduler lifecycle above). Absent an owner session, alerts
    wait for sign-in. A start at sign-in stays in the tray without opening the
    main window or resuming a current-session Quit pause; opening Backspace
-   explicitly restores its normal startup behavior. Retirement removes the
-   service and its task folder. Native sign-in, lock/unlock and visible
-   delivery require VM acceptance.
+   explicitly restores its normal startup behavior. Native sign-in,
+   lock/unlock and visible delivery require VM acceptance.
 
    `ServiceRunRecovery` saves the admitted backup ID, name, operation, start time
    and failure-alert choices before the worker process starts. The first worker
@@ -896,138 +729,6 @@ test harness to give each test its own isolated config dir.
    are checked every two seconds while idle; delivered backlog alerts are
    spaced ten seconds apart.
 
-   The desktop reads that protected binding through `LoadForOwner`, which
-   verifies the installation and requires the current Windows user to match
-   its owner. It does not open the service's private data directory. The
-   service's own `Load` additionally validates that directory before serving
-   requests. This separation lets an ordinary owner use the authenticated
-   connection without granting direct access to the vault or approved settings.
-
-   A protected `service-migration.json` grant enables the separate, authenticated
-   one-time migration endpoint. `ServiceMigrationProtocol` reserves that grant
-   durably before creating a vault; replay cannot replace refreshed credentials
-   or recreate a missing target. A retained vault backup also blocks import.
-   Verification rereads the encrypted target and returns a digest and count,
-   never a full-vault export. `ServiceVaultHandoff` keeps the source transaction
-   locked through import, read-only verification and synchronous activation.
-   A lost import reply triggers verification rather than a repeated write.
-   If setup was cancelled before activation and the original desktop vault
-   subsequently changed, handoff may conditionally refresh the verified inactive
-   copy. Refresh checks the previously read target digest and count while holding
-   its vault lock, removes the old acceptance before replacement, retains the
-   encrypted backup, and requires fresh verification. A protected migration lock
-   excludes activation during refresh. An active, missing or unreadable service
-   vault is never replaced through this path.
-   After checking the target against its locked source snapshot, the owner
-   accepts that exact digest and count. The service rereads its vault and
-   publishes a private acceptance receipt without credential values or hashes.
-   Elevated `ServiceActivation` requires this receipt before creating schedules.
-   Before enabling them, `ServiceRepositoryPermissions` grants this service
-   modify access to the approved local repository folders. It records each
-   root's file identity before the first change, preserves ownership and other
-   accounts' rules, and inspects descendants individually without following
-   junctions or hard links. Removal deletes only this service's access rules;
-   it must not restore old complete ACLs over later user changes. Replaced
-   destination roots require review instead of receiving an old permission grant.
-   Its durable activated binding selects the service vault before any schedule
-   is enabled. Failures after that commit recover forward instead of reverting
-   to old tokens. A consumed grant with no usable target needs explicit recovery;
-   the source is preserved.
-   `ServiceConfigurationUpdate` applies later settings with administrator
-   approval. The desktop's expected configuration digest must still match
-   before a protected recovery record is written. Existing work prevents the
-   update from starting. A pending update blocks new service workers; the
-   update stops the host, prepares disabled schedules and operation locks,
-   removes obsolete repository grants, grants the new scope, and publishes
-   the new approved configuration. Removing old grants before adding new ones
-   preserves access when the new destination is inside the old destination.
-   Only then is the record marked ready and its matching schedules enabled.
-   Recovery uses the saved approved settings and never replaces newer desktop
-   edits. Removing the last backup leaves no authorized work or schedules.
-   The internal `--service-refresh <digest>` command starts an update;
-   `--service-refresh` resumes one already recorded. Both require elevation.
-   Schedule times are normalized to whole seconds before registration and
-   comparison, matching Windows' persisted trigger precision. Invalid timing,
-   cadence and weekly-day values are rejected before an update is recorded.
-   Before each scheduled start the service compares the saved desktop settings
-   with the approved settings when it can read them. Pending edits, disabled or
-   deleted backups prevent the old approval from starting work. `ServiceConfigurationComparison` excludes only named presentation and
-   completed-result fields, so a theme change or new history does not suspend
-   schedules. Unknown new fields remain significant. The tray reports settings
-   that are not applied yet explicitly.
-   `ServiceSetup` now provides elevated preparation and cancellation commands.
-   Preparation registers the existing portable executable, initially disabled,
-   then starts its restricted virtual account on demand. Version 2 metadata is
-   under `Backspace.config/windows-service/control`; private service data stays
-   under `Backspace.config/windows-service/data`. No second program copy or
-   ProgramData settings directory is created. Existing desktop data remains in
-   its ordinary location. Setup never changes parent folders or requires a
-   named folder.
-   Service records are protected against replacement; the executable and
-   bundled engines are not (see above). Directory ACL changes never propagate into existing settings,
-   vaults and logs. The installation folder, `Backspace.config` and repository
-   ancestors can be another program's current directory (Backspace itself
-   starts in its own folder), and Windows holds a current directory without
-   delete sharing. Those folders are opened without delete access and changed
-   with `SetKernelObjectSecurity`, which updates only the folder itself.
-   Folders setup creates, or deletes, use MAXIMUM_ALLOWED handles, for which
-   `SetSecurityInfo` also skips propagation.
-   `ServiceObjectPermissions` also pins each program file, opens reparse points
-   without following them and refuses files with multiple hard links. Permission
-   updates use the inspected handles, including rollback after the parent becomes
-   writable, so replacing a pathname cannot redirect the permission change.
-   `ServiceSetupRecovery` saves the original permissions and object identities
-   in a protected journal before changing any existing ACL. It includes
-   the desktop's existing `.backspace-runtime.lock` as well as the
-   program files. Setup accepts only an empty regular lock file, pins it while
-   protecting its permissions, and records its original identity and ACL.
-   Older preparation journals without that file remain valid. Cancellation can
-   therefore recover an interrupted preparation, including one that never
-   registered its service. It validates the journal and every original object,
-   prevents the prepared service from restarting, then removes only its own
-   registration. The journal remains until every original ACL is restored;
-   cleanup deletes the inspected objects through held handles. Credential
-   handoff or any private service work blocks this preparation-only recovery.
-   `ServiceCoordinationFiles` keeps shared operation, backup and repository
-   locks in the protected control folder. Both the desktop owner and virtual
-   service account can open those files, across Windows sessions, without
-   permission to replace them or change their access lists. File-sharing locks
-   release on process exit. Missing, redirected or unsafe lock files fail
-   admission; the orchestrator never bypasses an unavailable cross-process gate.
-   Preparation holds the original desktop operation lock before publishing its
-   binding. An unfinished binding blocks new work until setup finishes or is
-   cancelled. Clients recheck that binding after opening the old lock, closing
-   the race with activation. Ordinary portable copies retain their existing
-   named semaphore keys; isolated review configurations do not join service locks.
-   Preparing version 2 does not authorize backup execution or register tasks.
-   Credential activation is a separate elevated command. Settings coordinates
-   preparation, credential transfer, activation and changed-settings approval.
-   `ServiceRetirement` freezes new work and credential writes before returning
-   credentials. The ordinary owner receives the latest service vault through
-   the authenticated return pipe, encrypts it with that owner's DPAPI identity,
-   rereads and verifies it, and holds the encrypted file through final removal.
-   The service records acceptance of that exact returned file before the
-   elevated helper removes its schedules, repository grants and registration.
-   A durable removal record permits retry after interruption; every retry checks
-   the returned file again. Missing or changed credentials prevent completion.
-   Both vault copies and the original local backup remain available for recovery.
-   Only after registration is gone does removal return access to retained private
-   data and restore the saved original program/folder permissions. Every affected
-   object is pinned and checked against the setup journal. Parents are restored
-   first so Windows rebuilds child inheritance from the original parent ACL.
-   The elevated helper enables its existing backup/restore privileges for these
-   operations; it does not grant new privileges to the desktop account.
-   Successful removal switches desktop credentials and operation locks back to
-   ordinary portable mode. `ServiceHistoryFiles` retains old runs and relocates
-   their transcript paths within the adjacent configuration folder. Re-enabling
-   archives the completed service data under the same configuration folder and
-   creates a new registration; it never replaces an existing archive. Updating
-   or moving an active service still requires its separate lifecycle handling.
-   The service stays beside the same portable executable and configuration; it
-   does not copy the app into Program Files or move its data. It never changes
-   the permissions of the program folder or its parents (see the accepted risk
-   above). Backups from a network drive, which the service cannot use, run as
-   the signed-in owner without VSS.
 4. **Single executable.** `Backspace.exe` carries the pinned versions and
    SHA-256 fingerprints of `backrest`, `restic`, and `rclone`; on first
    start it downloads them from those projects' releases into

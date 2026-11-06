@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Backspace.Services;
 
 namespace Backspace.Tests.TestHelpers;
 
@@ -24,7 +25,10 @@ public sealed class TempWorkspace : IDisposable
     public string Root { get; }
     public string ConfigRoot { get; }
 
-    public TempWorkspace(string? label = null)
+    /// <param name="vault">Creates an empty-password vault (U153), as a person
+    /// who saved a credential without choosing a password would have: tests
+    /// that save credentials then work without a prompt. False leaves none.</param>
+    public TempWorkspace(string? label = null, bool vault = true)
     {
         var name = label is null
             ? $"backspace-test-{Guid.NewGuid():N}"
@@ -37,6 +41,7 @@ public sealed class TempWorkspace : IDisposable
 
         _previousConfigRoot = Environment.GetEnvironmentVariable("BACKSPACE_CONFIG_ROOT");
         Environment.SetEnvironmentVariable("BACKSPACE_CONFIG_ROOT", ConfigRoot);
+        if (vault) new SecretsStore().Create("");
     }
 
     /// <summary>Create (if missing) and return the path of a subdirectory of the workspace.</summary>

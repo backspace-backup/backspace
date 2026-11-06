@@ -27,19 +27,15 @@ internal sealed class BackgroundServiceNotifications : IDisposable
     internal static BackgroundServiceNotifications? Start(NotificationService notifier)
     {
         var root = AppContext.BaseDirectory.TrimEnd('\\');
-        if (!ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot)) return null;
+        if (!ServicePortableLayout.IsPortableConfig(root, AppPaths.ConfigRoot)) return null;
         var monitor = new BackgroundServiceNotifications(async (request, token) =>
         {
             if (ServiceWorkerBinding.ForDesktop(root) is not { } binding) return new(1);
-            // The settings and program updates below belong to the 1.0 service;
-            // asking for them with the version-3 service filled the log every
-            // two seconds (3 November 2026).
-            if (!binding.CanRun || !binding.IsSystem && (ServiceConfigurationUpdate.IsPending(root, binding) || ServiceProgramUpdate.IsPending(root))) return new(1);
+            if (!binding.CanRun) return new(1);
             using var service = new ServiceController(binding.ServiceName);
-            // The version-3 service is started by opening Backspace and
-            // stopped by Quit (U100); polling never starts it again.
-            if (binding.IsSystem) { if (service.Status != ServiceControllerStatus.Running) return new(1); }
-            else ServiceRegistration.EnsureRunning(service, TimeSpan.FromSeconds(15));
+            // The service is started by opening Backspace and stopped by Quit
+            // (U100); polling never starts it again.
+            if (service.Status != ServiceControllerStatus.Running) return new(1);
             return await ServiceNotificationProtocol.SendAsync(binding, request, token).ConfigureAwait(false);
         }, async (notice, token) =>
         {

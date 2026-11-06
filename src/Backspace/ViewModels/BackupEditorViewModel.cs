@@ -1691,6 +1691,15 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         // leak on every Erase / Prune / Run-now / Simulate path.
         if (!string.IsNullOrWhiteSpace(HealthcheckApiKeyInput))
         {
+            // The key joins the saved passwords: ask for their password
+            // before anything is written; cancel saves nothing (U153).
+            if (!await VaultGate.EnsureWritableAsync("Backspace saves your Healthchecks.io key with your other saved passwords."))
+            {
+                SummaryError = "Nothing was saved: your saved passwords are locked. Save again to enter the password.";
+                OnPropertyChanged(nameof(HasAnyError));
+                RunAfterSaveRequested = false;
+                return null;
+            }
             ServiceLocator.Config.Update(cfg =>
             {
                 cfg.Monitoring.HealthchecksApiKeyRef ??= "monitoring:hcApiKey";

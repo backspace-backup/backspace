@@ -152,7 +152,8 @@ public sealed class E24_BackupCardActionShelf : BackupE2EBase
                     }
                     if (label == "Test restore")
                     {
-                        ctx.Driver.Pump();
+                        // The saved passwords are checked first (U153), off the UI thread.
+                        Assert.True(ctx.Driver.WaitFor(() => host.OwnedWindows.OfType<TestRestoreOptionsWindow>().Any()), "The test-restore options must open.");
                         var dialog = host.OwnedWindows.OfType<TestRestoreOptionsWindow>().Single();
                         dialog.GetVisualDescendants().OfType<RadioButton>().Single(b => b.Name == "FullChoice").IsChecked = true;
                         dialog.FindControl<Button>("StartButton")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));

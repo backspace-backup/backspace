@@ -18,7 +18,7 @@ internal static class InstallationHandover
 {
     internal const string MoveArgument = "--move-installation-from";
 
-    internal sealed record Other(string Installation, string Version, bool HasLegacyService, bool ThisCopyHasSettings);
+    internal sealed record Other(string Installation, string Version, bool ThisCopyHasSettings);
 
     /// <summary>Another copy this account uses: the one the background service
     /// runs, or the one that starts at sign-in. Null when there is none, or it
@@ -27,8 +27,7 @@ internal static class InstallationHandover
     /// new download, is offered the update or the move.</summary>
     internal static Other? Find(string here)
     {
-        if (HasSettings(here) || SystemService.ForCopy(here) is not null
-            || File.Exists(ServicePortableLayout.Record(here, ServiceWorkerBinding.FileName))) return null;
+        if (HasSettings(here) || SystemService.ForCopy(here) is not null) return null;
         var candidates = new[]
         {
             Safe(() => SystemService.ForCurrentUser()?.Installation),
@@ -40,9 +39,7 @@ internal static class InstallationHandover
             var exe = Path.Combine(candidate, "Backspace.exe");
             if (!File.Exists(exe) || !File.Exists(Path.Combine(ServicePortableLayout.Config(candidate), "config.json"))) continue;
             var version = FileVersionInfo.GetVersionInfo(exe).ProductVersion?.Split('+')[0] ?? "";
-            return new(candidate, version,
-                File.Exists(ServicePortableLayout.Record(candidate, ServiceWorkerBinding.FileName)) && Safe(() => ServiceRetirement.Read(candidate) is not { Stage: "complete" }),
-                HasSettings(here));
+            return new(candidate, version, HasSettings(here));
         }
         return null;
     }
@@ -83,20 +80,17 @@ internal static class InstallationHandover
         // The background service runs that Backspace.exe: stop it while the
         // file is replaced (the owner may), then start it again.
         var system = SystemService.ForCurrentUser() is { } found && SystemService.SamePath(found.Installation, other.Installation) ? found : null;
-        var legacy = system is null && other.HasLegacyService ? Safe(() => ServiceWorkerBinding.LoadForOwner(other.Installation).ServiceName) : null;
-        var service = system?.ServiceName ?? legacy;
-        if (service is not null) SystemService.StopAndWait(service, TimeSpan.FromSeconds(90));
+        if (system is not null) SystemService.StopAndWait(system.ServiceName, TimeSpan.FromSeconds(90));
         try
         {
             var target = Path.Combine(other.Installation, "Backspace.exe");
-            ServiceSetup.ReplaceRetrying(() => File.Copy(Environment.ProcessPath!, target, overwrite: true), target);
+            FileAccessRetry.Run(() => File.Copy(Environment.ProcessPath!, target, overwrite: true), target);
         }
         finally
         {
             try
             {
                 if (system is not null) SystemServiceLifetime.Resume(system, TimeSpan.FromSeconds(60));
-                else if (legacy is not null) SystemService.Start(legacy, TimeSpan.FromSeconds(60));
             }
             catch (Exception ex) { AppLogger.For(nameof(InstallationHandover)).Warning(ex, "The background service starts when that copy opens"); }
         }

@@ -9,13 +9,14 @@ namespace Backspace.Services;
 /// <summary>
 /// Single source of truth for where we store things on disk.
 ///
-/// Backspace is portable: everything the app creates lives under
+/// Backspace is portable: everything the app keeps lives under
 /// <c>&lt;exe-dir&gt;/Backspace.config/</c> so a user can back up that single
 /// folder (or drop it onto a new machine alongside the exe) and be back in
-/// business. The only machine-bound files are the secrets vault
-/// (<c>secrets.bin</c>) and, on Unix, its keyfile — neither can travel
-/// between machines without the user re-entering destination secrets.
-/// Backup <em>definitions</em> (config.json) travel losslessly.
+/// business. Saved credentials travel too, in <c>vault.bin</c>, encrypted
+/// with the person's password (U153); a new computer asks for it once.
+/// Files that would expose a credential in readable form (the engine's
+/// working files) and each computer's copy of the vault key are kept on
+/// that computer instead (<see cref="EngineWorkPaths"/>) and rebuilt there.
 ///
 /// <para>
 /// Dev-time layout: when running under <c>dotnet run</c>,
@@ -79,7 +80,11 @@ public static class AppPaths
     public static string LocalRoot => ConfigRoot;
 
     public static string ConfigFile  => Path.Combine(ConfigRoot, "config.json");
-    public static string SecretsFile => Path.Combine(ConfigRoot, "secrets.bin");
+    /// <summary>The saved credentials, encrypted with the person's password (U153).</summary>
+    public static string VaultFile => Path.Combine(ConfigRoot, Services.VaultFile.FileName);
+    /// <summary>The credential file used before <see cref="VaultFile"/>, bound to
+    /// one Windows account on one computer. Read only by the one-time conversion.</summary>
+    public static string LegacySecretsFile => Path.Combine(ConfigRoot, "secrets.bin");
 
     /// <summary>
     /// Paths to the engine binaries: beside Backspace.exe in development
@@ -90,11 +95,12 @@ public static class AppPaths
     public static string ResticBinary => Path.Combine(EngineInstallation.Directory, "restic" + EngineInstallation.Extension);
     public static string RcloneBinary => Path.Combine(EngineInstallation.Directory, "rclone" + EngineInstallation.Extension);
 
-    /// <summary>Per-installation data directory the Backrest daemon
-    /// uses for its sqlite oplog and per-operation log store. Lives
-    /// inside ConfigRoot so portable installs carry the daemon's state
-    /// with them.</summary>
-    public static string BackrestDataDir => Path.Combine(ConfigRoot, "backrest");
+    /// <summary>The Backrest daemon's data directory (its config.json with the
+    /// repository passwords, sign-in files, sqlite oplog and operation logs).
+    /// On this computer only, never in the portable folder (U153): it holds
+    /// readable credentials and is rebuilt from the settings and the vault at
+    /// start. Run history stays in <see cref="EngineLogsRoot"/>.</summary>
+    public static string BackrestDataDir => EngineWorkPaths.BackrestDataDir;
 
     public static string LogsRoot  => Path.Combine(ConfigRoot, "logs");
     public static string ReposRoot => Path.Combine(ConfigRoot, "repos");
@@ -185,13 +191,10 @@ public static class AppPaths
         Directory.CreateDirectory(ReposRoot);
         Directory.CreateDirectory(AppLogsDir);
         Directory.CreateDirectory(EngineLogsRoot);
-        // Owner-only on Unix. ConfigRoot wraps secrets.bin,
-        // secrets-key.bin, rclone.conf (with OAuth refresh tokens),
-        // and Backrest's data dir (which stores the restic master
-        // password in plaintext per Backrest's own design). All
-        // those files are individually chmod 0600 — tightening the
-        // directory to 0700 closes the "world-executable parent dir
-        // lets other local users cd in and stat the contents" gap.
+        // Owner-only on Unix. ConfigRoot wraps vault.bin and the
+        // settings; tightening the directory to 0700 closes the
+        // "world-executable parent dir lets other local users cd in and
+        // stat the contents" gap.
         // Best-effort: log + continue on permission denied so a
         // first-launch on an exotic FS doesn't crash.
         if (!OperatingSystem.IsWindows())

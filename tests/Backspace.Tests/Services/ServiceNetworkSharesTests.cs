@@ -32,7 +32,7 @@ public sealed class ServiceNetworkSharesTests
     private static (AppConfig Config, Backup Backup, Destination Share, SecretsStore Vault, TempWorkspace Ws) Setup(string path = @"\\nas\backups\pc")
     {
         var ws = new TempWorkspace();
-        var vault = new SecretsStore(new DpapiSecretsEncryption(), Path.Combine(ws.Root, "secrets.bin"));
+        var vault = new SecretsStore(new LegacySecretsVault(new DpapiSecretsEncryption(), Path.Combine(ws.Root, "secrets.bin")));
         var share = new Destination { Name = "Home NAS", Kind = DestinationKind.NetworkShare, PathOrSubpath = path,
             NetworkUsername = "backup", NetworkPasswordRef = "dest:nas:netpw" };
         vault.Set("dest:nas:netpw", "s3cret");

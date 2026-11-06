@@ -868,6 +868,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     {
         try
         {
+            if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to open this backup.").ConfigureAwait(true)) return;
             // Async — a cold-start of the Backrest engine inside
             // the launcher could otherwise freeze the UI thread for
             // up to 15s while the engine's readiness probe runs.
@@ -930,6 +931,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
                 await registry.UnmountAsync(Id);
                 return;
             }
+            if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to open this backup.").ConfigureAwait(true)) return;
             var result = await registry.MountForAsync(Snapshot).ConfigureAwait(false);
             if (!result.Succeeded)
             {

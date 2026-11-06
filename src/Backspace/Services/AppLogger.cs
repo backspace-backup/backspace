@@ -189,6 +189,27 @@ public static class AppLogger
     /// <summary>Returns a logger scoped to an arbitrary name. Same caveat as <see cref="For{T}"/>.</summary>
     public static ILogger For(string name) => Log.ForContext("SourceContext", name);
 
+    /// <summary>Tests: every log line (rendered, with any exception) goes to
+    /// <paramref name="write"/> until disposed, so a test can prove that no
+    /// credential value is logged.</summary>
+    internal static IDisposable CaptureForTests(Action<string> write)
+    {
+        var previous = _log;
+        _log = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(new DelegateSink(write)).CreateLogger();
+        return new RestoreLogger(previous);
+    }
+
+    private sealed class DelegateSink(Action<string> write) : Serilog.Core.ILogEventSink
+    {
+        public void Emit(Serilog.Events.LogEvent logEvent)
+            => write(logEvent.RenderMessage() + (logEvent.Exception is null ? "" : "\n" + logEvent.Exception));
+    }
+
+    private sealed class RestoreLogger(ILogger previous) : IDisposable
+    {
+        public void Dispose() => _log = previous;
+    }
+
     public static void Shutdown()
     {
         try

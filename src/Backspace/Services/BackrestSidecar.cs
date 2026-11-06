@@ -349,11 +349,12 @@ public sealed class BackrestSidecar : IAsyncDisposable
             path, FileWaitReason.Engine, ct);
     }
 
-    /// <summary>Per-run engine state stays within the portable config
-    /// root. It is separate from the GUI daemon; run transcripts are still copied
-    /// to the app's common log store by the engine.</summary>
+    /// <summary>Per-run engine state, in this computer's working folder (U153;
+    /// never the synced portable folder: Backrest writes repository passwords
+    /// there). It is separate from the GUI daemon; run transcripts are still
+    /// copied to the app's common log store by the engine.</summary>
     internal static string CreateIsolatedDataDirectory(string purpose)
-        => Path.Combine(AppPaths.ConfigRoot, "engine-runs", purpose,
+        => Path.Combine(EngineWorkPaths.EngineRunsDir, purpose,
             $"{Environment.ProcessId}-{Guid.NewGuid():N}");
 
     /// <summary>Prepare a protected configuration while no daemon is running.
@@ -579,7 +580,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
         {
             // Only disposable per-run folders explicitly created under this
             // root qualify; never recursively remove the persistent GUI data.
-            var root = Path.GetFullPath(Path.Combine(AppPaths.ConfigRoot, "engine-runs"))
+            var root = Path.GetFullPath(EngineWorkPaths.EngineRunsDir)
                 .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             var target = Path.GetFullPath(DataDir);
             if (target.StartsWith(root, OperatingSystem.IsWindows()

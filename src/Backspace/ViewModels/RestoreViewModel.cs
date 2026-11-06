@@ -648,6 +648,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             PickBackupNoticeText = "Pick a backup first by clicking one of the rows above.";
             return;
         }
+        // The saved passwords open the backup's storage (U153).
+        if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to read this backup.")) return;
 
         // Don't try to restore from a backup that's currently writing
         // snapshots — the snapshot list is in flux, and the user almost

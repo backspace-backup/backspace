@@ -41,20 +41,20 @@ public sealed class S70_AutomaticBackupRemoval : ScenarioBase
         Assert.True(section.IsExpanded); // Progress and any problem show in Settings.
         Assert.False(automatic.RemoveCommand.CanExecute(null)); // No second removal while one runs.
         Assert.Equal(1, backend.RemoveCalls);
-        backend.State = new(BackgroundBackupState.RemovalPending, "Scheduled backups are paused until this finishes. Your backups and sign-ins are kept.");
+        // Cancelling the Windows prompt leaves access on, as it was.
         backend.Finish.SetException(new OperationCanceledException("Windows approval was cancelled. Your saved settings and credentials have been preserved."));
         for (var n = 0; n < 50 && automatic.IsBusy; n++) await ctx.Driver.PumpAsync(20);
         await removing;
         Assert.False(automatic.IsBusy);
         Assert.Contains("cancelled", automatic.Error);
-        Assert.Equal("Finish removing access", apply.Content);
-        Assert.Equal("Removing access isn't finished", automatic.Title);
-        Assert.False(remove.IsEffectivelyVisible);
+        Assert.Equal("Files in use are included", automatic.Title);
+        Assert.True(remove.IsEffectivelyVisible);
         await ctx.Driver.PumpAsync(250);
-        ctx.Snapshot(window, "removal-paused", "Cancelling the Windows prompt while removing access: says it isn't finished and that schedules are paused, and offers Finish removing access.");
+        ctx.Snapshot(window, "removal-cancelled", "Cancelling the Windows prompt while removing access: access stays on, the cancellation is shown and Remove access is offered again.");
         backend.Finish = new();
-        Click(window, apply); await ctx.Driver.PumpAsync(30);
-        Assert.Equal(1, backend.ApplyCalls);
+        Click(window, remove); await ctx.Driver.PumpAsync(30);
+        Assert.Equal(2, backend.RemoveCalls);
+        Assert.Equal(0, backend.ApplyCalls);
         backend.State = new(BackgroundBackupState.Off, "Without administrator access, backups can't include files other apps have open. They run on schedule only while you're signed in.");
         backend.Finish.SetResult();
         for (var n = 0; n < 50 && automatic.IsBusy; n++) await ctx.Driver.PumpAsync(20);

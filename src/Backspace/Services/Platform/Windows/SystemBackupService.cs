@@ -17,8 +17,8 @@ namespace Backspace.Services.Platform.Windows;
 /// <summary>
 /// The version-3 background service (U100): Windows' own account, one per
 /// Windows account. It runs the owner's saved settings as they are (no
-/// separate approval), keeps the schedule, holds the saved sign-ins once they
-/// are handed over, and runs each backup in a worker process. Quit stops it;
+/// separate approval), keeps the schedule, opens the portable vault with its
+/// own key copy (U153), and runs each backup in a worker process. Quit stops it;
 /// it starts again at the next sign-in, restart or Windows start
 /// (<see cref="SystemServiceLifetime"/>).
 /// </summary>
@@ -71,7 +71,15 @@ internal sealed class SystemBackupService : ServiceBase
         // Workers inherit these: they find their service, and the owner's
         // engines (Windows' own account has a different AppData folder).
         Environment.SetEnvironmentVariable(ServiceWorkerBinding.ServiceNameVariable, serviceName);
-        if (registration.EngineRoot.Length > 0) Environment.SetEnvironmentVariable("BACKSPACE_ENGINE_ROOT", registration.EngineRoot);
+        if (registration.EngineRoot.Length > 0)
+        {
+            Environment.SetEnvironmentVariable("BACKSPACE_ENGINE_ROOT", registration.EngineRoot);
+            // The owner's %LOCALAPPDATA%\Backspace: the engine's working files
+            // and the service's copy of the vault key live there, on this
+            // computer, not in the synced portable folder (U153).
+            Environment.SetEnvironmentVariable(EngineWorkPaths.MachineRootVariable,
+                Path.GetDirectoryName(registration.EngineRoot.TrimEnd('\\')));
+        }
         using var service = new SystemBackupService(registration);
         Run(service);
         return service.ExitCode;
@@ -164,7 +172,9 @@ internal sealed class SystemBackupService : ServiceBase
         { AppLogger.For<SystemBackupService>().Warning(ex, "The previous run's status could not be read"); }
     }
 
-    private SecretsStore Vault() => new(new DpapiSecretsEncryption(), Path.Combine(_binding.DataDirectory, "secrets.bin"));
+    /// <summary>The service's earlier vault, from before the portable vault
+    /// (U153). Read only to return it to the owner during the conversion.</summary>
+    private LegacySecretsVault Vault() => new(new DpapiSecretsEncryption(), ServiceVaultUnlock.LegacyVaultPath(_binding.DataDirectory));
 
     private async Task ServeAsync()
     {
@@ -175,12 +185,10 @@ internal sealed class SystemBackupService : ServiceBase
         { AppLogger.For<SystemBackupService>().Warning(ex, "The pipe names could not be renewed; the earlier ones are used"); }
         try
         {
-            var vault = Vault();
-            var secrets = ServiceSecretsProtocol.ServeAsync(_binding.ServiceName + "-secrets", _binding.ServiceSid, _binding.OwnerSid, vault, _stop.Token,
-                () => _returnId is not null);
+            // No credential or hand-over pipe (U153): the service opens the
+            // portable vault itself with its own key copy, which the owner's
+            // app sends over the runs pipe ("unlock").
             var commands = ServeCommandsAsync();
-            var handoff = Handoff(vault)?.ServeAsync(_binding.ServiceName + "-migration", _binding.ServiceSid, _binding.OwnerSid, _stop.Token)
-                ?? Task.Delay(Timeout.Infinite, _stop.Token);
             // No history or transcript pipe (U138, 6 November 2026): the
             // desktop reads this service's history and logs from the portable
             // folder, where they inherit its permissions.
@@ -188,7 +196,7 @@ internal sealed class SystemBackupService : ServiceBase
             var schedule = new ScheduleLoop(new(Path.Combine(_binding.DataDirectory, "schedule-state.json"),
                 SchedulePlans, RunScheduledAsync, plan => ScheduleConditions.Blocked(plan, _scheduleDestinations,
                     ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable), ScheduleConditions.OnBattery)).RunAsync(_stop.Token);
-            var ended = await Task.WhenAny(secrets, commands, handoff, notifications, schedule).ConfigureAwait(false);
+            var ended = await Task.WhenAny(commands, notifications, schedule).ConfigureAwait(false);
             await ended.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
@@ -202,27 +210,31 @@ internal sealed class SystemBackupService : ServiceBase
         }
     }
 
-    /// <summary>Receives the owner's saved sign-ins once, after setup. The
-    /// service keeps them from the moment they are verified.</summary>
-    private ServiceMigrationProtocol? Handoff(SecretsStore vault)
+    /// <summary>The owner's app sends the vault key (U153). Accepted only when
+    /// it opens the portable vault; the service then keeps its own copy and,
+    /// the first time, counts as set up.</summary>
+    private byte[] Unlock(ServiceHostRequest request)
     {
-        if (_registration.Activated || !Guid.TryParseExact(_registration.MigrationId, "N", out _)) return null;
-        var receipt = Path.Combine(_binding.DataDirectory, "migration-" + _registration.MigrationId + ".receipt");
-        return new ServiceMigrationProtocol(new(1, _binding.OwnerSid, _registration.MigrationId), receipt, vault,
-            beginRefresh: () =>
+        if (_worker is not null) return Reply("busy");
+        byte[]? key = request.Key is null ? null : Convert.FromBase64String(request.Key);
+        try
+        {
+            var error = ServiceVaultUnlock.Accept(_installation, _binding.DataDirectory, EngineWorkPaths.MachineRoot,
+                request.VaultId, key, request.VerifyLegacy);
+            if (error is not null)
             {
-                if (SystemService.Read(_binding.ServiceName, _binding.OwnerSid)?.Activated == true)
-                    throw new IOException("The active service vault cannot be replaced by an earlier desktop copy.");
-                return new NoLease();
-            },
-            accepted: () =>
+                AppLogger.For<SystemBackupService>().Information("The vault key was not accepted: {Reason}", error);
+                return Reply(error);
+            }
+            if (SystemService.Read(_binding.ServiceName, _binding.OwnerSid)?.Activated != true)
             {
                 SystemService.MarkActivated(_binding.ServiceName);
-                AppLogger.For<SystemBackupService>().Information("Saved sign-ins received; the background service keeps them from now on");
-            });
+                AppLogger.For<SystemBackupService>().Information("The background service has the vault key; it is set up");
+            }
+            return Reply(null);
+        }
+        finally { if (key is not null) CryptographicOperations.ZeroMemory(key); }
     }
-
-    private sealed class NoLease : IDisposable { public void Dispose() { } }
 
     private async Task ServeCommandsAsync()
     {
@@ -302,6 +314,8 @@ internal sealed class SystemBackupService : ServiceBase
                 case "thaw":
                     _returnStop?.Cancel(); _returnStop = null; _returnId = null;
                     break;
+                case "unlock":
+                    return Unlock(request);
             }
             return Reply(null);
         }

@@ -23,12 +23,12 @@ internal sealed class BackgroundServiceActivity : IDisposable
     internal static BackgroundServiceActivity? ForDesktop()
     {
         var root = AppContext.BaseDirectory.TrimEnd('\\');
-        if (!ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot)) return null;
+        if (!ServicePortableLayout.IsPortableConfig(root, AppPaths.ConfigRoot)) return null;
         var monitor = new BackgroundServiceActivity(async token =>
         {
             if (ServiceWorkerBinding.ForDesktop(root) is not { } binding) return null;
-            // A stopped version-3 service (after Quit) has nothing running.
-            if (binding.IsSystem && SystemService.Status(binding.ServiceName) != System.ServiceProcess.ServiceControllerStatus.Running) return null;
+            // A stopped service (after Quit) has nothing running.
+            if (SystemService.Status(binding.ServiceName) != System.ServiceProcess.ServiceControllerStatus.Running) return null;
             return binding.CanRun ? await ServiceActivity.ReadAsync(binding, token).ConfigureAwait(false) : null;
         }, (id, token) => ServiceActivity.CancelAsync(ServiceWorkerBinding.LoadForOwner(root), id, token));
         _ = monitor.PollAsync();

@@ -662,6 +662,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         var owner = MainWindowOrNull();
         if (owner is null) return;
         if (!ShowLocateMovedRepository) return;
+        if (!await VaultGate.EnsureReadableAsync("Backspace checks the moved backup with its saved password.")) return;
 
         var picks = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
@@ -828,6 +829,15 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         if (HasLegacyCloudConnection)
         {
             AuthStatus = LegacyCloudConnectionMessage;
+            AuthOk = false;
+            return;
+        }
+
+        // The sign-in is saved with the other saved passwords: ask for their
+        // password before the browser opens, not after (U153).
+        if (!await VaultGate.EnsureWritableAsync("Backspace saves this cloud sign-in with your other saved passwords."))
+        {
+            AuthStatus = "Sign-in wasn't started: your saved passwords are locked.";
             AuthOk = false;
             return;
         }
@@ -1051,6 +1061,11 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     /// returns success.
     /// </para>
     /// </summary>
+    /// <summary>The vault must be open before restic changes a repository's
+    /// key, or the new password could not be saved (U153).</summary>
+    internal Task<bool> EnsureVaultForPasswordChangeAsync()
+        => VaultGate.EnsureWritableAsync("Backspace saves the new storage password with your other saved passwords.");
+
     public string? CheckCanChangeStoragePassword()
     {
         if (IsNew || !Encrypted || string.IsNullOrEmpty(Working.StoragePasswordRef))
@@ -1407,6 +1422,37 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
             case nameof(PathOrSubpath):  if (!string.IsNullOrWhiteSpace(PathOrSubpath)) PathError = null; break;
             case nameof(S3Bucket):       if (!string.IsNullOrWhiteSpace(S3Bucket)) BucketError = null; break;
         }
+    }
+
+    /// <summary>Saving would store a credential in the vault (U153).</summary>
+    internal bool SaveWritesCredential =>
+        (Encrypted && string.IsNullOrEmpty(Working.StoragePasswordRef))
+        || (!string.IsNullOrEmpty(StoragePasswordInput) && string.IsNullOrEmpty(Working.StoragePasswordRef))
+        || !string.IsNullOrEmpty(OAuthTokenInput)
+        || (Kind == DestinationKind.NetworkShare && !string.IsNullOrEmpty(NetworkPasswordInput))
+        || (Kind == DestinationKind.S3Compatible && (!string.IsNullOrEmpty(S3AccessKeyInput) || !string.IsNullOrEmpty(S3SecretKeyInput)));
+
+    /// <summary>Save, asking for the saved-passwords password first when the
+    /// destination stores or checks one (U153). Cancelling saves nothing.</summary>
+    public async Task<Destination?> SaveAsync()
+    {
+        // A form that can't be saved anyway doesn't ask for a password first.
+        // (An existing encrypted destination's check reads its saved password,
+        // so that one is validated after the vault is open.)
+        if (string.IsNullOrEmpty(Working.StoragePasswordRef) && !ValidateForm()) return null;
+        if (SaveWritesCredential || !string.IsNullOrEmpty(Working.StoragePasswordRef))
+        {
+            var ready = SaveWritesCredential
+                ? await VaultGate.EnsureWritableAsync("Backspace saves this destination's password with your other saved passwords.")
+                : await VaultGate.EnsureReadableAsync("Backspace checks this destination's saved password before saving.");
+            if (!ready)
+            {
+                SummaryError = "Nothing was saved: your saved passwords are locked. Save again to enter the password.";
+                OnPropertyChanged(nameof(HasAnyError));
+                return null;
+            }
+        }
+        return Save();
     }
 
     public Destination? Save()

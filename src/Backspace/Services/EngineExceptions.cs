@@ -134,14 +134,6 @@ public sealed class EngineTaskDroppedException : System.IO.IOException
         : base("The backup engine discarded this task before running it (for example after the computer woke from sleep).") { }
 }
 
-/// <summary>Work refused while removing administrator access is unfinished.
-/// The sidebar and Settings already offer to finish it, so callers that
-/// would otherwise show a dialog stay quiet (U078).</summary>
-public sealed class ServiceRemovalPendingException : System.IO.IOException
-{
-    public ServiceRemovalPendingException()
-        : base("Finish background service removal in Settings before starting another operation.") { }
-}
 
 /// <summary>A task stopped showing signs of life (U111, 4 November 2026): the
 /// engine left status checks unanswered for <see cref="ResticBackrestEngine.EngineSilenceLimit"/>,

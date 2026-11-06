@@ -21,7 +21,6 @@ public sealed class ApproveChangesInFlowTests
     [InlineData((int)BackgroundBackupState.Ready, 0)]
     [InlineData((int)BackgroundBackupState.Off, 0)]
     [InlineData((int)BackgroundBackupState.SetupPending, 0)]
-    [InlineData((int)BackgroundBackupState.RemovalPending, 0)]
     public async Task Applies_saved_changes_once_and_never_prompts(int stateValue, int expectedApplies)
     {
         if (!OperatingSystem.IsWindows()) return;

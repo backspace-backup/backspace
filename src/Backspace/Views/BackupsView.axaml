@@ -48,6 +48,28 @@
         </Button>
       </Grid>
 
+      <!-- Saved passwords (U153): locked on this computer, can't be opened,
+           or waiting for their one-time move. A banner, never a dialog at start. -->
+      <Border x:Name="VaultNotice" DataContext="{Binding Vault}" x:DataType="vm:VaultBannerViewModel" IsVisible="{Binding IsVisible}" Classes="notice"
+              Classes.warn="{Binding Tone, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+              Classes.fail="{Binding Tone, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+              Margin="0,12,0,0">
+        <Grid ColumnDefinitions="Auto,12,*,12,Auto" VerticalAlignment="Center">
+          <Border Grid.Column="0" Classes="notice-glyph">
+            <PathIcon Classes="status-icon"
+                      Classes.warn="{Binding Tone, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                      Classes.fail="{Binding Tone, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"/>
+          </Border>
+          <TextBlock Grid.Column="2" Classes="body" VerticalAlignment="Center" TextWrapping="Wrap">
+            <Run Text="{Binding Headline}" FontSize="13.5" FontWeight="SemiBold"/>
+            <Run Text="   "/>
+            <Run Text="{Binding Detail}" Classes="notice-detail"/>
+          </TextBlock>
+          <Button Grid.Column="4" x:Name="VaultNoticeAction" Classes="primary" VerticalAlignment="Center"
+                  Content="{Binding ActionLabel}" Command="{Binding ActCommand}"/>
+        </Grid>
+      </Border>
+
       <StackPanel IsVisible="{Binding !IsEmpty}" Spacing="8" Margin="0,12,0,12">
         <!-- Health notice: message on the left, affected backups as pills on
              the right. Backup names appear only on the pills. -->

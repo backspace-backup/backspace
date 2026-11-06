@@ -34,6 +34,8 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     public ObservableCollection<BackupCardViewModel> Cards { get; } = new();
     internal Func<Avalonia.Controls.Window?>? TestRestoreOwner { get; set; }
     [ObservableProperty] private bool _isEmpty;
+    /// <summary>The saved-passwords banner (U153).</summary>
+    public VaultBannerViewModel Vault { get; } = new();
 
     /// <summary>"1 Backup" / "2 Backups" — proper singular/plural,
     /// rendered as a section-title rather than the previous dim
@@ -255,6 +257,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        Vault.Dispose();
         AdministratorAccess.PropertyChanged -= OnAdministratorAccessChanged;
         ServiceLocator.Config.Changed -= OnConfigChanged;
         ServiceLocator.Orchestrator.RunStarted -= OnRunStarted;
@@ -809,6 +812,9 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     private async Task RunNow(BackupCardViewModel card)
     {
         if (card is null) return;
+        // The saved passwords must be open on this computer (U153): a new
+        // computer asks for their password here, once.
+        if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to run this backup.")) return;
         // A destination without its sign-in or storage password (an imported
         // Duplicacy one, for example) opens for setup instead of failing (U082).
         foreach (var target in card.Snapshot.Targets)
@@ -950,6 +956,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         }
         var owner = TestRestoreOwner?.Invoke() ?? Owner();
         if (owner is null) return;
+        if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to read this backup.")) return;
         var options = await new TestRestoreOptionsWindow(card.Snapshot.Name, card.Snapshot.RestoreCheckOptions).ShowDialog<TestRestoreOptions?>(owner);
         if (options is null) return;
         try

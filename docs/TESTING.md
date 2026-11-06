@@ -65,49 +65,12 @@ Missing settings or engine configuration with a retained `.bak` must not
 initialize defaults. The visible file-wait path must reject, rather than
 replay, an uncertain partial rename.
 
-`ServiceRunAuthorizationTests` checks the service's approved-plan request
-boundary: stale revisions, another owner, duplicate identities or JSON keys,
-altered configuration, extra execution fields and unapproved operations fail.
-
-`ServiceProgramUpdateTests` also checks cleanup of superseded completed service
-updates: the latest rollback bundle remains, while unfinished work and records
-for another root or work folder are preserved. The latest integrated VM wrapper
-reported `Unexpected desktop fixture` during cleanup, so it is a failed attempt
-and does not count as acceptance for the new pruning path. Repeat this check
-with the packaged recovery executable after fixing the fixture cleanup.
-
-`ServiceProgramUpdateTests` rejects caller-supplied paths and alternate release
-endpoints, mismatched tags, missing or oversized release responses, and work
-directories outside the same portable service control folder. Desktop handoff
-checks reject another copy's staging folder, already-started plans and stale
-results. Download cleanup must preserve other attempts and protected recovery
-files. Its HTTP replies are controlled; this does not prove GitHub delivery,
-native approval, or elevated replacement. The isolated VM must exercise the
-actual packaged recovery executable, interrupted and completed replacements,
-stale launcher rejection and subsequent service removal with unchanged data.
-
-`ServiceSetupTests.ServicePreflightRejectsAUserReplaceableParentBeforeItCanArchiveOrChangeAnything`
-checks that service setup rejects a user-writable parent before archiving old
-service state or changing permissions. The Settings screen also checks the
-location before opening Windows' administrator prompt. This protocol test does
-not replace the isolated-VM check of a real portable folder and service install.
-
 `ServiceCommandLineRunTests` checks name matching, ambiguous/disabled backup
 rejection, strict request parsing, lost-reply handling and explicit paused results.
-`ServiceRunAuthorizationTests` distinguishes an owner's one-off check or cleanup
-from an automatic maintenance request: only the latter needs a maintenance
-schedule, while both require an enabled backup and the current approved revision.
 VM acceptance must invoke the packaged public commands as an ordinary owner and
 verify the actual worker identity and saved result; protocol tests alone do not
 establish that the CLI entry point or engine ran.
 
-`ServiceLegacyTasksTests` checks exact matching of current and older wrappers,
-names with maintenance suffixes, different accounts or portable copies, changed
-fallback paths, extra actions and injected command suffixes. Those tests build
-definitions only. Actual migration belongs in the isolated VM: register disabled
-synthetic old tasks, invoke packaged activation, verify original definitions were
-saved, and require unrelated tasks to remain byte-for-byte unchanged. Never run
-an S4U test task on the laptop.
 Windows update cleanup tests hold real temporary and persistent sharing locks:
 the temporary lock permits a bounded retry, while a persistent lock must retain
 the file and report failure. Unknown and unfinished update folders remain intact.
@@ -182,28 +145,12 @@ and rejects missing, oversized or mismatched results.
 Actual worker cancellation still requires the isolated VM; these
 deterministic checks do not establish production activation.
 
-`ServiceMigrationProtocolTests` covers one-time import, persisted verification,
-refreshed-token preservation, explicit owner acceptance before activation,
-consumed grants, retained vault backups and invalid
-or ambiguous messages. Its encryption provider is synthetic. Separate VM
-acceptance must use actual DPAPI under distinct identities and confirm that
-the source file is unchanged, stale import cannot activate or overwrite newer
-credentials, and the wrong identity cannot decrypt the service vault. A SYSTEM
-source fixture establishes cross-identity handoff, not the owner's desktop UI.
-The inactive-refresh cases also require the exact previously verified target,
-invalidate earlier acceptance, and reject replacement after activation or after
-the target disappears. These controlled cases do not establish native UAC behavior.
 Run the service and credential tests in **Release as well as Debug**. The
 cross-thread rejected-import regression caught a Release-only lock leak that
 same-thread tests missed. Keep filtered exception handlers outside methods
 that acquire protocol monitors: SDK 10.0.401 reused the monitor-cleanup flag
 in a rejected filter. The isolated reproduction and compiled-code evidence
 are attached to N046 in the local Review desk. CI runs the Release subset.
-`ServiceOwnerSecretsTests` covers ordinary local use before registration,
-refusal to fall back through an untrusted binding and exclusion of isolated
-configurations. VM acceptance must additionally keep a desktop client alive
-across activation, write a newer token through the service and prove both
-reads and writes use that authority while the original vault remains unchanged.
 
 `ServicePathLeaseTests` uses actual Windows directory handles. It attempts to
 rename both a source and its parent, edits and atomically replaces child files,
@@ -256,34 +203,6 @@ configuration. Use the production candidate's encrypted vault and an encrypted
 repository for before-sign-in acceptance; password-free local backups do not
 cover vault access. See the required checks in [RELEASING.md](RELEASING.md).
 
-`ServiceSetupTests` covers portable data containment, separation from legacy
-records, rejection of unrelated application-folder files, bounded permission
-recovery and inactive preparation. File tests exercise actual NTFS hard links
-and pinned-handle rename denial. The setup regression holds the actual shared
-desktop lifetime lock while checking setup and metadata access; it rejects
-nonempty and unrelated lock files and a concurrent exclusive update. Recovery
-accepts older journals without the gate and newer journals that include it,
-while rejecting duplicate and unexpected permission entries. Its directory ACL test uses real Windows
-handles and verifies that existing child permissions are preserved. The
-permission tests run under `TempWorkspace.OrdinaryFolder`, whose entries are
-auto-inherited like a folder made in Documents or on a drive. Folders under
-%TEMP% lack that flag, and Windows turns such legacy lists into explicit,
-protected copies when a parent changes; real backup and program folders do not
-behave that way. Restoring recorded permissions is checked to leave children
-exactly as they were. These tests do not register a host service. Actual elevated preparation, ordinary
-owner access checks and complete cancellation are exercised in the isolated
-Windows VM using the packaged executable; retain that result separately from
-unit-test evidence. Never run service setup against the developer checkout.
-
-`ServiceRepositoryPermissionsTests` exercises real grants and removal, future
-file inheritance, preserved ownership and unrelated permissions, and hard-link
-and junction escape attempts. The VM acceptance must still run a scheduled
-encrypted backup against an ordinary owner's repository and restore its bytes.
-Preparation recovery requires separate VM interruption checks before ACL changes,
-after ACL changes and after service registration; a normal cancellation is not
-proof of recovery from process termination. Preserve the journal on a failed
-recovery and never delete a vault that has begun migration.
-
 `ServiceVaultReturnTests` checks latest-token return, re-encryption and reread,
 the held returned file, preserved source copies, strict receipt validation and
 refusal to remove anything after a lost acceptance reply. Frozen credentials
@@ -295,15 +214,6 @@ real interrupted removal, compare original permissions, verify both credentials
 and retained transcripts, re-enable automatic backups, run a real backup and
 remove them again. Compare repository contents and credential canaries before
 and after, and preserve unsuccessful attempts alongside the final result.
-
-`ServiceCoordinationFilesTests` checks the exact lock-file permissions, rejects
-replacement rights and unrelated writers, and exercises preparation against a
-real shared reader and a hard-link substitution. It also retains compatibility
-with ordinary portable semaphore names and release from another thread. These
-checks do not prove cross-session integration: VM acceptance must hold the
-owner's operation/repository locks while the real virtual-account worker starts,
-verify that no backup proceeds early, and terminate the owner process to prove
-the locks are released. Check shared readers and unsafe/missing lock failures too.
 
 `InfrastructureLifecycleE2ETests` also measures normal shutdown of the actual
 windowless Backrest process and confirms a separate daemon stays usable. The
@@ -327,8 +237,35 @@ Credential Manager entries or scheduled tasks. They do not establish service
 installation, cross-account acceptance, vault migration or reboot behavior;
 those require the isolated VM and the integrated production candidate.
 
+`SecretsStoreTests` covers the portable vault (U153): a round trip on two
+computers (separate key folders), a wrong password that changes nothing and
+keeps no key, an empty password that opens without asking, a tampered KDF
+(another iteration count, too few iterations, a forged no-password flag), a
+damaged body that is kept and never overwritten, a newer format refused, a
+`.bak` without its main file refused, a password change that keeps another
+computer's key working, key copies bound to their vault id, a stale key copy
+removed, reads and saves while locked (nothing written, "locked" not
+"missing"), two instances keeping both writers' keys, `SetIfNewer` inside one
+transaction, starting over, and a byte scan for any value or key in clear.
+`VaultConversionTests` runs the one-time move against a fake service host and
+real DPAPI files: merging (the service wins), newer rclone tokens, engine
+folders moved, old files kept until the first run, interruption at each stage
+and resumption, a wrong password on resume, and captured logs with no value.
+`VaultServiceAndPathsTests` covers the service's `unlock` (a wrong key or vault
+id refused and nothing kept, the key surviving a password change, the
+conversion check of every earlier entry, malformed requests) and
+`EngineWorkPaths`. `VaultGateViewModelTests` checks that cancelling the
+password question saves nothing (destination save, cloud Connect, the
+change-password dialog) and that a test email keeps typed keys in memory.
+E63-E65 run the real engine: first credential, then a byte scan of the whole
+configuration folder with a positive control; a second computer with the
+banner, a refused and an accepted password and the earlier history; a vault
+without a password on a second computer; and the conversion of an earlier
+install. None of them registers a service: the service side of `unlock` is
+exercised in-process, not by a running Windows service.
+
 `SecretsMigrationTests` uses synthetic encryption providers to verify that
-the original vault survives export/import, an unreadable source cannot become
+the earlier (pre-U153) vault survives export/import, an unreadable source cannot become
 an empty migration, existing or concurrently created target files survive,
 and the source transaction stays locked through the activation callback.
 Those deterministic checks are not native cross-account DPAPI acceptance.
@@ -354,14 +291,6 @@ service result on the card and health banner; S69 renders progress and an
 interrupted connection. These headless scenarios use controlled replies. The
 separate VM activity probe checks actual worker output, stored final results,
 and a delayed Stop request against a newer worker.
-
-`ServiceSecretsTests` checks the credential dispatcher and existing store API:
-rotation preserves unrelated values, malformed and duplicate JSON fields are
-rejected, missing or unreadable vaults remain untouched, and an unavailable
-backend never reads or writes the retained local vault. Async migration
-callbacks are rejected before they can release the source lock prematurely.
-These use synthetic providers; real service-account encryption and transport
-must also pass in the isolated Windows VM before enabling the service.
 
 `RestoreComparisonOptionsTests` checks persisted opt-in comparison, a locked
 original that is not read when comparison is off, and missing/wrong-sized
@@ -391,20 +320,6 @@ baselines and accidentally compare a screenshot against itself.
 
 The test host supplies a quiet network-cost probe so a hosted runner's metered or background-restricted connection does not cancel unrelated scenarios. The runtime-guard tests override that per instance and explicitly trigger cancellation. Neither proves a physical Windows network transition. Clock-format tests cover both 12-hour and 24-hour cultures. Engine files are selected for copying after the download target has completed, including on a clean checkout's first build.
 
-`ServiceConfigurationUpdateTests` checks saved update identities, configuration
-digests, missing targets, custom command arguments, duplicate phase fields and
-empty configurations after the last backup is removed. These checks do not
-prove Windows task registration or interruption recovery. The isolated VM
-probe must also terminate the updater at its recorded checkpoints, resume it
-without replacing newer desktop edits, and run a real backup after repository
-access changes. The repository junction fixture waits briefly for Windows to
-release its creation handle, then still requires an explicit security rejection
-of the junction; a sharing violation does not count as that proof.
-Fractional trigger times must match Windows' whole-second representation after
-registration without changing the saved desktop setting. Invalid times of day,
-weekly selections, hourly intervals and negative limits fail approval before
-Windows tasks or the durable update journal are changed.
-
 S67 uses the actual Settings controls and headless pointer clicks with controlled
 setup responses. Opening the page is read-only, repeated clicks cannot start two
 setup operations, and cancelled approval leaves pending changes visible with a
@@ -417,17 +332,6 @@ real scheduled backup. Neither the controlled UI test nor an elevated helper
 callback proves a native Windows approval-dialog walkthrough.
 
 ### Quitting and schedules on Windows
-
-`ServiceSessionProtocolTests` exercises the service's private pause record,
-normal and force Quit, immediate reopen, restart persistence, stale undo,
-malformed requests and a claimed session that differs from the pipe client.
-The service ends a pause only for the signed-out session and keeps its
-generation, so a running task still sees the Quit. These use controlled session
-identities. Actual pipe-client identification, Windows' sign-out notification,
-service restart and worker cancellation require the isolated VM check; they
-are not established by those unit tests. A command-line client accepts only an
-explicit paused reply with no run identity, so it cannot cancel the previous
-run while reporting it as paused.
 
 `SessionTaskControlTests` checks pause/reopen, expired or reused sign-in
 sessions, independent accounts, a quick Quit/reopen, force-quit escalation,
@@ -1000,6 +904,7 @@ older scenario comments that describe broader coverage.
 | Configure Healthchecks.io | `CloudNotificationRepairTests` fake HTTP exercises custom PingUrl, terminal pings and retries; live service remains | 🟡 |
 | Configure Resend / Mailgun email | `CloudNotificationRepairTests` fake HTTP exercises API requests, retry and visible nonfatal failure; live delivery remains | 🟡 |
 | Toggle notification gating per event | `S45_SettingsTogglePersistence` | ✅ |
+| Saved passwords: first-credential password, new-computer banner and unlock, no-password vault, one-time move, Settings section (U153) | `E63_SavedPasswordsVault`, `E64_NoPasswordNewComputer`, `E65_ConversionFromEarlierFiles` (real engine, real password window; the background service's side is in-process only), `VaultGateViewModelTests` | ✅ desktop; 🟡 service on a real Windows service |
 | Legacy restore-delay configuration | `S45` directly writes the old `RetryDelaysSeconds` list and checks that its order remains in the current configuration. This is a compatibility check, not an active Settings control or engine retry feature. | ✅ configuration compatibility |
 | Section-header hover wash (no Fluent band leak) | `S55_SettingsHoverAnimation` sends real headless pointer movement and advances the production transition with a controlled per-control clock. It checks intermediate alpha/RGB values, rejects a white hue, and checks left extension/corners and return to transparent in both themes. This does not measure native frame timing or display-scale rendering. | ✅ controlled-clock animation |
 

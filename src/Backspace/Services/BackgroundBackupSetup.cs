@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 
 namespace Backspace.Services;
 
-internal enum BackgroundBackupState { Off, SetupPending, ChangesPending, RemovalPending, Ready, Unavailable }
+internal enum BackgroundBackupState { Off, SetupPending, ChangesPending, Ready, Unavailable }
 internal sealed record BackgroundBackupStatus(BackgroundBackupState State, string Detail, bool CanRemove = false);
 /// <summary>Saved settings differ from what the background service runs.
 /// Backspace applies them right after saving (U043), so callers need not

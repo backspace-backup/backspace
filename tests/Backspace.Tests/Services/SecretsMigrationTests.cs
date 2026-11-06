@@ -39,18 +39,18 @@ public sealed class SecretsMigrationTests
         using var ws = new TempWorkspace();
         var source = Path.Combine(AppPaths.ConfigRoot, "desktop.bin");
         var target = Path.Combine(AppPaths.ConfigRoot, "service.bin");
-        var desktop = new SecretsStore(new IdentityCrypto(11), source);
+        var desktop = new LegacySecretsVault(new IdentityCrypto(11), source);
         desktop.Set("repo:one", "synthetic password");
         desktop.Set("oauth:one", "synthetic token");
         var original = File.ReadAllBytes(source);
         var snapshot = desktop.ExportForMigration();
-        new SecretsStore(new IdentityCrypto(22), target).ImportIntoNewVault(snapshot);
+        new LegacySecretsVault(new IdentityCrypto(22), target).ImportIntoNewVault(snapshot);
         Assert.Equal(original, File.ReadAllBytes(source));
         Assert.NotEqual(original, File.ReadAllBytes(target));
-        var service = new SecretsStore(new IdentityCrypto(22), target);
+        var service = new LegacySecretsVault(new IdentityCrypto(22), target);
         Assert.Equal(snapshot, service.ExportForMigration());
         service.Set("oauth:one", "refreshed token");
-        Assert.Equal("refreshed token", new SecretsStore(new IdentityCrypto(22), target).Get("oauth:one"));
+        Assert.Equal("refreshed token", new LegacySecretsVault(new IdentityCrypto(22), target).Get("oauth:one"));
         Assert.Equal("synthetic token", desktop.Get("oauth:one"));
         Assert.Equal("synthetic token", snapshot["oauth:one"]);
     }
@@ -60,9 +60,9 @@ public sealed class SecretsMigrationTests
     {
         using var ws = new TempWorkspace();
         var source = Path.Combine(AppPaths.ConfigRoot, "desktop.bin");
-        new SecretsStore(new IdentityCrypto(11), source).Set("repo", "preserve me");
+        new LegacySecretsVault(new IdentityCrypto(11), source).Set("repo", "preserve me");
         var original = File.ReadAllBytes(source);
-        Assert.Throws<CryptographicException>(() => new SecretsStore(new IdentityCrypto(22), source).ExportForMigration());
+        Assert.Throws<CryptographicException>(() => new LegacySecretsVault(new IdentityCrypto(22), source).ExportForMigration());
         Assert.Equal(original, File.ReadAllBytes(source));
         Assert.Single(Directory.GetFiles(AppPaths.ConfigRoot, "desktop.bin*", SearchOption.TopDirectoryOnly), p => !p.EndsWith(".lock"));
     }
@@ -74,10 +74,10 @@ public sealed class SecretsMigrationTests
     {
         using var ws = new TempWorkspace();
         var target = Path.Combine(AppPaths.ConfigRoot, "service.bin");
-        if (readable) new SecretsStore(new IdentityCrypto(22), target).Set("oauth", "newer token");
+        if (readable) new LegacySecretsVault(new IdentityCrypto(22), target).Set("oauth", "newer token");
         else File.WriteAllBytes(target, new byte[] { 1, 2, 3 });
         var original = File.ReadAllBytes(target);
-        Assert.Throws<IOException>(() => new SecretsStore(new IdentityCrypto(22), target)
+        Assert.Throws<IOException>(() => new LegacySecretsVault(new IdentityCrypto(22), target)
             .ImportIntoNewVault(new Dictionary<string, string> { ["oauth"] = "stale token" }));
         Assert.Equal(original, File.ReadAllBytes(target));
     }
@@ -94,7 +94,7 @@ public sealed class SecretsMigrationTests
     {
         using var ws = new TempWorkspace();
         var target = Path.Combine(AppPaths.ConfigRoot, "service.bin");
-        Assert.Throws<CryptographicException>(() => new SecretsStore(new BrokenCrypto(), target)
+        Assert.Throws<CryptographicException>(() => new LegacySecretsVault(new BrokenCrypto(), target)
             .ImportIntoNewVault(new Dictionary<string, string> { ["repo"] = "do not lose" }));
         Assert.False(File.Exists(target));
     }
@@ -104,7 +104,7 @@ public sealed class SecretsMigrationTests
     {
         using var ws = new TempWorkspace();
         var path = Path.Combine(AppPaths.ConfigRoot, "desktop.bin");
-        var source = new SecretsStore(new IdentityCrypto(11), path);
+        var source = new LegacySecretsVault(new IdentityCrypto(11), path);
         source.Set("oauth", "current token");
         var activated = source.WithMigrationSnapshot(snapshot =>
         {
@@ -148,7 +148,7 @@ public sealed class SecretsMigrationTests
     {
         using var ws = new TempWorkspace();
         var target = Path.Combine(AppPaths.ConfigRoot, "service.bin");
-        Assert.Throws<IOException>(() => new SecretsStore(new RacingCrypto(target), target)
+        Assert.Throws<IOException>(() => new LegacySecretsVault(new RacingCrypto(target), target)
             .ImportIntoNewVault(new Dictionary<string, string> { ["oauth"] = "older token" }));
         Assert.Equal(new byte[] { 9, 8, 7 }, File.ReadAllBytes(target));
         Assert.Empty(Directory.GetFiles(AppPaths.ConfigRoot, "*.migration-*.tmp"));

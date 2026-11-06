@@ -9,7 +9,6 @@ namespace Backspace.ViewModels;
 public sealed partial class BackgroundBackupViewModel : ViewModelBase
 {
     internal const string RunAllTheTime = "Allow administrator access";
-    internal const string FinishSwitchingBack = "Finish removing access";
     private readonly IBackgroundBackupSetup _setup;
     private long _generation;
     public bool Supported => OperatingSystem.IsWindows();
@@ -90,7 +89,6 @@ public sealed partial class BackgroundBackupViewModel : ViewModelBase
                 BackgroundBackupState.Ready => "Files in use are included",
                 BackgroundBackupState.ChangesPending => applying ? "Files in use are included" : "Your latest changes aren't applied yet",
                 BackgroundBackupState.SetupPending => "Setup isn't finished",
-                BackgroundBackupState.RemovalPending => "Removing access isn't finished",
                 _ => "Files that are open may be skipped",
             };
             StatusClass = state.State == BackgroundBackupState.Ready || applying ? "ok" : "warn";
@@ -100,13 +98,12 @@ public sealed partial class BackgroundBackupViewModel : ViewModelBase
                 : state.State == BackgroundBackupState.ChangesPending ? _applyFailure! : state.Detail;
             if (state.State == BackgroundBackupState.Ready) Error = "";
             CanRemove = state.CanRemove;
-            HasAction = state.State is BackgroundBackupState.Off or BackgroundBackupState.SetupPending or BackgroundBackupState.RemovalPending
+            HasAction = state.State is BackgroundBackupState.Off or BackgroundBackupState.SetupPending
                 || (state.State == BackgroundBackupState.ChangesPending && !applying);
             ActionText = state.State switch
             {
                 BackgroundBackupState.ChangesPending => "Try again",
                 BackgroundBackupState.SetupPending => "Finish setup",
-                BackgroundBackupState.RemovalPending => FinishSwitchingBack,
                 _ => RunAllTheTime,
             };
             ActionHint = state.State == BackgroundBackupState.Off
@@ -173,9 +170,15 @@ public sealed partial class BackgroundBackupViewModel : ViewModelBase
 
     private async Task ElevatedApplyAsync()
     {
-        var finishingRemoval = ActionText == FinishSwitchingBack;
+        // The service gets this computer's key to the saved passwords: they
+        // must be open here first (U153). Without a vault nothing is asked.
+        if (!await VaultGate.EnsureReadableAsync("The background service uses your saved passwords too."))
+        {
+            Error = "Administrator access wasn't set up: your saved passwords are locked.";
+            return;
+        }
         IsBusy = true; Error = ""; ActionHint = ""; LastApplyCancelled = false; ++_generation;
-        Title = finishingRemoval ? "Removing access…" : "Setting up…";
+        Title = "Setting up…";
         Detail = "Approve the Windows prompt to continue.";
         try { await _setup.ApplyAsync(); }
         catch (OperationCanceledException ex) { Error = ex.Message; LastApplyCancelled = true; }
@@ -189,8 +192,16 @@ public sealed partial class BackgroundBackupViewModel : ViewModelBase
         IsBusy = true; Error = ""; ++_generation;
         Title = "Removing access…";
         Detail = "Approve the Windows prompt. Your backups, history and sign-ins are kept.";
+        string? failure = null;
         try { await _setup.RemoveAsync(); }
-        catch (Exception ex) { Error = ex.Message; }
-        finally { IsBusy = false; await RefreshAsync(); }
+        catch (Exception ex) { failure = ex.Message; }
+        finally
+        {
+            IsBusy = false;
+            await RefreshAsync();
+            // Access still on after a cancelled or failed removal: the status
+            // reads as before, and the reason stays visible.
+            if (failure is not null) Error = failure;
+        }
     }
 }

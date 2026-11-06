@@ -76,6 +76,16 @@ internal static class TestSetup
             AppDomain.CurrentDomain.ProcessExit += (_, _) => TryDeleteSuiteRoot();
         }
 
+        // Vault passwords (U153): the suite derives keys with the fewest PBKDF2
+        // iterations a vault may ask for, so Backspace.exe processes the tests
+        // start (with the production minimum) still open these vaults.
+        VaultFile.Iterations = VaultFile.MinimumIterations;
+        // The suite's configuration starts with an empty-password vault, as
+        // if a credential had been saved without choosing a password, so
+        // tests that save credentials need no prompt. Scenarios that test
+        // the prompts remove it or use their own configuration.
+        if (!File.Exists(AppPaths.VaultFile)) new SecretsStore().Create("");
+
         // Tests use an InMemoryBackupEngine so they don't need a real
         // backrest.exe on disk. Set the factory before InitializeCore
         // so the locator picks it up; production callers can't see

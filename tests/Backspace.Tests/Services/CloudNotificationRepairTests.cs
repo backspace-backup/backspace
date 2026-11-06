@@ -103,7 +103,7 @@ public sealed class CloudNotificationRepairTests
     public async Task Shared_rclone_file_preserves_concurrent_destinations_and_refreshed_tokens()
     {
         using var ws = new TempWorkspace();
-        var secrets = new SecretsStore(new PlainEncryption());
+        var secrets = new SecretsStore();
         var a = Cloud("aaaaaaaa", "a"); var b = Cloud("bbbbbbbb", "b");
         secrets.Set("a", Token("old-a", 1)); secrets.Set("b", Token("old-b", 1));
         var builder = new RcloneConfigBuilder(secrets);
@@ -129,7 +129,7 @@ public sealed class CloudNotificationRepairTests
     public void New_sign_in_wins_over_stale_materialized_token_even_with_later_expiry()
     {
         using var ws = new TempWorkspace();
-        var secrets = new SecretsStore(new PlainEncryption());
+        var secrets = new SecretsStore();
         var a = Cloud("aaaaaaaa", "a");
         secrets.Set("a", Token("previous-account", 5));
         var builder = new RcloneConfigBuilder(secrets); var path = builder.MaterialiseDestination(a);
@@ -352,7 +352,7 @@ public sealed class CloudNotificationRepairTests
     {
         private readonly TempWorkspace _workspace = new();
         public ConfigStore Config { get; } = new();
-        public SecretsStore Secrets { get; } = new(new PlainEncryption());
+        public SecretsStore Secrets { get; } = new();
         public NotificationService Notify { get; }
         public Setup()
         {

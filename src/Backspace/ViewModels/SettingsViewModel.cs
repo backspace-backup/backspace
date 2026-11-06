@@ -305,12 +305,13 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         TestEmailFailed = false;
         try
         {
-            if (test.ResendApiKeyRef is not null)
-                ServiceLocator.Secrets.Set(testResendRef, ResendApiKey);
-            if (test.MailgunApiKeyRef is not null)
-                ServiceLocator.Secrets.Set(testMailgunRef, MailgunApiKey);
+            // The typed keys stay in memory for the test: nothing is written
+            // to the saved passwords, so no password is asked for (U153).
+            var keys = new System.Collections.Generic.Dictionary<string, string>();
+            if (test.ResendApiKeyRef is not null) keys[testResendRef] = ResendApiKey;
+            if (test.MailgunApiKeyRef is not null) keys[testMailgunRef] = MailgunApiKey;
             var (ok, detail) = await ServiceLocator.Mail.SendTestAsync(
-                test, to, System.Threading.CancellationToken.None);
+                test, to, System.Threading.CancellationToken.None, keys);
             // MailService formats failures as "Send failed: <reason>".
             // Inside the error callout the bold red line should show
             // just the actual reason — the surrounding Border + the
@@ -332,16 +333,6 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         finally
         {
             TestEmailBusy = false;
-            // Always clean up the test-only refs so they can't be read
-            // by anything later (the production code paths use the
-            // production refs anyway).
-            // If Remove throws, the test-only API key persists in the
-            // encrypted vault past the test send — log so support can
-            // see the leak instead of it silently sticking around.
-            try { ServiceLocator.Secrets.Remove(testResendRef); }
-            catch (Exception ex) { AppLogger.For<SettingsViewModel>().Warning(ex, "Failed to remove test-only Resend secret {Ref}", testResendRef); }
-            try { ServiceLocator.Secrets.Remove(testMailgunRef); }
-            catch (Exception ex) { AppLogger.For<SettingsViewModel>().Warning(ex, "Failed to remove test-only Mailgun secret {Ref}", testMailgunRef); }
         }
     }
 
@@ -571,6 +562,55 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         // a captured-lambda subscription would be unremovable and
         // would root this VM for the rest of the process.
         ServiceLocator.Config.Changed += OnConfigChanged;
+        SecretsStore.StateChanged += OnVaultStateChanged;
+        RefreshVaultStatus();
+    }
+
+    // ---- saved passwords (U153) ----
+    [ObservableProperty] private string _vaultStatus = "";
+    [ObservableProperty] private string _changeVaultPasswordLabel = "Change password";
+
+    private void OnVaultStateChanged(string path)
+    {
+        // Only this window's vault: other stores (tests, conversion
+        // checks) must not wake every Settings page in the process.
+        if (!string.Equals(path, ServiceLocator.Secrets.FilePath, StringComparison.OrdinalIgnoreCase)) return;
+        OnUiThread(() =>
+        {
+            RefreshVaultStatus();
+            // Keys hidden while locked appear once the vault opens.
+            if (_keysUnknown && !_saving && !_autoSaveDebouncer.HasPendingFlush) Load();
+        });
+    }
+
+    internal void RefreshVaultStatus()
+    {
+        var secrets = ServiceLocator.Secrets;
+        VaultState state;
+        try { state = secrets.Refresh(); }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        { VaultStatus = "Your saved passwords can't be read right now: " + ex.Message; return; }
+        (VaultStatus, ChangeVaultPasswordLabel) = state switch
+        {
+            VaultState.NoVault when secrets.ConversionPending => ("Your saved passwords still need to be moved into their new file. Choose a password to do it.", "Choose a password"),
+            VaultState.NoVault => ("Nothing is saved yet. Backspace asks you to choose a password the first time it saves one.", "Choose a password"),
+            VaultState.Locked => ("Locked on this computer. Enter the password once to unlock them here.", "Enter password"),
+            VaultState.Unreadable => ("They can't be opened. " + (secrets.LoadErrorMessage ?? ""), "See what to do"),
+            _ when secrets.NoPassword => ("Open on this computer. No password is set: they are only obscured, not protected.", "Set a password"),
+            _ => ("Open on this computer, protected by your password.", "Change password"),
+        };
+    }
+
+    [RelayCommand]
+    private async System.Threading.Tasks.Task ChangeVaultPasswordAsync()
+    {
+        var secrets = ServiceLocator.Secrets;
+        var state = await System.Threading.Tasks.Task.Run(secrets.Refresh);
+        if (state == VaultState.NoVault && secrets.ConversionPending) await VaultGate.ConvertAsync();
+        else if (state == VaultState.NoVault) await VaultGate.EnsureWritableAsync("");
+        else if (state == VaultState.Unlocked) await VaultGate.ChangePasswordAsync();
+        else await VaultGate.EnsureReadableAsync("");
+        RefreshVaultStatus();
     }
 
     private void OnConfigChanged(object? sender, EventArgs e)
@@ -590,6 +630,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         if (_disposed) return;
         _disposed = true;
         ServiceLocator.Config.Changed -= OnConfigChanged;
+        SecretsStore.StateChanged -= OnVaultStateChanged;
         BackgroundBackups.PropertyChanged -= OnBackgroundAccessChanged;
         _autoSaveDebouncer.Dispose();
     }
@@ -631,7 +672,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
 
         HealthchecksEnabled = cfg.Monitoring.HealthchecksEnabled;
         HealthchecksBaseUrl = cfg.Monitoring.HealthchecksBaseUrl;
-        HealthchecksApiKey = cfg.Monitoring.HealthchecksApiKeyRef is { } r && ServiceLocator.Secrets.TryGet(r, out var k) ? k : "";
+        _keysUnknown = false;
+        HealthchecksApiKey = ReadKey(cfg.Monitoring.HealthchecksApiKeyRef);
 
         SuccessToast  = cfg.Notifications.OnSuccess.Toast;
         SuccessSound  = cfg.Notifications.OnSuccess.Sound;
@@ -660,10 +702,10 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(MailToCount));
         OnPropertyChanged(nameof(CanAddMoreRecipients));
 
-        ResendApiKey = cfg.Mail.ResendApiKeyRef is { } rr && ServiceLocator.Secrets.TryGet(rr, out var rk) ? rk : "";
+        ResendApiKey = ReadKey(cfg.Mail.ResendApiKeyRef);
         MailgunDomain = cfg.Mail.MailgunDomain;
         MailgunRegion = cfg.Mail.MailgunRegion;
-        MailgunApiKey = cfg.Mail.MailgunApiKeyRef is { } mak && ServiceLocator.Secrets.TryGet(mak, out var mk) ? mk : "";
+        MailgunApiKey = ReadKey(cfg.Mail.MailgunApiKeyRef);
 
         // Hydrate the OAuth client_id pairs from the saved
         // RcloneOAuthApps list. Each provider family has at most one
@@ -675,17 +717,67 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
             cid => OneDriveClientId = cid, sec => OneDriveClientSecret = sec);
         HydrateOAuthApp(cfg, DestinationKind.GoogleDrive,
             cid => GoogleDriveClientId = cid, sec => GoogleDriveClientSecret = sec);
+        _savedKeys = CurrentKeys();
         }
         finally { _suspendAutoSave = false; }
     }
 
-    private static void HydrateOAuthApp(
+    /// <summary>Keys as last loaded or saved, to save only what changed (U153).
+    /// Order: Healthchecks, Resend, Mailgun, Dropbox, OneDrive, Google Drive.</summary>
+    private string[] _savedKeys = ["", "", "", "", "", ""];
+    /// <summary>The vault was locked when the keys were loaded: an empty field
+    /// means "not shown", never "remove it".</summary>
+    private bool _keysUnknown;
+    private bool _gatingKeys;
+
+    private string[] CurrentKeys() =>
+        [HealthchecksApiKey, ResendApiKey, MailgunApiKey, DropboxClientSecret, OneDriveClientSecret, GoogleDriveClientSecret];
+
+    private string ReadKey(string? reference)
+    {
+        if (reference is null) return "";
+        try { return ServiceLocator.Secrets.TryGet(reference, out var value) ? value : ""; }
+        catch (VaultLockedException) { _keysUnknown = true; return ""; }
+    }
+
+    private void RestoreSavedKeys()
+    {
+        _suspendAutoSave = true;
+        try
+        {
+            HealthchecksApiKey = _savedKeys[0]; ResendApiKey = _savedKeys[1]; MailgunApiKey = _savedKeys[2];
+            DropboxClientSecret = _savedKeys[3]; OneDriveClientSecret = _savedKeys[4]; GoogleDriveClientSecret = _savedKeys[5];
+        }
+        finally { _suspendAutoSave = false; }
+    }
+
+    /// <summary>A changed key needs the saved passwords open: ask, then save;
+    /// cancelling puts the previous keys back and saves nothing.</summary>
+    private async System.Threading.Tasks.Task GateKeysThenSaveAsync(bool silent)
+    {
+        if (_gatingKeys) return;
+        _gatingKeys = true;
+        try
+        {
+            if (await VaultGate.EnsureWritableAsync("Backspace saves this key with your other saved passwords."))
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => SaveCore(silent));
+            else
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    RestoreSavedKeys();
+                    SaveStatus = "The key wasn't saved: your saved passwords are locked.";
+                });
+        }
+        finally { _gatingKeys = false; }
+    }
+
+    private void HydrateOAuthApp(
         AppConfig cfg, DestinationKind family,
         Action<string> setClientId, Action<string> setClientSecret)
     {
         var entry = cfg.RcloneOAuthApps.FirstOrDefault(a => a.Provider == family);
         setClientId(entry?.ClientId ?? "");
-        setClientSecret(entry?.ClientSecretRef is { } r && ServiceLocator.Secrets.TryGet(r, out var s) ? s : "");
+        setClientSecret(ReadKey(entry?.ClientSecretRef));
     }
 
     /// <summary>Reconcile the RcloneOAuthApps list with the current
@@ -694,7 +786,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     /// upserts the entry and writes the secret into the store.</summary>
     private static void PersistOAuthApp(
         AppConfig cfg, SecretsStore secrets, DestinationKind family,
-        string clientId, string clientSecret, string secretKey)
+        string clientId, string clientSecret, string secretKey, bool secretChanged = true, bool keysUnknown = false)
     {
         var existing = cfg.RcloneOAuthApps.FirstOrDefault(a => a.Provider == family);
 
@@ -719,9 +811,9 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         if (!string.IsNullOrWhiteSpace(clientSecret))
         {
             existing.ClientSecretRef ??= secretKey;
-            secrets.Set(existing.ClientSecretRef, clientSecret);
+            if (secretChanged) secrets.Set(existing.ClientSecretRef, clientSecret);
         }
-        else
+        else if (secretChanged || !keysUnknown)
         {
             // Blank secret means "public client, no secret". Clear the
             // ref so RcloneConfigBuilder doesn't emit a stale value.
@@ -743,6 +835,17 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         // ConfigStore broadcasts Changed synchronously. Re-reading our own
         // save would reset controls while the user is still entering a pair
         // such as an OAuth client ID and secret.
+        // Keys go into the saved passwords: only changed ones are written,
+        // and only once the vault is open; otherwise ask first (U153).
+        var keys = CurrentKeys();
+        var changed = keys.Select((value, i) => value != _savedKeys[i]).ToArray();
+        if (keys.Where((value, i) => changed[i] && !string.IsNullOrWhiteSpace(value)).Any()
+            && ServiceLocator.Secrets.Refresh() != VaultState.Unlocked)
+        {
+            _ = GateKeysThenSaveAsync(silent);
+            return;
+        }
+        var keysUnknown = _keysUnknown;
         _saving = true;
         try
         {
@@ -758,9 +861,9 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
                 if (!string.IsNullOrWhiteSpace(HealthchecksApiKey))
                 {
                     cfg.Monitoring.HealthchecksApiKeyRef ??= "monitoring:hcApiKey";
-                    secrets.Set(cfg.Monitoring.HealthchecksApiKeyRef, HealthchecksApiKey);
+                    if (changed[0]) secrets.Set(cfg.Monitoring.HealthchecksApiKeyRef, HealthchecksApiKey);
                 }
-                else cfg.Monitoring.HealthchecksApiKeyRef = null;
+                else if (changed[0] || !keysUnknown) cfg.Monitoring.HealthchecksApiKeyRef = null;
 
                 cfg.Notifications.OnSuccess.Toast = SuccessToast;
                 cfg.Notifications.OnSuccess.Sound = SuccessSound;
@@ -790,28 +893,28 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
                 if (!string.IsNullOrWhiteSpace(ResendApiKey))
                 {
                     cfg.Mail.ResendApiKeyRef ??= "mail:resendApiKey";
-                    secrets.Set(cfg.Mail.ResendApiKeyRef, ResendApiKey);
+                    if (changed[1]) secrets.Set(cfg.Mail.ResendApiKeyRef, ResendApiKey);
                 }
-                else cfg.Mail.ResendApiKeyRef = null;
+                else if (changed[1] || !keysUnknown) cfg.Mail.ResendApiKeyRef = null;
                 cfg.Mail.MailgunDomain = MailgunDomain.Trim();
                 cfg.Mail.MailgunRegion = MailgunRegion;
                 if (!string.IsNullOrWhiteSpace(MailgunApiKey))
                 {
                     cfg.Mail.MailgunApiKeyRef ??= "mail:mailgunApiKey";
-                    secrets.Set(cfg.Mail.MailgunApiKeyRef, MailgunApiKey);
+                    if (changed[2]) secrets.Set(cfg.Mail.MailgunApiKeyRef, MailgunApiKey);
                 }
-                else cfg.Mail.MailgunApiKeyRef = null;
+                else if (changed[2] || !keysUnknown) cfg.Mail.MailgunApiKeyRef = null;
 
                 // Clearing a field disconnects that credential. Leave the
                 // encrypted value itself alone: another configuration entry
                 // may share the reference, and no caller uses an unreferenced key.
 
                 PersistOAuthApp(cfg, secrets, DestinationKind.DropboxAppScoped,
-                    DropboxClientId, DropboxClientSecret, "rclone:dropbox:client_secret");
+                    DropboxClientId, DropboxClientSecret, "rclone:dropbox:client_secret", changed[3], keysUnknown);
                 PersistOAuthApp(cfg, secrets, DestinationKind.OneDrivePersonal,
-                    OneDriveClientId, OneDriveClientSecret, "rclone:onedrive:client_secret");
+                    OneDriveClientId, OneDriveClientSecret, "rclone:onedrive:client_secret", changed[4], keysUnknown);
                 PersistOAuthApp(cfg, secrets, DestinationKind.GoogleDrive,
-                    GoogleDriveClientId, GoogleDriveClientSecret, "rclone:googledrive:client_secret");
+                    GoogleDriveClientId, GoogleDriveClientSecret, "rclone:googledrive:client_secret", changed[5], keysUnknown);
             });
 
             // Log a redacted summary so we have a record of what changed
@@ -836,6 +939,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
             // otherwise a stale "Save failed: …" from an earlier
             // manual click would persist forever even after the next
             // auto-save fixed the underlying issue.
+            _savedKeys = keys;
             if (!silent) SaveStatus = "Saved.";
             else if (!string.IsNullOrEmpty(SaveStatus)) SaveStatus = "";
         }

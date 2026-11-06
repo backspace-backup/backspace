@@ -13,9 +13,10 @@ namespace Backspace.Services.Platform.Windows;
 /// "Remove Backspace from this PC" (U101, 2 November 2026): undoes
 /// everything Backspace added to Windows outside its own folder, so deleting
 /// that folder afterwards leaves nothing behind. Your settings, saved
-/// sign-ins and backups are not deleted: the background service hands the
-/// sign-ins back first, and Backspace.exe with Backspace.config stays where
-/// it is.
+/// passwords (vault.bin) and backups are not deleted, and Backspace.exe with
+/// Backspace.config stays where it is. This computer's key to the saved
+/// passwords goes with %LOCALAPPDATA%\Backspace: opening Backspace again here
+/// asks for their password once (U153).
 /// </summary>
 internal static class WindowsPcRemoval
 {
@@ -27,7 +28,7 @@ internal static class WindowsPcRemoval
     /// <summary>What is removed, for the confirmation.</summary>
     internal const string Summary =
         "Backspace removes what it added to Windows:\n" +
-        "• the background service (Windows asks once), after it hands your saved sign-ins back\n" +
+        "• the background service (Windows asks once)\n" +
         "• the entry that starts Backspace when you sign in\n" +
         "• \"Restore an older version\" in Explorer's right-click menu\n" +
         "• its engines and caches in %LOCALAPPDATA%\\Backspace, and tasks left by older versions\n\n" +

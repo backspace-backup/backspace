@@ -11,7 +11,7 @@ namespace Backspace.Services.Platform.Windows;
 /// Scheduler entry per backup, check and prune, running as the signed-in
 /// person. The tray app now keeps the schedule, so they are removed on start;
 /// the person's own tasks need no administrator approval. The remaining
-/// helpers recognise those tasks exactly (see <see cref="ServiceLegacyTasks"/>).</summary>
+/// helpers recognise those tasks exactly.</summary>
 [SupportedOSPlatform("windows")]
 internal static class LegacyUserTasks
 {

@@ -585,6 +585,30 @@
         </Expander>
       </Border>
 
+      <!-- Saved passwords (U153): the vault that travels with the folder,
+           and its password. Collapsed by default. -->
+      <Border Classes="settings-card">
+        <Expander x:Name="SavedPasswordsSection" Classes="settings" IsExpanded="False">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <Border Classes="section-glyph">
+              <PathIcon Data="{StaticResource Icon.Shield}"/>
+            </Border>
+            <TextBlock Classes="section-title" Text="Saved passwords" Margin="0" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel Spacing="12" Margin="0,8,0,0">
+          <TextBlock Classes="helper" TextWrapping="Wrap"
+                     Text="Your storage passwords, cloud sign-ins and email keys are kept in one file beside Backspace (vault.bin), locked with a password. They travel with the Backspace folder: on another computer, Backspace asks for the password once."/>
+          <TextBlock x:Name="VaultStatusText" Classes="body" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding VaultStatus}"/>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button x:Name="ChangeVaultPasswordButton" Classes="ghost" Content="{Binding ChangeVaultPasswordLabel}"
+                    Command="{Binding ChangeVaultPasswordCommand}"/>
+          </StackPanel>
+        </StackPanel>
+        </Expander>
+      </Border>
+
       <!-- Logs & diagnostics — collapsed by default. -->
       <Border Classes="settings-card">
         <Expander Classes="settings" IsExpanded="False">

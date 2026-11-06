@@ -5,31 +5,13 @@ using Backspace.Models;
 
 namespace Backspace.Services.Platform.Windows;
 
-/// <summary>Background service history the desktop reads from the portable
-/// folder: the current (version-3) service's, and what earlier services left.</summary>
+/// <summary>Background service history the desktop reads from the portable folder.</summary>
 internal static class ServiceHistoryFiles
 {
-    internal static List<RunRecord> Read(string root, string backupId)
-    {
-        var all = new List<RunRecord>();
-        // The version-3 service's history and logs (U100), running or not:
-        // they are in Backspace.config\service and inherit the portable
-        // folder's permissions, so the desktop reads them as they are (U138,
-        // 6 November 2026). Only the earlier services (versions 1 and 2) kept
-        // them in a folder only their own account could read, and are asked
-        // through their pipes.
-        all.AddRange(SystemServiceRuns(root, backupId));
-        if (ServiceRetirement.Read(root) is { Stage: "complete" } retired)
-            all.AddRange(ReadData(ServicePortableLayout.Data(root), retired, backupId));
-        var config = ServicePortableLayout.Config(root);
-        if (Directory.Exists(config))
-            foreach (var directory in Directory.EnumerateDirectories(config, "windows-service-archive-*", SearchOption.TopDirectoryOnly))
-            {
-                if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) throw new IOException("Retained service history was redirected.");
-                all.AddRange(ReadData(Path.Combine(directory, "data"), ServiceRetirement.ReadArchive(directory), backupId));
-            }
-        return all;
-    }
+    /// <summary>The service's history and logs (U100), running or not: they
+    /// are in Backspace.config\service and inherit the portable folder's
+    /// permissions, so the desktop reads them as they are (U138, 6 November 2026).</summary>
+    internal static List<RunRecord> Read(string root, string backupId) => SystemServiceRuns(root, backupId);
 
     /// <summary>The version-3 service's runs of this backup, every one it
     /// recorded, with their logs as they are on this computer now.</summary>
@@ -65,26 +47,5 @@ internal static class ServiceHistoryFiles
             return moved.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(moved) ? moved : full;
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return ""; }
-    }
-
-    private static List<RunRecord> ReadData(string actualData, ServiceRetirement.Record retired, string backupId)
-    {
-        var logs = Path.Combine(actualData, "logs", "engine");
-        var records = new LogStore(logs).LoadTimelineByBackupId(backupId);
-        // A portable folder may have moved after service removal. Stored
-        // transcript paths follow this retained data, never the old location.
-        string Relocate(string path)
-        {
-            var previous = Path.Combine(retired.Binding.DataDirectory, "logs", "engine").TrimEnd('\\') + "\\";
-            if (!path.StartsWith(previous, StringComparison.OrdinalIgnoreCase)) return "";
-            var relocated = Path.GetFullPath(Path.Combine(logs, path[previous.Length..]));
-            return relocated.StartsWith(logs.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase) ? relocated : "";
-        }
-        foreach (var record in records)
-        {
-            record.LogPath = Relocate(record.LogPath);
-            foreach (var cell in record.Cells) cell.LogPath = Relocate(cell.LogPath);
-        }
-        return records;
     }
 }

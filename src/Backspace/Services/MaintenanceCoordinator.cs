@@ -173,10 +173,6 @@ public sealed class MaintenanceCoordinator
     private static FileStream? TryOpenGate(bool exclusive)
     {
 #if WINDOWS
-        var context = Platform.Windows.ServiceCoordinationFiles.Current();
-        if (context is not null)
-            return Platform.Windows.ServiceCoordinationFiles.TryOpen(context,
-                Platform.Windows.ServiceCoordinationFiles.OperationFile, exclusive);
         if (Platform.Windows.SystemServiceLocks.Directory() is { } shared)
             return Platform.Windows.SystemServiceLocks.TryOpen(shared, "operations.lock", exclusive);
 #endif
@@ -188,20 +184,8 @@ public sealed class MaintenanceCoordinator
             {
                 using var create = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite);
             }
-            var handle = new FileStream(path, FileMode.Open, exclusive ? FileAccess.ReadWrite : FileAccess.Read,
+            return new FileStream(path, FileMode.Open, exclusive ? FileAccess.ReadWrite : FileAccess.Read,
                 exclusive ? FileShare.None : FileShare.Read);
-#if WINDOWS
-            try
-            {
-                // Setup takes this original gate exclusively before publishing
-                // its binding. A caller that chose the old path just before
-                // that switch must retry, not enter through the obsolete gate.
-                if (Platform.Windows.ServiceCoordinationFiles.Current() is not null)
-                { handle.Dispose(); return null; }
-            }
-            catch { handle.Dispose(); throw; }
-#endif
-            return handle;
         }
         // Held: by another operation, or briefly by Dropbox or a virus
         // scanner ("access denied" included, U135). The caller waits and retries.

@@ -17,7 +17,7 @@ namespace Backspace.Tests.Services;
 /// </summary>
 public sealed class DestinationReadinessTests
 {
-    private static SecretsStore Vault(TempWorkspace ws) => new(new DpapiSecretsEncryption(), Path.Combine(ws.Root, "secrets.bin"));
+    private static SecretsStore Vault(TempWorkspace ws) => new();
 
     [Fact]
     public void An_imported_dropbox_destination_needs_the_sign_in_and_a_storage_password()

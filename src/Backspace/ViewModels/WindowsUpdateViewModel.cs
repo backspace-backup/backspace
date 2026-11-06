@@ -25,7 +25,6 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
     private readonly Func<Action, bool> _requestRestart;
     private WindowsUpdatePackage.Release? _release;
     private WindowsUpdatePackage.Plan? _prepared;
-    private bool _preparedForService;
     private CancellationTokenSource? _operation;
     private Timer? _timer;
     private bool _started;
@@ -94,14 +93,6 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
         var available = WindowsUpdateRuntime.CanInstall(out var why);
         InstallAvailable = installAvailable ?? available;
         InstallExplanation = InstallAvailable ? "Your settings stay in place. Active backups and restores must finish first; mounted snapshots will close when the app restarts." : why;
-#if WINDOWS
-        try
-        {
-            if (InstallAvailable && Services.Platform.Windows.ServiceProgramUpdateDesktop.Applies(AppContext.BaseDirectory.TrimEnd('\\')))
-                InstallExplanation += " Windows will ask for administrator approval because this copy also runs background backups.";
-        }
-        catch (Exception ex) { InstallAvailable = false; InstallExplanation = "Background backup setup needs attention before updating. " + ex.Message; }
-#endif
         _loading = true;
         Frequency = NormalizeFrequency(ServiceLocator.Config.Current.Preferences.UpdateCheckFrequency);
         _loading = false;
@@ -209,33 +200,16 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
         try
         {
             var exe = Environment.ProcessPath!;
-            var root = Path.GetDirectoryName(exe)!;
-            var forService = false;
-#if WINDOWS
-            forService = Services.Platform.Windows.ServiceProgramUpdateDesktop.Applies(root);
-#endif
-            if (_prepared is null || _prepared.Version != release.Version.ToString() || _preparedForService != forService)
+            if (_prepared is null || _prepared.Version != release.Version.ToString())
             {
                 if (_prepared is { State: "Prepared" } prior) WindowsUpdatePackage.SafeRemoveWork(prior.Root, prior.Work);
                 Status = "Downloading and checking the update. Your installed version stays untouched…";
-                var downloadLocation = forService ? Path.Combine(root, AppPaths.AppFolderName, Path.GetFileName(exe)) : exe;
-                _prepared = await WindowsUpdatePackage.DownloadAsync(_http, release, downloadLocation,
+                _prepared = await WindowsUpdatePackage.DownloadAsync(_http, release, exe,
                     new Progress<double>(p => Progress = p * 100), _operation.Token);
-                _preparedForService = forService;
             }
-            Status = forService ? "The download is ready. Windows will ask for approval to update this portable copy after Backspace closes."
-                : "The update is ready. Checking that Backspace can restart safely…";
+            Status = "The update is ready. Checking that Backspace can restart safely…";
             var plan = _prepared;
-#if WINDOWS
-            var serviceRequest = forService ? Services.Platform.Windows.ServiceProgramUpdateDesktop.Prepare(root, release.Tag, plan) : null;
-#endif
-            if (!_requestRestart(() =>
-            {
-#if WINDOWS
-                if (serviceRequest is not null) { Services.Platform.Windows.ServiceProgramUpdateDesktop.Pending = serviceRequest; return; }
-#endif
-                WindowsUpdateRuntime.Pending = plan;
-            }))
+            if (!_requestRestart(() => WindowsUpdateRuntime.Pending = plan))
                 Status = "The download is ready. Finish active backups, restores or maintenance, then choose Download and restart again. It won’t download twice.";
         }
         catch (OperationCanceledException) { Status = "Download cancelled. Your installed version has not changed."; }

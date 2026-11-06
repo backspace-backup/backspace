@@ -128,7 +128,7 @@ public sealed class E58_DropboxScaleBenchmark
         {
             var folder = Environment.GetEnvironmentVariable("BACKSPACE_BENCHMARK_REMOTE");
             Assert.False(string.IsNullOrWhiteSpace(folder), "Set BACKSPACE_BENCHMARK_REMOTE to a local folder.");
-            var localSecrets = new SecretsStore(new Backspace.Services.Platform.Windows.DpapiSecretsEncryption(), Path.Combine(dir, "vault", "secrets.bin"));
+            var localSecrets = new SecretsStore(new LegacySecretsVault(new Backspace.Services.Platform.Windows.DpapiSecretsEncryption(), Path.Combine(dir, "vault", "secrets.bin")));
             Directory.CreateDirectory(Path.Combine(dir, "vault"));
             const string localRef = "benchmark-repository-password";
             if (!localSecrets.TryGet(localRef, out _)) localSecrets.Set(localRef, "benchmark-" + Guid.NewGuid().ToString("N"));
@@ -142,7 +142,7 @@ public sealed class E58_DropboxScaleBenchmark
 
         // One vault and engine folder per benchmark so the repository password
         // and engine state survive between invocations.
-        var secrets = new SecretsStore(new Backspace.Services.Platform.Windows.DpapiSecretsEncryption(), Path.Combine(dir, "vault", "secrets.bin"));
+        var secrets = new SecretsStore(new LegacySecretsVault(new Backspace.Services.Platform.Windows.DpapiSecretsEncryption(), Path.Combine(dir, "vault", "secrets.bin")));
         Directory.CreateDirectory(Path.Combine(dir, "vault"));
         const string passwordRef = "benchmark-repository-password";
         if (!secrets.TryGet(passwordRef, out _)) secrets.Set(passwordRef, "benchmark-" + Guid.NewGuid().ToString("N"));

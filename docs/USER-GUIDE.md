@@ -194,13 +194,15 @@ in use without another prompt. Adding, editing or removing a backup asks
 nothing either: the service reads your saved settings within a minute. Updating
 Backspace asks nothing too: the service stops while `Backspace.exe` is
 replaced and starts again. **Settings → Administrator access** keeps **Remove
-access**, which asks Windows once: Backspace takes its saved sign-ins back from
-the service, then removes it. The service's history stays in Backspace.
+access**, which asks Windows once and removes it. The service's history stays
+in Backspace.
 
-Backspace 1.0 installed an earlier service that changed some folder
-permissions. Settings offers a one-time upgrade (Windows asks once): the
-earlier service hands your sign-ins back and restores every permission it
-changed, then the new service takes over with your history.
+The service reads the same saved passwords as the app (see **Saved passwords**
+below). When you set it up, and whenever you open Backspace afterwards, the app
+gives it this computer's key to them; nothing is copied. If it has no key yet
+(for example, right after you started over with new saved passwords), its
+backups fail with "Open Backspace on this computer and enter your password once."
+Opening Backspace does that.
 
 Without access, a backup runs without VSS and says so; no Windows prompt
 appears per run. An orange **Files that are open may be skipped** badge at the
@@ -508,22 +510,51 @@ folders without write access offer a manual download instead.
 
 ## Portability
 
-Everything Backspace creates lives in **one folder** next to the executable:
-`Backspace.config/`. It holds `config.json`, Backrest's state, run logs and the
-encrypted `secrets.bin`. The bundled engines (restic, Backrest, rclone) sit
-beside the executable.
+Everything Backspace keeps lives in **one folder** next to the executable:
+`Backspace.config/`. It holds `config.json`, run history and logs, and your
+saved passwords (`vault.bin`).
 
-Copy the executable and `Backspace.config/` to a new computer and your backup
-definitions (names, sources, destinations, filters, schedules) come with them.
-Re-enter storage passwords and sign in to cloud accounts again: the secrets
-vault is bound to the computer (DPAPI on Windows, an AES-GCM key file on macOS
-and Linux), so it doesn't travel.
+Copy the executable and `Backspace.config/` to a new computer (or let Dropbox
+do it) and everything comes with them: backup definitions, history and saved
+passwords. On the new computer Backspace asks for your saved-passwords password
+once, the first time something needs it; until then the Backups page shows a
+banner, and scheduled backups wait.
+
+### Saved passwords
+
+Storage passwords, cloud sign-ins and email or Healthchecks.io keys are kept
+in `vault.bin`, locked with a password you choose. Backspace asks you to
+choose it the first time it saves one of them, not before, and remembers it on
+each computer after you enter it there once. You can leave it empty: then the
+saved passwords are only **obscured, not protected**. Anyone who gets a copy of
+the Backspace folder (for example from your Dropbox) can read them, and with
+them your backups. Choose or change the password in **Settings â†’ Saved
+passwords**; other computers that already use the folder keep working.
+
+If you forget the password, the saved passwords can't be recovered: start over
+in Settings (Backspace keeps the old file), then enter your storage passwords
+and sign in to cloud destinations again.
+
+Files that would show a password in readable form are kept on each computer,
+not in the folder: the engines' working files (Backrest's settings and
+database, cloud connection files) in `%LOCALAPPDATA%\Backspace\engine`, rebuilt
+when missing, and each computer's key in `%LOCALAPPDATA%\Backspace\keys`. On a
+new computer the engine's own list of past operations starts empty; your run
+history, which lives in `Backspace.config`, is unaffected.
+
+An install from before saved passwords travelled kept them in a file only that
+Windows account on that computer could open (`secrets.bin`). At the first start
+after updating, Backspace asks once to choose a password and moves them,
+including the ones the background service held; it checks every one before
+removing the old files, and removes the old file only after the next backup
+succeeds.
 
 Settings outside that folder are ones Backspace can recreate: the sign-in start
 entry, the optional background service, the WinFsp driver for mounting, and
 `%LOCALAPPDATA%\Backspace`, which holds the engines (downloaded from the same
 GitHub release and checked against fingerprints built into `Backspace.exe`)
-and caches.
+and caches, the engines' working files and this computer's key to your saved
+passwords.
 
 Backspace keeps one copy per Windows account. Opening another copy, such as a
 new download, while Backspace is set up elsewhere offers **Update that copy**
@@ -533,11 +564,13 @@ new download, while Backspace is set up elsewhere offers **Update that copy**
 here, which Windows approves once) or **Cancel**.
 
 **Settings → Remove Backspace from this PC** removes everything Backspace
-added to Windows: the background service (after it hands your sign-ins back),
+added to Windows: the background service,
 the sign-in entry, the Explorer menu entry, `%LOCALAPPDATA%\Backspace` and tasks
 left by older versions. WinFsp is uninstalled only if you tick it, since other
 apps may use it. Backspace then quits; `Backspace.exe`, your settings and your
-backups stay, so deleting that folder removes the rest.
+backups stay, so deleting that folder removes the rest. This computer's key to
+your saved passwords goes too: if you open Backspace here again, it asks for
+their password once.
 
 ## Importing from Duplicacy
 

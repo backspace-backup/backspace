@@ -59,7 +59,7 @@ internal static class SystemServiceLifetime
     /// 4 November 2026). It waits as long as it takes (U135).</summary>
     internal static void DeleteRecord(string path, System.Threading.CancellationToken ct = default)
     {
-        try { ServiceSetup.ReplaceRetrying(() => File.Delete(path), path, ct); }
+        try { FileAccessRetry.Run(() => File.Delete(path), path, ct: ct); }
         catch (DirectoryNotFoundException) { }
     }
 
@@ -125,7 +125,7 @@ internal static class SystemServiceLifetime
         {
             using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             { JsonSerializer.Serialize(file, record); file.Flush(true); }
-            ServiceSetup.ReplaceRetrying(() => File.Move(temporary, path, overwrite: true), path);
+            FileAccessRetry.Run(() => File.Move(temporary, path, overwrite: true), path);
         }
         finally { try { if (File.Exists(temporary)) File.Delete(temporary); } catch (IOException) { } }
     }

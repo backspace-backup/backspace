@@ -46,119 +46,6 @@ internal static class Program
             StartedInBackground = true;
         }
 #if WINDOWS
-        if (args.Length > 0 && args[0] == "--service-update")
-        {
-            if (args.Length != 3) return 2;
-            var root = Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\'));
-            try
-            {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-                using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMinutes(2) };
-                Services.Platform.Windows.ServiceProgramUpdate.ApplyAsync(root, args[1], args[2], http, timeout.Token).GetAwaiter().GetResult();
-                Services.Platform.Windows.ServiceProgramUpdateDesktop.WriteOutcome(root, true,
-                    "Updated to Backspace " + args[1].TrimStart('v') + ". Your settings and backups were preserved.", args[2]);
-                return 0;
-            }
-            catch (Exception ex)
-            {
-                try { Services.Platform.Windows.ServiceProgramUpdateDesktop.WriteOutcome(root, false, "The update could not finish. " + ex.Message, args[2]); } catch { }
-                Console.Error.WriteLine("The background service update needs attention: " + ex.Message); return 4;
-            }
-        }
-        if (args.Length > 0 && args[0] == "--service-recover-update")
-        {
-            if (args.Length is not (2 or 3) || args.Length == 3 && args[2] != "--finish-pending") return 2;
-            try { return Services.Platform.Windows.ServiceProgramUpdateDesktop.RunRecovery(args[1], finishPending: args.Length == 3); }
-            catch (Exception ex) { Console.Error.WriteLine("Background service update recovery could not finish: " + ex.Message); return 4; }
-        }
-        if (args.Length > 0 && args[0] is "--service-retire-prepare" or "--service-retire-complete")
-        {
-            if (args.Length != 1) return 2;
-            try
-            {
-                var root = Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\'));
-                if (args[0] == "--service-retire-prepare") Services.Platform.Windows.ServiceRetirement.Prepare(root);
-                else Services.Platform.Windows.ServiceRetirement.Complete(root);
-                return 0;
-            }
-            catch (Exception ex) { ReportSetupFailure("Background backup removal needs attention; retained data was preserved: " + ex.Message); return 4; }
-        }
-        if (args.Length > 0 && args[0] == "--service-retire")
-        {
-            if (args.Length != 1) return 2;
-            try
-            {
-                var root = Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\'));
-                Services.Platform.Windows.ServiceRetirement.Prepare(root);
-                Services.Platform.Windows.ServiceRetirement.CompleteAfterReturn(root, TimeSpan.FromMinutes(10));
-                return 0;
-            }
-            catch (Exception ex) { ReportSetupFailure("Background backup removal needs attention; retained data was preserved: " + ex.Message, ex); return 4; }
-        }
-        if (args.Length > 0 && args[0] == "--service-refresh")
-        {
-            if (args.Length is not (1 or 2)) return 2;
-            try
-            {
-                Services.Platform.Windows.ServiceConfigurationUpdate.Apply(
-                    Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\')),
-                    args.Length == 2 ? args[1] : null);
-                return 0;
-            }
-            catch (Exception ex) { ReportSetupFailure("Background backup settings need attention: " + ex.Message); return 4; }
-        }
-        if (args.Length > 0 && args[0] == Services.Platform.Windows.ServiceSettingsTask.Argument)
-        {
-            if (args.Length != 1) return 2;
-            try { return Services.Platform.Windows.ServiceSettingsTask.ApplyAsSystem(AppContext.BaseDirectory.TrimEnd('\\')); }
-            catch (Exception ex) { ReportSetupFailure("Your latest backup settings could not be applied: " + ex.Message, ex); return 4; }
-        }
-        if (args.Length > 0 && args[0] == "--service-activate")
-        {
-            if (args.Length != 1) return 2;
-            try
-            {
-                Services.Platform.Windows.ServiceActivation.Activate(
-                    Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\')));
-                return 0;
-            }
-            catch (Exception ex) { ReportSetupFailure("Background backup activation needs attention: " + ex.Message); return 4; }
-        }
-        if (args.Length > 0 && args[0] == "--service-abort-prepare")
-        {
-            if (args.Length != 1) return 2;
-            try
-            {
-                Services.Platform.Windows.ServiceSetup.AbortPreparation(
-                    Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\')));
-                return 0;
-            }
-            catch (Exception ex) { ReportSetupFailure("Background backup setup was retained: " + ex.Message); return 4; }
-        }
-        if (args.Length > 0 && args[0] == "--service-setup")
-        {
-            if (args.Length != 2) return 2;
-            try
-            {
-                var root = Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\'));
-                Services.Platform.Windows.ServiceSetup.Prepare(root, args[1]);
-                Services.Platform.Windows.ServiceActivation.ActivateAfterHandoff(root, TimeSpan.FromMinutes(10));
-                return 0;
-            }
-            catch (Exception ex) { ReportSetupFailure("Background backup setup could not finish: " + ex.Message, ex); return 4; }
-        }
-        if (args.Length > 0 && args[0] == "--service-prepare")
-        {
-            if (args.Length != 2) return 2;
-            try
-            {
-                Services.Platform.Windows.ServiceSetup.Prepare(
-                    Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\')), args[1]);
-                Console.WriteLine("Background service prepared. Credential verification must finish before schedules are enabled.");
-                return 0;
-            }
-            catch (Exception ex) { ReportSetupFailure("Background backup setup could not finish: " + ex.Message); return 4; }
-        }
         if (args.Length == 2 && args[0] == Services.Platform.Windows.WindowsPcRemoval.ForgetArgument)
             return int.TryParse(args[1], out var parent) ? Services.Platform.Windows.WindowsPcRemoval.ForgetLocalFiles(parent) : 2;
         if (args.Length > 0 && args[0] == Services.Platform.Windows.SystemService.HostArgument)
@@ -167,7 +54,7 @@ internal static class Program
             try { return Services.Platform.Windows.SystemBackupService.RunInstalled(args[1]); }
             catch (Exception ex) { Console.Error.WriteLine("The background service could not start: " + ex.Message); return 4; }
         }
-        // Version-3 setup, upgrade and removal (U100): each is one Windows approval.
+        // Background service setup, move and removal (U100): each is one Windows approval.
         if (args.Length == 3 && args[0] == Services.Platform.Windows.InstallationHandover.MoveArgument)
             return int.TryParse(args[2], out var window) ? Services.Platform.Windows.InstallationHandover.Move(args[1], window) : 2;
         if (args.Length == 2 && args[0] == "--system-service-move")
@@ -181,42 +68,26 @@ internal static class Program
             }
             catch (Exception ex) { ReportSetupFailure("The background service could not be moved: " + ex.Message, ex); return 4; }
         }
-        if (args.Length > 0 && args[0] is "--system-service-setup" or "--system-service-upgrade" or "--system-service-remove")
+        if (args.Length > 0 && args[0] is "--system-service-setup" or "--system-service-remove")
         {
             if (args.Length != (args[0] == "--system-service-remove" ? 2 : 3)) return 2;
             try
             {
                 var root = Services.Platform.Windows.ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\'));
-                if (args[0] == "--system-service-upgrade")
-                {
-                    // The earlier service returns the saved sign-ins and puts
-                    // back every permission it changed, then goes.
-                    Services.Platform.Windows.ServiceRetirement.Prepare(root);
-                    Services.Platform.Windows.ServiceRetirement.CompleteAfterReturn(root, TimeSpan.FromMinutes(10));
-                    Services.Platform.Windows.SystemServiceUpgrade.MoveRetiredData(root);
-                }
                 if (args[0] == "--system-service-remove") Services.Platform.Windows.SystemService.Uninstall(args[1]);
                 else Services.Platform.Windows.SystemService.Install(root, args[1], args[2]);
                 return 0;
             }
             catch (Exception ex) { ReportSetupFailure("Administrator access could not be changed: " + ex.Message, ex); return 4; }
         }
-        if (args.Length > 0 && args[0] == "--service-host")
-        {
-            if (args.Length != 1) return 2;
-            try { return Services.Platform.Windows.BackupWindowsService.RunInstalled(); }
-            catch (Exception ex) { Console.Error.WriteLine("The installed backup service could not start: " + ex.Message); return 4; }
-        }
-        // This hidden worker is admitted by its protected installation and
-        // actual virtual-service identity before normal GUI/scheduler startup.
-        if (args.Length > 0 && args[0] is "--service-worker" or "--service-worker-owned" or "--service-worker-cli")
+        // This hidden worker is admitted by the service's registry record and
+        // its Windows identity before normal GUI/scheduler startup.
+        if (args.Length > 0 && args[0] is "--service-worker-owned" or "--service-worker-cli")
         {
             if (args.Length != 4) return 2;
             try
             {
-                return (args[0] is "--service-worker-owned" or "--service-worker-cli"
-                    ? Services.Platform.Windows.ServiceApprovedWorker.RunOwnedAsync(args[1], args[2], args[3], ownerCommand: args[0] == "--service-worker-cli")
-                    : Services.Platform.Windows.ServiceApprovedWorker.RunAsync(args[1], args[2], args[3], CancellationToken.None))
+                return Services.Platform.Windows.ServiceApprovedWorker.RunOwnedAsync(args[1], args[2], args[3], ownerCommand: args[0] == "--service-worker-cli")
                     .GetAwaiter().GetResult();
             }
             catch (Exception ex)
@@ -264,10 +135,6 @@ internal static class Program
             }
             if (OperatingSystem.IsWindows() && initialMode is not (RunMode.Version or RunMode.Help or RunMode.UsageError))
             {
-#if WINDOWS
-                if (initialMode == RunMode.Gui && Services.Platform.Windows.ServiceProgramUpdateDesktop.RecoverPendingBeforeStartup(
-                    AppContext.BaseDirectory.TrimEnd('\\'), args)) return 0;
-#endif
                 if (WindowsUpdateRuntime.RecoverInterruptedBeforeStartup(AppContext.BaseDirectory, args)) return 0;
                 updateRuntimeLease = WindowsUpdateRuntime.AcquireShared(AppContext.BaseDirectory, TimeSpan.FromSeconds(30));
             }

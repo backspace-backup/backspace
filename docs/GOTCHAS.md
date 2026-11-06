@@ -60,6 +60,40 @@ never replace this with stopping or disabling the service, because a stopped
 service cannot resume itself at sign-out, and runs before sign-in after a
 restart are requested.
 
+## Saved passwords that travel (U153)
+
+`vault.bin` sits in the synced folder; anything else that holds a credential
+in readable form must not. Backrest writes every repository password into its
+own `config.json` (by design), and rclone keeps cloud tokens in its
+configuration. Those are kept in `%LOCALAPPDATA%\Backspace\engine\<16 hex>`
+(`EngineWorkPaths`) and rebuilt there. A new feature that writes an engine
+file, scratch file or diagnostic under `AppPaths.ConfigRoot` can silently
+undo this: E63 scans every byte under the configuration folder for the
+storage password after a real backup, with a positive control in the
+engine's folder. Run history and transcripts stay in `Backspace.config\logs`
+and `service\logs` (U138); they must never carry a credential.
+
+Two computers that save credentials at the same time each rewrite `vault.bin`;
+Dropbox keeps one and makes a "conflicted copy" of the other. Backspace never
+merges conflicted copies by itself. Both share the vault id and key, so either
+copy opens with the same password; the person can compare them. Saving a
+credential on one computer at a time avoids it.
+
+The store never asks for a password; only `VaultGate` does, and only before
+an action that needs one. Do not call `SecretsStore.Set` from a path that has
+not passed the gate: it throws `VaultLockedException` (nothing is written)
+rather than prompting. Background runs never ask: a locked vault makes
+scheduled runs wait with one alert, and the service's runs fail before any
+engine starts with "Open Backspace on this computer and enter your password once."
+
+A key copy is protected by Windows for one account on one computer (DPAPI).
+Restoring `%LOCALAPPDATA%` from another computer gives copies that do not
+open: the vault then counts as locked and asks for the password once. A key
+copy that opens but no longer opens the body (the vault was replaced, for
+example by starting over elsewhere) is deleted as stale. A wrong password is
+never written anywhere, and a damaged body, a newer format or a missing file
+with a `.bak` beside it are kept as they are.
+
 ## OAuth first-run flow (Dropbox / OneDrive / Google Drive)
 
 Backrest can return a completed failed operation instead of throwing an RPC
