@@ -70,6 +70,8 @@ public sealed class DuplicacyFilterTranslatorTests
         "Users/me/AppData/Local/Microsoft/Office/SolutionPackages/x", "ProgramData/GOG.com/x", "ProgramData/GOGXcom/x",
         "Python311/python.exe", "Tools/Python311/python.exe", "Mac/.DS_Store", "Mac/._.DS_Store", "Mac/.ds_store",
         "Users/me/Projects/cronjob.ps1", "Users/me/Projects/cronjobs/run.ps1", "Users/me/Projects/cron/x",
+        // "^Users/" is the top of the backup's folder only, as in Duplicacy: an old PC's copied profiles deeper down are kept.
+        "Backups/OldPC/Users/bob/AppData/Local/Cache/x", "Backups/OldPC/Users/bob/AppData/Local/Google/Chrome/User Data/Default/History",
     };
 
     [Fact]
@@ -97,10 +99,25 @@ public sealed class DuplicacyFilterTranslatorTests
     [InlineData("Program Files/App1/bin/lib.dll", false)]
     [InlineData("Tools/Python311/python.exe", true)]
     [InlineData("Games/Worms/windows/setup.exe", true)]
+    [InlineData("Users/me/AppData/Local/Cache/x", false)]
+    [InlineData("Backups/OldPC/Users/bob/AppData/Local/Cache/x", true)]
     public void The_regressions_found_on_the_maintainers_drives_are_fixed(string path, bool backedUp)
     {
         var rules = FilterTranslator.CompileRules(Filters);
         Assert.Equal(backedUp, Included(path, p => FilterTranslator.Evaluate(rules, p).Excluded));
+    }
+
+    /// <summary>U151: a Duplicacy rule "^Users/…" reaches restic anchored at the
+    /// drive's top, as Duplicacy meant it; Backspace's own "Users/*/…" rules
+    /// (no leading "/") are not anchored today.</summary>
+    [Fact]
+    public void Anchored_duplicacy_rules_bind_to_the_top_of_the_drive()
+    {
+        var result = FilterTranslator.TranslateForSource("e:(?i)^Users/[^/]+/AppData/Local/Temp/\nUsers/*/AppData/Local/Pip/", @"C:\");
+        var all = result.Excludes.Concat(result.IExcludes).ToList();
+        Assert.Contains(all, g => g.StartsWith("C:/Users/", StringComparison.Ordinal) && g.Contains("Temp", StringComparison.Ordinal));
+        Assert.DoesNotContain(all, g => g.Contains("Temp", StringComparison.Ordinal) && g.Contains("**", StringComparison.Ordinal));
+        Assert.Contains(all, g => g.StartsWith("C:/**/Users/", StringComparison.Ordinal) && g.Contains("Pip", StringComparison.Ordinal));
     }
 
     [Fact]

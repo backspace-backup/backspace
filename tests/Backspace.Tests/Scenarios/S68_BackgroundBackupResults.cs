@@ -31,14 +31,17 @@ public sealed class S68_BackgroundBackupResults : ScenarioBase
         var saved = File.ReadAllBytes(AppPaths.ConfigFile);
         var failed = new RunRecord { BackupId = backup.Id, BackupName = backup.Name, StartedUtc = now.AddMinutes(-3), EndedUtc = now.AddMinutes(-2), Status = BackupRunStatus.Failed, Summary = "Backup drive ran out of space" };
         var check = new RunRecord { BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Check, StartedUtc = now.AddMinutes(-1), EndedUtc = now, Status = BackupRunStatus.Success, Summary = "Repository check completed" };
-        var records = new[] { check, failed };
-        var first = new TaskCompletionSource<ServiceHistoryProtocol.Response>();
-        var cache = new ServiceHistoryCache(Path.Combine(ctx.RootDir, "service-history"), (_, _) => first.Task);
-        var logs = new LogStore(cache);
+        // The background service recorded both while the app was closed, in
+        // its history inside the portable folder, read as it is (U138).
+        var installation = Path.Combine(ctx.RootDir, "portable");
+        var service = new LogStore(Path.Combine(SystemService.DataDirectoryFor(installation), "logs", "engine"));
+        service.AppendRun(failed); service.AppendRun(check);
+        var logs = LogStore.WithServiceOf(installation);
+        var refreshed = 0;
+        logs.HistoryRefreshed += id => { if (id == backup.Id) System.Threading.Interlocked.Increment(ref refreshed); };
         using var vm = new BackupsViewModel(logs);
         var window = ctx.Driver.Show(new Window { Width = 1024, Height = 768, Content = new BackupsView { DataContext = vm } });
         var card = Assert.Single(vm.Cards);
-        first.SetResult(new(1, records));
         for (var n = 0; n < 100 && card.DisplayedRunStatus != BackupRunStatus.Failed; n++) await ctx.Driver.PumpAsync(20);
         Assert.Equal("fail", card.StatusClass); Assert.Equal("fail", vm.HealthClass);
         Assert.Contains("ran out of space", card.LastRunLabel);
@@ -46,7 +49,11 @@ public sealed class S68_BackgroundBackupResults : ScenarioBase
         Assert.Equal(BackupRunStatus.Success, ServiceLocator.Config.Current.Backups.Single().LastRunStatus);
         ctx.Snapshot(window, "latest-service-failure", "The card and top health banner both show the newer background backup failure. The later successful repository check has not turned the failed backup green. Desktop settings still contain the old value.");
         card.SetRunning(); card.SetQueuedReason("waiting for the backup drive");
-        await cache.RefreshAsync(backup.Id, CancellationToken.None);
+        // The service records another run: the app sees its files change.
+        var before = refreshed;
+        service.AppendRun(new RunRecord { BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Check, StartedUtc = now, EndedUtc = now, Status = BackupRunStatus.Success, Summary = "Another check" });
+        for (var n = 0; n < 150 && refreshed == before; n++) { logs.RefreshBackgroundHistory(backup.Id); await ctx.Driver.PumpAsync(20); }
+        Assert.True(refreshed > before);
         vm.Refresh(); await ctx.Driver.PumpAsync(100);
         Assert.True(card.IsRunning); Assert.True(card.IsQueued); Assert.Equal("running", card.StatusClass);
         Assert.Equal("Queued: waiting for the backup drive", card.LastRunLabel);
@@ -55,6 +62,6 @@ public sealed class S68_BackgroundBackupResults : ScenarioBase
         await ctx.Driver.PumpAsync(100);
         Assert.False(card.IsRunning); Assert.Equal("fail", card.StatusClass);
         Assert.Equal(saved, File.ReadAllBytes(AppPaths.ConfigFile));
-        ctx.Report.RecordNote("Limits", "Actual persistent service-history cache, LogStore refresh events, card and health banner in headless Avalonia. Service replies and the running signal are controlled. The earlier VM report separately proves the authenticated service-to-desktop history transport; this scenario does not prove native windows or live service progress.");
+        ctx.Report.RecordNote("Limits", "The service's real history files in a portable folder, read by LogStore with its change signal, card and health banner in headless Avalonia. The running signal is controlled; this scenario does not prove native windows or live service progress.");
     }
 }

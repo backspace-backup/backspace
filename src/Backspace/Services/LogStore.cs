@@ -22,42 +22,40 @@ public sealed class LogStore
     private readonly string? _explicitEngineLogsRoot;
     private string EngineLogsRoot => _explicitEngineLogsRoot ?? AppPaths.EngineLogsRoot;
     internal LogStore(string engineLogsRoot) => _explicitEngineLogsRoot = engineLogsRoot;
-#if WINDOWS
-    private readonly Platform.Windows.ServiceHistoryCache? _serviceHistory;
-#endif
+    /// <summary>The portable copy whose background service's history this
+    /// store also reads, when set explicitly (tests).</summary>
+    private readonly string? _explicitServiceInstallation;
 
-    public LogStore()
+    public LogStore() { }
+
+    /// <summary>The desktop's own history, plus the background service's
+    /// history and logs in <paramref name="installation"/>'s portable folder.</summary>
+    internal static LogStore WithServiceOf(string installation) => new(installation, service: true);
+    private LogStore(string installation, bool service) => _explicitServiceInstallation = installation;
+
+    /// <summary>The copy whose service history is read: this one, when its
+    /// settings are the portable ones beside it.</summary>
+    private string? ServiceInstallation()
     {
 #if WINDOWS
-        _serviceHistory = Platform.Windows.ServiceHistoryCache.ForDesktop();
-        if (_serviceHistory is not null) _serviceHistory.Refreshed += id => HistoryRefreshed?.Invoke(id);
+        if (_explicitServiceInstallation is not null) return _explicitServiceInstallation;
+        if (_explicitEngineLogsRoot is not null) return null;
+        var root = AppContext.BaseDirectory.TrimEnd('\\');
+        return Platform.Windows.ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot) ? root : null;
+#else
+        return null;
 #endif
     }
-#if WINDOWS
-    internal LogStore(Platform.Windows.ServiceHistoryCache serviceHistory)
-    {
-        _serviceHistory = serviceHistory;
-        _serviceHistory.Refreshed += id => HistoryRefreshed?.Invoke(id);
-    }
-#endif
 
     private List<RunRecord> WithServiceHistory(string backupId, List<RunRecord> local)
     {
 #if WINDOWS
-        if (_explicitEngineLogsRoot is null)
+        if (ServiceInstallation() is { } installation)
         {
-            var root = AppContext.BaseDirectory.TrimEnd('\\');
-            if (Platform.Windows.ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot))
-            {
-                try { local.AddRange(Platform.Windows.ServiceHistoryFiles.Read(root, backupId)); }
-                catch (Exception ex) { AppLogger.For<LogStore>().Warning(ex, "The background service's history could not be read"); }
-            }
-        }
-        if (_serviceHistory is not null)
-        {
-            try { return local.Concat(_serviceHistory.ReadAndRefresh(backupId)).GroupBy(r => r.Id)
-                .Select(g => g.LastOrDefault(r => !string.IsNullOrEmpty(r.LogPath)) ?? g.Last()).OrderByDescending(r => r.StartedUtc).ToList(); }
-            catch (Exception ex) { AppLogger.For<LogStore>().Warning(ex, "Saved background history is unavailable for {Backup}", backupId); }
+            // The service's history and logs are in the portable folder,
+            // readable by the desktop: read as they are (U138).
+            try { local.AddRange(Platform.Windows.ServiceHistoryFiles.Read(installation, backupId)); }
+            catch (Exception ex) { AppLogger.For<LogStore>().Warning(ex, "The background service's history could not be read"); }
         }
         return local.GroupBy(r => r.Id).Select(g => g.LastOrDefault(r => !string.IsNullOrEmpty(r.LogPath)) ?? g.Last())
             .OrderByDescending(r => r.StartedUtc).ToList();
@@ -69,12 +67,10 @@ public sealed class LogStore
     public void RefreshBackgroundHistory(string backupId)
     {
 #if WINDOWS
-        if (string.IsNullOrEmpty(backupId)) return;
-        if (_serviceHistory is not null) { _serviceHistory.RequestRefresh(backupId); return; }
-        // The version-3 service's files are read on every load (U138): tell
-        // the views only when they changed since this backup last looked.
-        if (_explicitEngineLogsRoot is not null) return;
-        var signature = ServiceFilesSignature();
+        if (string.IsNullOrEmpty(backupId) || ServiceInstallation() is not { } installation) return;
+        // The service's files are read on every load (U138): tell the views
+        // only when they changed since this backup last looked.
+        var signature = ServiceFilesSignature(installation);
         if (signature.Length == 0 || _seenServiceFiles.TryGetValue(backupId, out var seen) && seen == signature) return;
         _seenServiceFiles[backupId] = signature;
         System.Threading.Tasks.Task.Run(() =>
@@ -89,25 +85,23 @@ public sealed class LogStore
 
     /// <summary>When and how large the service's history files are, all
     /// backups together: it changes whenever the service records a run.</summary>
-    private static (DateTime At, string Value) _lastSignature;
+    private (DateTime At, string Installation, string Value) _lastSignature;
 
-    private static string ServiceFilesSignature()
+    private string ServiceFilesSignature(string installation)
     {
         // Every card asks on the same tick: look once for all of them.
         var last = _lastSignature;
-        if (DateTime.UtcNow - last.At < TimeSpan.FromSeconds(1) && last.Value is not null) return last.Value;
-        var value = ReadServiceFilesSignature();
-        _lastSignature = (DateTime.UtcNow, value);
+        if (DateTime.UtcNow - last.At < TimeSpan.FromSeconds(1) && last.Installation == installation && last.Value is not null) return last.Value;
+        var value = ReadServiceFilesSignature(installation);
+        _lastSignature = (DateTime.UtcNow, installation, value);
         return value;
     }
 
-    private static string ReadServiceFilesSignature()
+    private static string ReadServiceFilesSignature(string installation)
     {
         try
         {
-            var root = AppContext.BaseDirectory.TrimEnd('\\');
-            if (!Platform.Windows.ServiceOwnerSecrets.Applies(root, AppPaths.ConfigRoot)) return "";
-            var logs = Path.Combine(Platform.Windows.SystemService.DataDirectoryFor(root), "logs", "engine");
+            var logs = Path.Combine(Platform.Windows.SystemService.DataDirectoryFor(installation), "logs", "engine");
             if (!Directory.Exists(logs)) return "";
             var parts = new System.Text.StringBuilder();
             foreach (var directory in Directory.EnumerateDirectories(logs).Order(StringComparer.OrdinalIgnoreCase))

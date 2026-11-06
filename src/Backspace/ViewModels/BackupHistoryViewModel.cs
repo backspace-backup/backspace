@@ -72,7 +72,7 @@ public sealed partial class BackupHistoryViewModel : ObservableObject
     }
 
     private static bool HasLog(RunRecord? run) => run is not null
-        && (run.LogKeptByService || System.IO.File.Exists(run.LogPath) || run.Cells.Any(c => System.IO.File.Exists(c.LogPath)));
+        && (System.IO.File.Exists(run.LogPath) || run.Cells.Any(c => System.IO.File.Exists(c.LogPath)));
 }
 
 public sealed record BackupHistoryRow(string RunId, string BackupId, DateTime When, BackupRunStatus Status, string Kind, string Summary, bool HasLog)

@@ -606,43 +606,24 @@ test harness to give each test its own isolated config dir.
    existing scheduler safe for before-sign-in production use.
 
    The version-3 service (Windows' own account) writes its history and logs in
-   `Backspace.config\service\logs\engine`, where they inherit the portable
+   `Backspace.configservicelogsengine`, where they inherit the portable
    folder's permissions. The desktop reads them there directly
    (`ServiceHistoryFiles`, U138): every run from `history.json` and
    `timeline.json`, and each log in full, with the service running or stopped.
    A recorded log path is used only if it is a `.log` inside that folder; after
    the portable folder moves, the file of the same name in the same backup
    folder is used. Reading in this direction gives the desktop nothing it could
-   not already open, and this service serves no history or transcript pipe.
-   `LogStore` tells the views to reload when those history files change.
+   not already open. No service serves a history or transcript pipe: the
+   earlier services (versions 1 and 2) are not supported for this, as no other
+   installation needs a migration path (6 November 2026).
 
-   The earlier services (versions 1 and 2, a virtual service account) kept their
-   data in a folder only their own account could read. For them only,
-   `ServiceHistoryProtocol` adds a separate authenticated, read-only history
-   endpoint. A request names a backup ID and an optional run-ID cursor, never
-   a filesystem path. Pages are limited by both record count and serialized
-   size. Newer runs do not shift an existing cursor; a removed cursor or an
-   oversized single record produces an explicit error. Returned records are
-   copies with private transcript paths removed; `LogKeptByService` says whether
-   the service still has the run's transcript, so its row in a backup's activity
-   offers Open log. The service does not write
-   into the desktop's writable history directory. `ServiceHistoryCache` pulls
-   pages in the ordinary desktop process and saves them beneath the adjacent
-   configuration folder. `LogStore` merges those outcomes into history and the
-   timeline. A separate refresh event updates lists without treating old cached
-   results as newly completed runs or changing the user's selection. Refresh runs
-   off the UI thread, stops paging once it reaches cached history, and retains
-   the preceding cache on incomplete reads. A stale reply cannot overwrite a
-   concurrent cache update. Backup cards and the health banner use the newest
-   completed backup result from this history without writing it into desktop
-   settings. A later repository check cannot erase a failed backup, and a
-   history refresh cannot replace a live or queued run. This history path supplies
-   completed run metadata. `ServiceTranscriptProtocol` separately accepts a
-   backup/run ID and returns at most the last 64 KiB of its recorded transcript.
-   The path comes only from service-owned history, must remain under the service
-   log folder, and cannot pass through a reparse point. Missing or expired logs
-   produce an explicit message. The desktop does not receive private file paths;
-   a late transcript reply cannot replace a newer run selection.
+   `LogStore` merges the service's runs into history and the timeline, and
+   tells the views to reload when the service's history files change. That
+   refresh event updates lists without treating old results as newly completed
+   runs or changing the user's selection. Backup cards and the health banner use
+   the newest completed backup result from this history without writing it into
+   desktop settings. A later repository check cannot erase a failed backup, and
+   a history refresh cannot replace a live or queued run.
 
    Live activity uses the authenticated run endpoint's read-only `activity`
    request. The owned worker sends bounded snapshots over its inherited stdout
@@ -658,8 +639,8 @@ test harness to give each test its own isolated config dir.
    output and its run-history ID. Activity & logs shows that live output and merges
    the running entry without stealing a selected past run. A cumulative text
    position lets Clear view suppress previously displayed output across polling
-   updates while still displaying new lines. Completed runs use the saved-log
-   endpoint; the final live tail is not treated as an entire saved transcript.
+   updates while still displaying new lines. Completed runs show their saved log
+   file; the final live tail is not treated as an entire saved transcript.
 
    `SecretsStore` can open an explicit trusted path for a separate service
    identity. Its migration snapshot refuses an unreadable source. The

@@ -333,20 +333,12 @@ an empty migration, existing or concurrently created target files survive,
 and the source transaction stays locked through the activation callback.
 Those deterministic checks are not native cross-account DPAPI acceptance.
 
-`ServiceHistoryProtocolTests` checks stable paging while a new run arrives,
-exclusion of other backups, preservation of the original records, removal of
-private transcript paths, response size limits, and rejection of arbitrary
-paths, duplicate fields and invalid cursors. These protocol tests do not prove
-desktop history display or a real service connection; the latter is checked
-separately in the isolated Windows VM.
-
-`ServiceHistoryCacheTests` checks that a failed page leaves prior history intact,
-a delayed response cannot replace a newer concurrent save, and an outstanding
-service request does not block `LogStore` callers. Completed results reach both
-history and timeline readers and raise a history-refresh event, never a false
-new-run event. Repeat reads
-stop at known history and do not announce unchanged results. Explicit review
-configuration overrides must not connect to an adjacent production service.
+`ServiceHistoryFilesTests` reads the background service's history and logs from
+the portable folder: a moved folder, another backup's runs in the same folder,
+an expired log and a run past the latest 30. S68, S84 and
+`ServiceHistorySelectionTests` write real service history files and check
+that cards, the health banner and Activity & logs follow them without moving
+the user's selection.
 
 `ServiceWorkerTests` checks that repository-only checks and cleanup do not pin
 original source folders. Backup and explicit original-file comparisons still

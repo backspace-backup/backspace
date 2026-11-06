@@ -46,8 +46,6 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     /// without re-reading the file. Empty when nothing is loaded
     /// (live mode, empty selection, or load error).</summary>
     private string _logTextRaw = "";
-    private readonly Func<RunRecord, CancellationToken, Task<string?>>? _backgroundTranscript;
-    private CancellationTokenSource? _backgroundLogRead;
     private string _serviceTail = "";
     private RunRecord? _serviceRun;
     private bool _disposed;
@@ -168,20 +166,8 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         catch (Exception ex) { _log.Warning(ex, "Could not open archived run {RunId}", runId); }
     }
 
-    public LogsViewModel() : this(DefaultBackgroundTranscript()) { }
-
-    private static Func<RunRecord, CancellationToken, Task<string?>>? DefaultBackgroundTranscript()
+    public LogsViewModel()
     {
-#if WINDOWS
-        return Services.Platform.Windows.ServiceTranscriptProtocol.ReadForDesktopAsync;
-#else
-        return null;
-#endif
-    }
-
-    internal LogsViewModel(Func<RunRecord, CancellationToken, Task<string?>>? backgroundTranscript)
-    {
-        _backgroundTranscript = backgroundTranscript;
         AppNavigator.RunDetailsRequested += SelectRunById;
         _refreshDebouncer = new UiThreadDebouncer(Refresh);
         Refresh();
@@ -239,8 +225,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     }
 
 #if WINDOWS
-    internal LogsViewModel(Func<RunRecord, CancellationToken, Task<string?>>? backgroundTranscript,
-        Services.Platform.Windows.BackgroundServiceActivity activity) : this(backgroundTranscript) => AttachBackgroundActivity(activity);
+    internal LogsViewModel(Services.Platform.Windows.BackgroundServiceActivity activity) : this() => AttachBackgroundActivity(activity);
 
     private void AttachBackgroundActivity(Services.Platform.Windows.BackgroundServiceActivity? activity)
     {
@@ -461,7 +446,6 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         if (_backgroundActivity is not null) _backgroundActivity.Changed -= OnBackgroundActivityChanged;
 #endif
         System.Threading.Interlocked.Increment(ref _logLoadGen);
-        _backgroundLogRead?.Cancel(); _backgroundLogRead?.Dispose(); _backgroundLogRead = null;
         AppNavigator.RunDetailsRequested -= SelectRunById;
         ServiceLocator.Config.Changed -= OnConfigChanged;
         ServiceLocator.Engine.LineWritten -= OnLineWritten;
@@ -920,7 +904,6 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         // "Running" / "no LogPath" branch must still cancel any
         // pending read against the previously-selected run.
         var thisGen = System.Threading.Interlocked.Increment(ref _logLoadGen);
-        _backgroundLogRead?.Cancel(); _backgroundLogRead?.Dispose(); _backgroundLogRead = null;
 
         // In-flight run: nothing to load — DisplayText pivots to
         // LiveTail via IsShowingLive, so leave LogText alone.
@@ -930,19 +913,12 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             return;
         }
         // A run the background service made names its log in the portable
-        // folder, read like the app's own (U138). Only the earlier services
-        // (versions 1 and 2), whose logs only they could read, are asked.
+        // folder, read like the app's own (U138).
         var logPath = value?.LogPath;
         if (value is null || string.IsNullOrEmpty(logPath))
         {
             _logTextRaw = "";
             LogText = "";
-            if (value is not null && _backgroundTranscript is not null)
-            {
-                LogText = "Loading background run log…";
-                _backgroundLogRead = new();
-                _ = LoadBackgroundTranscriptAsync(value, thisGen, _backgroundLogRead.Token);
-            }
             OnPropertyChanged(nameof(DisplayText));
             return;
         }
@@ -1058,24 +1034,6 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             {
                 _log.Error(ex, "Unexpected failure in OnSelectedRunChanged background read for {Path}", path);
             }
-        });
-    }
-
-    private async Task LoadBackgroundTranscriptAsync(RunRecord run, int generation, CancellationToken token)
-    {
-        string text;
-        try { text = await Task.Run(() => _backgroundTranscript!(run, token), token).ConfigureAwait(false) ?? "No detailed log was recorded for this run."; }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
-        catch (Exception ex)
-        {
-            _log.Warning(ex, "Could not read background transcript for {RunId}", run.Id);
-            text = "Cannot reach this background run's log. Select the run again to retry. Its saved result has not changed.";
-        }
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        {
-            if (_logLoadGen != generation || token.IsCancellationRequested || SelectedRun?.Id != run.Id) return;
-            _logTextRaw = text; LogText = VerboseLogFilter.FilterForDisplay(text);
-            OnPropertyChanged(nameof(DisplayText));
         });
     }
 

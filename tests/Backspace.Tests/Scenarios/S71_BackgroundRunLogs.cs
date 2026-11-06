@@ -26,19 +26,16 @@ public sealed class S71_BackgroundRunLogs : ScenarioBase
     {
         var backup = new Backup { Name = "Documents" };
         ServiceLocator.Config.Update(c => c.Backups.Add(backup));
-        var first = new RunRecord { BackupId = backup.Id, BackupName = backup.Name, StartedUtc = DateTime.UtcNow.AddHours(-2), EndedUtc = DateTime.UtcNow.AddHours(-2).AddSeconds(5), Status = BackupRunStatus.Success };
-        var second = new RunRecord { BackupId = backup.Id, BackupName = backup.Name, StartedUtc = DateTime.UtcNow.AddHours(-1), EndedUtc = DateTime.UtcNow.AddHours(-1).AddSeconds(5), Status = BackupRunStatus.Success };
+        // A background run names its log in the portable folder; the app reads it like its own (U138).
+        string Log(string name, string text) { var path = Path.Combine(ctx.RootDir, name); File.WriteAllText(path, text); return path; }
+        var first = new RunRecord { BackupId = backup.Id, BackupName = backup.Name, StartedUtc = DateTime.UtcNow.AddHours(-2), EndedUtc = DateTime.UtcNow.AddHours(-2).AddSeconds(5), Status = BackupRunStatus.Success,
+            LogPath = Log("first.log", "Backup finished successfully.\nThis is the older background run.") };
+        var second = new RunRecord { BackupId = backup.Id, BackupName = backup.Name, StartedUtc = DateTime.UtcNow.AddHours(-1), EndedUtc = DateTime.UtcNow.AddHours(-1).AddSeconds(5), Status = BackupRunStatus.Success,
+            LogPath = Log("second.log", "Backup finished successfully.\n100 KB saved to Backup drive.\nThis is the newer background run.") };
         ServiceLocator.Logs.AppendRun(first); ServiceLocator.Logs.AppendRun(second);
-        var delayed = new TaskCompletionSource<string?>();
-        var readStarted = new TaskCompletionSource(); var failing = false;
         ServiceActivity.Snapshot? activity = null;
         using var monitor = new BackgroundServiceActivity(_ => Task.FromResult(activity), (_, _) => Task.CompletedTask);
-        using var vm = new LogsViewModel((run, token) =>
-        {
-            if (failing) throw new IOException("controlled unavailable service");
-            if (run.Id == first.Id) { readStarted.TrySetResult(); return delayed.Task; }
-            return Task.FromResult<string?>("Backup finished successfully.\n100 KB saved to Backup drive.\nThis is the newer background run.");
-        }, monitor);
+        using var vm = new LogsViewModel(monitor);
         var view = new LogsView { DataContext = vm };
         var window = ctx.Driver.Show(new Window { Width = 1024, Height = 768, Content = new Border { Padding = new Thickness(0, 24, 0, 0), Child = view }, Title = "Backspace — Activity & logs" });
         await ctx.Driver.PumpAsync(150);
@@ -48,13 +45,12 @@ public sealed class S71_BackgroundRunLogs : ScenarioBase
         await ctx.Driver.PumpAsync(50);
         var picker = view.FindControl<ComboBox>("RunPicker")!;
         picker.SelectedItem = vm.History.Single(r => r.Id == first.Id);
-        for (var n = 0; n < 50 && !readStarted.Task.IsCompleted; n++) await ctx.Driver.PumpAsync(20);
-        Assert.True(readStarted.Task.IsCompleted);
+        for (var n = 0; n < 50 && !vm.DisplayText.Contains("older background"); n++) await ctx.Driver.PumpAsync(20);
+        Assert.Contains("older background", vm.DisplayText);
         picker.SelectedItem = vm.History.Single(r => r.Id == second.Id);
         for (var n = 0; n < 50 && !vm.DisplayText.Contains("newer background"); n++) await ctx.Driver.PumpAsync(20);
-        delayed.SetResult("old response must never replace the newer selection"); await ctx.Driver.PumpAsync(100);
-        Assert.Contains("newer background", vm.DisplayText); Assert.DoesNotContain("old response", vm.DisplayText);
-        ctx.Snapshot(window, "saved-background-log", "The selected completed background run shows its actual requested transcript. A delayed response for an older selection did not replace it.");
+        Assert.Contains("newer background", vm.DisplayText); Assert.DoesNotContain("older background", vm.DisplayText);
+        ctx.Snapshot(window, "saved-background-log", "The selected completed background run shows its own log, read from the portable folder; the run selected before it no longer shows.");
         var runId = Guid.NewGuid().ToString("N");
         activity = new(1, Guid.NewGuid().ToString("N"), "running", backup.Id, "backup", DateTime.UtcNow,
             new(backup.Id, 42, "", [], [], TranscriptTail: "Scanning Documents…\n42 of 100 files backed up.\nBackground backup is running.", LogRunId: runId));
@@ -81,9 +77,9 @@ public sealed class S71_BackgroundRunLogs : ScenarioBase
         await monitor.RefreshAsync(CancellationToken.None); await ctx.Driver.PumpAsync(100);
         Assert.Equal(runId, vm.SelectedRun!.Id); Assert.Equal(BackupRunStatus.Failed, vm.SelectedRun.Status);
         Assert.Contains("not confirmed", vm.SelectedRun.Summary);
-        failing = true; picker.SelectedItem = vm.History.Single(r => r.Id == second.Id);
-        for (var n = 0; n < 50 && !vm.DisplayText.Contains("Cannot reach"); n++) await ctx.Driver.PumpAsync(20);
-        Assert.Contains("Cannot reach", vm.DisplayText); Assert.Equal(BackupRunStatus.Success, vm.SelectedRun!.Status);
-        ctx.Report.RecordNote("Limits", "Actual headless Logs view with controlled service replies and selections through its bound run picker. Native dropdown interaction and real service transport require separate checks. Delayed and failed reads leave the selected run result intact.");
+        picker.SelectedItem = vm.History.Single(r => r.Id == second.Id);
+        for (var n = 0; n < 50 && !vm.DisplayText.Contains("newer background"); n++) await ctx.Driver.PumpAsync(20);
+        Assert.Contains("newer background", vm.DisplayText); Assert.Equal(BackupRunStatus.Success, vm.SelectedRun!.Status);
+        ctx.Report.RecordNote("Limits", "Actual headless Logs view with controlled service activity and selections through its bound run picker. Native dropdown interaction requires separate checks.");
     }
 }

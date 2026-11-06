@@ -109,10 +109,6 @@ internal sealed class BackupWindowsService : ServiceBase
             var sessions = new ServiceSessionProtocol(SessionControl,
                 (session, claimed) => ServiceSessionProtocol.MatchesOwnerSession(session, claimed, _binding.OwnerSid))
                 .ServeAsync(_binding, _stop.Token);
-            var history = new ServiceHistoryProtocol(new LogStore().LoadTimelineByBackupId)
-                .ServeAsync(_binding.ServiceName + "-history", _binding.ServiceSid, _binding.OwnerSid, _stop.Token);
-            var transcripts = new ServiceTranscriptProtocol(AppPaths.EngineLogsRoot, new LogStore().LoadTimelineByBackupId)
-                .ServeAsync(_binding, _stop.Token);
             var notifications = new ServiceNotificationProtocol(new(_binding.DataDirectory)).ServeAsync(_binding, _stop.Token);
             var handoff = migration is null ? Task.Delay(Timeout.Infinite, _stop.Token)
                 : migration.ServeAsync(_binding.ServiceName + "-migration", _binding.ServiceSid, _binding.OwnerSid, _stop.Token);
@@ -122,7 +118,7 @@ internal sealed class BackupWindowsService : ServiceBase
             var schedule = new ScheduleLoop(new(Path.Combine(_binding.DataDirectory, "schedule-state.json"),
                 SchedulePlans, RunScheduledAsync, plan => ScheduleConditions.Blocked(plan, _scheduleDestinations,
                     ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable), ScheduleConditions.OnBattery)).RunAsync(_stop.Token);
-            var ended = await Task.WhenAny(secrets, commands, handoff, history, transcripts, notifications, sessions, returning, schedule).ConfigureAwait(false);
+            var ended = await Task.WhenAny(secrets, commands, handoff, notifications, sessions, returning, schedule).ConfigureAwait(false);
             await ended.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }

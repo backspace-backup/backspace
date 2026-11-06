@@ -203,14 +203,5 @@ public sealed class RunAddedTests
         Assert.Equal("476 new · 157 changed · 1.6 GB added", Backspace.ViewModels.BackupHistoryViewModel.Added(recorded));
         Assert.Equal("14,145 new · 239 changed · 12 GB added", Backspace.ViewModels.BackupHistoryViewModel.Added(older));
         Assert.Equal("", Backspace.ViewModels.BackupHistoryViewModel.Added(failed));
-
-        // A background run: the service reads its own log and sends the figures, not the path.
-        var protocol = new Backspace.Services.Platform.Windows.ServiceHistoryProtocol(_ => new List<RunRecord> { older });
-        var reply = JsonSerializer.Deserialize<Backspace.Services.Platform.Windows.ServiceHistoryProtocol.Response>(
-            protocol.Dispatch(JsonSerializer.SerializeToUtf8Bytes(new Backspace.Services.Platform.Windows.ServiceHistoryProtocol.Request(1, "b"), Backspace.Services.Platform.Windows.ServiceRunAuthorization.Json)),
-            Backspace.Services.Platform.Windows.ServiceRunAuthorization.Json)!;
-        var sent = Assert.Single(reply.Runs);
-        Assert.Equal("", sent.LogPath);
-        Assert.Equal((14_145, 239, 12L << 30), (sent.FilesNew, sent.FilesModified, sent.BytesUploaded));
     }
 }
