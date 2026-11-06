@@ -119,6 +119,21 @@ public sealed class SnapshotReadEfficiencyTests
 
     private static string Node(string path, string type, long size = 0) => JsonSerializer.Serialize(new { struct_type = "node", path, type, size });
 
+    /// <summary>U152: a link to another computer in a snapshot is never offered
+    /// for a test restore, the mounted drive or a single-file restore: creating
+    /// it makes Windows sign in there as whoever restores.</summary>
+    [Fact]
+    public void Links_to_another_computer_are_left_out_and_local_links_kept()
+    {
+        var listing = Tree();
+        listing.Accept(Node("/C/source/report.txt", "file", 10));
+        listing.Accept(JsonSerializer.Serialize(new { struct_type = "node", path = "/C/source/remote", type = "symlink", size = 0, linktarget = @"\\attacker\share\x" }));
+        listing.Accept(JsonSerializer.Serialize(new { struct_type = "node", path = "/C/source/remote2", type = "symlink", size = 0, linktarget = "//attacker/share/x" }));
+        listing.Accept(JsonSerializer.Serialize(new { struct_type = "node", path = "/C/source/local", type = "symlink", size = 0, linktarget = @"C:\data\x" }));
+        Assert.True(listing.IsComplete);
+        Assert.Equal(new[] { "report.txt", "local" }, listing.Nodes.Select(n => n.Path).Where(p => p != ""));
+    }
+
     [Theory]
     [InlineData("C:\\")] [InlineData("C:/")]
     public void WholeDriveListingKeepsRootFilesAndExcludesOtherDrives(string source)

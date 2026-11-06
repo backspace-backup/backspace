@@ -1353,6 +1353,11 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 else return;
                 if (relative.Split('/').Any(segment => segment is "." or ".."))
                 { _invalid = true; return; }
+                // A link to another computer (\\server\share) is left out:
+                // creating it makes Windows connect there and sign in as
+                // whoever restores, Windows itself for a background test
+                // restore (U152). Restoring its folder still brings it back.
+                if (parsed.type == "symlink" && LeadsToAnotherComputer(parsed.linktarget)) return;
                 var directory = parsed.type == "dir";
                 var modified = DateTime.TryParse(parsed.mtime, out var mt) ? mt.ToUniversalTime() : DateTime.MinValue;
                 _nodes.Add(new(relative, directory, directory ? 0 : parsed.size, modified));
@@ -1360,8 +1365,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
         }
     }
 
+    /// <summary>A link target on another computer or a device, which Windows
+    /// would open while creating the link.</summary>
+    internal static bool LeadsToAnotherComputer(string? target) =>
+        target is not null && target.Replace('/', '\\').StartsWith(@"\\", StringComparison.Ordinal);
+
     private sealed class ResticLsLine
     {
+        public string? linktarget { get; set; }
         public string? id { get; set; }
         public string? struct_type { get; set; }
         public string? name { get; set; }
@@ -1947,7 +1958,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
         // cancellable, and cancellation leaves the remaining copies intact.
         try { FileAccessRetry.Run(() =>
         {
+#if WINDOWS
+            // The restore's folder may be one other accounts can change: a
+            // subfolder swapped for a link mid-delete must not lead the
+            // deletion elsewhere (U152).
+            Platform.Windows.SafeTreeDelete.Delete(root);
+#else
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+#endif
         }, root, FileWaitReason.Cleanup, ct, directoryCleanup: true); }
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {

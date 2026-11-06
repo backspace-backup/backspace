@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.ComponentModel;
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Principal;
@@ -70,7 +71,7 @@ internal static class BackupServicePipe
     internal static async Task<NamedPipeClientStream> ConnectAsync(string name, string serviceSid,
         TimeSpan timeout, CancellationToken cancellationToken)
     {
-        var fullName = PipePath(name);
+        PipePath(name); // validates the name
         var expected = new SecurityIdentifier(serviceSid);
         if (!IsServiceIdentity(expected))
             throw new ArgumentException("A service identity is required.");
@@ -78,6 +79,8 @@ internal static class BackupServicePipe
         while (true)
         {
             deadline.Token.ThrowIfCancellationRequested();
+            // Read each time: the service names its pipes anew when it starts.
+            var fullName = PipePath(name);
             // Identification only: a fake endpoint must never impersonate the
             // desktop account. No data is sent before kernel-owner validation.
             var handle = CreateFile(fullName, ClientAccess, 0, IntPtr.Zero, 3,
@@ -168,13 +171,49 @@ internal static class BackupServicePipe
         return source;
     }
 
-    private static string PipePath(string name)
+    internal static string PipePath(string name)
     {
         if (name.Length is < 1 or > 180) throw new ArgumentException("Invalid service pipe name.");
         foreach (var c in name)
             if (!char.IsAsciiLetterOrDigit(c) && c is not ('.' or '-'))
                 throw new ArgumentException("Invalid service pipe name.");
-        return @"\\.\pipe\" + name;
+        return @"\\.\pipe\" + name + Suffix();
+    }
+
+    /// <summary>Where the current service's pipe names are kept: its folder
+    /// in the portable folder, readable by the owner and Windows only.</summary>
+    internal const string NamesFile = "pipe-names";
+
+    /// <summary>Tests keep the names file out of the real installation.</summary>
+    internal static string? NamesDirectoryOverride;
+
+    private static string NamesPath => Path.Combine(
+        NamesDirectoryOverride ?? SystemService.DataDirectoryFor(AppContext.BaseDirectory.TrimEnd('\\')), NamesFile);
+
+    /// <summary>The pipes' names end with a random part the service picks each
+    /// time it starts (U152). The names were predictable, so another account
+    /// could create one while the service was stopped: the service then failed
+    /// to start and no backup ran. The random part is kept where only the
+    /// owner and Windows can read it.</summary>
+    private static string Suffix()
+    {
+        try
+        {
+            var path = NamesPath;
+            if (!File.Exists(path)) return "";
+            var text = FileAccessRetry.Get(() => File.ReadAllText(path), path).Trim();
+            return text.Length == 32 && text.All(char.IsAsciiHexDigitLower) ? "-" + text : "";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return ""; }
+    }
+
+    /// <summary>Called by the service as it starts, before any pipe exists.</summary>
+    internal static void RenamePipes()
+    {
+        var path = NamesPath;
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var value = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        FileAccessRetry.Run(() => File.WriteAllText(path, value), path);
     }
 
     [StructLayout(LayoutKind.Sequential)]

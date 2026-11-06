@@ -182,11 +182,17 @@ internal static class DriveRepositoryGuard
             var path = Path.Combine(folder, MarkerName(backupId, suffix));
             try
             {
-                if (!File.Exists(path)) continue;
-                File.SetAttributes(path, FileAttributes.Normal);
-                File.Delete(path);
+#if WINDOWS
+                // Other accounts may be able to change a drive's folders: a
+                // folder swapped for a link would turn this delete, run by
+                // Windows itself in the service, onto any file (U152). Only
+                // the note at this exact path is deleted, through its handle.
+                Platform.Windows.ExactPathDelete.File(path);
+#else
+                if (File.Exists(path)) File.Delete(path);
+#endif
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception) { }
         }
     }
 }

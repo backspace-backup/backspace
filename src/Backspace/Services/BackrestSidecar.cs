@@ -276,6 +276,12 @@ public sealed class BackrestSidecar : IAsyncDisposable
             };
             var client = new BackrestClient(_http);
             await WaitForReadyAsync(client, startedUtc, ct).ConfigureAwait(false);
+#if WINDOWS
+            // The port was free a moment before the engine started: send no
+            // password until it is the engine that answers on it (U152).
+            if (Platform.Windows.LoopbackPortOwner.Of(_port) is var owner && owner != _proc.Id)
+                throw new IOException($"Another program (process {owner?.ToString() ?? "none"}) is answering on the backup engine's port. Startup was stopped and no password was sent; quit and reopen Backspace.");
+#endif
             await EnsureAuthAsync(client, ct).ConfigureAwait(false);
             // Expose the client only after authenticated startup has finished.
             _client = client;

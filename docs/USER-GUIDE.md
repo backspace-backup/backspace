@@ -178,7 +178,10 @@ creating any backup; backups added later run in the service too.
 Because the service runs `Backspace.exe` as Windows itself, anyone who can
 replace that file can run programs with full control of this computer. Keep
 Backspace in a folder only you (or administrators) can change, as your user
-profile and Dropbox folder are.
+profile and Dropbox folder are. For the same reason, an update is trusted on
+GitHub's own checksum and a secure connection: `Backspace.exe` is not
+code-signed, so someone who took over the project's GitHub releases could
+publish an update the service would then run.
 
 With access on, **Run now** goes through the same service and includes files
 in use without another prompt. Adding, editing or removing a backup asks

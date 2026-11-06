@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Diagnostics;
 using System.Security;
 using System.Runtime.InteropServices;
@@ -64,6 +65,40 @@ public sealed class ServicePathLeaseTests
             Assert.Equal("keep this synthetic file", File.ReadAllText(sentinel));
         }
         finally { Directory.Delete(link); }
+    }
+
+    /// <summary>U152: the service holds every folder of a repository on this
+    /// PC while it works, so another account cannot empty one and turn it
+    /// into a link while restic deletes there as Windows itself.</summary>
+    [Fact]
+    public void Repository_folders_are_held_and_a_planted_link_stops_the_run()
+    {
+        using var ws = new TempWorkspace();
+        var repository = ws.Sub("repo");
+        foreach (var name in new[] { "index", "keys", "locks", "snapshots", Path.Combine("data", "00"), Path.Combine("data", "ab") })
+            Directory.CreateDirectory(Path.Combine(repository, name));
+        File.WriteAllText(Path.Combine(repository, "config"), "c");
+        var folders = ServiceApprovedWorker.RepositoryFolders(repository).ToList();
+        Assert.Equal(new[] { "", "index", "keys", "locks", "snapshots", "data", Path.Combine("data", "00"), Path.Combine("data", "ab") }
+                .Select(f => Path.Combine(repository, f)).Select(Path.TrimEndingDirectorySeparator),
+            folders.Select(Path.TrimEndingDirectorySeparator));
+        using (var lease = ServicePathLease.Acquire(folders))
+        {
+            var empty = Path.Combine(repository, "data", "ab");
+            // Kept from being emptied (guard file) and from being renamed away.
+            Assert.Single(Directory.EnumerateFileSystemEntries(empty));
+            Assert.Throws<IOException>(() => Directory.Move(empty, empty + "-moved"));
+            Assert.ThrowsAny<Exception>(() => File.Delete(Directory.EnumerateFiles(empty).Single()));
+            // restic can still add and remove its files.
+            File.WriteAllText(Path.Combine(empty, "ab01"), "pack");
+            File.Move(Path.Combine(empty, "ab01"), Path.Combine(empty, "ab02"));
+            File.Delete(Path.Combine(empty, "ab02"));
+        }
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(repository, "data", "ab"))); // guard files go with the lease
+
+        // Before the first backup: the nearest folder that exists is held.
+        Assert.Equal(new[] { Path.TrimEndingDirectorySeparator(ws.Root) },
+            ServiceApprovedWorker.RepositoryFolders(Path.Combine(ws.Root, "new", "repo")).Select(f => Path.TrimEndingDirectorySeparator(f)));
     }
 
     [Fact]

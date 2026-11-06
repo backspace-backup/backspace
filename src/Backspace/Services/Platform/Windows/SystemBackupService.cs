@@ -168,6 +168,11 @@ internal sealed class SystemBackupService : ServiceBase
 
     private async Task ServeAsync()
     {
+        // New pipe names for this start, before any pipe exists (U152).
+        // Waited out here, not in OnStart, if another program holds the file.
+        try { BackupServicePipe.RenamePipes(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { AppLogger.For<SystemBackupService>().Warning(ex, "The pipe names could not be renewed; the earlier ones are used"); }
         try
         {
             var vault = Vault();

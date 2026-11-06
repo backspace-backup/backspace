@@ -120,6 +120,22 @@ public sealed class DuplicacyFilterTranslatorTests
         Assert.Contains(all, g => g.StartsWith("C:/**/Users/", StringComparison.Ordinal) && g.Contains("Pip", StringComparison.Ordinal));
     }
 
+    /// <summary>U152: an imported rule built to explode cannot hang backups.</summary>
+    [Fact]
+    public void Pathological_rules_finish_quickly()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var lots = "e:x" + string.Concat(Enumerable.Repeat("a.*", 30)) + "b";
+        Assert.Null(DuplicacyFilterTranslator.ToGlobs(lots[2..]));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"translation took {watch.Elapsed}");
+
+        var rules = FilterTranslator.CompileRules("*a*a*a*a*a*a*a*a*a*a*a*a*b", compiled: false);
+        watch.Restart();
+        var result = FilterTranslator.Evaluate(rules, new string('a', 5000));
+        Assert.False(result.Excluded);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"matching took {watch.Elapsed}");
+    }
+
     [Fact]
     public void An_exclude_before_an_include_still_wins_and_after_it_does_not()
     {

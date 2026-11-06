@@ -54,7 +54,7 @@ public sealed class WinFspSnapshotFs : FileSystemBase
     {
         _provider = provider;
         _volumeCreationUtc = DateTime.UtcNow;
-        _readOnlySecurityDescriptor = BuildEveryoneReadDescriptor();
+        _readOnlySecurityDescriptor = BuildOwnerReadDescriptor();
     }
 
     // -------- volume --------
@@ -303,16 +303,21 @@ public sealed class WinFspSnapshotFs : FileSystemBase
         return fi;
     }
 
-    private static byte[] BuildEveryoneReadDescriptor()
+    /// <summary>Read-only access for the person who mounted the snapshot and
+    /// for Windows itself, nobody else. The volume's device is reachable by
+    /// every account through \\?\GLOBALROOT, and a snapshot can hold files
+    /// the background service read with backup rights, such as other
+    /// profiles or the registry hives (U152). Writes are refused by the file
+    /// system itself whatever this says.</summary>
+    internal static byte[] BuildOwnerReadDescriptor()
     {
-        // SDDL: Owner=BUILTIN\Administrators, Group=BUILTIN\Administrators,
-        // DACL: Allow (FA = file all access — meaning read on a r/o FS)
-        // to everyone (WD = World). The actual read-only-ness is
-        // enforced by our overrides (or lack thereof, defaulting to
-        // STATUS_INVALID_DEVICE_REQUEST). The SD just keeps Explorer
-        // and AV scanners from balking when they probe for "can I
-        // read this".
-        var sd = new RawSecurityDescriptor("O:BAG:BAD:P(A;;FA;;;WD)");
+        var user = System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value;
+        return Descriptor(user);
+    }
+
+    internal static byte[] Descriptor(string userSid)
+    {
+        var sd = new RawSecurityDescriptor($"O:{userSid}G:{userSid}D:P(A;;FRFX;;;{userSid})(A;;FRFX;;;SY)");
         var bytes = new byte[sd.BinaryLength];
         sd.GetBinaryForm(bytes, 0);
         return bytes;

@@ -54,7 +54,11 @@ is preserved and rejected, never replaced with an empty repository list.
 This protects against unauthenticated local HTTP callers, including websites
 that attempt to reach localhost. It does not isolate Backspace from malware
 already running as the same Windows user or as administrator. The password
-file receives a current-user ACL where the filesystem supports it.
+file takes its folder's permissions; Backspace changes none. The engine's
+port is chosen free and released just before the engine starts on it, so
+another account could take it in between: before the first password is sent,
+`LoopbackPortOwner` confirms that the process listening on that port is the
+engine Backspace started, and startup stops otherwise (U152).
 
 ## Windows snapshot protection
 
@@ -276,7 +280,16 @@ folder. A longer lock keeps the recovery copy and reports its location.
 On Windows, cleanup of owned restore staging and Test restore folders retries
 sharing locks and transient nonempty-directory errors until access returns or
 the user stops waiting. Stopping cleanup leaves the remaining temporary files
-and reports their location; it cannot report successful cleanup.
+and reports their location; it cannot report successful cleanup. Staging is
+deleted by `SafeTreeDelete`: each folder is opened without following a link,
+checked, and held so it can be neither renamed nor replaced while its contents
+go; a link inside is removed itself, never its target. A restore target other
+accounts can change cannot steer the deletion elsewhere (U152). Snapshot
+listings leave out links to another computer (`\\server\share`), which
+Windows would sign in to while creating them, so they are never offered for a
+test restore, the mounted drive or a single-file restore. A mounted snapshot
+grants read access to the account that mounted it and to SYSTEM only, since
+its volume is reachable from every account through `\\?\GLOBALROOT`.
 
 `FileAccessRetry` also handles the scheduled-work pause saved when quitting or
 reopening, final placement of restored files and configuration writes during
@@ -601,6 +614,11 @@ test harness to give each test its own isolated config dir.
    process cannot impersonate the service by claiming its name or PID.
    Clients allow identification only, not impersonation of the desktop
    account. Messages have explicit size limits and cancellation deadlines.
+   Each pipe name ends with a random part the version-3 service picks every
+   time it starts, kept in `Backspace.config\service\pipe-names`, which only
+   the owner and Windows can read; clients read it before each connection.
+   The names were predictable, so another account could create one while
+   the service was stopped and make it fail to start (U152).
    Administrators and SYSTEM remain trusted. This transport does not itself
    authorize backup plans, migrate secrets, install a service or make the
    existing scheduler safe for before-sign-in production use.
@@ -692,8 +710,14 @@ test harness to give each test its own isolated config dir.
    initialization. Keeping write sharing denied for the entire operation blocks
    those renames and is incorrect. The worker excludes only its own generated
    marker names from snapshots. It retains handles through engine disposal.
-   This guard requires marker creation to succeed and is not yet wired into
-   the production scheduler. Network/removable destinations remain unsupported
+   The version-3 service (U100) places no markers in the owner's source
+   folders, but holds every folder of each repository on this PC this way:
+   the repository folder, `index`, `keys`, `locks`, `snapshots`, `data` and
+   each `data\xx`, or before the first backup the nearest existing folder
+   (U152). An external drive lets every account write by default, and a
+   subfolder emptied and turned into a link while restic deletes there as
+   SYSTEM would delete any file. A link already in place stops the run.
+   restic's check, backup and prune ignore the markers. Network/removable destinations remain unsupported
    by this unactivated service worker. See Microsoft's
    [reparse-point restrictions](https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-points)
    for the nonempty-directory and name-surrogate rules.
@@ -964,7 +988,11 @@ test harness to give each test its own isolated config dir.
    root is read-only (`.backspace.<backup id>.accepted` / `.declined`),
    lets a run proceed without a repository. For shares it runs after the
    reachability gate, so an offline share is reported as offline. The orchestrator fails the cell otherwise, so alerts fire ("Waiting for
-   you"); `DriveConfirmation` asks in the app before Run now.
+   you"); `DriveConfirmation` asks in the app before Run now. The
+   accepted marker is removed after the first successful backup by
+   `ExactPathDelete`, through a handle opened without following a link and
+   only if its real path is the one named: the service does this as SYSTEM
+   on a drive other accounts may change (U152).
 6. **No surprises in the config dir.** One `config.json`; a user can
    delete it to start over. Secrets in a separate machine-bound file so
    the JSON is shareable / diffable.

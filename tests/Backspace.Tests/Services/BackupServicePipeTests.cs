@@ -171,4 +171,32 @@ public sealed class BackupServicePipeTests
         Assert.Equal(new byte[] { 1, 2 }, await BackupServicePipe.ReadMessageAsync(client, Timeout, deadline.Token));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => send);
     }
+
+    /// <summary>U152: the service's pipe names end with a random part chosen
+    /// each time it starts, so another account cannot create one in advance.</summary>
+    [Fact]
+    public void Pipe_names_get_a_new_random_part_each_time_the_service_starts()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "backspace-pipe-names-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        BackupServicePipe.NamesDirectoryOverride = folder;
+        try
+        {
+            Assert.Equal(@"\\.\pipe\Backspace-0123456789ab-runs", BackupServicePipe.PipePath("Backspace-0123456789ab-runs"));
+            BackupServicePipe.RenamePipes();
+            var first = BackupServicePipe.PipePath("Backspace-0123456789ab-runs");
+            Assert.Matches(@"^\\\\\.\\pipe\\Backspace-0123456789ab-runs-[0-9a-f]{32}$", first);
+            Assert.Equal(first, BackupServicePipe.PipePath("Backspace-0123456789ab-runs")); // client and service agree
+            BackupServicePipe.RenamePipes();
+            Assert.NotEqual(first, BackupServicePipe.PipePath("Backspace-0123456789ab-runs"));
+            // A damaged file is ignored rather than producing a name nobody serves.
+            File.WriteAllText(Path.Combine(folder, BackupServicePipe.NamesFile), "../../other");
+            Assert.Equal(@"\\.\pipe\Backspace-0123456789ab-runs", BackupServicePipe.PipePath("Backspace-0123456789ab-runs"));
+        }
+        finally
+        {
+            BackupServicePipe.NamesDirectoryOverride = null;
+            Directory.Delete(folder, recursive: true);
+        }
+    }
 }

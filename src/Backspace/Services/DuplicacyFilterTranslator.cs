@@ -105,9 +105,11 @@ internal static class DuplicacyFilterTranslator
         try
         {
             var options = RegexOptions.CultureInvariant | (exclude.CaseInsensitive ? RegexOptions.IgnoreCase : 0);
-            return Regex.IsMatch(sample + "/child/", exclude.Regex, options) || Regex.IsMatch(sample + "/child", exclude.Regex, options);
+            return Regex.IsMatch(sample + "/child/", exclude.Regex, options, FilterTranslator.MatchTimeout)
+                || Regex.IsMatch(sample + "/child", exclude.Regex, options, FilterTranslator.MatchTimeout);
         }
         catch (ArgumentException) { return true; }
+        catch (RegexMatchTimeoutException) { return true; }
     }
 
     // ---- regex → glob ----
@@ -134,8 +136,12 @@ internal static class DuplicacyFilterTranslator
             var parser = new Parser(body, unanchoredStart: !rooted && !segmentStart, prefixEnd: !exact);
             var variants = parser.Parse();
             var result = new List<Translation>();
+            var seen = 0;
             foreach (var tokens in variants.SelectMany(ExpandDeep))
             {
+                // Each ".*" inside a name doubles the variants: stop at the
+                // limit instead of listing millions (U152).
+                if (++seen > 256) return null;
                 var t = tokens.ToList();
                 var mode = rooted ? "rooted" : segmentStart ? "segment" : "anywhere";
                 if (mode == "anywhere" && t.Count > 0 && t[0] is { Kind: Kind.Literal, Text: "/" }) { t.RemoveAt(0); mode = "below"; }

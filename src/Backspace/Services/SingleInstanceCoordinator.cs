@@ -78,6 +78,12 @@ public sealed class SingleInstanceCoordinator : IDisposable
     private string MutexName { get; }
     private string PipeName  { get; }
 
+    /// <summary>The pipe's name is the same for every account on the computer:
+    /// another account could create it first and receive the paths the
+    /// Explorer verb forwards (U152). Only a pipe this account owns is used,
+    /// and the other copy is never allowed to act as this one.</summary>
+    private const PipeOptions OwnPipe = PipeOptions.CurrentUserOnly;
+
     public SingleInstanceCoordinator()
     {
         var hash = HashConfigRoot();
@@ -146,7 +152,7 @@ public sealed class SingleInstanceCoordinator : IDisposable
     {
         try
         {
-            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
+            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, OwnPipe, System.Security.Principal.TokenImpersonationLevel.Identification);
             client.Connect(2000);
             var payload = SerializeArgs(args);
             var bytes = Encoding.UTF8.GetBytes(payload);
@@ -173,7 +179,7 @@ public sealed class SingleInstanceCoordinator : IDisposable
             {
                 using var server = new NamedPipeServerStream(
                     PipeName, PipeDirection.In, maxNumberOfServerInstances: 1,
-                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
                 await server.WaitForConnectionAsync(ct);
 
@@ -255,7 +261,7 @@ public sealed class SingleInstanceCoordinator : IDisposable
     {
         try
         {
-            using var client = new NamedPipeClientStream(".", $"Backspace-Pipe-{HashConfigRoot(configRoot)}", PipeDirection.Out);
+            using var client = new NamedPipeClientStream(".", $"Backspace-Pipe-{HashConfigRoot(configRoot)}", PipeDirection.Out, OwnPipe, System.Security.Principal.TokenImpersonationLevel.Identification);
             client.Connect(2000);
             var bytes = Encoding.UTF8.GetBytes(SerializeArgs(args));
             client.Write(bytes, 0, bytes.Length);

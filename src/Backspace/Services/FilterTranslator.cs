@@ -112,6 +112,8 @@ public static class FilterTranslator
         return best.Length >= 2 && best.All(char.IsAscii) ? best : null;
     }
 
+    internal static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(1);
+
     internal static List<CompiledRule> CompileRules(string? text, bool compiled = true)
     {
         var translated = Translate(text);
@@ -122,7 +124,10 @@ public static class FilterTranslator
             var options = (compiled ? RegexOptions.Compiled : RegexOptions.None) | RegexOptions.CultureInvariant;
             if (insensitive) options |= RegexOptions.IgnoreCase;
             Regex pattern;
-            try { pattern = new Regex(GlobToRegex(negated ? glob[1..] : glob), options); }
+            // A pathological rule (an imported "*a*a*a*…b") must not hang the
+            // walk on one long name (U152): a match that runs over its time
+            // counts as no match.
+            try { pattern = new Regex(GlobToRegex(negated ? glob[1..] : glob), options, MatchTimeout); }
             catch (ArgumentException) { pattern = new Regex("(?!)"); }
             rules.Add(new(glob, pattern, negated, insensitive, RequiredText(negated ? glob[1..] : glob)));
         }
@@ -184,6 +189,12 @@ public static class FilterTranslator
         return parts;
     }
 
+    private static bool Matches(CompiledRule rule, string path)
+    {
+        try { return rule.Pattern.IsMatch(path); }
+        catch (RegexMatchTimeoutException) { return false; }
+    }
+
     internal static (bool Excluded, string? Rule) Evaluate(IReadOnlyList<CompiledRule> rules, string relativePath)
     {
         // Walkers identify directories with a trailing separator for display;
@@ -194,7 +205,7 @@ public static class FilterTranslator
         {
             if (rule.Required is { } text
                 && relativePath.IndexOf(text, rule.CaseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) < 0) continue;
-            if (!rule.Pattern.IsMatch(relativePath)) continue;
+            if (!Matches(rule, relativePath)) continue;
             // Ordered exceptions apply separately to --exclude and --iexclude.
             if (rule.CaseInsensitive) insensitive = rule.Negated ? null : rule.Glob;
             else sensitive = rule.Negated ? null : rule.Glob;
