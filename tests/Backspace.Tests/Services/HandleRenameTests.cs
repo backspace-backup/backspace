@@ -102,6 +102,28 @@ public sealed class HandleRenameTests
         Directory.Move(root, root + "-moved"); // released once finished
     }
 
+    /// <summary>Round 4: while a restore runs, its folder and every folder
+    /// above it stay put (so none can be swapped for a link), and restic and
+    /// the publishing step can still change what is inside.</summary>
+    [Fact]
+    public void A_pinned_restore_folder_and_the_folders_above_it_cannot_be_moved()
+    {
+        using var ws = new TempWorkspace("handle-rename-pin");
+        var parent = Directory.CreateDirectory(Path.Combine(ws.Root, "Drive", "Restores")).FullName;
+        var restore = Directory.CreateDirectory(Path.Combine(parent, "Restore")).FullName;
+        using (HandleRename.Pin(restore))
+        {
+            Assert.Throws<IOException>(() => Directory.Move(restore, restore + "-away"));
+            Assert.Throws<IOException>(() => Directory.Move(parent, parent + "-away"));
+            var staging = Directory.CreateDirectory(Path.Combine(restore, ".backspace-restore-5")).FullName;
+            File.WriteAllText(Path.Combine(staging, "a.txt"), "restored");
+            File.Move(Path.Combine(staging, "a.txt"), Path.Combine(restore, "a.txt"));
+            SafeTreeDelete.Delete(staging);
+            Assert.False(Directory.Exists(staging));
+        }
+        Directory.Move(parent, parent + "-moved"); // released once the restore ends
+    }
+
     [Fact]
     public void A_restore_folder_reached_through_a_link_is_refused()
     {
@@ -109,7 +131,11 @@ public sealed class HandleRenameTests
         var real = Directory.CreateDirectory(Path.Combine(ws.Root, "real", "Restore")).FullName;
         var link = Path.Combine(ws.Root, "linked");
         Junction(link, Path.GetDirectoryName(real)!);
-        try { Assert.Throws<IOException>(() => HandleRename.FolderLocation(Path.Combine(link, "Restore"))); }
+        try
+        {
+            Assert.Throws<IOException>(() => HandleRename.FolderLocation(Path.Combine(link, "Restore")));
+            Assert.Throws<IOException>(() => HandleRename.Pin(Path.Combine(link, "Restore")));
+        }
         finally { Directory.Delete(link); }
     }
 }

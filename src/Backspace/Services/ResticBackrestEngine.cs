@@ -148,6 +148,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         CancellationToken ct, Action<string>? lineSink = null)
     {
+        using var heldRepository = HoldRepository(destination, create: true, ct);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
         var planId = MakePlanId(backup, sourcePath, destination, storageName);
@@ -290,6 +291,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         RunKind kind, CancellationToken ct, Action<string>? lineSink)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
         var planId = MakePlanId(backup, sourcePath, destination, storageName);
@@ -1011,6 +1013,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         CancellationToken ct)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
         var planId = MakePlanId(backup, sourcePath, destination, storageName);
@@ -1036,6 +1039,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         CancellationToken ct)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         var sorted = await ListSnapshotsSortedAsync(backup, sourcePath, destination, storageName, ct)
             .ConfigureAwait(false);
         var revisions = new List<RevisionSummary>(sorted.Count);
@@ -1056,6 +1060,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         int revision, CancellationToken ct, string? expectedSnapshotId = null)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         // Read the complete source tree in one owned restic process. The
         // directory-at-a-time RPC fallback starts another cloud connection
         // for every folder, even for a tiny snapshot with nested files.
@@ -1133,6 +1138,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         int revision, string dirRelativePath, CancellationToken ct, string? expectedSnapshotId = null)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         await new CloudDestinationPreflight(_secrets).CheckAsync(destination, ct).ConfigureAwait(false);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var (snapshotId, _) = await ResolveSnapshotIdAsync(
@@ -1194,6 +1200,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         int revision, CancellationToken ct, string? expectedSnapshotId = null)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         if (!File.Exists(_sidecar.ResticBinaryPath)) return null;
         // Resolve the snapshot ID (via Backrest) and pull the live
         // repo stanza so we know the URI, env vars, and per-repo
@@ -1232,6 +1239,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             psi.ArgumentList.Add(f);
         psi.ArgumentList.Add("ls");
         psi.ArgumentList.Add("--json");
+        psi.ArgumentList.Add("--no-lock"); // a listing reads only: no lock file to write and delete
         psi.ArgumentList.Add("--recursive");
         psi.ArgumentList.Add(snapshotId);
         var srcPrefix = SourcePathToSnapshotPrefix(sourcePath);
@@ -1292,6 +1300,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         int revision, string targetDir, CancellationToken ct, string? expectedSnapshotId = null)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         // Keep consumer-cloud mounts lazy; browsing a second small file must
         // not begin downloading a whole cloud snapshot as a side effect.
         if (destination.NeedsOAuth) return false;
@@ -1390,15 +1399,21 @@ public sealed class ResticBackrestEngine : IBackupEngine
             return new RestoreOpResult(0, 0, 0, 0, RestoreTerminalStatus.Success, null);
         ValidateRestoreTarget(targetPath);
         await new CloudDestinationPreflight(_secrets).CheckAsync(destination, ct).ConfigureAwait(false);
-#if WINDOWS
         // restic removes its lock there afterwards: the backup folder is held
         // so that delete can't be sent elsewhere (U152).
-        using var heldRepository = Platform.Windows.RepositoryHold.For(destination, create: false, ct);
-#endif
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var (snapshotId, repoGuid) = await ResolveSnapshotIdAsync(
             backup, sourcePath, destination, storageName, revision, ct, expectedSnapshotId).ConfigureAwait(false);
         Directory.CreateDirectory(targetPath);
+#if WINDOWS
+        // Kept open until the restore is finished, cleanup included: the
+        // restore folder, and every folder above it, can't be swapped for a
+        // link meanwhile (U152, round 4). Otherwise restic could be led to
+        // write into another of the owner's folders, and the cleanup to
+        // delete one.
+        using var pinnedTarget = Platform.Windows.HandleRename.Pin(targetPath);
+#endif
         var repoId = MakeRepoId(destination, storageName);
         var srcPrefix = SourcePathToSnapshotPrefix(sourcePath);
         var includes = includePatterns.Select(NormalizeRestoreRelativePath).ToArray();
@@ -1930,6 +1945,21 @@ public sealed class ResticBackrestEngine : IBackupEngine
         return result;
     }
 
+    /// <summary>Holds the repository of <paramref name="destination"/> on
+    /// this PC for one engine call (U152, round 4): restic writes and deletes
+    /// its lock file there by name for every listing, restore and cleanup.
+    /// A backup (<paramref name="create"/>) makes and holds the folders
+    /// restic's init would otherwise make unheld.</summary>
+    private static IDisposable? HoldRepository(Destination destination, bool create, CancellationToken ct)
+    {
+#if WINDOWS
+        return create ? Platform.Windows.RepositoryHold.For(destination, create: true, ct)
+            : Platform.Windows.RepositoryHold.Use(destination, ct);
+#else
+        return null;
+#endif
+    }
+
     internal static void ValidateRestoreTarget(string target)
     {
         // Check the target AND every existing ancestor before creating staging.
@@ -2031,6 +2061,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         CancellationToken ct)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
         var planId = MakePlanId(backup, sourcePath, destination, storageName);
@@ -2109,6 +2140,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         int revision, CancellationToken ct, string? expectedSnapshotId = null)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
         var planId = MakePlanId(backup, sourcePath, destination, storageName);
@@ -2311,6 +2343,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         string snapshotId, CancellationToken ct)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var owned = await ListSnapshotsSortedAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
         if (!owned.Any(s => s.Id == snapshotId))
@@ -2332,6 +2365,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         CancellationToken ct)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
         var result = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/DoRepoTask",
@@ -2345,6 +2379,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         CancellationToken ct)
     {
+        using var heldRepository = HoldRepository(destination, create: true, ct);
         // Updating local engine settings must not contact a cloud provider just
         // to reopen already-cached immutable metadata. Actual reads still run
         // their connection check, as does adding a new cloud repository.
@@ -2363,6 +2398,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         CancellationToken ct)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
 
@@ -2413,6 +2449,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         Destination destination, string storageName,
         string oldPassword, string newPassword, CancellationToken ct)
     {
+        using var heldRepository = HoldRepository(destination, create: false, ct);
         if (string.IsNullOrWhiteSpace(destination.StoragePasswordRef))
             return (1, "Cannot change the repository password without a saved credential reference. Save the destination first.");
         if (!File.Exists(AppPaths.ResticBinary))

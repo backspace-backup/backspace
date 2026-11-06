@@ -74,14 +74,46 @@ public sealed class RepositoryHoldTests
         Assert.False(Directory.Exists(Path.Combine(ws.Root, "Elsewhere")));
     }
 
+    /// <summary>Round 4: another account can drop a file into the folder
+    /// before the first backup. restic's init would still make its folders
+    /// there, unheld, so a backup makes and holds them first.</summary>
     [Fact]
-    public void A_folder_that_holds_something_else_gets_no_repository_folders()
+    public void A_first_backup_into_a_folder_that_already_holds_something_gets_held_folders()
     {
         using var ws = new TempWorkspace("repo-hold-other");
-        var folder = ws.Sub("Documents");
-        File.WriteAllText(Path.Combine(folder, "letter.txt"), "mine");
-        using (RepositoryHold.For(folder, create: true)) { }
+        var folder = ws.Sub("Backups");
+        File.WriteAllText(Path.Combine(folder, "dropped.txt"), "planted before the first backup");
+        // A listing or restore makes nothing where there is no repository.
+        using (RepositoryHold.For(folder, create: false)) { }
         Assert.False(Directory.Exists(Path.Combine(folder, "locks")));
+        using (RepositoryHold.For(folder, create: true))
+        {
+            var locks = Path.Combine(folder, "locks");
+            Assert.True(Directory.Exists(locks));
+            Assert.Throws<IOException>(() => Directory.Move(locks, locks + "-away"));
+        }
+        Assert.Equal("planted before the first backup", File.ReadAllText(Path.Combine(folder, "dropped.txt")));
+    }
+
+    /// <summary>Round 4: every engine call holds the repository; calls on the
+    /// same one share a hold, kept until the last of them ends.</summary>
+    [Fact]
+    public void Engine_calls_on_one_repository_share_a_hold_until_the_last_ends()
+    {
+        using var ws = new TempWorkspace("repo-hold-shared");
+        var repository = ws.Sub("repo");
+        File.WriteAllText(Path.Combine(repository, "config"), "c");
+        var destination = new Backspace.Models.Destination { Name = "Local", Kind = Backspace.Models.DestinationKind.LocalFolder, PathOrSubpath = repository };
+        var locks = Path.Combine(repository, "locks");
+        var first = RepositoryHold.Use(destination)!;
+        var second = RepositoryHold.Use(destination)!;
+        Assert.Single(Directory.GetFiles(locks)); // one hold, one guard
+        first.Dispose();
+        Assert.Throws<IOException>(() => Directory.Move(locks, locks + "-away"));
+        second.Dispose();
+        Assert.Empty(Directory.GetFiles(locks));
+        Directory.Move(locks, locks + "-away"); // released
+        Assert.Null(RepositoryHold.Use(new Backspace.Models.Destination { Name = "Cloud", Kind = Backspace.Models.DestinationKind.GoogleDrive }));
     }
 
     [Fact]

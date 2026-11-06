@@ -35,7 +35,9 @@ internal static class SafeTreeDelete
     [StructLayout(LayoutKind.Sequential)]
     private struct AttributeTag { public uint Attributes; public uint ReparseTag; }
 
-    internal static void Delete(string root)
+    internal static void Delete(string root) => Delete(root, checkLocation: true);
+
+    private static void Delete(string root, bool checkLocation)
     {
         var full = Path.GetFullPath(root);
         using var folder = Open(full, ListDirectory | ReadAttributes | Synchronize, ShareRead);
@@ -46,12 +48,19 @@ internal static class SafeTreeDelete
             RemoveEntry(full); // the link itself
             return;
         }
+        // Only the last part of the name is opened without following links: a
+        // folder above it swapped for a link would lead elsewhere (round 4).
+        // The open folder must really be where its name says; held, nothing
+        // above it can be renamed until it is deleted. A network drive's
+        // letter stands for the share's own name, which Windows gives back.
+        if (checkLocation && !IsNetwork(full) && !SamePath(ExactPathDelete.FinalPath(folder), full))
+            throw new IOException($"{full} leads to {ExactPathDelete.FinalPath(folder)}; nothing was deleted.");
         // Held: this folder cannot be renamed or replaced while it is emptied.
         foreach (var entry in Directory.EnumerateFileSystemEntries(full))
         {
             var attributes = File.GetAttributes(entry);
             if ((attributes & FileAttributes.Directory) != 0 && (attributes & FileAttributes.ReparsePoint) == 0)
-                Delete(entry); // opened and checked again before anything inside is touched
+                Delete(entry, checkLocation: false); // inside a held folder; opened and checked again before anything inside is touched
             else
                 RemoveEntry(entry);
         }
@@ -88,6 +97,12 @@ internal static class SafeTreeDelete
     /// <summary>Carries the Windows error, so a file another program holds
     /// is waited out by the caller like any other lock.</summary>
     private static IOException Failure(string message, int error) => new(message, unchecked((int)0x80070000) | error);
+
+    private static bool IsNetwork(string full) => full.StartsWith(@"\\", StringComparison.Ordinal)
+        || new DriveInfo(Path.GetPathRoot(full)!).DriveType == DriveType.Network;
+
+    private static bool SamePath(string a, string b) =>
+        string.Equals(Path.TrimEndingDirectorySeparator(a), Path.TrimEndingDirectorySeparator(b), StringComparison.OrdinalIgnoreCase);
 
     private static uint Attributes(SafeFileHandle handle) =>
         GetFileInformationByHandleEx(handle, 9 /* FileAttributeTagInfo */, out var info, (uint)Marshal.SizeOf<AttributeTag>())

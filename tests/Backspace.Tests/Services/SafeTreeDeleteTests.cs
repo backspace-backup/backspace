@@ -54,4 +54,23 @@ public sealed class SafeTreeDeleteTests
         Assert.False(Directory.Exists(rootLink));
         Assert.True(File.Exists(Path.Combine(victim, "precious.txt")));
     }
+
+    /// <summary>Round 4: the restore folder above the temporary folder is
+    /// renamed and replaced by a link to one of the owner's folders, whose
+    /// subfolder has the temporary folder's name. Its contents are kept.</summary>
+    [Fact]
+    public void A_temporary_folder_reached_through_a_swapped_folder_above_is_not_emptied()
+    {
+        using var ws = new TempWorkspace("safe-tree-above");
+        var owner = Directory.CreateDirectory(Path.Combine(ws.Root, "Owner", ".backspace-restore-4")).FullName;
+        File.WriteAllText(Path.Combine(owner, "precious.txt"), "keep me");
+        var restore = Path.Combine(ws.Root, "Restore");
+        Junction(restore, Path.GetDirectoryName(owner)!);
+        try
+        {
+            Assert.Throws<IOException>(() => SafeTreeDelete.Delete(Path.Combine(restore, ".backspace-restore-4")));
+            Assert.Equal("keep me", File.ReadAllText(Path.Combine(owner, "precious.txt")));
+        }
+        finally { Directory.Delete(restore); }
+    }
 }

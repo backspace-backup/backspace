@@ -283,8 +283,17 @@ the user stops waiting. Stopping cleanup leaves the remaining temporary files
 and reports their location; it cannot report successful cleanup. Staging is
 deleted by `SafeTreeDelete`: each folder is opened without following a link,
 checked, and held so it can be neither renamed nor replaced while its contents
-go; a link inside is removed itself, never its target. A restore target other
-accounts can change cannot steer the deletion elsewhere (U152). Restored items
+go; a link inside is removed itself, never its target. The top folder must
+really be where its name says (a folder above it swapped for a link shows as
+another place), except on a network drive. A restore target other accounts
+can change cannot steer the deletion elsewhere (U152). For the whole restore,
+cleanup included, the restore folder stays open (`HandleRename.Pin`), so
+neither it nor any folder above it can be renamed and swapped for a link
+while restic writes there. What restic makes inside it is not held: another
+account that can change the restore folder can still swap one of restic's new
+subfolders for a link while it writes, so restic's output (the owner's own
+backed-up files) can land in another folder the owner can write. Publishing
+and cleanup never follow such a link. Restored items
 are published, and rolled back, by `HandleRename`: the item and the folder it
 goes into are opened without following a link, both must really be inside the
 restore folder as it was when publishing began, and the item is renamed
@@ -721,14 +730,21 @@ test harness to give each test its own isolated config dir.
    marker names from snapshots. It retains handles through engine disposal.
    The version-3 service (U100) places no markers in the owner's source
    folders. `RepositoryHold` instead holds every folder of a repository on
-   this PC this way while the engine works there, for each backup, check,
-   cleanup and restore, in the service and the app alike (U152): the
-   repository folder, `keys`, `locks`, `index`, `snapshots`, `data` and
-   `data\00` to `data\ff`. Missing ones are made first, under the hold
-   (restic would otherwise make them during the run, unheld); for a first
-   backup the whole set is made, one folder at a time, each held before the
-   next, starting from the nearest existing folder, which is checked for links
-   first. A folder holding something other than a repository gets none. An
+   this PC this way while the engine works there, in the service and the app
+   alike (U152): the repository folder, `keys`, `locks`, `index`,
+   `snapshots`, `data` and `data\00` to `data\ff`. Every
+   `ResticBackrestEngine` call that runs restic against a repository takes
+   it: backups, checks, cleanups and restores, but also listing revisions or
+   files, forgetting a snapshot and changing the password, since each writes
+   and deletes a restic lock file by name. Calls on one repository share one
+   hold (`RepositoryHold.Use`), released when the last ends; the folders that
+   exist are held in one batch (about 0.1 s). Missing ones are made first,
+   under the hold (restic would otherwise make them during the run, unheld);
+   for a first backup the whole set is made, one folder at a time, each held
+   before the next, starting from the nearest existing folder, which is
+   checked for links first, even when the folder already holds something
+   (restic's init would make them there anyway). Outside a backup, a folder
+   that isn't a repository gets none. An
    external drive or a folder on a second drive lets every account modify it
    by default, and restic deletes its lock files and old packs by name: a
    folder emptied and turned into a link would send those deletes onto any

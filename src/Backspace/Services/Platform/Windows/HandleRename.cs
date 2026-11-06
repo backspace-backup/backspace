@@ -20,7 +20,7 @@ namespace Backspace.Services.Platform.Windows;
 internal static class HandleRename
 {
     private const uint ReadAttributes = 0x0080, DeleteAccess = 0x00010000, Synchronize = 0x00100000;
-    private const uint ShareAll = 0x7, OpenExisting = 3;
+    private const uint ShareAll = 0x7, ShareRead = 0x1, ShareWrite = 0x2, OpenExisting = 3, GenericRead = 0x80000000;
     private const uint OpenReparsePoint = 0x00200000, BackupSemantics = 0x02000000;
     private const uint ReparsePointAttribute = 0x400, DirectoryAttribute = 0x10;
 
@@ -54,12 +54,37 @@ internal static class HandleRename
         // above it swapped for a link would show here. A network drive's
         // letter stands for the share's own name, which is what Windows gives.
         var full = Path.GetFullPath(folder);
-        var network = full.StartsWith(@"\\", StringComparison.Ordinal)
-            || new DriveInfo(Path.GetPathRoot(full)!).DriveType == DriveType.Network;
-        if (!network && !SamePath(location, full))
+        if (!IsNetwork(full) && !SamePath(location, full))
             throw new IOException($"The restore folder {full} leads to {location}. Choose an ordinary folder as the destination.");
         return location;
     }
+
+    /// <summary>Opens the restore folder, checked like
+    /// <see cref="FolderLocation"/>, and keeps it open for the whole restore
+    /// (round 4). While it is open, neither it nor any folder above it can be
+    /// renamed, so it can't be swapped for a link while restic writes there or
+    /// while Backspace publishes and cleans up. Its contents stay free to
+    /// change.</summary>
+    internal static SafeFileHandle Pin(string folder)
+    {
+        // Read access, not only attributes: a metadata-only handle does not
+        // reliably keep a folder from being renamed (see ServicePathLease).
+        var handle = Open(folder, GenericRead, ShareRead | ShareWrite)
+            ?? throw new DirectoryNotFoundException(folder);
+        try
+        {
+            RequireOrdinaryFolder(handle, folder);
+            var location = ExactPathDelete.FinalPath(handle);
+            var full = Path.GetFullPath(folder);
+            if (!IsNetwork(full) && !SamePath(location, full))
+                throw new IOException($"The restore folder {full} leads to {location}. Choose an ordinary folder as the destination.");
+            return handle;
+        }
+        catch { handle.Dispose(); throw; }
+    }
+
+    private static bool IsNetwork(string full) => full.StartsWith(@"\\", StringComparison.Ordinal)
+        || new DriveInfo(Path.GetPathRoot(full)!).DriveType == DriveType.Network;
 
     /// <summary>Moves <paramref name="source"/> to <paramref name="destination"/>,
     /// both inside <paramref name="root"/>, whose real location at the start
@@ -148,11 +173,11 @@ internal static class HandleRename
         finally { if (added) folder.DangerousRelease(); }
     }
 
-    private static SafeFileHandle? Open(string path, uint access)
+    private static SafeFileHandle? Open(string path, uint access, uint share = ShareAll)
     {
         var full = Path.GetFullPath(path);
         var name = full.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC" + full[1..] : @"\\?\" + full;
-        var handle = CreateFileW(name, access, ShareAll, IntPtr.Zero, OpenExisting, OpenReparsePoint | BackupSemantics, IntPtr.Zero);
+        var handle = CreateFileW(name, access, share, IntPtr.Zero, OpenExisting, OpenReparsePoint | BackupSemantics, IntPtr.Zero);
         if (!handle.IsInvalid) return handle;
         var error = Marshal.GetLastWin32Error();
         handle.Dispose();

@@ -16,7 +16,9 @@ namespace Backspace.Services.Platform.Windows;
 /// works would send those deletes onto any file, with the rights of whoever
 /// runs it: Windows itself in the background service. Each folder is checked
 /// for links and held, with a guard file that keeps it from being emptied,
-/// for the whole operation. The folders restic would otherwise make while it
+/// for the whole operation: every engine call that runs restic there takes it
+/// (round 4), since even a listing writes and deletes a lock file. The
+/// folders restic would otherwise make while it
 /// runs (keys, locks, index, snapshots, data and data\00 to data\ff) are made
 /// first, under the hold, so none of them is ever left unheld. restic ignores
 /// the guard files, except directly in "data", which is held through its 256
@@ -52,6 +54,45 @@ internal sealed class RepositoryHold : IDisposable
         catch { hold.Dispose(); throw; }
     }
 
+    private static readonly object SharedGate = new();
+    private static readonly Dictionary<string, (RepositoryHold Hold, int Users)> SharedHolds = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Holds the repository of <paramref name="destination"/> for
+    /// one engine call (U152, round 4): every call that runs restic there
+    /// (listing revisions or files, restoring, cleaning up, changing the
+    /// password) writes and deletes a lock file by name. Calls on the same
+    /// repository, nested or concurrent, share one hold, released when the
+    /// last of them ends. Returns null when the repository isn't on this PC.</summary>
+    internal static IDisposable? Use(Destination destination, CancellationToken cancellation = default)
+    {
+        if (LocalPath(destination) is not { } path) return null;
+        var key = Path.GetFullPath(path);
+        lock (SharedGate)
+        {
+            if (SharedHolds.TryGetValue(key, out var shared))
+                SharedHolds[key] = (shared.Hold, shared.Users + 1);
+            else
+                SharedHolds[key] = (For(key, create: false, cancellation), 1);
+        }
+        return new SharedUse(key);
+    }
+
+    private sealed class SharedUse(string key) : IDisposable
+    {
+        private int _released;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) != 0) return;
+            lock (SharedGate)
+            {
+                if (!SharedHolds.TryGetValue(key, out var shared)) return;
+                if (shared.Users > 1) { SharedHolds[key] = (shared.Hold, shared.Users - 1); return; }
+                SharedHolds.Remove(key);
+                shared.Hold.Dispose();
+            }
+        }
+    }
+
     private void Take(string repository, bool create, CancellationToken cancellation)
     {
         var missing = new Stack<string>();
@@ -64,24 +105,41 @@ internal sealed class RepositoryHold : IDisposable
         }
         if (missing.Count > 0 && !create) return; // nothing to work in: the engine reports it
         // Every folder above is checked for links and held before anything is
-        // made below it; each folder made is held before the next one.
-        Hold(existing, cancellation);
-        while (missing.TryPop(out var next)) { Directory.CreateDirectory(next); Hold(next, cancellation); }
+        // made below it; each folder made is held before the next one. An
+        // existing repository folder is held below, with its own folders.
+        var made = missing.Count > 0;
+        if (made)
+        {
+            Hold(existing, cancellation);
+            while (missing.TryPop(out var next)) { Directory.CreateDirectory(next); Hold(next, cancellation); }
+        }
 
-        // A folder that holds something other than a repository (or nothing
-        // yet) gets no repository folders of its own.
-        var isRepository = File.Exists(Path.Combine(repository, "config"));
-        var empty = !Directory.EnumerateFileSystemEntries(repository).Any(e => !Path.GetFileName(e).StartsWith(GuardPrefix, StringComparison.Ordinal));
-        if (!isRepository && !(create && empty)) return;
-        foreach (var name in Folders) Make(Path.Combine(repository, name), cancellation);
-        var data = _leases[^1];
-        for (var i = 0; i < 256; i++) Make(Path.Combine(repository, "data", i.ToString("x2")), cancellation);
+        // Without create (a check, a listing, a restore), a folder that isn't
+        // a repository gets no repository folders. With create (a backup),
+        // restic's init would make them anyway, even in a folder that already
+        // holds something, so they are made here first, held (round 4).
+        if (!create && !File.Exists(Path.Combine(repository, "config"))) return;
+
         // restic opens everything directly in "data" as a folder: a guard file
         // there stops its listing (check and prune retry for many minutes, then
-        // fail). Each of the 256 holds below already keeps "data" open and
-        // nonempty, so its own hold, and its guard file, can go.
-        _leases.Remove(data);
-        data.Dispose();
+        // fail). "data" is held only as the folder above data\00..ff, which
+        // keeps it open and nonempty. The folders that already exist (usually
+        // all of them) are held in one go: every engine call takes this hold.
+        var dataFolder = Path.Combine(repository, "data");
+        var top = Folders.Where(n => n != "data").Select(n => Path.Combine(repository, n)).ToArray();
+        var packs = Enumerable.Range(0, 256).Select(i => Path.Combine(dataFolder, i.ToString("x2"))).ToArray();
+        var present = top.Concat(packs).Where(Directory.Exists).ToArray();
+        var batch = made ? present : present.Prepend(repository).ToArray();
+        if (batch.Length > 0) _leases.Add(ServicePathLease.Acquire(batch, cancellation));
+        foreach (var folder in top) if (!present.Contains(folder)) Make(folder, cancellation);
+        var missingPacks = packs.Where(p => !present.Contains(p)).ToArray();
+        if (missingPacks.Length == 0) return;
+        // "data" is already held through a pack folder, or gets a hold of its
+        // own (with a guard) while its folders are made under it.
+        ServicePathLease? dataHold = null;
+        if (missingPacks.Length == packs.Length) { Directory.CreateDirectory(dataFolder); dataHold = ServicePathLease.Acquire(new[] { dataFolder }, cancellation); }
+        try { foreach (var pack in missingPacks) Make(pack, cancellation); }
+        finally { dataHold?.Dispose(); }
     }
 
     private void Make(string folder, CancellationToken cancellation)
