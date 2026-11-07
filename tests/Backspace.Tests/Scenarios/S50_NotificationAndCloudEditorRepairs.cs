@@ -186,7 +186,8 @@ public sealed class S51_OneDriveEditorLoopback : ScenarioBase
         denied = true;
         Assert.True(ctx.Driver.ClickButton(window, "Connect to OneDrive"));
         deadline = DateTime.UtcNow.AddSeconds(5);
-        while (vm.AuthBusy && DateTime.UtcNow < deadline) await ctx.Driver.PumpAsync(50);
+        // Under load the attempt may not have started yet: wait for its outcome.
+        while ((vm.AuthBusy || string.IsNullOrEmpty(vm.AuthStatus)) && DateTime.UtcNow < deadline) await ctx.Driver.PumpAsync(50);
         Assert.False(vm.AuthOk); Assert.False(vm.AuthBusy); Assert.Contains("refused", vm.AuthStatus);
         Assert.Equal(2, requestCount); // Denied consent never exchanges a token.
         if (callbackRequest is not null) using (await callbackRequest) { }
@@ -195,7 +196,8 @@ public sealed class S51_OneDriveEditorLoopback : ScenarioBase
         discoveredDriveType = "business";
         Assert.True(ctx.Driver.ClickButton(window, "Connect to OneDrive"));
         deadline = DateTime.UtcNow.AddSeconds(5);
-        while (vm.AuthBusy && DateTime.UtcNow < deadline) await ctx.Driver.PumpAsync(50);
+        // Under load the attempt may not have started yet: wait for its outcome.
+        while ((vm.AuthBusy || string.IsNullOrEmpty(vm.AuthStatus)) && DateTime.UtcNow < deadline) await ctx.Driver.PumpAsync(50);
         Assert.False(vm.AuthOk); Assert.False(vm.AuthBusy);
         Assert.Contains("personal Microsoft account", vm.AuthStatus);
         Assert.Null(vm.Working.OneDriveDriveId);
