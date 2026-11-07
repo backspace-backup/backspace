@@ -1,0 +1,65 @@
+From 007509410c8a25ddcbdf02b30541576017d94e85 Mon Sep 17 00:00:00 2001
+From: Backspace <noreply@backspace.invalid>
+Date: Fri, 6 Nov 2026 20:25:12 -1000
+Subject: [PATCH] filter: let a later double wildcard match nothing
+
+Backport of https://github.com/restic/restic/pull/22134 (fixes
+https://github.com/restic/restic/issues/22131) to restic 0.19.1, on top of
+0001. A pattern with several '**' gave the first one too few expansions,
+because the loop bound counted every later '**' as one path component:
+/foo/**/bar/**/*.go did not match /foo/bar/test.go.
+---
+ internal/filter/filter.go      | 14 +++++++++++++-
+ internal/filter/filter_test.go |  4 ++++
+ 2 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/internal/filter/filter.go b/internal/filter/filter.go
+index c6c06cd..55af348 100644
+--- a/internal/filter/filter.go
++++ b/internal/filter/filter.go
+@@ -210,6 +210,15 @@ func childMatch(pattern Pattern, strs []string) (matched bool, err error) {
+ 	return match(Pattern{original: pattern.original, parts: pattern.parts[0:l], isNegated: pattern.isNegated}, strs)
+ }
+ 
++func countDoubleWildcard(list Pattern) (count int) {
++	for _, item := range list.parts {
++		if item.pattern == "" {
++			count++
++		}
++	}
++	return count
++}
++
+ func hasDoubleWildcard(list Pattern) (ok bool, pos int) {
+ 	for i, item := range list.parts {
+ 		if item.pattern == "" {
+@@ -226,7 +235,10 @@ func match(pattern Pattern, strs []string) (matched bool, err error) {
+ 		newPat := make([]patternPart, len(strs))
+ 		// copy static prefix once
+ 		copy(newPat, pattern.parts[:pos])
+-		for i := 0; i <= len(strs)-len(pattern.parts)+1; i++ {
++		// subsequent double wildcards can expand to nothing, so each of
++		// them may leave room for one more '*' here
++		count := countDoubleWildcard(pattern)
++		for i := 0; i <= len(strs)-len(pattern.parts)+count; i++ {
+ 			// limit to static prefix and already appended '*'
+ 			newPat := newPat[:pos+i]
+ 			// in the first iteration the wildcard expands to nothing
+diff --git a/internal/filter/filter_test.go b/internal/filter/filter_test.go
+index 573c2ed..920a47c 100644
+--- a/internal/filter/filter_test.go
++++ b/internal/filter/filter_test.go
+@@ -88,6 +88,10 @@ var matchTests = []struct {
+ 	{"foo/**/bar/**/x", "/home/user/foo/blaaa/blaz/bar/shared/work/x", true},
+ 	{"user/**/important*", "/home/user/work/x/y/hidden/x", false},
+ 	{"user/**/hidden*/**/c", "/home/user/work/x/y/hidden/z/a/b/c", true},
++	{"/foo/**/bar/**/*.go", "/foo/bar/test.go", true},
++	{"/foo/**/bar/**/baz/**/*.go", "/foo/bar/baz/test.go", true},
++	{"/foo/**/**/test.go", "/foo/test.go", true},
++	{"/foo/**/bar/**/*.go", "/foo/test.go", false},
+ 	{"c:/foo/*test.*", "c:/foo/bar/test.go", false},
+ 	{"c:/foo", "c:/foo/bar", true},
+ 	{"c:/foo/", "c:/foo/bar", true},
+-- 
+2.50.1.windows.1
+

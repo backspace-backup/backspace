@@ -543,8 +543,10 @@ Traps, each checked with restic 0.19.1:
 Count, Simulate, the size estimates, the change listing and test-restore
 completeness read the text with `FilterTranslator` on full paths, restic's
 semantics. A rule with two or more `**` is matched with restic's own steps
-(`FilterTranslator.ResticMatch`), including the loop bound described below,
-so it leaves in exactly what restic leaves in. On Windows a rule starting with
+(`FilterTranslator.ResticMatch`), so it leaves in exactly what restic leaves
+in: with the fixed loop bound on Windows, where Backspace's restic carries
+the upstream fix (`engine/restic/patches/0002`), and official restic's bound
+elsewhere (below). On Windows a rule starting with
 `/` matches nothing in restic (a path starts with its drive); the editor
 lists such rules (`RulesMatchingNothing`) without changing them. The
 environment is this process's; Backrest's restic inherits the daemon's, which
@@ -579,8 +581,10 @@ again:
 
 - `Distinct()` is wrong with `!` rules. Restic's last matching rule decides, so
   `a`, `!b`, `a` must keep the last `a` (`WithoutRepeats`), not the first.
-- "Obvious" simplifications are wrong at the edges: the loop bound
-  `i <= len(strs)-len(parts)+1` counts each later `**` as one component, so
+- "Obvious" simplifications are wrong at the edges: official restic's loop
+  bound `i <= len(strs)-len(parts)+1` counts each later `**` as one component
+  (restic issue 22131, fixed by pull request 22134 and in Backspace's Windows
+  restic, whose bound adds one per `**`), so with official restic
   `C:/**/*/**/node_modules/*` does **not** match `C:\a\node_modules\x` (but
   does match `C:\a\node_modules\x\y`).
 

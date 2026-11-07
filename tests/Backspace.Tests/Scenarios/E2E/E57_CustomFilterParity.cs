@@ -59,11 +59,10 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         var syntax = Path.Combine(ctx.SourcesDir, "restic-syntax");
         var top = DuplicacyFilterConverter.Prefixes(new[] { syntax })[0];
         var user = Environment.UserName;
-        var kept2 = new[] { "top.txt", "Chrome/Keep/ext.json", "notes/Folder.txt", "cache", "money.txt", "Deep/keep.me", "env-other/x.txt",
-            "Twin/a/node_modules/x" }; // restic's limit on a first ** (below)
+        var kept2 = new[] { "top.txt", "Chrome/Keep/ext.json", "notes/Folder.txt", "cache", "money.txt", "Deep/keep.me", "env-other/x.txt" };
         var omitted2 = new[] { "cache/x.bin", "Chrome/History", "Chrome/Cache/data", "$money/x.txt", "env-" + user + "/x.txt",
             "Deep/a/b/drop.me", "Deep/drop.me", "Folder/inside.txt", "notes/Folder", "scratch.TMP",
-            "Twin/b/node_modules/d/y", "Twin/c/d/node_modules/z" };
+            "Twin/a/node_modules/x", "Twin/b/node_modules/d/y", "Twin/c/d/node_modules/z" };
         await Write(syntax, kept2.Where(k => k != "cache").Concat(omitted2));
         var rules2 = string.Join("\n",
             "# restic's own syntax (U151)",
@@ -75,7 +74,7 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
             top + "/env-$USERNAME/",          // an environment variable, as restic expands it
             "/top.txt",                       // a plain leading / matches nothing on Windows
             "Deep/**/drop.me",
-            top + "/Twin/**/*/**/node_modules/*", // two **: restic leaves Twin/a/node_modules/x in
+            top + "/Twin/**/*/**/node_modules/*", // two **: official restic leaves Twin/a/node_modules/x in (issue 22131); ours doesn't
             "Folder/");                       // restic drops the trailing /: a file named Folder goes too
         await Check(ctx, view, destination, "restic syntax", syntax, rules2, kept2.Where(k => k != "cache").ToArray(), omitted2);
 

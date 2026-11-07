@@ -132,19 +132,39 @@ public class FilterTranslatorTests
         }
     }
 
-    /// <summary>A rule with two ** follows restic's own steps, including its
-    /// limit on how far the first ** reaches (U151, 7 November 2026; the
-    /// same rule is checked against the real restic in E57).</summary>
+    /// <summary>A rule with two ** follows restic's own steps (U151,
+    /// 7 November 2026; the same rule is checked against the real restic in
+    /// E57). Official restic tries the first ** on too few folders (restic
+    /// issue 22131) and leaves C:/a/node_modules/x in; Backspace's Windows
+    /// restic carries the fix.</summary>
     [Theory]
-    [InlineData("C:/a/node_modules/x", false)]          // restic leaves it in
-    [InlineData("C:/a/node_modules/x/y", true)]
-    [InlineData("C:/c/d/node_modules/z", true)]
-    [InlineData("C:/a/other/x", false)]
-    public void A_rule_with_two_double_stars_matches_as_restic_does(string path, bool excluded)
+    [InlineData("C:/a/node_modules/x", true, false)]
+    [InlineData("C:/a/node_modules/x/y", true, true)]
+    [InlineData("C:/c/d/node_modules/z", true, true)]
+    [InlineData("C:/a/other/x", false, false)]
+    public void A_rule_with_two_double_stars_matches_as_restic_does(string path, bool fixedRestic, bool officialRestic)
     {
         var rules = FilterTranslator.CompileRules("C:/**/*/**/node_modules/*", ignoreCase: true);
-        Assert.NotNull(rules.Single().Parts);
-        Assert.Equal(excluded, FilterTranslator.Evaluate(rules, path).Excluded);
+        var parts = rules.Single().Parts!;
+        Assert.NotNull(parts);
+        var names = path.Split('/');
+        Assert.Equal(fixedRestic, FilterTranslator.ResticMatch(parts, names, true, fixedBound: true));
+        Assert.Equal(officialRestic, FilterTranslator.ResticMatch(parts, names, true, fixedBound: false));
+        if (Backspace.Services.Platform.PlatformInfo.IsWindows) Assert.Equal(fixedRestic, FilterTranslator.Evaluate(rules, path).Excluded);
+    }
+
+    /// <summary>The upstream fix's own cases (restic pull request 22134).</summary>
+    [Theory]
+    [InlineData("/foo/**/bar/**/*.go", "/foo/bar/test.go", true)]
+    [InlineData("/foo/**/bar/**/baz/**/*.go", "/foo/bar/baz/test.go", true)]
+    [InlineData("/foo/**/bar/**/*.go", "/foo/test.go", false)]
+    [InlineData("foo/**/bar/**/x", "/home/user/foo/blaaa/blaz/bar/shared/work/x", true)]
+    [InlineData("user/**/hidden*/**/c", "/home/user/work/x/y/hidden/z/a/b/c", true)]
+    public void The_fixed_restic_cases_match(string rule, string path, bool matched)
+    {
+        var parts = FilterTranslator.ResticParts(rule, System.Text.RegularExpressions.RegexOptions.CultureInvariant)!;
+        var names = path.Split('/'); names[0] = "/";
+        Assert.Equal(matched, FilterTranslator.ResticMatch(parts, names, false, fixedBound: true));
     }
 
     [Fact]

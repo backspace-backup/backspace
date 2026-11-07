@@ -31,10 +31,9 @@ namespace Backspace.Services;
 ///   an earlier rule excluded.
 ///
 /// A rule with two or more <c>**</c> follows restic's own steps exactly
-/// (<see cref="ResticMatch"/>), including its limit: restic tries a first
-/// <c>**</c> on at most as many folders as the rest of the rule leaves room
-/// for, counting a later <c>**</c> as one folder (docs/GOTCHAS.md; U151,
-/// 7 November 2026).
+/// (<see cref="ResticMatch"/>): official restic tries a first <c>**</c> on too
+/// few folders (restic issue 22131); Backspace's Windows restic carries the
+/// fix (docs/GOTCHAS.md; U151, 7 November 2026).
 /// </summary>
 public static class FilterTranslator
 {
@@ -215,24 +214,34 @@ public static class FilterTranslator
     /// <summary>
     /// restic's own <c>match</c> (internal/filter/filter.go), step for step:
     /// the first <c>**</c> is tried as 0, 1, 2… single-name wildcards, up to
-    /// <c>len(path) - len(rule) + 1</c> of them, where the rule's length still
-    /// counts every later <c>**</c> as one name. Then the rule, now without
+    /// <c>len(path) - len(rule) + n</c> of them. Then the rule, now without
     /// <c>**</c>, is compared with every run of names of the path, from the
     /// deepest; a rule starting with <c>/</c> only at the top.
+    ///
+    /// <para>Official restic uses n = 1, so a later <c>**</c> counts as one
+    /// name and the first one is tried on too few folders (restic issue
+    /// 22131). Backspace's Windows restic carries the upstream fix
+    /// (engine/restic/patches/0002), n = the number of <c>**</c>; Linux and
+    /// macOS run official restic.</para>
     /// </summary>
     internal static bool ResticMatch(IReadOnlyList<PatternPart> parts, IReadOnlyList<string> names, bool ignoreCase)
+        => ResticMatch(parts, names, ignoreCase, Platform.PlatformInfo.IsWindows);
+
+    internal static bool ResticMatch(IReadOnlyList<PatternPart> parts, IReadOnlyList<string> names, bool ignoreCase, bool fixedBound)
     {
         var pos = -1;
-        for (var k = 0; k < parts.Count; k++) if (parts[k].Glob is null && parts[k].Text == "**") { pos = k; break; }
+        var count = 0;
+        for (var k = 0; k < parts.Count; k++)
+            if (parts[k].Glob is null && parts[k].Text == "**") { if (pos < 0) pos = k; count++; }
         if (pos >= 0)
         {
-            for (var i = 0; i <= names.Count - parts.Count + 1; i++)
+            for (var i = 0; i <= names.Count - parts.Count + (fixedBound ? count : 1); i++)
             {
                 var expanded = new List<PatternPart>(parts.Count + i);
                 expanded.AddRange(parts.Take(pos));
                 for (var star = 0; star < i; star++) expanded.Add(AnyName);
                 expanded.AddRange(parts.Skip(pos + 1));
-                if (ResticMatch(expanded, names, ignoreCase)) return true;
+                if (ResticMatch(expanded, names, ignoreCase, fixedBound)) return true;
             }
             return false;
         }

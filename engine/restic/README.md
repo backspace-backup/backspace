@@ -17,10 +17,18 @@ about 300 s of CPU for 743,862 paths, and 7 s with the patch, with no path
 excluded differently (U137, 4 November 2026). It is proposed upstream as
 https://github.com/restic/restic/pull/22165.
 
+`0002-filter-let-a-later-double-wildcard-match-nothing.patch` fixes a rule
+with two or more `**`: restic tried the first one on too few folders, so
+`C:/**/*/**/node_modules/*` left `C:/a/node_modules/x` in
+(https://github.com/restic/restic/issues/22131). It backports the upstream
+fix https://github.com/restic/restic/pull/22134 (U151, 7 November 2026).
+Backspace's Simulate, Count and estimates follow the fixed matching on Windows
+and the official one elsewhere.
+
 ## When to remove it
 
-When a restic release contains that change: set `restic` to that release,
-delete `resticBackspace` and the patch, and Windows uses the official release
+When a restic release contains both changes: set `restic` to that release,
+delete `resticBackspace` and the patches, and Windows uses the official release
 again. Until then, a restic upgrade means rebasing the patch onto the new tag,
 running the filter tests, building a new `-backspace.<n>` and checking it as
 any engine upgrade (docs/GOTCHAS.md, "Engine upgrades require a compatibility
