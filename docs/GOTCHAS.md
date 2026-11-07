@@ -542,8 +542,11 @@ Traps, each checked with restic 0.19.1:
 
 Count, Simulate, the size estimates, the change listing and test-restore
 completeness read the text with `FilterTranslator` on full paths, restic's
-semantics. Known difference: a rule with two `**` (see below for restic's loop
-bound) can match a path one folder shorter here than in restic. The
+semantics. A rule with two or more `**` is matched with restic's own steps
+(`FilterTranslator.ResticMatch`), including the loop bound described below,
+so it leaves in exactly what restic leaves in. On Windows a rule starting with
+`/` matches nothing in restic (a path starts with its drive); the editor
+lists such rules (`RulesMatchingNothing`) without changing them. The
 environment is this process's; Backrest's restic inherits the daemon's, which
 for the background service is the service's own. E57 compares both with
 `restic backup --dry-run` on the same file. On 6 November 2026 the owner's

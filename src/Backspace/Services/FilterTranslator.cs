@@ -30,11 +30,11 @@ namespace Backspace.Services;
 /// • The last matching rule decides; a rule starting with <c>!</c> keeps what
 ///   an earlier rule excluded.
 ///
-/// Known difference: restic tries a first <c>**</c> on at most as many
-/// folders as the rest of the rule leaves room for, counting a second
-/// <c>**</c> as one folder (docs/GOTCHAS.md). Here each <c>**</c> is any
-/// number of folders, so a rule with two <c>**</c> can match a path one
-/// folder shorter than restic would.
+/// A rule with two or more <c>**</c> follows restic's own steps exactly
+/// (<see cref="ResticMatch"/>), including its limit: restic tries a first
+/// <c>**</c> on at most as many folders as the rest of the rule leaves room
+/// for, counting a later <c>**</c> as one folder (docs/GOTCHAS.md; U151,
+/// 7 November 2026).
 /// </summary>
 public static class FilterTranslator
 {
@@ -52,7 +52,15 @@ public static class FilterTranslator
     /// went into the patterns (U123, 4 November 2026).</param>
     /// <param name="Rooted">The rule starts with <c>/</c>: only a path that
     /// starts with <c>/</c> can match it.</param>
-    internal readonly record struct CompiledRule(string Glob, Regex Pattern, bool Negated, bool CaseInsensitive, string? Required = null, bool Rooted = false);
+    /// <param name="Parts">For a rule with two or more <c>**</c>: its names,
+    /// matched with restic's own steps instead of <paramref name="Pattern"/>.</param>
+    internal readonly record struct CompiledRule(string Glob, Regex Pattern, bool Negated, bool CaseInsensitive, string? Required = null, bool Rooted = false,
+        IReadOnlyList<PatternPart>? Parts = null);
+
+    /// <summary>One name of a rule, as restic splits it: <c>/</c> for the top,
+    /// <c>**</c>, or a name, compared as text (<paramref name="Glob"/> null)
+    /// or as a wildcard pattern.</summary>
+    internal sealed record PatternPart(string Text, Regex? Glob);
 
     /// <summary>The rules restic reads from <paramref name="text"/>, in order:
     /// each with the line as written and the pattern after <c>$</c> expansion.</summary>
@@ -178,9 +186,95 @@ public static class FilterTranslator
             // says which (InvalidRules). Here it simply matches nothing.
             try { regex = new Regex(GlobToRegex(glob), options); }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException) { regex = new Regex(@"[^\s\S]"); }
-            rules.Add(new(line, regex, negated, ignoreCase, RequiredText(glob), IsRooted(glob)));
+            rules.Add(new(line, regex, negated, ignoreCase, RequiredText(glob), IsRooted(glob), ResticParts(glob, options)));
         }
         return rules;
+    }
+
+    /// <summary>The rule's names as restic splits them (<c>filepath.Clean</c>,
+    /// then at each slash), when it has two or more <c>**</c>; otherwise null.</summary>
+    internal static IReadOnlyList<PatternPart>? ResticParts(string glob, RegexOptions options)
+    {
+        if (string.IsNullOrEmpty(glob)) return null;
+        var slashed = glob.Replace('\\', '/');
+        var names = slashed.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(n => n != ".").ToList();
+        if (names.Count(n => n == "**") < 2) return null;
+        var parts = new List<PatternPart>();
+        if (slashed[0] == '/') parts.Add(new("/", null));
+        foreach (var name in names)
+        {
+            if (name == "**" || name.IndexOfAny(['\\', '[', ']', '*', '?']) < 0) { parts.Add(new(name, null)); continue; }
+            try { parts.Add(new(name, new Regex(GlobToRegex(name), options))); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException) { return null; }
+        }
+        return parts;
+    }
+
+    private static readonly PatternPart AnyName = new("*", new Regex("^[^/]*$", RegexOptions.NonBacktracking | RegexOptions.CultureInvariant));
+
+    /// <summary>
+    /// restic's own <c>match</c> (internal/filter/filter.go), step for step:
+    /// the first <c>**</c> is tried as 0, 1, 2… single-name wildcards, up to
+    /// <c>len(path) - len(rule) + 1</c> of them, where the rule's length still
+    /// counts every later <c>**</c> as one name. Then the rule, now without
+    /// <c>**</c>, is compared with every run of names of the path, from the
+    /// deepest; a rule starting with <c>/</c> only at the top.
+    /// </summary>
+    internal static bool ResticMatch(IReadOnlyList<PatternPart> parts, IReadOnlyList<string> names, bool ignoreCase)
+    {
+        var pos = -1;
+        for (var k = 0; k < parts.Count; k++) if (parts[k].Glob is null && parts[k].Text == "**") { pos = k; break; }
+        if (pos >= 0)
+        {
+            for (var i = 0; i <= names.Count - parts.Count + 1; i++)
+            {
+                var expanded = new List<PatternPart>(parts.Count + i);
+                expanded.AddRange(parts.Take(pos));
+                for (var star = 0; star < i; star++) expanded.Add(AnyName);
+                expanded.AddRange(parts.Skip(pos + 1));
+                if (ResticMatch(expanded, names, ignoreCase)) return true;
+            }
+            return false;
+        }
+        if (parts.Count == 0 || parts.Count > names.Count) return false;
+        var maxOffset = parts[0].Text == "/" && parts[0].Glob is null ? 0 : names.Count - parts.Count;
+        for (var offset = maxOffset; offset >= 0; offset--)
+        {
+            var all = true;
+            for (var k = parts.Count - 1; k >= 0 && all; k--)
+            {
+                var part = parts[k];
+                all = part.Glob is { } glob ? glob.IsMatch(names[offset + k])
+                    : string.Equals(part.Text, names[offset + k], ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            }
+            if (all) return true;
+        }
+        return false;
+    }
+
+    /// <summary>A full path split as restic splits it: <c>C:/a/b</c> into
+    /// <c>C:</c>, <c>a</c>, <c>b</c>; <c>/home/a</c> into <c>/</c>, <c>home</c>, <c>a</c>.</summary>
+    private static string[] ResticNames(string path)
+    {
+        var names = path.Split('/');
+        if (names.Length > 0 && names[0].Length == 0) names[0] = "/";
+        return names;
+    }
+
+    /// <summary>Rules restic accepts but that can never match here: on
+    /// Windows a full path starts with its drive (<c>C:/…</c>), so a rule
+    /// starting with <c>/</c> matches nothing (U151, 7 November 2026). Empty
+    /// on Linux and macOS, where such a rule is a full path.</summary>
+    internal static IReadOnlyList<string> RulesMatchingNothing(string? text)
+    {
+        if (!Platform.PlatformInfo.IsWindows) return Array.Empty<string>();
+        var found = new List<string>();
+        foreach (var (line, pattern) in ReadRules(text))
+        {
+            var glob = pattern[0] == '!' ? pattern[1..] : pattern;
+            if (glob.Length > 0 && glob[0] is '/' or '\\') found.Add(line);
+        }
+        return found;
     }
 
     private static bool IsRooted(string glob) => glob.Length > 0 && (glob[0] == '/' || (glob[0] == '\\' && Platform.PlatformInfo.IsWindows));
@@ -267,12 +361,13 @@ public static class FilterTranslator
         var absolute = path.StartsWith('/');
         var body = absolute ? path[1..] : path;
         string? decided = null;
+        string[]? names = null;
         foreach (var rule in rules)
         {
             if (rule.Rooted && !absolute) continue;
             if (rule.Required is { } text
                 && body.IndexOf(text, rule.CaseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) < 0) continue;
-            if (!rule.Pattern.IsMatch(body)) continue;
+            if (rule.Parts is { } parts ? !ResticMatch(parts, names ??= ResticNames(path), rule.CaseInsensitive) : !rule.Pattern.IsMatch(body)) continue;
             decided = rule.Negated ? null : rule.Glob;
         }
         return (decided is not null, decided);

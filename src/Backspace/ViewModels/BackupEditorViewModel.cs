@@ -308,6 +308,10 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     /// refuses the whole list, so the backup would fail (U151).</summary>
     [ObservableProperty] private string? _filterInvalidWarning;
 
+    /// <summary>Rules that start with / on Windows, which restic accepts but
+    /// never matches, one per line, or null (U151, 7 November 2026).</summary>
+    [ObservableProperty] private string? _filterNothingWarning;
+
     /// <summary>How rules are written, for this system's restic (U151).</summary>
     public static string RuleSyntaxHint => Services.Platform.PlatformInfo.IsWindows
         ? "One restic rule per line, exactly as restic reads an exclude file; # starts a comment. ?:/ is the top of any drive (?:/Users/*/AppData/Local/Temp/); a rule without it matches at any depth. * matches within one name, ** any number of folders, and the last matching rule decides: a rule starting with ! keeps what an earlier one left out. Write a $ as $$."
@@ -319,6 +323,8 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         FilterExceptionWarning = dead.Count == 0 ? null : string.Join(System.Environment.NewLine, dead);
         var invalid = FilterTranslator.InvalidRules(FiltersText);
         FilterInvalidWarning = invalid.Count == 0 ? null : string.Join(System.Environment.NewLine, invalid);
+        var nothing = FilterTranslator.RulesMatchingNothing(FiltersText);
+        FilterNothingWarning = nothing.Count == 0 ? null : string.Join(System.Environment.NewLine, nothing);
     }
 
     partial void OnFiltersTextChanged(string value)

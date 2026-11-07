@@ -131,4 +131,33 @@ public class FilterTranslatorTests
             if (Backspace.Services.Platform.PlatformInfo.IsWindows) Assert.False(p.StartsWith('/'), p);
         }
     }
+
+    /// <summary>A rule with two ** follows restic's own steps, including its
+    /// limit on how far the first ** reaches (U151, 7 November 2026; the
+    /// same rule is checked against the real restic in E57).</summary>
+    [Theory]
+    [InlineData("C:/a/node_modules/x", false)]          // restic leaves it in
+    [InlineData("C:/a/node_modules/x/y", true)]
+    [InlineData("C:/c/d/node_modules/z", true)]
+    [InlineData("C:/a/other/x", false)]
+    public void A_rule_with_two_double_stars_matches_as_restic_does(string path, bool excluded)
+    {
+        var rules = FilterTranslator.CompileRules("C:/**/*/**/node_modules/*", ignoreCase: true);
+        Assert.NotNull(rules.Single().Parts);
+        Assert.Equal(excluded, FilterTranslator.Evaluate(rules, path).Excluded);
+    }
+
+    [Fact]
+    public void A_rule_with_one_double_star_keeps_the_ordinary_pattern()
+        => Assert.Null(FilterTranslator.CompileRules("Deep/**/drop.me", ignoreCase: true).Single().Parts);
+
+    /// <summary>On Windows a rule starting with / matches nothing in restic;
+    /// the editor lists it (U151, 7 November 2026).</summary>
+    [Fact]
+    public void Rules_starting_with_a_slash_are_reported_on_Windows()
+    {
+        var found = FilterTranslator.RulesMatchingNothing("# comment\n/top.txt\n!/Keep\n?:/Users/*/x\nC:/y\n*.tmp");
+        if (Backspace.Services.Platform.PlatformInfo.IsWindows) Assert.Equal(new[] { "/top.txt", "!/Keep" }, found);
+        else Assert.Empty(found);
+    }
 }

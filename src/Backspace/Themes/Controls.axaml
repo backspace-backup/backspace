@@ -723,6 +723,14 @@
     machinery the rest of the app depends on (PART_BorderElement focus
     border, PART_TextPresenter for selection, DataValidationErrors host).
   -->
+  <!-- A multi-line pane (the Filters rules and simulation): its text starts
+       at the top instead of the middle of the box. -->
+  <Style Selector="TextBox.pane /template/ DockPanel">
+    <Setter Property="VerticalAlignment" Value="Stretch"/>
+  </Style>
+  <Style Selector="TextBox.pane /template/ TextPresenter#PART_TextPresenter">
+    <Setter Property="VerticalAlignment" Value="Top"/>
+  </Style>
   <Style Selector="TextBox">
     <Setter Property="Template">
       <ControlTemplate>
