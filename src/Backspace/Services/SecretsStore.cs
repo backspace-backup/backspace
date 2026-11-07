@@ -377,22 +377,26 @@ public sealed class SecretsStore
         StateChanged?.Invoke(_path);
     }
 
-    /// <summary>Only for an unreadable vault the person chose to give up:
-    /// the file is kept beside it as <c>vault.bin.unreadable-*</c> and a new,
-    /// empty vault takes its place.</summary>
+    /// <summary>For a vault the person chose to give up: an unreadable one, or
+    /// a locked one whose password they forgot. The file is kept beside it as
+    /// <c>vault.bin.unreadable-*</c> or <c>vault.bin.forgotten-*</c> (the
+    /// password, if it comes back, still opens that copy) and a new, empty
+    /// vault takes its place.</summary>
     public void StartOver(string password)
     {
         RequireLocal();
         lock (_gate)
         {
             using var transaction = StateFileLock.Acquire(_path);
-            if (Open().State != VaultState.Unreadable) throw new InvalidOperationException("Only saved passwords that can't be opened can be started over.");
-            var stamp = $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
+            var state = Open().State;
+            if (state is not (VaultState.Unreadable or VaultState.Locked))
+                throw new InvalidOperationException("Only saved passwords that can't be opened can be started over.");
+            var stamp = (state == VaultState.Locked ? "forgotten-" : "unreadable-") + $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
             foreach (var suffix in new[] { "", ".bak" })
             {
                 var file = _path + suffix;
                 if (!File.Exists(file)) continue;
-                var preserved = file + ".unreadable-" + stamp;
+                var preserved = file + "." + stamp;
                 FileAccessRetry.Run(() => File.Move(file, preserved, overwrite: false), file);
                 if (suffix == "") PreservedCorruptPath = preserved;
             }

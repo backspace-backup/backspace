@@ -604,6 +604,8 @@
           <StackPanel Orientation="Horizontal" Spacing="10">
             <Button x:Name="ChangeVaultPasswordButton" Classes="ghost" Content="{Binding ChangeVaultPasswordLabel}"
                     Command="{Binding ChangeVaultPasswordCommand}"/>
+            <Button x:Name="StartOverVaultButton" Classes="ghost" Content="Forgot the password? Start over"
+                    IsVisible="{Binding CanStartOverVault}" Command="{Binding StartOverVaultCommand}"/>
           </StackPanel>
         </StackPanel>
         </Expander>

@@ -552,12 +552,14 @@ choose it the first time it saves one of them, not before, and remembers it on
 each computer after you enter it there once. You can leave it empty: then the
 saved passwords are only **obscured, not protected**. Anyone who gets a copy of
 the Backspace folder (for example from your Dropbox) can read them, and with
-them your backups. Choose or change the password in **Settings â†’ Saved
+them your backups. Choose or change the password in **Settings → Saved
 passwords**; other computers that already use the folder keep working.
 
-If you forget the password, the saved passwords can't be recovered: start over
-in Settings (Backspace keeps the old file), then enter your storage passwords
-and sign in to cloud destinations again.
+If you forget the password, the saved passwords can't be recovered. In
+**Settings → Saved passwords**, choose **Forgot the password? Start over**:
+Backspace keeps the old file beside the new one (`vault.bin.forgotten-…`,
+which the old password still opens), then you enter your storage passwords and
+sign in to cloud destinations again.
 
 Files that would show a password in readable form are kept on each computer,
 not in the folder: the engines' working files (Backrest's settings and

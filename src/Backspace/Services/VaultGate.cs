@@ -72,6 +72,17 @@ public static class VaultGate
     public static Task<bool> ConvertAsync(string reason = "", SecretsStore? secrets = null)
         => AskAsync(VaultPromptMode.Convert, reason, secrets ?? ServiceLocator.Secrets);
 
+    /// <summary>Settings → Saved passwords → Forgot the password? Only for a
+    /// vault locked on this computer: the old file is kept and a new, empty
+    /// vault starts.</summary>
+    public static Task<bool> StartOverForgottenAsync(SecretsStore? secrets = null)
+    {
+        secrets ??= ServiceLocator.Secrets;
+        return AskAsync(VaultPromptMode.StartOver, "", secrets, ForgottenDetail);
+    }
+
+    internal const string ForgottenDetail = "Without the password, nobody can open your saved passwords, including Backspace.";
+
     /// <summary>Settings → Saved passwords → Change password.</summary>
     public static async Task<bool> ChangePasswordAsync(SecretsStore? secrets = null)
     {
@@ -80,7 +91,7 @@ public static class VaultGate
         return await AskAsync(VaultPromptMode.Change, "", secrets).ConfigureAwait(false);
     }
 
-    private static async Task<bool> AskAsync(VaultPromptMode mode, string reason, SecretsStore secrets)
+    private static async Task<bool> AskAsync(VaultPromptMode mode, string reason, SecretsStore secrets, string? startOverDetail = null)
     {
         var prompt = Prompt;
         if (prompt is null)
@@ -88,7 +99,7 @@ public static class VaultGate
             AppLogger.For(nameof(VaultGate)).Warning("The saved passwords are {State} and no window can ask; nothing was saved", secrets.State);
             return false;
         }
-        var detail = mode == VaultPromptMode.StartOver ? secrets.LoadErrorMessage : null;
+        var detail = mode == VaultPromptMode.StartOver ? startOverDetail ?? secrets.LoadErrorMessage : null;
         var done = await prompt.AskAsync(new VaultPromptRequest(mode, reason, password => Task.Run(() => Submit(mode, secrets, password)), detail))
             .ConfigureAwait(false);
         if (done && mode != VaultPromptMode.Change) _ = Task.Run(() => AfterUnlock(secrets));

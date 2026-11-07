@@ -77,7 +77,7 @@ public partial class VaultPasswordWindow : Window
                 "Move my saved passwords", "Not now"),
             _ => ("Your saved passwords can't be opened",
                 (_request.Detail ?? "The file holding them is damaged.")
-                + "\n\nYou can start over: Backspace keeps the damaged file and starts a new, empty one. You'll then enter "
+                + "\n\nYou can start over: Backspace keeps the old file beside a new, empty one. You'll then enter "
                 + "your storage passwords and sign in to cloud destinations again.",
                 "Start over", "Cancel"),
         };

@@ -317,6 +317,25 @@ public sealed class SecretsStoreTests
     }
 
     [Fact]
+    public void A_forgotten_password_starts_over_and_keeps_the_old_file_openable()
+    {
+        using var ws = new TempWorkspace(vault: false);
+        var first = On(ws.Sub("pc-a"));
+        first.Create("remembered once");
+        first.Set("dest:1:storagepw", "repo-password");
+        var here = On(ws.Sub("pc-b"));
+        Assert.Equal(VaultState.Locked, here.Refresh());
+        here.StartOver("new one");
+        Assert.Equal(VaultState.Unlocked, here.Refresh());
+        Assert.Equal("", here.Get("dest:1:storagepw"));
+        var kept = Assert.Single(Directory.GetFiles(ws.ConfigRoot, "vault.bin.forgotten-*"));
+        File.Copy(kept, Path.Combine(ws.Sub("old"), "vault.bin"));
+        var old = new SecretsStore(Path.Combine(ws.Sub("old"), "vault.bin"), Computer(ws.Sub("pc-c")));
+        Assert.True(old.TryUnlock("remembered once"));
+        Assert.Equal("repo-password", old.Get("dest:1:storagepw"));
+    }
+
+    [Fact]
     public void No_value_or_key_is_readable_in_any_file()
     {
         using var ws = new TempWorkspace(vault: false);

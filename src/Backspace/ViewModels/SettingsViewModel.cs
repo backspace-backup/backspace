@@ -583,13 +583,25 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         });
     }
 
+    /// <summary>The vault is locked here: "Forgot the password?" is offered.</summary>
+    [ObservableProperty] private bool _canStartOverVault;
+
+    [RelayCommand]
+    private async System.Threading.Tasks.Task StartOverVaultAsync()
+    {
+        await VaultGate.StartOverForgottenAsync();
+        RefreshVaultStatus();
+    }
+
     internal void RefreshVaultStatus()
     {
         var secrets = ServiceLocator.Secrets;
         VaultState state;
+        CanStartOverVault = false;
         try { state = secrets.Refresh(); }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
         { VaultStatus = "Your saved passwords can't be read right now: " + ex.Message; return; }
+        CanStartOverVault = state == VaultState.Locked;
         (VaultStatus, ChangeVaultPasswordLabel) = state switch
         {
             VaultState.NoVault when secrets.ConversionPending => ("Your saved passwords still need to be moved into their new file. Choose a password to do it.", "Choose a password"),
