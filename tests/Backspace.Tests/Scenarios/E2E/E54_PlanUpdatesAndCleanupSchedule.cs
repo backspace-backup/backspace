@@ -63,10 +63,13 @@ public sealed class E54_PlanUpdatesAndCleanupSchedule(ITestOutputHelper output) 
             await editingBackup;
         }
         else await BackUp();
+        // The plan names the exclude file; the file holds the edited text as written (U151).
+        var planId = ResticBackrestEngine.MakePlanId(backup, source, destination, "default");
         using (var saved = System.Text.Json.JsonDocument.Parse(File.ReadAllText(configPath)))
             Assert.Contains(saved.RootElement.GetProperty("plans").EnumerateArray(), plan =>
-                plan.GetProperty("id").GetString() == ResticBackrestEngine.MakePlanId(backup, source, destination, "default") &&
-                plan.GetProperty(OperatingSystem.IsWindows() ? "iexcludes" : "excludes").EnumerateArray().Any(value => value.GetString() == source.Replace('\\', '/') + "/**/excluded.txt"));
+                plan.GetProperty("id").GetString() == planId &&
+                plan.GetProperty("backup_flags").EnumerateArray().Any(value => value.GetString() == "'" + ResticBackrestEngine.ExcludeFilePath(planId) + "'"));
+        Assert.Equal("excluded.txt", File.ReadAllText(ResticBackrestEngine.ExcludeFilePath(planId)));
         var snapshots = await Snapshots();
         Assert.Equal(3, snapshots.Count);
         var files = await fixture.Engine.ListSnapshotFilesAsync(backup, source, destination, "default", snapshots[0].Number, ct, snapshots[0].SnapshotId);
