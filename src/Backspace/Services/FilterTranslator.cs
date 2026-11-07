@@ -61,7 +61,8 @@ public static class FilterTranslator
         var rules = new List<(string, string)>();
         if (string.IsNullOrEmpty(text)) return rules;
         getenv ??= Environment.GetEnvironmentVariable;
-        foreach (var raw in text.Split('\n'))
+        // Restic drops a byte-order mark at the start of the file.
+        foreach (var raw in text.TrimStart('﻿').Split('\n'))
         {
             var line = raw.Trim();
             if (line.Length == 0 || line[0] == '#') continue;
@@ -176,7 +177,7 @@ public static class FilterTranslator
             // Restic refuses the whole file for an invalid rule; the editor
             // says which (InvalidRules). Here it simply matches nothing.
             try { regex = new Regex(GlobToRegex(glob), options); }
-            catch (ArgumentException) { regex = new Regex(@"[^\s\S]"); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException) { regex = new Regex(@"[^\s\S]"); }
             rules.Add(new(line, regex, negated, ignoreCase, RequiredText(glob), IsRooted(glob)));
         }
         return rules;
@@ -192,7 +193,9 @@ public static class FilterTranslator
         foreach (var (line, pattern) in ReadRules(text))
         {
             var glob = pattern[0] == '!' ? pattern[1..] : pattern;
-            try { _ = new Regex(GlobToRegex(glob), RegexOptions.NonBacktracking | RegexOptions.CultureInvariant); }
+            // Parsing is enough (the editor checks on every keystroke); the
+            // non-backtracking engine accepts the same patterns.
+            try { _ = new Regex(GlobToRegex(glob), RegexOptions.CultureInvariant); }
             catch (ArgumentException) { invalid.Add(line); }
         }
         return invalid;
@@ -291,12 +294,15 @@ public static class FilterTranslator
     /// </summary>
     internal static string GlobToRegex(string glob)
     {
-        if (string.IsNullOrEmpty(glob)) return "(?!)";
+        // Never matches, as restic's "." (an empty or "." rule); no lookaround,
+        // which the non-backtracking engine refuses.
+        const string never = @"[^\s\S]";
+        if (string.IsNullOrEmpty(glob)) return never;
 
         glob = glob.Replace('\\', '/');
         var rooted = glob[0] == '/';
         glob = string.Join("/", glob.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(p => p != "."));
-        if (glob.Length == 0) return rooted ? "^.*$" : "(?!)";
+        if (glob.Length == 0) return rooted ? "^.*$" : never;
 
         var sb = new StringBuilder();
         sb.Append(rooted ? "^" : "(?:^|/)");

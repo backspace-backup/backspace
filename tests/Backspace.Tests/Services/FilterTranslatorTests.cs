@@ -93,6 +93,16 @@ public class FilterTranslatorTests
     }
 
     [Fact]
+    public void Degenerate_rules_match_nothing_as_in_restic_and_never_throw()
+    {
+        // restic cleans "!" and "." to ".", a name no path has.
+        foreach (var rule in new[] { "!", ".", "./", "!." })
+            Assert.False(Excluded(rule, "C:/a/b.txt"), rule);
+        // A byte-order mark at the start is dropped, as restic's textfile.Read does.
+        Assert.Equal("*.tmp", FilterTranslator.ReadRules("\uFEFF*.tmp\n").Single().Pattern);
+    }
+
+    [Fact]
     public void Case_follows_the_flag_restic_gets()
     {
         Assert.True(Excluded("*.TMP", "C:/a/b.tmp", ignoreCase: true));
