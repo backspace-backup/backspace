@@ -287,11 +287,15 @@ public class ConfigMigratorTests
         Assert.Contains(report.Notes, n => n.StartsWith("local_c_restored") && n.Contains("restore profile"));
         var backup = Assert.Single(store.Current.Backups);
         Assert.Equal(new[] { @"C:\" }, backup.SourcePaths);
-        // ^Windows/ is exactly the recommended /Windows/; /node_modules/
-        // (never at the top of the drive) stays the person's own rule.
-        Assert.Contains("/Windows/", backup.FiltersText);
-        Assert.Contains("e:(?i)/node_modules/", backup.FiltersText);
+        // ^Windows/ is exactly the recommended ?:/Windows/; /node_modules/
+        // (never at the top of the drive) stays the person's own rule,
+        // converted once (U151).
+        var lines = backup.FiltersText.Replace("\r\n", "\n").Split('\n');
+        Assert.Contains("?:/Windows/", lines);
+        Assert.Contains("# was: e:(?i)/node_modules/", lines);
+        Assert.Contains("*/**/node_modules/*", lines);
         Assert.DoesNotContain("e:(?i)^Windows/", backup.FiltersText);
+        Assert.False(DuplicacyFilterConverter.NeedsConversion(backup.FiltersText));
     }
 
     [Theory]
@@ -306,16 +310,17 @@ public class ConfigMigratorTests
     {
         var duplicacy = string.Join("\n",
             @"e:(?i)(^|/)temp/", @"i:(?i)^Data/temp/keep/", @"e:(?i)^Data/", @"e:(?i)\.(tmp|temp)$", @"e:(?i)^pagefile\.sys$");
-        var imported = ConfigMigrator.ImportFilters(duplicacy).Replace("\r\n", "\n");
+        var imported = ConfigMigrator.ImportFilters(duplicacy, new[] { @"C:\" }).Replace("\r\n", "\n");
         Assert.Contains(RecommendedFilters.AutoBlockHeader, imported);
         // Still recommended: moves into the recommended block. No longer
-        // recommended (temp folders and .tmp files can be someone's work,
-        // U106): kept as the person's own rules, with the same meaning.
-        Assert.Contains("\n/pagefile.sys\n", imported);
+        // recommended (temp folders can be someone's work, U106): kept as the
+        // person's own rules, converted with the same meaning (U151).
+        Assert.Contains("\n?:/pagefile.sys\n", imported);
         Assert.DoesNotContain("\ntemp/\n", imported.Substring(imported.IndexOf(RecommendedFilters.AutoBlockHeader, StringComparison.Ordinal)));
-        var rules = FilterTranslator.CompileRules(imported);
-        bool Excluded(string path) => FilterTranslator.Evaluate(rules, path).Excluded;
-        Assert.True(Excluded("a/temp/x"));          // recognized, still excluded
+        Assert.False(DuplicacyFilterConverter.NeedsConversion(imported));
+        var rules = FilterTranslator.CompileRules(imported, ignoreCase: true);
+        bool Excluded(string path) => FilterTranslator.Evaluate(rules, "C:/" + path).Excluded;
+        Assert.True(Excluded("a/temp/x"));          // still excluded
         Assert.True(Excluded("Data/temp/keep/x"));  // Duplicacy: the earlier temp/ rule wins
         Assert.True(Excluded("Data/other"));
         Assert.True(Excluded("b/c.TMP"));

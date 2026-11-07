@@ -1,0 +1,471 @@
+# Your rules, converted from Duplicacy. restic lets the last matching rule decide,
+# so a rule starting with ! comes after the rules it overrides.
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/
+?:/Users/*/AppData/*/Google/Chrome/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Google/Software Reporter Tool/
+?:/Users/*/AppData/*/Google/Software Reporter Tool/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Package Cache/
+?:/Users/*/AppData/*/Package Cache/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/WhatsApp/
+?:/Users/*/AppData/*/WhatsApp/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Edge/
+?:/Users/*/AppData/*/Microsoft/Edge/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/.*webview2/
+?:/Users/*/AppData/*/Microsoft/**/*webview2/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/.*Caches?/
+?:/Users/*/AppData/*/Microsoft/**/*Caches/*
+?:/Users/*/AppData/*/Microsoft/**/*Cache/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/.*Logs?/
+?:/Users/*/AppData/*/Microsoft/**/*Logs/*
+?:/Users/*/AppData/*/Microsoft/**/*Log/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Credentials/
+?:/Users/*/AppData/*/Microsoft/Credentials/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/GameDVR/
+?:/Users/*/AppData/*/Microsoft/GameDVR/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/CLR[^/]*/
+?:/Users/*/AppData/*/Microsoft/CLR*/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Internet Explorer/
+?:/Users/*/AppData/*/Microsoft/Internet Explorer/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/.*/INetCookies/
+?:/Users/*/AppData/*/Microsoft/*/**/INetCookies/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/OTele/
+?:/Users/*/AppData/*/Microsoft/Office/OTele/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/SolutionPackages/
+?:/Users/*/AppData/*/Microsoft/Office/SolutionPackages/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/.*/[^/]*Packages/
+?:/Users/*/AppData/*/Microsoft/Office/*/**/*Packages/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/.*/Teaching[^/]*/
+?:/Users/*/AppData/*/Microsoft/Office/*/**/Teaching*/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/.*/[^/]*Metrics[^/]*/
+?:/Users/*/AppData/*/Microsoft/Office/*/**/*Metrics*/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/Licenses/
+?:/Users/*/AppData/*/Microsoft/Office/Licenses/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/OneDrive/
+?:/Users/*/AppData/*/Microsoft/OneDrive/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/OneAuth/
+?:/Users/*/AppData/*/Microsoft/OneAuth/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/PenWorkspace/
+?:/Users/*/AppData/*/Microsoft/PenWorkspace/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/SolutionPackages/
+?:/Users/*/AppData/*/Microsoft/SolutionPackages/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/TokenBroker/
+?:/Users/*/AppData/*/Microsoft/TokenBroker/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Windows/.*\.dat.LOG1$
+?:/Users/*/AppData/*/Microsoft/Windows/**/*.dat?LOG1
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Windows/Recent/
+?:/Users/*/AppData/*/Microsoft/Windows/Recent/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Windows/Explorer/
+?:/Users/*/AppData/*/Microsoft/Windows/Explorer/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Windows/Notifications/
+?:/Users/*/AppData/*/Microsoft/Windows/Notifications/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Windows/Safety/
+?:/Users/*/AppData/*/Microsoft/Windows/Safety/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/VSApplicationInsights/
+?:/Users/*/AppData/*/Microsoft/VSApplicationInsights/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Installer/
+?:/Users/*/AppData/*/Microsoft/Installer/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/input/
+?:/Users/*/AppData/*/Microsoft/input/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/AugLoop/
+?:/Users/*/AppData/*/Microsoft/AugLoop/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/.*CatalogCacheMetaData\.xml$
+?:/Users/*/AppData/*/Microsoft/**/*CatalogCacheMetaData.xml
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/MicrosoftEdge/
+?:/Users/*/AppData/*/MicrosoftEdge/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Missive/
+?:/Users/*/AppData/*/Missive/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/OneDrive/
+?:/Users/*/AppData/*/OneDrive/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Roblox/.*Caches?/
+?:/Users/*/AppData/*/Roblox/**/*Caches/*
+?:/Users/*/AppData/*/Roblox/**/*Cache/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Overwolf/.*Caches?/
+?:/Users/*/AppData/*/Overwolf/**/*Caches/*
+?:/Users/*/AppData/*/Overwolf/**/*Cache/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/PDF Architect 9/logs/
+?:/Users/*/AppData/*/PDF Architect 9/logs/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Mozilla/Firefox/
+?:/Users/*/AppData/*/Mozilla/Firefox/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/TeamViewer/
+?:/Users/*/AppData/*/TeamViewer/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Zoom/
+?:/Users/*/AppData/*/Zoom/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/TunnelBear/
+?:/Users/*/AppData/*/TunnelBear/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/vstelemetry/
+?:/Users/*/AppData/*/vstelemetry/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/ConnectedDevicesPlatform/
+?:/Users/*/AppData/*/ConnectedDevicesPlatform/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/CrashDumps/
+?:/Users/*/AppData/*/CrashDumps/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/CrashPlan/
+?:/Users/*/AppData/*/CrashPlan/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Diagnostics/
+?:/Users/*/AppData/*/Diagnostics/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Downloaded Installations/
+?:/Users/*/AppData/*/Downloaded Installations/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Dropbox/
+?:/Users/*/AppData/*/Dropbox/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Duplicati/
+?:/Users/*/AppData/*/Duplicati/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/ElevatedDiagnostics/
+?:/Users/*/AppData/*/ElevatedDiagnostics/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/npm/
+?:/Users/*/AppData/*/npm/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/NVIDIA[^/]*/
+?:/Users/*/AppData/*/NVIDIA*/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Oracle/
+?:/Users/*/AppData/*/Oracle/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/PackageStaging/
+?:/Users/*/AppData/*/PackageStaging/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/PeerDistRepub/
+?:/Users/*/AppData/*/PeerDistRepub/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Publishers/
+?:/Users/*/AppData/*/Publishers/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/TileDataLayer/
+?:/Users/*/AppData/*/TileDataLayer/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Veeam/
+?:/Users/*/AppData/*/Veeam/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Lenovo/
+?:/Users/*/AppData/*/Lenovo/*
+# was: e:(?i)/AppData/Local/Packages/
+*/**/AppData/Local/Packages/*
+# was: e:(?i)/AppData/Local/CEF/
+*/**/AppData/Local/CEF/*
+# was: e:(?i)/AppData/Local/AMD/
+*/**/AppData/Local/AMD/*
+# was: e:(?i)/AppData/Local/atom/
+*/**/AppData/Local/atom/*
+# was: e:(?i)/AppData/Local/ForensiT/
+*/**/AppData/Local/ForensiT/*
+# was: e:(?i)/AppData/Local/GitHubDesktop/
+*/**/AppData/Local/GitHubDesktop/*
+# was: e:(?i)/AppData/Local/gitkraken/
+*/**/AppData/Local/gitkraken/*
+# was: e:(?i)/AppData/Local/go-build/
+*/**/AppData/Local/go-build/*
+# was: e:(?i)/AppData/Local/kotlin/
+*/**/AppData/Local/kotlin/*
+# was: e:(?i)/AppData/Local/PackageManagement/
+*/**/AppData/Local/PackageManagement/*
+# was: e:(?i)/AppData/Local/pip/
+*/**/AppData/Local/pip/*
+# was: e:(?i)/AppData/Local/Programs/Python/
+*/**/AppData/Local/Programs/Python/*
+# was: e:(?i)/AppData/Local/SquirrelTemp/
+*/**/AppData/Local/SquirrelTemp/*
+# was: e:(?i)^ProgramData/Acronis/
+?:/ProgramData/Acronis/*
+# was: e:(?i)^ProgramData/Adobe/
+?:/ProgramData/Adobe/*
+# was: e:(?i)^ProgramData/Apple/Installer Cache/
+?:/ProgramData/Apple/Installer Cache/*
+# was: e:(?i)^ProgramData/AVAST[^/]*/
+?:/ProgramData/AVAST*/*
+# was: e:(?i)^ProgramData/CrashPlan/
+?:/ProgramData/CrashPlan/*
+# was: e:(?i)^ProgramData/Dell/drivers/
+?:/ProgramData/Dell/drivers/*
+# was: e:(?i)^ProgramData/Dropbox/
+?:/ProgramData/Dropbox/*
+# was: e:(?i)^ProgramData/Duplicati/
+?:/ProgramData/Duplicati/*
+# was: e:(?i)^ProgramData/Epson/
+?:/ProgramData/Epson/*
+# was: e:(?i)^ProgramData/Eset/
+?:/ProgramData/Eset/*
+# was: e:(?i)^ProgramData/GetSupportService/
+?:/ProgramData/GetSupportService/*
+# was: e:(?i)^ProgramData/Hp/
+?:/ProgramData/Hp/*
+# was: e:(?i)^ProgramData/Intel[^/]*/
+?:/ProgramData/Intel*/*
+# was: e:(?i)^ProgramData/Malwarebytes/
+?:/ProgramData/Malwarebytes/*
+# was: e:(?i)^ProgramData/Microsoft[^/]*/
+?:/ProgramData/Microsoft*/*
+# was: e:(?i)^ProgramData/MiKTeX/
+?:/ProgramData/MiKTeX/*
+# was: e:(?i)^ProgramData/Mozilla/
+?:/ProgramData/Mozilla/*
+# was: e:(?i)^ProgramData/NVIDIA[^/]*/
+?:/ProgramData/NVIDIA*/*
+# was: e:(?i)^ProgramData/Oracle/
+?:/ProgramData/Oracle/*
+# was: e:(?i)^ProgramData/Packages/
+?:/ProgramData/Packages/*
+# was: e:(?i)^ProgramData/Skype/
+?:/ProgramData/Skype/*
+# was: e:(?i)^ProgramData/SoftwareDistribution/
+?:/ProgramData/SoftwareDistribution/*
+# was: e:(?i)^ProgramData/Soluto/
+?:/ProgramData/Soluto/*
+# was: e:(?i)^ProgramData/SteelSeries/
+?:/ProgramData/SteelSeries/*
+# was: e:(?i)^ProgramData/SupremoRemoteDesktop/
+?:/ProgramData/SupremoRemoteDesktop/*
+# was: e:(?i)^ProgramData/SystemAcCrux/
+?:/ProgramData/SystemAcCrux/*
+# was: e:(?i)^ProgramData/USOPrivate/
+?:/ProgramData/USOPrivate/*
+# was: e:(?i)^ProgramData/USOShared/
+?:/ProgramData/USOShared/*
+# was: e:(?i)^ProgramData/Veeam/
+?:/ProgramData/Veeam/*
+# was: e:(?i)^ProgramData/WindowsHolographicDevices/
+?:/ProgramData/WindowsHolographicDevices/*
+# was: e:(?i)/AppData/[^/]+/Steam/
+*/**/AppData/*/Steam/*
+# was: e:(?i)^ProgramData/Battle\.net/
+?:/ProgramData/Battle.net/*
+# was: e:(?i)^ProgramData/GOG.com/
+?:/ProgramData/GOG?com/*
+# was: e:(?i)^ProgramData/Origin/
+?:/ProgramData/Origin/*
+# was: e:\.*DS_Store
+*DS_Store*
+# was: e:(?i)^adobeTemp/
+?:/adobeTemp/*
+# was: e:(?i)^DELL/
+?:/DELL/*
+# was: e:(?i)^hp/
+?:/hp/*
+# was: e:(?i)^hpswsetup/
+?:/hpswsetup/*
+# was: e:(?i)^InetPub/
+?:/InetPub/*
+# was: e:(?i)^MSI/
+?:/MSI/*
+# was: e:(?i)^Jts/
+?:/Jts/*
+# was: e:(?i)^Python[^/]*/
+?:/Python*/*
+# was: e:(?i)^ProgramData/
+?:/ProgramData/*
+# was: e:(?i)^Users/Visitor/
+?:/Users/Visitor/*
+# was: e:(?i)^Users/Public/AccountPictures/
+?:/Users/Public/AccountPictures/*
+# was: e:(?i)^Users/[^/]+/Dropbox/
+?:/Users/*/Dropbox/*
+# was: e:(?i)^Users/[^/]+/\.dropbox_bi/
+?:/Users/*/.dropbox_bi/*
+# was: e:(?i)^Users/[^/]+/\.thumbnails/
+?:/Users/*/.thumbnails/*
+# was: e:(?i)^Users/[^/]+/OneDrive/
+?:/Users/*/OneDrive/*
+# was: e:(?i)^Users/[^/]+/Documents/IISExpress/
+?:/Users/*/Documents/IISExpress/*
+# was: e:(?i)^Users/[^/]+/MicrosoftEdgeBackups/
+?:/Users/*/MicrosoftEdgeBackups/*
+# was: e:(?i)^Users/[^/]+/Tracing/
+?:/Users/*/Tracing/*
+# was: e:(?i)^Users/[^/]+/.*/Library/PackageCache/
+?:/Users/*/*/**/Library/PackageCache/*
+# was: e:(?i)^Users/[^/]+/Semantic Labs/cronjobs*
+?:/Users/*/Semantic Labs/cronjob*
+# was: e:(?i)^ComfyUI/ComfyUI_windows_portable/ComfyUI/models/
+?:/ComfyUI/ComfyUI_windows_portable/ComfyUI/models/*
+# was: e:(?i)^AI/cache/
+?:/AI/cache/*
+# was: i:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/$
+!?:/Users/*/AppData/*/Google/Chrome
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/
+?:/Users/*/AppData/*/Google/Chrome/*
+# was: i:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/User Data/$
+!?:/Users/*/AppData/*/Google/Chrome/User Data
+?:/Users/*/AppData/*/Google/Chrome/User Data/*
+# was: i:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/User Data/[^/]+/$
+!?:/Users/*/AppData/*/Google/Chrome/User Data/*
+?:/Users/*/AppData/*/Google/Chrome/User Data/*/*
+# was: i:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/User Data/[^/]+/Local Extension Settings/
+!?:/Users/*/AppData/*/Google/Chrome/User Data/*/Local Extension Settings
+# was: e:(?i)^Program Files[^/]*/
+?:/Program Files*/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Caches?/
+?:/Users/*/AppData/*/Caches/*
+?:/Users/*/AppData/*/Cache/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/.*/Caches?/
+?:/Users/*/AppData/*/*/**/Caches/*
+?:/Users/*/AppData/*/*/**/Cache/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/.*crashlogs?/
+?:/Users/*/AppData/*/**/*crashlogs/*
+?:/Users/*/AppData/*/**/*crashlog/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/CapCut/User Data/Cache/
+?:/Users/*/AppData/*/CapCut/User Data/Cache/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/CapCut/User Data/Crash/
+?:/Users/*/AppData/*/CapCut/User Data/Crash/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Adobe/webview2/
+?:/Users/*/AppData/*/Adobe/webview2/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Adobe/CCX Welcome/
+?:/Users/*/AppData/*/Adobe/CCX Welcome/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Adobe/CRLogs?/
+?:/Users/*/AppData/*/Adobe/CRLogs/*
+?:/Users/*/AppData/*/Adobe/CRLog/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Adobe/.*/Logs?/
+?:/Users/*/AppData/*/Adobe/*/**/Logs/*
+?:/Users/*/AppData/*/Adobe/*/**/Log/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Comms/
+?:/Users/*/AppData/*/Comms/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/D3DSCache/
+?:/Users/*/AppData/*/D3DSCache/*
+# was: e:(?i)^Users/[^/]+/AppData/[^/]+/Intel/
+?:/Users/*/AppData/*/Intel/*
+# was: i:(?i)^Program Files[^/]*/$
+!?:/Program Files*
+# was: e:(?i)^Program Files[^/]*/
+?:/Program Files*/*
+# was: i:(?i)^Program Files[^/]*/[^/]+/$
+!?:/Program Files*/*
+?:/Program Files*/*/*
+# was: e:(?i)/Logs/CrashReporter/
+*/**/Logs/CrashReporter/*
+# was: e:(?i)/ShaderCache/
+*/**/ShaderCache/*
+# was: e:(?i)/GPUCache/
+*/**/GPUCache/*
+# was: e:(?i)/compile-cache/
+*/**/compile-cache/*
+# was: e:(?i)/node_modules/
+*/**/node_modules/*
+# was: e:(?i)/npm-cache/
+*/**/npm-cache/*
+# was: e:(?i)/InternalCache/
+*/**/InternalCache/*
+# was: e:(?i)/tdata/user_data/media_cache/
+*/**/tdata/user_data/media_cache/*
+# was: e:(?i)/\.tmp\.drivedownload/
+*/**/.tmp.drivedownload/*
+# was: e:(?i)/OneDriveTemp/
+*/**/OneDriveTemp/*
+# was: e:(?i)/\.dropbox\.cache/
+*/**/.dropbox.cache/*
+# was: e:(?i)\$RECYCLE\.BIN/
+*$$RECYCLE.BIN/*
+# was: e:(?i)\$RECYCLED/
+*$$RECYCLED/*
+# was: e:(?i)\$RECYCLER/
+*$$RECYCLER/*
+# was: e:(?i)^\$SysReset
+?:/$$SysReset*
+# was: e:(?i)^Boot/
+?:/Boot/*
+# was: e:(?i)^Documents and Settings
+?:/Documents and Settings*
+# was: e:(?i)/Temporary Internet Files
+*/**/Temporary Internet Files*
+# was: e:(?i)ntuser\.dat
+*ntuser.dat*
+# was: e:(?i)(^|/)IconCache\.db
+IconCache.db*
+
+# === Backspace recommended exclusions — start ===
+# Generated by Backspace. Edit if you like: this whole block
+# will be replaced (preserving your edits outside the markers)
+# the next time you click "Apply recommended exclusions".
+
+# Essentials: always excluded; safe for any source.
+?:/pagefile.sys
+?:/hiberfil.sys
+?:/swapfile.sys
+?:/DumpStack.log.tmp
+?:/System Volume Information/
+?:/$$RECYCLE.BIN/
+?:/Config.Msi/
+?:/$$WinREAgent/
+?:/$$GetCurrent/
+?:/$$SysReset/
+?:/$$Windows.~BT/
+?:/$$Windows.~WS/
+?:/Windows10Upgrade/
+?:/Windows.old/
+?:/bootmgr
+?:/BOOTNXT
+?:/BOOTSECT.BAK
+?:/OneDriveTemp/
+?:/PerfLogs/
+
+# Windows system files: locked, regenerable, or restore-unsafe.
+?:/Windows/
+?:/MSOCache/
+thumbs.db
+IconCache.db
+Temporary Internet Files/
+?:/ProgramData/Microsoft/Search/
+?:/ProgramData/Microsoft/Windows/WER/
+?:/ProgramData/Microsoft/Windows Defender/
+?:/ProgramData/Package Cache/
+?:/Program Files/desktop.ini
+?:/Program Files (x86)/desktop.ini
+?:/Users/Default/
+?:/Drivers/
+?:/SWSetup/
+?:/NVIDIA/
+?:/AMD/
+?:/Intel/
+
+# App caches, temp files, dev junk: universally safe to skip.
+?:/Users/*/AppData/Local/Temp/
+*.crdownload
+?:/Users/*/AppData/**/Logs/CrashReporter/
+ShaderCache/
+GPUCache/
+?:/Users/*/AppData/**/InternalCache/
+?:/Users/*/AppData/**/icon_cache/
+.dropbox.cache/
+.tmp.drivedownload/
+node_modules/
+npm-cache/
+?:/Users/*/AppData/**/compile-cache/
+__pycache__/
+?:/Users/*/.nuget/packages/
+?:/Users/*/.gradle/caches/
+?:/Users/*/AppData/Local/pip/cache/
+?:/Users/*/AppData/Local/go-build/
+.DS_Store
+?:/Users/*/AppData/**/Cache/
+?:/Users/*/AppData/**/Caches/
+?:/Users/*/AppData/**/Code Cache/
+?:/Users/*/AppData/**/GrShaderCache/
+?:/Users/*/AppData/**/DawnCache/
+?:/Users/*/AppData/**/DawnGraphiteCache/
+?:/Users/*/AppData/**/DawnWebGPUCache/
+?:/Users/*/AppData/**/Service Worker/CacheStorage/
+?:/Users/*/AppData/**/Service Worker/ScriptCache/
+?:/Users/*/AppData/Local/CrashDumps/
+?:/Users/*/AppData/Local/D3DSCache/
+?:/Users/*/AppData/Local/Microsoft/Windows/INetCache/
+?:/Users/*/AppData/Local/Microsoft/Windows/Explorer/
+?:/Users/*/AppData/Local/Microsoft/Windows/WER/
+?:/Users/*/AppData/Local/Package Cache/
+tdata/user_data/media_cache/
+?:/Users/*/AppData/Local/Packages/*/AC/
+?:/Users/*/AppData/Local/Packages/*/TempState/
+?:/Users/*/AppData/*/Microsoft/Windows/Recent/
+?:/Users/*/AppData/*/Microsoft/Windows/Notifications/
+
+# Your own rules kept from this block.
+?:/Recovery/
+*.tmp
+*.temp
+
+# === Backspace recommended exclusions — end ===
+
+# === Backspace essential exclusions (always applied) ===
+?:/pagefile.sys
+?:/hiberfil.sys
+?:/swapfile.sys
+?:/DumpStack.log.tmp
+?:/System Volume Information/
+?:/Config.Msi/
+?:/$$WinREAgent/
+?:/$$GetCurrent/
+?:/$$SysReset/
+?:/$$Windows.~BT/
+?:/$$Windows.~WS/
+?:/Windows10Upgrade/
+?:/bootmgr
+?:/BOOTNXT
+?:/BOOTSECT.BAK
+?:/OneDriveTemp/
+?:/Users/*/AppData/Local/Microsoft/WindowsApps/

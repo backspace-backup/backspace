@@ -1,33 +1,31 @@
+using System.Linq;
 using Backspace.Services;
 using Xunit;
 
 namespace Backspace.Tests.Services;
 
 /// <summary>
-/// Pins the Backspace filter text → restic exclude/iexclude contract.
-/// Two shapes are accepted:
-///   • bare restic glob lines (the canonical source format)
-///   • Duplicacy <c>e:&lt;regex&gt;</c> lines (only because the
-///     "Import from existing Duplicacy" flow reads filter files
-///     verbatim; everywhere Backspace EMITS filter text it writes
-///     bare globs).
+/// Pins how Backspace reads a Filters text: exactly as restic reads the
+/// exclude file the engine hands it (U151), on full paths with forward
+/// slashes. E57 checks the same decisions against the real restic.
 /// </summary>
 public class FilterTranslatorTests
 {
     [Theory]
-    [InlineData("drop[12].txt", "drop1.txt", false)]
-    [InlineData("drop[12].txt", "drop3.txt", true)]
-    [InlineData("[a-c].bin", "b.bin", false)]
-    [InlineData("[^a-c].bin", "b.bin", true)]
-    [InlineData("[^a-c].bin", "z.bin", false)]
-    [InlineData("name[[]1].txt", "name[1].txt", false)]
-    [InlineData("*.log\n!keep.log", "nested/keep.log", true)]
-    [InlineData("*.log\n!keep.log", "nested/other.log", false)]
-    [InlineData("*.log\n!keep.log\nkeep.*", "keep.log", false)]
-    [InlineData("!keep.log\n*.log", "keep.log", false)]
-    [InlineData("a**b.txt", "a/child/b.txt", true)]
-    [InlineData("cache", "nested/cache/", false)]
-    [InlineData("cache\n!cache", "nested/cache/", true)]
+    [InlineData("drop[12].txt", "C:/src/drop1.txt", false)]
+    [InlineData("drop[12].txt", "C:/src/drop3.txt", true)]
+    [InlineData("[a-c].bin", "C:/src/b.bin", false)]
+    [InlineData("[^a-c].bin", "C:/src/b.bin", true)]
+    [InlineData("[^a-c].bin", "C:/src/z.bin", false)]
+    [InlineData("name[[]1].txt", "C:/src/name[1].txt", false)]
+    [InlineData("*.log\n!keep.log", "C:/src/nested/keep.log", true)]
+    [InlineData("*.log\n!keep.log", "C:/src/nested/other.log", false)]
+    [InlineData("*.log\n!keep.log\nkeep.*", "C:/src/keep.log", false)]
+    [InlineData("!keep.log\n*.log", "C:/src/keep.log", false)]
+    [InlineData("a**b.txt", "C:/src/a/child/b.txt", true)]
+    [InlineData("a**b.txt", "C:/src/axyzb.txt", false)]
+    [InlineData("cache", "C:/src/nested/cache/", false)]
+    [InlineData("cache\n!cache", "C:/src/nested/cache/", true)]
     public void PreviewAndEstimateShareOrderedGlobMatching(string filters, string path, bool included)
     {
         var preview = Assert.Single(new FilterSimulator().Preview(filters, new[] { path }));
@@ -35,154 +33,92 @@ public class FilterTranslatorTests
         Assert.Equal(!included, SavingsEstimator.IsExcluded(SavingsEstimator.ParseRules(filters), path));
     }
 
+    private static bool Excluded(string rules, string path, bool ignoreCase = true)
+        => FilterTranslator.Evaluate(FilterTranslator.CompileRules(rules, ignoreCase), path).Excluded;
+
     [Fact]
-    public void ExceptionInInsensitiveListCannotUndoSensitiveExclusion()
+    public void The_top_of_a_drive_is_written_with_a_drive_wildcard()
     {
-        var rules = new[] {
-            new FilterTranslator.CompiledRule("keep.log", new System.Text.RegularExpressions.Regex("^keep[.]log$"), false, false),
-            new FilterTranslator.CompiledRule("!keep.log", new System.Text.RegularExpressions.Regex("^keep[.]log$"), true, true)
-        };
-        Assert.True(FilterTranslator.Evaluate(rules, "keep.log").Excluded);
+        Assert.True(Excluded("?:/Users/*/AppData/Local/Temp/", "C:/Users/me/AppData/Local/Temp/x.tmp"));
+        Assert.True(Excluded("?:/Users/*/AppData/Local/Temp/", "D:/Users/me/AppData/Local/Temp"));
+        // Only the drive holds ':', so the rule never starts deeper down.
+        Assert.False(Excluded("?:/Users/*/AppData/Local/Temp/", "C:/Backups/OldPC/Users/bob/AppData/Local/Temp/x"));
+        // restic sees Windows paths with their drive: a plain leading / matches nothing.
+        Assert.False(Excluded("/Users/", "C:/Users/me/x"));
+        Assert.False(Excluded("/pagefile.sys", "C:/pagefile.sys"));
+        Assert.True(Excluded("C:/pagefile.sys", "c:/PAGEFILE.SYS"));
     }
 
     [Fact]
-    public void SourceBinding_PreservesRootedAndNestedPatternsAndLiteralBrackets()
+    public void A_rule_without_an_anchor_matches_at_any_depth_including_the_drive_and_the_folders_above_the_source()
     {
-        var source = System.IO.Path.GetFullPath("temp/source[1]");
-        var root = source.Replace('\\', '/').Replace("[", "[[]");
-        var r = FilterTranslator.TranslateForSource("temp/\n/root.txt\nsub\\*.tmp\n!keep.txt", source);
-        var patterns = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Concat(r.Excludes, r.IExcludes));
-        Assert.Equal(new[] { root + "/**/temp/", root + "/root.txt", root + "/**/sub/*.tmp", "!" + root + "/**/keep.txt" }, patterns);
+        Assert.True(Excluded("node_modules/", "C:/code/app/node_modules/lib.js"));
+        // "*" is one name, and the drive counts as one.
+        Assert.True(Excluded("*/**/npm-cache/*", "C:/npm-cache/x"));
+        Assert.False(Excluded("*/**/npm-cache/*", "C:/npm-cache"));
+        // A rule matching a folder above the backed-up one excludes all of it, as in restic.
+        Assert.True(Excluded("temp/", "C:/temp/project/file.txt"));
     }
 
     [Fact]
-    public void SourceBinding_DriveOrFilesystemRootDoesNotIntroduceDoubleSeparator()
+    public void On_Linux_and_macOS_a_leading_slash_is_the_top_of_the_file_system()
     {
-        var source = System.IO.Path.GetPathRoot(System.IO.Path.GetFullPath("."))!;
-        var root = source.Replace('\\', '/').TrimEnd('/');
-        var r = FilterTranslator.TranslateForSource("/pagefile.sys", source);
-        Assert.Equal(root + "/pagefile.sys", Assert.Single(System.Linq.Enumerable.Concat(r.Excludes, r.IExcludes)));
-    }
-
-    // -----------------------------------------------------------------
-    // Restic-native: one bare glob per line, # comments.
-    // -----------------------------------------------------------------
-
-    [Fact]
-    public void BareGlob_RoutesToIExcludes_WhenPlatformDefaultIsInsensitive()
-    {
-        // On Windows the filesystem is case-insensitive, so bare globs
-        // route to iexcludes (restic --iexclude) — a case-sensitive
-        // pattern would silently miss files whose stored case differs.
-        var r = FilterTranslator.Translate("foo/*.tmp", defaultsToCaseInsensitive: true);
-        Assert.Contains("foo/*.tmp", r.IExcludes);
-        Assert.Empty(r.Excludes);
+        Assert.True(Excluded("/home/*/.cache/", "/home/me/.cache/x", ignoreCase: false));
+        Assert.False(Excluded("/home/*/.cache/", "/data/home/me/.cache/x", ignoreCase: false));
+        Assert.False(Excluded("/home/*/.cache/", "/home/me/.CACHE/x", ignoreCase: false));
+        // restic never starts an unanchored rule at the "/" itself.
+        Assert.False(Excluded("*/**/x", "/x", ignoreCase: false));
+        Assert.True(Excluded("*/**/x", "/a/x", ignoreCase: false));
     }
 
     [Fact]
-    public void BareGlob_RoutesToExcludes_WhenPlatformDefaultIsSensitive()
+    public void A_trailing_slash_changes_nothing_as_restic_cleans_it_off()
     {
-        var r = FilterTranslator.Translate("foo/*.tmp", defaultsToCaseInsensitive: false);
-        Assert.Contains("foo/*.tmp", r.Excludes);
-        Assert.Empty(r.IExcludes);
+        Assert.True(Excluded("*Cache/", "C:/a/ModuleAnalysisCache"));
+        Assert.True(Excluded("Cache/", "C:/a/Cache/"));
     }
 
     [Fact]
-    public void Comments_AreIgnored()
+    public void Lines_are_read_as_restic_reads_an_exclude_file()
     {
-        var r = FilterTranslator.Translate("# this is a comment\nfoo", defaultsToCaseInsensitive: false);
-        Assert.Single(r.Excludes);
-        Assert.Equal("foo", r.Excludes[0]);
+        var rules = FilterTranslator.ReadRules("  # comment\n\n  foo  \r\n$$RECYCLE.BIN\n$HOME_X/a\n${HOME_X}/b\nprice$\n", n => n == "HOME_X" ? "C:/me" : null);
+        Assert.Equal(new[] { "foo", "$RECYCLE.BIN", "C:/me/a", "C:/me/b", "price$" }, rules.Select(r => r.Pattern));
+        Assert.Equal("$$RECYCLE.BIN", rules[1].Line);
+        // An unset variable is empty: "?:/$WinREAgent/" would be "?://", the whole drive.
+        Assert.Equal("?://", FilterTranslator.Expand("?:/$WinREAgent/", _ => null));
+        Assert.True(FilterTranslator.Evaluate(FilterTranslator.CompileRules("?:/$WinREAgent/", ignoreCase: true), "C:/Users/me/x").Excluded);
+        Assert.Equal("?:/$WinREAgent/", FilterTranslator.Expand("?:/$$WinREAgent/", _ => null));
+        Assert.Empty(FilterTranslator.ReadRules(null));
+        Assert.Empty(FilterTranslator.ReadRules("   \n  \n"));
     }
 
     [Fact]
-    public void BlankLines_AreIgnored()
+    public void Case_follows_the_flag_restic_gets()
     {
-        var r = FilterTranslator.Translate("\n\nfoo\n\n", defaultsToCaseInsensitive: false);
-        Assert.Single(r.Excludes);
-        Assert.Equal("foo", r.Excludes[0]);
+        Assert.True(Excluded("*.TMP", "C:/a/b.tmp", ignoreCase: true));
+        Assert.False(Excluded("*.TMP", "/a/b.tmp", ignoreCase: false));
+        Assert.Equal(Backspace.Services.Platform.PlatformInfo.IsWindows ? "--iexclude-file" : "--exclude-file", FilterTranslator.ExcludeFileFlag);
     }
 
     [Fact]
-    public void NullAndEmpty_ReturnEmptyLists()
+    public void Rules_restic_refuses_are_named()
     {
-        Assert.Empty(FilterTranslator.Translate(null).Excludes);
-        Assert.Empty(FilterTranslator.Translate("").Excludes);
-        Assert.Empty(FilterTranslator.Translate("   \n  \n").Excludes);
-    }
-
-    // -----------------------------------------------------------------
-    // Duplicacy migration: e:/i: regex lines translate to restic globs with
-    // the same meaning (DuplicacyFilterTranslatorTests holds the semantics).
-    // -----------------------------------------------------------------
-
-    [Theory]
-    [InlineData(@"e:(?i)^pagefile\.sys$", "/pagefile.sys")]
-    [InlineData(@"e:(?i)(^|/)System Volume Information/", "System Volume Information/*")]
-    [InlineData(@"e:(?i)^Windows/", "/Windows/*")]
-    [InlineData(@"e:(?i)(^|/)\$RECYCLE\.BIN/", "$RECYCLE.BIN/*")]
-    [InlineData(@"e:(?i)^Users/[^/]+/AppData/Local/", "/Users/*/AppData/Local/*")]
-    [InlineData(@"e:(?i)/node_modules/", "*/**/node_modules/*")]
-    [InlineData(@"e:(?i)^Python[^/]*/", "/Python*/*")]
-    public void Duplicacy_Regex_TranslatesWithItsAnchor(string line, string glob)
-        => Assert.Equal(new[] { glob }, FilterTranslator.Translate(line, defaultsToCaseInsensitive: false).IExcludes);
-
-    [Fact]
-    public void Duplicacy_RegexCaseSensitive_NoIFlag_RoutesToExcludes()
-    {
-        var r = FilterTranslator.Translate(@"e:^FooBar$", defaultsToCaseInsensitive: false);
-        Assert.Equal(new[] { "/FooBar" }, r.Excludes);
-        Assert.Empty(r.IExcludes);
+        Assert.Equal(new[] { "bad[abc" }, FilterTranslator.InvalidRules("ok\nbad[abc\n# [comment"));
+        Assert.Empty(FilterTranslator.InvalidRules(string.Join("\n", RecommendedFilters.EssentialPatterns
+            .Concat(RecommendedFilters.WindowsSystemPatterns).Concat(RecommendedFilters.CachesAndJunkPatterns).Concat(RecommendedFilters.AlwaysExcludedPatterns))));
     }
 
     [Fact]
-    public void Duplicacy_Alternatives_BecomeOneGlobEach()
+    public void Recommended_rules_are_plain_restic_rules_with_every_dollar_doubled()
     {
-        var r = FilterTranslator.Translate(@"e:(?i)\.(tmp|temp)$", defaultsToCaseInsensitive: false);
-        Assert.Equal(new[] { "*.tmp", "*.temp" }, r.IExcludes);
-    }
-
-    [Fact]
-    public void Duplicacy_UntranslatableLine_IsReportedNotGuessed()
-    {
-        var untranslated = new System.Collections.Generic.List<string>();
-        var r = FilterTranslator.Translate("e:(?i)^logs/\\d+/\nfoo", defaultsToCaseInsensitive: false, untranslated);
-        Assert.Equal(new[] { "foo" }, r.Excludes);
-        Assert.Empty(r.IExcludes);
-        Assert.Equal(new[] { @"e:(?i)^logs/\d+/" }, untranslated);
-    }
-
-    // -----------------------------------------------------------------
-    // RecommendedFilters round-trip — every recommended pattern must
-    // come through unchanged (they're already pure restic globs).
-    // -----------------------------------------------------------------
-
-    [Fact]
-    public void RecommendedFiltersEssentials_AllProduceRestcNativeGlobs()
-    {
-        var lines = string.Join("\n", RecommendedFilters.EssentialPatterns);
-        var r = FilterTranslator.Translate(lines, defaultsToCaseInsensitive: true);
-        var total = RecommendedFilters.EssentialPatterns.Count;
-        var produced = r.Excludes.Count + r.IExcludes.Count;
-        Assert.Equal(total, produced);
-    }
-
-    [Fact]
-    public void RecommendedFiltersEssentials_AreResticNativeStrings()
-    {
-        // Every recommended pattern is a bare restic glob — no
-        // Backspace-specific prefixes that would surprise someone
-        // taking the file to vanilla restic.
-        foreach (var p in RecommendedFilters.EssentialPatterns)
+        foreach (var p in RecommendedFilters.EssentialPatterns.Concat(RecommendedFilters.WindowsSystemPatterns)
+                     .Concat(RecommendedFilters.CachesAndJunkPatterns).Concat(RecommendedFilters.AlwaysExcludedPatterns))
         {
-            Assert.False(p.StartsWith("-", System.StringComparison.Ordinal),
-                $"Pattern uses legacy `-` prefix: {p}");
-            Assert.False(p.StartsWith("e:", System.StringComparison.Ordinal),
-                $"Pattern uses legacy Duplicacy `e:` prefix: {p}");
-            Assert.False(p.StartsWith("i:", System.StringComparison.Ordinal),
-                $"Pattern uses legacy Duplicacy `i:` prefix: {p}");
-            Assert.False(p.StartsWith("+", System.StringComparison.Ordinal),
-                $"Pattern uses legacy `+` prefix: {p}");
+            Assert.False(p.StartsWith("e:") || p.StartsWith("i:") || p.StartsWith('-') || p.StartsWith('+') || p.StartsWith('^'), p);
+            // "$" only ever as "$$": restic would read "$Name" as a variable.
+            Assert.Equal(p.Replace("$$", "$"), FilterTranslator.Expand(p, _ => "X"));
+            // Drive rules start at the drive; a leading "/" matches nothing on Windows.
+            if (Backspace.Services.Platform.PlatformInfo.IsWindows) Assert.False(p.StartsWith('/'), p);
         }
     }
 }

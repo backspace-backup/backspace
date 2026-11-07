@@ -8,56 +8,37 @@ using System.Text.Json;
 namespace Backspace.Services;
 
 /// <summary>
-/// Curated filter rules for Windows backups. Three groups:
+/// Curated filter rules, in restic's own syntax: the Filters text is the
+/// exclude file restic reads (<see cref="FilterTranslator"/>), so every rule
+/// here is written exactly as restic gets it (U151, 6 November 2026).
 ///
-///   • <see cref="WindowsSystemPatterns"/> — files Microsoft itself
-///     documents as "do not back up while running" (live registry hives,
-///     pagefile, hiberfil), system-reserved directories that are either
-///     regenerable or owned by Windows Setup, and the Recycle Bin.
-///     These are safe and recommended for EVERY Windows source.
+///   • <see cref="EssentialPatterns"/> and <see cref="WindowsSystemPatterns"/>
+///     — files and folders Windows keeps at the top of a drive (live page and
+///     hibernation files, setup and update leftovers, the Windows folder).
+///   • <see cref="CachesAndJunkPatterns"/> — caches, temp folders and
+///     regenerable app data. Safe for the vast majority of people.
+///   • <see cref="AlwaysExcludedPatterns"/> — written into every backup's text
+///     as a visible block (<see cref="AlwaysBlockHeader"/>).
+///   • <see cref="DetectCloudSyncFolders"/> — Dropbox, OneDrive and Google
+///     Drive folders, offered one by one.
 ///
-///   • <see cref="CachesAndJunkPatterns"/> — caches, temp folders, and
-///     known-noisy app directories that are routinely regenerable. Safe
-///     for the vast majority of users; the few who actually want their
-///     browser cache backed up can deselect.
-///
-///   • <see cref="DetectCloudSyncFolders"/> — runtime probe for
-///     Dropbox / OneDrive / Google Drive sync roots. Each detected folder
-///     is presented as an opt-in exclusion ("don't back up Dropbox — it's
-///     already in the cloud"), with the actual path shown so the user
-///     knows what they're skipping.
-///
-/// Patterns are restic-native globs — one per line, no Backspace-specific
-/// prefixes. The exact same file content can be handed to vanilla restic
-/// via <c>--exclude-file</c> (case-sensitive) or <c>--iexclude-file</c>
-/// (case-insensitive); the file format does not encode case sensitivity.
-/// Leading <c>/</c> anchors to the source root; trailing <c>/</c> matches
-/// directories only; <c>*</c> matches anything except a slash; <c>**</c>
-/// matches across slashes.
-///
-/// Case sensitivity: <see cref="FilterTranslator"/> routes bare-glob
-/// lines through restic's <c>--iexclude</c> on Windows (the filesystem
-/// is case-insensitive, so a case-sensitive pattern would silently miss
-/// files whose stored case differs) and through <c>--exclude</c> on
-/// Linux / macOS. Both buckets are restic-standard; the choice is
-/// platform-default so a user's hand-edited file works without
-/// per-line markers.
-///
-/// Backwards compatibility: prior versions emitted Duplicacy-style
-/// <c>e:&lt;regex&gt;</c> patterns and Backspace-specific <c>-i:</c>
-/// prefixes; <see cref="FilterTranslator"/> still parses both so a
-/// migrated config keeps working. Re-clicking "Apply recommended
-/// exclusions" rewrites the auto-block in pure restic-native form.
+/// Rules are tied to the top of the drive, <c>?:/…</c> on Windows (<c>?</c>
+/// is any one character and only a drive name holds <c>:</c>), so a folder a
+/// person made on purpose deeper down (an old PC's copied profile, say) is
+/// never matched. Rules that are useful wherever they are (node_modules/,
+/// *.tmp, .DS_Store…) are written without an anchor and match at any depth.
+/// A literal <c>$</c> is written <c>$$</c>: restic expands <c>$NAME</c>.
+/// On Linux and macOS, where restic's leading <c>/</c> is the top of the file
+/// system, profile rules become <c>/home/*/…</c> or <c>/Users/*/…</c> and the
+/// Windows-only ones are left out.
 ///
 /// Sources:
 ///   - Microsoft KB on volume-shadow-copy-friendly backup ("files that are
 ///     locked or in use by the OS"): hiberfil/pagefile/swapfile, system
 ///     volume information.
-///   - Duplicacy's own filter examples on GitHub (gilbertchen/duplicacy
-///     wiki § Include/exclude patterns).
 ///   - Restic's "Backing up Windows" recipe (recommended exclude list).
 ///   - Common-knowledge consolidation from the maintainer's own multi-year
-///     duplicacy-util filter file.
+///     filter file.
 /// </summary>
 public static class RecommendedFilters
 {
@@ -71,154 +52,89 @@ public static class RecommendedFilters
     public const string CustomBlockHeader = "# === Backspace custom exclusions — start ===";
     public const string CustomBlockFooter = "# === Backspace custom exclusions — end ===";
 
-    public const string EssentialBlockHeader = "# === Backspace essential exclusions (do not remove) ===";
-    public const string EssentialBlockFooter = "# === Backspace essential exclusions — end ===";
+    /// <summary>Heads the block of <see cref="AlwaysExcludedPatterns"/> at the
+    /// end of each backup's text. The block runs to the next blank line.</summary>
+    public const string AlwaysBlockHeader = "# === Backspace essential exclusions (always applied) ===";
 
     // ---------------------------------------------------------------
-    // Pattern groups
+    // Pattern groups (Windows forms; see ForThisPlatform)
     // ---------------------------------------------------------------
 
-    /// <summary>
-    /// Patterns we ALWAYS emit, regardless of which "Recommended exclusions"
-    /// checkbox the user did or didn't tick. These are folders/files that
-    /// Windows literally cannot back up safely (locked / regenerable / would
-    /// restore as garbage onto a different machine), or system metadata that
-    /// the source-tree picker hides anyway. Baking them into the filter
-    /// list itself means a user who later changes their Sources to a drive
-    /// root still gets these out-of-the-box — they don't have to remember
-    /// to re-tick any toggle.
-    /// </summary>
-    public static readonly IReadOnlyList<string> EssentialPatterns = new[]
+    private static readonly string[] WindowsEssentials =
     {
-        // Live OS memory snapshots — huge, locked, and useless restored.
-        // Anchored at the source root with a leading `/` because they
-        // only legitimately exist there on a Windows install; an
-        // unanchored pattern would also strike user-named files.
-        "/pagefile.sys",
-        "/hiberfil.sys",
-        "/swapfile.sys",
-        "/DumpStack.log.tmp",
+        // Live OS memory snapshots: huge, locked, and useless restored.
+        "?:/pagefile.sys",
+        "?:/hiberfil.sys",
+        "?:/swapfile.sys",
+        "?:/DumpStack.log.tmp",
 
-        // Per-drive system metadata and Windows-setup folders. They exist
-        // only at the top of a drive, so they are anchored there:
-        // unanchored, "Recovery/" also skipped a folder of that name in
-        // Documents (U055, 31 October 2026). Recovery itself is no longer
-        // recommended (U106, 4 November 2026): besides Windows' recovery
-        // image it can hold a manufacturer's recovery files.
-        "/System Volume Information/",
-        "/$RECYCLE.BIN/",
-        "/Config.Msi/",
-        "/$WinREAgent/",
-        "/$GetCurrent/",
-        "/$SysReset/",
-        "/$Windows.~BT/",
-        "/$Windows.~WS/",
-        "/Windows10Upgrade/",
-        "/Windows.old/",
+        // Per-drive system metadata and Windows-setup folders, at the top of
+        // a drive only: elsewhere, "Recovery/" was a person's own folder
+        // (U055, 31 October 2026). Recovery itself is no longer recommended
+        // (U106): it can hold a manufacturer's recovery files.
+        "?:/System Volume Information/",
+        "?:/$$RECYCLE.BIN/",
+        "?:/Config.Msi/",
+        "?:/$$WinREAgent/",
+        "?:/$$GetCurrent/",
+        "?:/$$SysReset/",
+        "?:/$$Windows.~BT/",
+        "?:/$$Windows.~WS/",
+        "?:/Windows10Upgrade/",
+        "?:/Windows.old/",
 
-        // Boot files — immutable; restoring would clobber a fresh
-        // install's bootloader. Anchored: only the root-level copy is
-        // a boot file; a user-named `bootmgr` shouldn't be skipped.
-        "/bootmgr",
-        "/BOOTNXT",
-        "/BOOTSECT.BAK",
+        // Boot files: restoring them would clobber a fresh install's loader.
+        "?:/bootmgr",
+        "?:/BOOTNXT",
+        "?:/BOOTSECT.BAK",
 
         // OneDrive's download scratch, which it creates at the top of a drive.
-        // Anchored: a folder of that name elsewhere is the person's own.
-        "/OneDriveTemp/",
-        "/PerfLogs/",
+        "?:/OneDriveTemp/",
+        "?:/PerfLogs/",
     };
 
     /// <summary>
-    /// Excluded from every backup whatever its filters say, and never counted
-    /// in estimates (U106, 4 November 2026): only what is useless in any
-    /// restore. The page, swap and hibernation files are rebuilt by Windows at
-    /// every start; System Volume Information holds shadow copies and the
-    /// search index; the other folders are temporary files of Windows Update,
-    /// upgrades, resets and installers; the boot files can't make a disk
-    /// bootable from a file backup. Things someone may want back (Windows,
-    /// Windows.old, the Recycle Bin, the registry hives) are only
-    /// recommended exclusions, which a backup can drop.
+    /// Written into every backup's text, as a visible block at its end
+    /// (U106, U151): only what is useless in any restore. The page, swap and
+    /// hibernation files are rebuilt by Windows at every start; System Volume
+    /// Information holds shadow copies and the search index; the other
+    /// folders are temporary files of Windows Update, upgrades, resets and
+    /// installers; the boot files can't make a disk bootable from a file
+    /// backup. Windows' app execution aliases (wt.exe, winget.exe…) are links
+    /// the engine can't store ("unsupported file type": local_c's runs ended
+    /// with 92 errors from them, 4 November 2026).
     /// </summary>
-    public static readonly IReadOnlyList<string> AlwaysExcludedPatterns = new[]
+    private static readonly string[] WindowsAlwaysExcluded =
     {
-        "/pagefile.sys",
-        "/hiberfil.sys",
-        "/swapfile.sys",
-        "/DumpStack.log.tmp",
-        "/System Volume Information/",
-        "/Config.Msi/",
-        "/$WinREAgent/",
-        "/$GetCurrent/",
-        "/$SysReset/",
-        "/$Windows.~BT/",
-        "/$Windows.~WS/",
-        "/Windows10Upgrade/",
-        "/bootmgr",
-        "/BOOTNXT",
-        "/BOOTSECT.BAK",
-        "/OneDriveTemp/",
-        // Windows' app execution aliases (wt.exe, winget.exe…), links Windows
-        // makes when a Store app is installed. The engine can't store them
-        // ("unsupported file type"): local_c's runs ended with 92 errors, all
-        // from here (4 November 2026). Matched in any profile, at any depth.
-        "AppData/Local/Microsoft/WindowsApps/",
+        "?:/pagefile.sys",
+        "?:/hiberfil.sys",
+        "?:/swapfile.sys",
+        "?:/DumpStack.log.tmp",
+        "?:/System Volume Information/",
+        "?:/Config.Msi/",
+        "?:/$$WinREAgent/",
+        "?:/$$GetCurrent/",
+        "?:/$$SysReset/",
+        "?:/$$Windows.~BT/",
+        "?:/$$Windows.~WS/",
+        "?:/Windows10Upgrade/",
+        "?:/bootmgr",
+        "?:/BOOTNXT",
+        "?:/BOOTSECT.BAK",
+        "?:/OneDriveTemp/",
+        "?:/Users/*/AppData/Local/Microsoft/WindowsApps/",
     };
 
-    /// <summary>True for a rule meant for the top of a drive (System Volume
-    /// Information, Windows.old, /Windows/, /Intel/…). For a source that is a
-    /// folder, not a whole drive, these rules are left out: there they would
-    /// match the person's own folders of the same name (U106).</summary>
-    internal static bool IsDriveTopPattern(string line)
+    private static readonly string[] WindowsSystem =
     {
-        _driveTop ??= new HashSet<string>(AlwaysExcludedPatterns.Concat(EssentialPatterns).Concat(WindowsSystemPatterns)
-            .Concat(RetiredPatterns).Where(p => p.StartsWith('/')), StringComparer.OrdinalIgnoreCase);
-        return _driveTop.Contains(line.Trim());
-    }
-    private static HashSet<string>? _driveTop;
-
-    /// <summary>A backup's filter text with <see cref="AlwaysExcludedPatterns"/>
-    /// added last, so no rule earlier in the text (an imported backup, or one
-    /// whose recommended block was edited away) can bring them back.</summary>
-    public static string WithAlwaysExcluded(string? filtersText)
-        => (filtersText ?? "") + "\n" + string.Join("\n", AlwaysExcludedPatterns);
-
-    /// <summary>True for an entry directly in <paramref name="root"/> that an
-    /// always-excluded rule removes (System Volume Information, pagefile.sys,
-    /// …), so size estimates leave it out like the backup does.</summary>
-    public static bool IsAlwaysExcludedAtRoot(string root, string fullPath, bool isDirectory)
-    {
-        if (!string.Equals(Path.TrimEndingDirectorySeparator(Path.GetDirectoryName(fullPath) ?? ""),
-                Path.TrimEndingDirectorySeparator(root), StringComparison.OrdinalIgnoreCase)) return false;
-        return AnchoredAlwaysExcludedNames.Contains((isDirectory ? "/" : "") + Path.GetFileName(fullPath))
-            && TreeWalk.IsDriveRoot(root);
-    }
-
-    // "name" for an anchored file, "/name" for an anchored folder.
-    private static readonly HashSet<string> AnchoredAlwaysExcludedNames = new(
-        AlwaysExcludedPatterns.Where(p => p.StartsWith('/') && p.IndexOfAny(['*', '?', '[']) < 0)
-            .Select(p => p.EndsWith('/') ? "/" + p.Trim('/') : p.TrimStart('/')),
-        StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Toggleable "Windows system files" recommendations on top of the
-    /// always-on essentials. Ticking this in the editor ALSO excludes
-    /// the broader system surface (the entire Windows directory, Office
-    /// installer cache, thumbnail/icon caches, IE temp). These are
-    /// useful but not always-required; some users back up only their
-    /// own folders, where these patterns wouldn't match anything.
-    /// </summary>
-    public static readonly IReadOnlyList<string> WindowsSystemPatterns = new[]
-    {
-        // The Windows directory itself — restore from a fresh install,
-        // not from a snapshot of a live system. Anchored at source
-        // root.
-        "/Windows/",
+        // The Windows directory itself: restore from a fresh install, not
+        // from a snapshot of a live system.
+        "?:/Windows/",
 
         // Office update cache.
-        "/MSOCache/",
+        "?:/MSOCache/",
 
-        // Windows Explorer thumbnail/icon caches — regenerable.
+        // Windows Explorer thumbnail/icon caches, wherever they are.
         "thumbs.db",
         "IconCache.db",
 
@@ -228,102 +144,235 @@ public static class RecommendedFilters
         // Windows' own data under ProgramData, rebuilt by Windows: the search
         // index (large, always in use), error reports and Defender's files.
         // Installer caches only serve repairs on this PC.
-        "/ProgramData/Microsoft/Search/",
-        "/ProgramData/Microsoft/Windows/WER/",
-        "/ProgramData/Microsoft/Windows Defender/",
-        "/ProgramData/Package Cache/",
-        // Written by Windows setup only to show the folders' translated names
-        // ("LocalizedResourceName=@%SystemRoot%\system32\shell32.dll,…").
+        "?:/ProgramData/Microsoft/Search/",
+        "?:/ProgramData/Microsoft/Windows/WER/",
+        "?:/ProgramData/Microsoft/Windows Defender/",
+        "?:/ProgramData/Package Cache/",
+        // Written by Windows setup only to show the folders' translated names.
         // Elsewhere desktop.ini may hold a person's own folder settings.
-        "/Program Files/desktop.ini",
-        "/Program Files (x86)/desktop.ini",
+        "?:/Program Files/desktop.ini",
+        "?:/Program Files (x86)/desktop.ini",
 
         // The template for new accounts, and the folders driver installers
-        // unpack into at the top of the drive. Taken from the maintainer's
-        // long-used Duplicacy list (U055, 31 October 2026).
-        "/Users/Default/",
-        "/Drivers/",
-        "/SWSetup/",
-        "/NVIDIA/",
-        "/AMD/",
-        "/Intel/",
+        // unpack into at the top of the drive (U055, 31 October 2026).
+        "?:/Users/Default/",
+        "?:/Drivers/",
+        "?:/SWSetup/",
+        "?:/NVIDIA/",
+        "?:/AMD/",
+        "?:/Intel/",
     };
 
-    /// <summary>Caches, temp folders, and known-noisy app dirs.
-    /// Universally safe to skip; nothing here loses real user data.</summary>
-    public static readonly IReadOnlyList<string> CachesAndJunkPatterns = new[]
+    private static readonly string[] WindowsCaches =
     {
         // Windows' own temp folder for each account. Folders named temp or
-        // tmp elsewhere, and .tmp/.dump files, can be a person's own work
-        // (a database dump, a scratch folder in Documents), so they are not
-        // recommended (U106, 4 November 2026).
-        "Users/*/AppData/Local/Temp/",
+        // tmp elsewhere and .dmp/.dump files can be a person's own work
+        // (U106, 4 November 2026); *.tmp and *.temp are offered again (U151).
+        "?:/Users/*/AppData/Local/Temp/",
+        "*.tmp",
+        "*.temp",
 
         // Interrupted downloads and crash reporters' folders.
         "*.crdownload",
-        "Logs/CrashReporter/",
+        "?:/Users/*/AppData/**/Logs/CrashReporter/",
 
         // Browser / Chromium / Electron app caches.
         "ShaderCache/",
         "GPUCache/",
-        "InternalCache/",
-        "icon_cache/",
+        "?:/Users/*/AppData/**/InternalCache/",
+        "?:/Users/*/AppData/**/icon_cache/",
 
-        // Cloud-sync caches (the providers' own scratch dirs, not the
-        // sync folder itself — that's an opt-in exclusion below).
+        // Cloud-sync caches (the providers' own scratch dirs, not the sync
+        // folder itself: that's an opt-in exclusion below).
         ".dropbox.cache/",
         ".tmp.drivedownload/",
 
-        // Dev: node_modules, npm cache, Python packages — all
-        // restorable from package manifests.
+        // Dev: restorable from package manifests, wherever a project is.
         "node_modules/",
         "npm-cache/",
-        "compile-cache/",
+        "?:/Users/*/AppData/**/compile-cache/",
         "__pycache__/",
-        "Users/*/.nuget/packages/",
-        "Users/*/.gradle/caches/",
-        "Users/*/AppData/Local/pip/cache/",
-        "Users/*/AppData/Local/go-build/",
+        "?:/Users/*/.nuget/packages/",
+        "?:/Users/*/.gradle/caches/",
+        "?:/Users/*/AppData/Local/pip/cache/",
+        "?:/Users/*/AppData/Local/go-build/",
         // Go's module cache (GOMODCACHE): go downloads each module again
-        // from its proxy when the folder is missing; 'go clean -modcache'
-        // empties it (U141).
-        "Users/*/go/pkg/mod/",
+        // from its proxy when the folder is missing (U141).
+        "?:/Users/*/go/pkg/mod/",
 
-        // macOS / cross-platform metadata noise (when backing up a
-        // mixed-OS share).
+        // macOS metadata noise (a mixed-OS share).
         ".DS_Store",
 
-        // App caches anywhere in AppData (`**` spans folders): browsers
-        // and Electron apps keep them several levels down, such as
-        // Chrome/User Data/Default/Cache. Logs only directly in an app
-        // folder, where they are the app's own diagnostics.
-        "Users/*/AppData/**/Cache/",
-        "Users/*/AppData/**/Caches/",
-        "Users/*/AppData/**/Code Cache/",
-        "Users/*/AppData/**/GrShaderCache/",
-        "Users/*/AppData/**/DawnCache/",
-        "Users/*/AppData/**/DawnGraphiteCache/",
-        "Users/*/AppData/**/DawnWebGPUCache/",
-        "Users/*/AppData/**/Service Worker/CacheStorage/",
-        "Users/*/AppData/**/Service Worker/ScriptCache/",
-        "Users/*/AppData/Local/CrashDumps/",
-        "Users/*/AppData/Local/D3DSCache/",
-        "Users/*/AppData/Local/Microsoft/Windows/INetCache/",
-        // Thumbnail and icon caches, error reports, installer caches, the old
-        // Edge's backups and Telegram's media cache, all rebuilt or not needed.
-        "Users/*/AppData/Local/Microsoft/Windows/Explorer/",
-        "Users/*/AppData/Local/Microsoft/Windows/WER/",
-        "Users/*/AppData/Local/Package Cache/",
+        // App caches anywhere in AppData (** spans folders): browsers and
+        // Electron apps keep them several levels down, such as
+        // Chrome/User Data/Default/Cache.
+        "?:/Users/*/AppData/**/Cache/",
+        "?:/Users/*/AppData/**/Caches/",
+        "?:/Users/*/AppData/**/Code Cache/",
+        "?:/Users/*/AppData/**/GrShaderCache/",
+        "?:/Users/*/AppData/**/DawnCache/",
+        "?:/Users/*/AppData/**/DawnGraphiteCache/",
+        "?:/Users/*/AppData/**/DawnWebGPUCache/",
+        "?:/Users/*/AppData/**/Service Worker/CacheStorage/",
+        "?:/Users/*/AppData/**/Service Worker/ScriptCache/",
+        "?:/Users/*/AppData/Local/CrashDumps/",
+        "?:/Users/*/AppData/Local/D3DSCache/",
+        "?:/Users/*/AppData/Local/Microsoft/Windows/INetCache/",
+        // Thumbnail and icon caches, error reports, installer caches and
+        // Telegram's media cache, all rebuilt or not needed.
+        "?:/Users/*/AppData/Local/Microsoft/Windows/Explorer/",
+        "?:/Users/*/AppData/Local/Microsoft/Windows/WER/",
+        "?:/Users/*/AppData/Local/Package Cache/",
         "tdata/user_data/media_cache/",
 
         // Store apps keep settings and data in Packages (Sticky Notes, for
-        // example); only their caches are skipped. Skipping all of Packages
-        // lost that data (U055).
-        "Users/*/AppData/Local/Packages/*/AC/",
-        "Users/*/AppData/Local/Packages/*/TempState/",
-        "Users/*/AppData/*/Microsoft/Windows/Recent/",
-        "Users/*/AppData/*/Microsoft/Windows/Notifications/",
+        // example); only their caches are skipped (U055).
+        "?:/Users/*/AppData/Local/Packages/*/AC/",
+        "?:/Users/*/AppData/Local/Packages/*/TempState/",
+        "?:/Users/*/AppData/*/Microsoft/Windows/Recent/",
+        "?:/Users/*/AppData/*/Microsoft/Windows/Notifications/",
     };
+
+    /// <summary>Recommended for any Windows source; part of the recommended
+    /// block's first group.</summary>
+    public static readonly IReadOnlyList<string> EssentialPatterns = ForThisPlatform(WindowsEssentials);
+
+    /// <summary>See <see cref="WindowsAlwaysExcluded"/>. Empty on Linux and
+    /// macOS, which have none of these files.</summary>
+    public static readonly IReadOnlyList<string> AlwaysExcludedPatterns = ForThisPlatform(WindowsAlwaysExcluded);
+
+    /// <summary>The "Windows system files" recommendations.</summary>
+    public static readonly IReadOnlyList<string> WindowsSystemPatterns = ForThisPlatform(WindowsSystem);
+
+    /// <summary>Caches, temp folders, and known-noisy app dirs.</summary>
+    public static readonly IReadOnlyList<string> CachesAndJunkPatterns = ForThisPlatform(WindowsCaches);
+
+    /// <summary>The Windows rules as this system's restic needs them: on
+    /// Linux and macOS a profile rule starts at <c>/home/*/</c> or
+    /// <c>/Users/*/</c>, and rules for Windows' own files are left out.</summary>
+    private static IReadOnlyList<string> ForThisPlatform(IEnumerable<string> windowsRules)
+        => Platform.PlatformInfo.IsWindows ? windowsRules.ToArray() : windowsRules.Select(ToUnix).OfType<string>().ToArray();
+
+    internal static string? ToUnix(string rule)
+    {
+        const string profile = "?:/Users/*/";
+        if (!rule.StartsWith("?:/", StringComparison.Ordinal)) return rule;
+        if (rule.StartsWith(profile + "AppData/", StringComparison.OrdinalIgnoreCase)) return null;
+        if (rule.StartsWith(profile, StringComparison.OrdinalIgnoreCase))
+            return (OperatingSystem.IsMacOS() ? "/Users/*/" : "/home/*/") + rule[profile.Length..];
+        return null;
+    }
+
+    // ---------------------------------------------------------------
+    // The always-applied block
+    // ---------------------------------------------------------------
+
+    /// <summary>The block's lines: its header, then each rule.</summary>
+    internal static IReadOnlyList<string> AlwaysBlockLines()
+        => AlwaysExcludedPatterns.Count == 0 ? Array.Empty<string>() : AlwaysExcludedPatterns.Prepend(AlwaysBlockHeader).ToArray();
+
+    /// <summary>The block as text; empty where there is nothing to exclude.</summary>
+    internal static string AlwaysBlockText() => string.Join("\n", AlwaysBlockLines());
+
+    /// <summary>The first and last line of the always-applied block in
+    /// <paramref name="lines"/>: its header and the lines up to the next blank
+    /// one. Null when the text has no such block.</summary>
+    internal static (int Start, int End)? FindAlwaysBlock(IReadOnlyList<string> lines)
+    {
+        var start = -1;
+        for (var i = 0; i < lines.Count; i++) if (lines[i].Trim() == AlwaysBlockHeader) { start = i; break; }
+        if (start < 0) return null;
+        var end = start;
+        while (end + 1 < lines.Count && lines[end + 1].Trim().Length > 0) end++;
+        return (start, end);
+    }
+
+    /// <summary><paramref name="filtersText"/> with the always-applied block
+    /// at its end, when it doesn't have one yet: a new backup's text.</summary>
+    public static string WithAlwaysBlock(string? filtersText)
+    {
+        var text = filtersText ?? "";
+        if (AlwaysExcludedPatterns.Count == 0 || FindAlwaysBlock(text.Replace("\r\n", "\n").Split('\n')) is not null) return text;
+        var body = text.TrimEnd('\r', '\n', ' ', '\t');
+        return (body.Length == 0 ? "" : body + "\n\n") + AlwaysBlockText() + "\n";
+    }
+
+    // ---------------------------------------------------------------
+    // Rules written before U151
+    // ---------------------------------------------------------------
+
+    // Generic names that earlier lists matched at any depth and that now sit
+    // under the profiles' AppData.
+    private static readonly HashSet<string> ProfileGeneric = new(StringComparer.OrdinalIgnoreCase)
+        { "InternalCache/", "icon_cache/", "compile-cache/", "Logs/CrashReporter/" };
+
+    /// <summary>A rule of a recommended block written before U151, as the
+    /// restic rule with the meaning approved on 6 November 2026: <c>/X</c> and
+    /// <c>Users/*/…</c> from the top of the drive, four generic cache names
+    /// under the profiles' AppData, the app aliases in each profile; anything
+    /// else unchanged. A literal <c>$</c> becomes <c>$$</c>.</summary>
+    internal static string LegacyToRestic(string rule, bool windows = true)
+    {
+        var glob = rule.Trim();
+        string restic;
+        if (!windows) restic = glob;
+        else if (glob.StartsWith('/')) restic = "?:" + glob;
+        else if (glob.StartsWith("Users/", StringComparison.OrdinalIgnoreCase)) restic = "?:/" + glob;
+        else if (ProfileGeneric.Contains(glob)) restic = "?:/Users/*/AppData/**/" + glob;
+        else if (glob.Equals("AppData/Local/Microsoft/WindowsApps/", StringComparison.OrdinalIgnoreCase)) restic = "?:/Users/*/" + glob;
+        else restic = glob;
+        return restic.Replace("$", "$$");
+    }
+
+    /// <summary>Every rule of Backspace's recommended lists before U151,
+    /// including those already retired then.</summary>
+    private static readonly string[] LegacyRules =
+    {
+        "/pagefile.sys", "/hiberfil.sys", "/swapfile.sys", "/DumpStack.log.tmp", "/System Volume Information/",
+        "/$RECYCLE.BIN/", "/Config.Msi/", "/$WinREAgent/", "/$GetCurrent/", "/$SysReset/", "/$Windows.~BT/",
+        "/$Windows.~WS/", "/Windows10Upgrade/", "/Windows.old/", "/bootmgr", "/BOOTNXT", "/BOOTSECT.BAK",
+        "/OneDriveTemp/", "/PerfLogs/",
+        "/Windows/", "/MSOCache/", "thumbs.db", "IconCache.db", "Temporary Internet Files/",
+        "/ProgramData/Microsoft/Search/", "/ProgramData/Microsoft/Windows/WER/", "/ProgramData/Microsoft/Windows Defender/",
+        "/ProgramData/Package Cache/", "/Program Files/desktop.ini", "/Program Files (x86)/desktop.ini",
+        "/Users/Default/", "/Drivers/", "/SWSetup/", "/NVIDIA/", "/AMD/", "/Intel/",
+        "Users/*/AppData/Local/Temp/", "*.crdownload", "Logs/CrashReporter/", "ShaderCache/", "GPUCache/",
+        "InternalCache/", "icon_cache/", ".dropbox.cache/", ".tmp.drivedownload/", "node_modules/", "npm-cache/",
+        "compile-cache/", "__pycache__/", "Users/*/.nuget/packages/", "Users/*/.gradle/caches/",
+        "Users/*/AppData/Local/pip/cache/", "Users/*/AppData/Local/go-build/", "Users/*/go/pkg/mod/", ".DS_Store",
+        "Users/*/AppData/**/Cache/", "Users/*/AppData/**/Caches/", "Users/*/AppData/**/Code Cache/",
+        "Users/*/AppData/**/GrShaderCache/", "Users/*/AppData/**/DawnCache/", "Users/*/AppData/**/DawnGraphiteCache/",
+        "Users/*/AppData/**/DawnWebGPUCache/", "Users/*/AppData/**/Service Worker/CacheStorage/",
+        "Users/*/AppData/**/Service Worker/ScriptCache/", "Users/*/AppData/Local/CrashDumps/",
+        "Users/*/AppData/Local/D3DSCache/", "Users/*/AppData/Local/Microsoft/Windows/INetCache/",
+        "Users/*/AppData/Local/Microsoft/Windows/Explorer/", "Users/*/AppData/Local/Microsoft/Windows/WER/",
+        "Users/*/AppData/Local/Package Cache/", "tdata/user_data/media_cache/",
+        "Users/*/AppData/Local/Packages/*/AC/", "Users/*/AppData/Local/Packages/*/TempState/",
+        "Users/*/AppData/*/Microsoft/Windows/Recent/", "Users/*/AppData/*/Microsoft/Windows/Notifications/",
+        // Retired before U151 (U055, U065, U106).
+        "DumpStack.log.tmp", "System Volume Information/", "$RECYCLE.BIN/", "Recovery/", "Config.Msi/",
+        "$WinREAgent/", "$GetCurrent/", "$SysReset/", "$Windows.~BT/", "$Windows.~WS/",
+        "Windows10Upgrade/", "Windows.old/", "PerfLogs/",
+        "Users/*/AppData/*/Cache/", "Users/*/AppData/*/Caches/", "Users/*/AppData/Local/Packages/",
+        "Users/*/AppData/*/Microsoft/Edge/", "OneDriveTemp/",
+        "/Recovery/", "ntuser.dat*", "UsrClass.dat*",
+        "temp/", "tmp/", "*.tmp", "*.temp", "*.dmp", "*.dump",
+        "Users/*/AppData/*/Log/", "Users/*/AppData/*/Logs/",
+        "Users/*/AppData/Local/Packages/*/LocalCache/", "Users/*/MicrosoftEdgeBackups/",
+    };
+
+    /// <summary>Patterns earlier versions recommended and these lists no longer
+    /// contain, as written then and as converted (U151). Only these are
+    /// offered for removal; any other rule in the block is the person's own.</summary>
+    internal static readonly IReadOnlyList<string> RetiredPatterns = BuildRetired();
+
+    private static IReadOnlyList<string> BuildRetired()
+    {
+        var current = new HashSet<string>(EssentialPatterns.Concat(WindowsSystemPatterns).Concat(CachesAndJunkPatterns), StringComparer.OrdinalIgnoreCase);
+        return LegacyRules.Concat(LegacyRules.Select(r => LegacyToRestic(r)))
+            .Where(r => !current.Contains(r))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
 
     // ---------------------------------------------------------------
     // Cloud-sync detection
@@ -472,15 +521,15 @@ public static class RecommendedFilters
     }
 
     // ---------------------------------------------------------------
+
+    // ---------------------------------------------------------------
     // Filter-text manipulation
     // ---------------------------------------------------------------
 
     /// <summary>
     /// Renders the chosen recommendation groups into a single text block
     /// bracketed by <see cref="AutoBlockHeader"/> / <see cref="AutoBlockFooter"/>.
-    /// Cloud-folder exclusions are emitted as exact-path regexes
-    /// (Duplicacy walks paths relative to the source root, so we drop
-    /// the drive letter and forward-slash the result).
+    /// Cloud folders are written from the top of the drive (<see cref="CloudLine"/>).
     /// </summary>
     public static string RenderBlock(
         bool includeWindowsSystem,
@@ -504,56 +553,23 @@ public static class RecommendedFilters
         sb.AppendLine("# the next time you click \"Apply recommended exclusions\".");
         sb.AppendLine();
 
-        // Always-on essentials. Emitted regardless of the toggles below
-        // because these are folders Windows can't back up safely AND
-        // are noise even on user-only sources. Keeps the user covered
-        // even if they later expand Sources to include a drive root.
         Group(sb, EssentialsHeading, EssentialPatterns);
         if (includeWindowsSystem) Group(sb, WindowsHeading, WindowsSystemPatterns);
         if (includeCachesAndJunk) Group(sb, CachesHeading, CachesAndJunkPatterns);
 
         if (cloudExcludes.Count > 0)
         {
-            sb.AppendLine("# Cloud-synced folders: already replicated in their providers' clouds.");
+            sb.AppendLine(CloudHeading);
             foreach (var c in cloudExcludes)
             {
-                var rel = ToSourceRelativePath(c.Path);
-                if (rel is null) continue;
+                if (CloudLine(c) is not { } line) continue;
                 sb.AppendLine($"# {c.Label} at {c.Path}");
-                // `/rel/` is source-root-anchored so we only match the
-                // specific cloud-sync folder, not a same-named subdir
-                // somewhere else in the tree. Bare glob — restic-native.
-                sb.AppendLine($"/{rel}/");
+                sb.AppendLine(line);
             }
             sb.AppendLine();
         }
 
         sb.AppendLine(AutoBlockFooter);
-        return sb.ToString();
-    }
-
-    /// <summary>
-    /// Renders just the essential exclusions wrapped in their own marker
-    /// pair. Used to seed a brand-new backup's filter text so the
-    /// always-on protections (recycle bin, $WinREAgent, pagefile, etc.)
-    /// are present from the moment the backup is created — even before
-    /// the user clicks "Apply recommended exclusions". The marker pair
-    /// distinguishes this block from the larger toggleable
-    /// recommendations block, so a later Apply can lay the bigger block
-    /// alongside without colliding.
-    /// </summary>
-    public static string RenderEssentialBlock()
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine(EssentialBlockHeader);
-        sb.AppendLine("# These exclusions apply to every backup Backspace runs.");
-        sb.AppendLine("# They cover folders Windows can't back up safely (locked /");
-        sb.AppendLine("# regenerable / would restore as garbage). Editing or removing");
-        sb.AppendLine("# this block is not recommended; re-clicking Apply restores it.");
-        sb.AppendLine();
-        foreach (var p in EssentialPatterns) sb.AppendLine(p);
-        sb.AppendLine();
-        sb.AppendLine(EssentialBlockFooter);
         return sb.ToString();
     }
 
@@ -570,24 +586,56 @@ public static class RecommendedFilters
     /// backup's folders, so the group stays chosen.</summary>
     internal const string NoneApplyNote = "# None of these apply to this backup's folders.";
 
-    /// <summary>Whether a recommended rule can match anything in these
-    /// sources (U148, 5 November 2026: a backup of a Dropbox folder was
-    /// offered the Windows folder and every profile's AppData). Rules for the
-    /// top of a drive apply only to a whole drive, as the engine scopes them
-    /// (<see cref="FilterTranslator.ScopeToSource"/>). Rules for the profiles
-    /// (<c>Users/*/…</c>) too: the engine matches them below each source, so
-    /// in a folder they would need a Users folder inside it, not the profile the
-    /// folder is in (C:\Users\me\Dropbox has no Users/*/AppData). Any other
-    /// rule can match at any depth, so it always applies. No sources: every
-    /// rule applies.</summary>
+    /// <summary>Whether a rule can match anything in these sources (U148, U151).
+    /// A rule from the top of the drive (<c>?:/Windows/</c>) or of the file
+    /// system (<c>/home/*/…</c>) applies to a folder on its way or inside it:
+    /// <c>?:/Users/*/AppData/Local/Temp/</c> applies to C:\, C:\Users\me and
+    /// C:\Users\me\AppData, not to C:\Users\me\Dropbox, nor to a folder it
+    /// would leave out whole (C:\Users\me\AppData\Local\Temp\x). Any other rule can
+    /// match at any depth, so it always applies. No sources: every rule
+    /// applies.</summary>
     internal static bool AppliesTo(string pattern, IReadOnlyCollection<string>? sources)
     {
         var real = sources?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
         if (real is null || real.Count == 0) return true;
         var p = pattern.Trim();
-        if (IsDriveTopPattern(p) || p.StartsWith("Users/", StringComparison.OrdinalIgnoreCase))
-            return real.Any(s => { try { return TreeWalk.IsDriveRoot(s); } catch (Exception) { return true; } });
-        return true;
+        if (p.StartsWith('!')) p = p[1..];
+        p = p.Replace("$$", "$");
+        bool drive;
+        if (p.StartsWith("?:/", StringComparison.Ordinal)) { drive = true; p = p[3..]; }
+        else if (p.StartsWith('/')) { drive = false; p = p[1..]; }
+        else return true;
+        var ruleParts = p.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var source in real)
+        {
+            var path = source.Trim().Replace('\\', '/');
+            var isDrive = path.Length >= 2 && path[1] == ':';
+            if (isDrive != drive) continue;
+            var sourceParts = (isDrive ? path[2..] : path).Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var fits = true;
+            var deep = false;
+            for (var i = 0; i < Math.Min(ruleParts.Length, sourceParts.Length) && fits; i++)
+            {
+                if (ruleParts[i] == "**") { deep = true; break; }
+                fits = NameMatches(ruleParts[i], sourceParts[i]);
+            }
+            // A rule that would leave out the whole folder (a backup of a
+            // folder inside a profile's Temp, say) is not offered for it.
+            var wholeSource = fits && !deep && ruleParts.Length <= sourceParts.Length;
+            if (fits && !wholeSource) return true;
+        }
+        return false;
+    }
+
+    private static bool NameMatches(string glob, string name)
+    {
+        try
+        {
+            var options = System.Text.RegularExpressions.RegexOptions.CultureInvariant
+                | (FilterTranslator.IgnoresCase ? System.Text.RegularExpressions.RegexOptions.IgnoreCase : 0);
+            return System.Text.RegularExpressions.Regex.IsMatch(name, FilterTranslator.GlobToRegex("/" + glob), options);
+        }
+        catch (ArgumentException) { return true; }
     }
 
     private static readonly (string Heading, IReadOnlyList<string> Patterns)[] Groups =
@@ -595,33 +643,6 @@ public static class RecommendedFilters
         (EssentialsHeading, EssentialPatterns),
         (WindowsHeading, WindowsSystemPatterns),
         (CachesHeading, CachesAndJunkPatterns),
-    };
-
-    /// <summary>Patterns earlier versions recommended and these lists no longer
-    /// contain. Only these are offered for removal; any other rule in the block
-    /// is the person's own. Add a pattern here whenever one is dropped above.</summary>
-    internal static readonly IReadOnlyList<string> RetiredPatterns = new[]
-    {
-        // Anchored at the top of the drive on 31 October 2026 (U055).
-        "DumpStack.log.tmp", "System Volume Information/", "$RECYCLE.BIN/", "Recovery/", "Config.Msi/",
-        "$WinREAgent/", "$GetCurrent/", "$SysReset/", "$Windows.~BT/", "$Windows.~WS/",
-        "Windows10Upgrade/", "Windows.old/", "PerfLogs/",
-        // Widened to every depth of AppData, and Packages narrowed to caches (U055).
-        "Users/*/AppData/*/Cache/", "Users/*/AppData/*/Caches/", "Users/*/AppData/Local/Packages/",
-        // The whole Edge profile, bookmarks and passwords included; its caches
-        // are covered by the cache rules, as for Chrome (U065, 1 November 2026).
-        "Users/*/AppData/*/Microsoft/Edge/",
-        // Anchored at the top of the drive on 4 November 2026 (U106).
-        "OneDriveTemp/",
-        // No longer recommended on 4 November 2026 (U106), as they may hold
-        // something the person wants back: a manufacturer's recovery files,
-        // a profile's registry (settings), chat logs some apps keep under
-        // Logs, Store apps' data in LocalCache, the old Edge's favourites
-        // backup, a person's temp/tmp folders and .tmp/.dump/.dmp files.
-        "/Recovery/", "ntuser.dat*", "UsrClass.dat*",
-        "temp/", "tmp/", "*.tmp", "*.temp", "*.dmp", "*.dump",
-        "Users/*/AppData/*/Log/", "Users/*/AppData/*/Logs/",
-        "Users/*/AppData/Local/Packages/*/LocalCache/", "Users/*/MicrosoftEdgeBackups/",
     };
 
     /// <summary>The recommended block holding exactly these patterns, under
@@ -662,33 +683,29 @@ public static class RecommendedFilters
         public bool IsEmpty => Add.Count == 0 && Remove.Count == 0;
     }
 
-    private sealed record SavedBlock(int Start, int End, List<(string? Heading, string Line)> Lines, bool EssentialsOnly);
+    private sealed record SavedBlock(int Start, int End, List<(string? Heading, string Line)> Lines);
 
     private static SavedBlock? FindBlock(string[] lines)
     {
-        foreach (var (header, footer, essentialsOnly) in new[] { (AutoBlockHeader, AutoBlockFooter, false), (EssentialBlockHeader, EssentialBlockFooter, true) })
+        var start = Array.FindIndex(lines, l => l.Trim() == AutoBlockHeader);
+        if (start < 0) return null;
+        var end = Array.FindIndex(lines, start + 1, l => l.Trim() == AutoBlockFooter);
+        if (end < 0) return null;
+        var parsed = new List<(string?, string)>();
+        string? heading = null;
+        for (var i = start + 1; i < end; i++)
         {
-            var start = Array.FindIndex(lines, l => l.Trim() == header);
-            if (start < 0) continue;
-            var end = Array.FindIndex(lines, start + 1, l => l.Trim() == footer);
-            if (end < 0) continue;
-            var parsed = new List<(string?, string)>();
-            string? heading = essentialsOnly ? EssentialsHeading : null;
-            for (var i = start + 1; i < end; i++)
+            var line = lines[i].Trim();
+            if (line.Length == 0) continue;
+            if (line.StartsWith('#'))
             {
-                var line = lines[i].Trim();
-                if (line.Length == 0) continue;
-                if (line.StartsWith('#'))
-                {
-                    if (Groups.Any(g => g.Heading == line) || line == CloudHeading) heading = line;
-                    parsed.Add((heading, line));
-                    continue;
-                }
+                if (Groups.Any(g => g.Heading == line) || line == CloudHeading) heading = line;
                 parsed.Add((heading, line));
+                continue;
             }
-            return new(start, end, parsed, essentialsOnly);
+            parsed.Add((heading, line));
         }
-        return null;
+        return new(start, end, parsed);
     }
 
     /// <summary>Patterns to add (missing from a group the block uses) and to
@@ -726,10 +743,18 @@ public static class RecommendedFilters
         return new(block.Lines.Any(l => l.Heading == WindowsHeading), block.Lines.Any(l => l.Heading == CachesHeading), cloud);
     }
 
-    /// <summary>The block line that excludes <paramref name="folder"/>, as
-    /// <see cref="RenderBlock(bool, bool, IReadOnlyCollection{CloudSyncFolder})"/> writes it.</summary>
-    public static string? CloudLine(CloudSyncFolder folder) =>
-        ToSourceRelativePath(folder.Path) is { } rel ? $"/{rel}/" : null;
+    /// <summary>The rule that excludes <paramref name="folder"/>: its full
+    /// path from the top of the drive (<c>?:/Users/me/OneDrive/</c>), or of the
+    /// file system on Linux and macOS.</summary>
+    public static string? CloudLine(CloudSyncFolder folder)
+    {
+        if (ToSourceRelativePath(folder.Path) is null) return null;
+        var path = folder.Path.Trim().Replace('\\', '/').TrimEnd('/');
+        var rule = path.Length >= 2 && path[1] == ':'
+            ? "?:" + DuplicacyFilterConverter.EscapeNames(path[2..])
+            : DuplicacyFilterConverter.EscapeNames(path);
+        return (rule + "/").Replace("$", "$$");
+    }
 
     /// <summary>True when applying these ticks would add or remove no rule:
     /// every ticked group is complete in the saved block, no unticked group
@@ -766,11 +791,7 @@ public static class RecommendedFilters
         // Rules the person added inside the block that are in no list stay too.
         var known = new HashSet<string>(Groups.SelectMany(g => g.Patterns), StringComparer.OrdinalIgnoreCase);
         var own = patterns.Where(p => !known.Contains(p)).ToList();
-        // The fixed essentials block fits only when the result is exactly the
-        // essentials list: the person may have declined some additions (U057).
-        var essentialBlock = block.EssentialsOnly && cloud.Count == 0
-            && new HashSet<string>(patterns.Where(known.Contains), StringComparer.OrdinalIgnoreCase).SetEquals(EssentialPatterns);
-        var rendered = (essentialBlock ? RenderEssentialBlock() : RenderBlock(patterns, cloud))
+        var rendered = RenderBlock(patterns, cloud)
             .TrimEnd('\r', '\n').Replace("\r\n", "\n").Split('\n').ToList();
         if (own.Count > 0) rendered.InsertRange(rendered.Count - 1, new[] { "# Your own rules kept from this block." }.Concat(own).Append(""));
         var result = lines.Take(block.Start).Concat(rendered).Concat(lines.Skip(block.End + 1));
@@ -781,25 +802,29 @@ public static class RecommendedFilters
     /// Splits imported Duplicacy filters into the rules that are exactly
     /// one of Backspace's recommended patterns (counted as recommended) and
     /// the rest, kept as the person's own rules (U056). A line counts only
-    /// when every pattern it translates to is a recommended one with the
-    /// same anchor; anything else, including includes, stays as written.
+    /// when every rule it converts to, for these sources, is a recommended
+    /// one; anything else, including includes, stays as written.
     /// </summary>
-    internal static (string Custom, IReadOnlyList<string> Recommended) RecognizeImported(string duplicacyFilters)
+    internal static (string Custom, IReadOnlyList<string> Recommended) RecognizeImported(string duplicacyFilters, IReadOnlyCollection<string>? sources = null)
     {
         var byKey = Groups.SelectMany(g => g.Patterns)
             .GroupBy(Key, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var prefixes = DuplicacyFilterConverter.Prefixes(sources);
         var recognized = new List<string>();
         var custom = new List<string>();
         foreach (var raw in duplicacyFilters.Replace("\r\n", "\n").Split('\n'))
         {
             var line = raw.Trim();
             if (line.StartsWith("e:(?i)", StringComparison.Ordinal)
-                && DuplicacyFilterTranslator.ToGlobs(line[6..]) is { Count: > 0 } globs
-                && globs.All(g => byKey.ContainsKey(Key(g.Glob))))
+                && DuplicacyFilterTranslator.ToGlobs(line[6..]) is { Count: > 0 } globs)
             {
-                foreach (var g in globs) if (!recognized.Contains(byKey[Key(g.Glob)])) recognized.Add(byKey[Key(g.Glob)]);
-                continue;
+                var rules = globs.SelectMany(g => DuplicacyFilterConverter.Anchor(g.Glob.EndsWith('/') ? g.Glob + "*" : g.Glob, prefixes)).ToList();
+                if (rules.All(r => byKey.ContainsKey(Key(r))))
+                {
+                    foreach (var r in rules) if (!recognized.Contains(byKey[Key(r)])) recognized.Add(byKey[Key(r)]);
+                    continue;
+                }
             }
             custom.Add(raw.TrimEnd('\r'));
         }
@@ -818,28 +843,35 @@ public static class RecommendedFilters
     /// <summary>
     /// Reshapes <paramref name="existingFilters"/> so that the user's
     /// hand-edit zone sits ABOVE the Backspace-generated recommended
-    /// block — the natural layout: people edit at the top, generated
-    /// noise stays parked below. Specifically:
+    /// block, and the always-applied block stays last:
     ///
     ///   * A pair of <see cref="CustomBlockHeader"/> /
     ///     <see cref="CustomBlockFooter"/> marker lines is emitted at the
     ///     top. Any existing custom-block content is preserved between
-    ///     them; any "loose" rules the user wrote outside both marker
-    ///     pairs are migrated INTO the custom block on first re-apply.
+    ///     them; any "loose" rules the user wrote outside the marker
+    ///     pairs are moved INTO the custom block on first re-apply.
     ///   * The recommended block (passed in via
-    ///     <paramref name="newBlock"/>) is appended after the custom
-    ///     block, replacing any previous recommended-block content.
+    ///     <paramref name="newBlock"/>) follows, replacing any previous
+    ///     recommended-block content.
+    ///   * The always-applied block comes last, as it was, or freshly
+    ///     written when the text had none.
     ///
     /// The merge is idempotent: re-applying the same arguments leaves
     /// the result unchanged.
     /// </summary>
     public static string MergeIntoFilters(string? existingFilters, string newBlock)
     {
-        existingFilters ??= "";
+        var lines = (existingFilters ?? "").Replace("\r\n", "\n").Split('\n').ToList();
+        var alwaysLines = new List<string>(AlwaysBlockLines());
+        if (FindAlwaysBlock(lines) is { } always)
+        {
+            alwaysLines = lines.GetRange(always.Start, always.End - always.Start + 1);
+            lines.RemoveRange(always.Start, always.End - always.Start + 1);
+        }
 
         // 1. Extract any existing recommended-block content so we can
         //    drop it (newBlock supersedes it).
-        var withoutRecommended = StripBlock(existingFilters, AutoBlockHeader, AutoBlockFooter);
+        var withoutRecommended = StripBlock(string.Join("\n", lines), AutoBlockHeader, AutoBlockFooter);
 
         // Strip only standalone custom marker comments. Keep all rules in
         // their original order, including copied, nested or incomplete blocks.
@@ -856,6 +888,12 @@ public static class RecommendedFilters
         sb.AppendLine(CustomBlockFooter);
         sb.AppendLine();
         sb.Append(newBlock);
+        if (alwaysLines.Count > 0)
+        {
+            if (!newBlock.EndsWith('\n')) sb.AppendLine();
+            sb.AppendLine();
+            foreach (var line in alwaysLines) sb.AppendLine(line);
+        }
         return sb.ToString();
     }
 
@@ -884,10 +922,9 @@ public static class RecommendedFilters
     }
 
     /// <summary>
-    /// Converts an absolute path like <c>C:\Users\me\OneDrive</c> to
-    /// the source-root-relative path fragment we splice into restic-
-    /// glob anchored excludes: <c>Users/me/OneDrive</c>. Returns null
-    /// if the path doesn't look like an absolute Windows path.
+    /// Converts an absolute path like <c>C:\Users\me\OneDrive</c> to its
+    /// part below the drive or share: <c>Users/me/OneDrive</c>. Returns
+    /// null for a drive or share root.
     /// </summary>
     internal static string? ToSourceRelativePath(string absolutePath)
     {
@@ -895,11 +932,7 @@ public static class RecommendedFilters
         var trimmed = absolutePath.TrimEnd('/', '\\');
 
         // UNC path: \\server\share\Sub\Path → strip the server+share so
-        // the result is the source-relative tail "Sub/Path". Without
-        // this, the previous code escaped the leading double-backslash
-        // into "\\\\server\\share\\..." which never matched a duplicacy
-        // forward-slash source-relative path — every cloud-folder
-        // exclude on a UNC source silently no-op'd.
+        // the result is the tail "Sub/Path".
         if (trimmed.StartsWith("\\\\", StringComparison.Ordinal)
             || trimmed.StartsWith("//", StringComparison.Ordinal))
         {
@@ -921,14 +954,7 @@ public static class RecommendedFilters
         trimmed = trimmed.TrimStart('/', '\\').Replace('\\', '/');
         if (trimmed.Length == 0) return null;
 
-        // Restic globs don't need regex escaping. The dangerous glob
-        // metachars are `*`, `?`, `[`, `]` — vanishingly rare in real
-        // user folder names. We don't escape them here because they'd
-        // typically be safe to leave as literal characters in restic's
-        // pattern matcher, and aggressive escaping would emit
-        // backslashes restic doesn't understand. Hand-curated cloud
-        // paths from DetectCloudSyncFolders() shouldn't contain glob
-        // metacharacters anyway.
+        // Glob characters are escaped by the caller (CloudLine).
         return trimmed;
     }
 }

@@ -851,10 +851,10 @@
                                Text="{Binding RecommendedStatus}" IsVisible="{Binding !RecommendedApplied}"/>
 
                     <CheckBox IsChecked="{Binding RecExcludeWindowsSystem}"
-                              Content="Windows system files (pagefile, hiberfil, $Recycle.Bin, System Volume Information, Windows.old, ntuser.dat, etc.)"
+                              Content="Windows system files (pagefile, hiberfil, $Recycle.Bin, System Volume Information, Windows.old, the Windows folder, etc.)"
                               Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
                     <CheckBox IsChecked="{Binding RecExcludeCachesAndJunk}"
-                              Content="App caches and junk (browser caches, GPU/shader caches, /temp/, *.tmp, node__modules, .DS_Store, …)"
+                              Content="App caches and junk (browser caches, GPU/shader caches, Windows temp folders, *.tmp, node__modules, .DS_Store, …)"
                               Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
 
                     <StackPanel IsVisible="{Binding HasDetectedCloudFolders}" Spacing="4" Margin="0,4,0,0">
@@ -929,8 +929,8 @@
               <TextBlock Grid.Row="0" Name="RuleSyntax"
                          Classes="dim" FontSize="13" Margin="0,0,0,8"
                          TextWrapping="Wrap"
-                         ToolTip.Tip="Rules ignore upper and lower case on Windows and respect it on macOS and Linux. A rule starting with ! keeps what an earlier rule excluded."
-                         Text="One rule per line; # starts a comment. A leading / ties a rule to the top of each source folder, a trailing / matches folders only, * matches within a name and ** across folders. Everything no rule excludes is backed up."/>
+                         ToolTip.Tip="Backspace hands this text to restic unchanged, as an exclude file (--iexclude-file on Windows, where upper and lower case don't matter; --exclude-file on macOS and Linux). Everything no rule excludes is backed up."
+                         Text="{x:Static vm:BackupEditorViewModel.RuleSyntaxHint}"/>
               <!-- One toolbar row (U150, U149): Simulate lists what each rule
                    does; Count measures what all of them leave out. A Grid so
                    the result wraps instead of clipping. -->
@@ -948,8 +948,19 @@
                            Foreground="{DynamicResource BS.Brush.FgSecondary}"
                            Text="{Binding AllRulesSavingsLabel}"/>
               </Grid>
+              <StackPanel Grid.Row="2">
+              <!-- U151: restic refuses the whole list for one invalid rule. -->
+              <Border Name="InvalidRuleWarning" Margin="0,0,0,12"
+                      IsVisible="{Binding FilterInvalidWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      Background="{DynamicResource BS.Brush.WarnTint}" BorderBrush="{DynamicResource BS.Brush.Warn}"
+                      BorderThickness="1" CornerRadius="8" Padding="12,10">
+                <StackPanel Spacing="4">
+                  <TextBlock FontWeight="SemiBold" Text="restic can't read these rules, so the backup would stop. Fix or remove them:" TextWrapping="Wrap"/>
+                  <TextBlock Classes="mono" FontSize="12" Text="{Binding FilterInvalidWarning}" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Border>
               <!-- U127: an exception below a folder excluded whole keeps nothing. -->
-              <Border Grid.Row="2" Name="DeadExceptionWarning" Margin="0,0,0,12"
+              <Border Name="DeadExceptionWarning" Margin="0,0,0,12"
                       IsVisible="{Binding FilterExceptionWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
                       Background="{DynamicResource BS.Brush.WarnTint}" BorderBrush="{DynamicResource BS.Brush.Warn}"
                       BorderThickness="1" CornerRadius="8" Padding="12,10">
@@ -958,6 +969,7 @@
                   <TextBlock Text="{Binding FilterExceptionWarning}" TextWrapping="Wrap"/>
                 </StackPanel>
               </Border>
+              </StackPanel>
               <Grid Grid.Row="3" ColumnDefinitions="*,16,*" RowDefinitions="Auto,*">
                 <!-- LEFT header. -->
                 <TextBlock Grid.Column="0" Grid.Row="0" Margin="0,0,0,4" Classes="label-caps"

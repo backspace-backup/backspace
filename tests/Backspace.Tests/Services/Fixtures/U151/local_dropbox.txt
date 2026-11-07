@@ -1,0 +1,8 @@
+# Imported from Duplicacy. e: lines exclude, i: lines include;
+# the first matching line decides, as in Duplicacy.
+e:(?i)^\.dropbox\.cache/
+e:(?i)^Applications/Duplicacy/
+e:(?i)^Apps/InpsydeBackWPup/
+e:(?i)^Apps/SMSBackupRestore/
+e:(?i)^Backup/Duplicacy/[^/]+/shadow/
+e:(?i)^Backup/Data/iPad/

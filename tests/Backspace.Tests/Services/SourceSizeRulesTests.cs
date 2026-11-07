@@ -23,8 +23,10 @@ namespace Backspace.Tests.Services;
 /// </summary>
 public sealed class SourceSizeRulesTests
 {
-    // The shape of local_c's imported rules: Duplicacy regexes and globs.
-    private const string Rules = "e:(?i)^Users/[^/]+/Dropbox/\ne:(?i)/node_modules/\ncache/\n";
+    // The shape of local_c's rules: Duplicacy regexes converted once (U151)
+    // for a backup of this folder, and a glob.
+    private static string Rules(string root) =>
+        DuplicacyFilterConverter.Convert("e:(?i)^Users/[^/]+/Dropbox/\ne:(?i)/node_modules/\ncache/\n", new[] { root });
 
     private static string Tree(TempWorkspace workspace)
     {
@@ -54,7 +56,7 @@ public sealed class SourceSizeRulesTests
         Assert.Equal(601_205, everything.Bytes);
         Assert.Equal(6, everything.FileCount);
 
-        var backup = new Backup { FiltersText = Rules, ExcludeCloudFiles = true };
+        var backup = new Backup { FiltersText = Rules(root), ExcludeCloudFiles = true };
         var held = await probe.GetOrComputeAsync(root, CancellationToken.None, rules: SourceSizeRules.For(backup));
         Assert.Equal(1_205, held.Bytes);
         Assert.Equal(3, held.FileCount);
@@ -100,7 +102,7 @@ public sealed class SourceSizeRulesTests
         var root = Tree(workspace);
         var measurements = new ServiceSizeMeasurements();
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var started = JsonSerializer.Deserialize<ServiceSizeMeasurements.Reply>(measurements.Start(root, new SourceSizeRules(Rules, true)), options)!;
+        var started = JsonSerializer.Deserialize<ServiceSizeMeasurements.Reply>(measurements.Start(root, new SourceSizeRules(Rules(root), true)), options)!;
         ServiceSizeMeasurements.Reply reply;
         do
         {

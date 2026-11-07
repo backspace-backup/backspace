@@ -125,12 +125,11 @@ internal sealed class ChangePlan
     {
         var root = TreeWalk.Root(sourcePath);
         var files = new System.Collections.Concurrent.ConcurrentBag<FileState>();
-        var compiled = rules.HasRules ? FilterTranslator.CompileRules(FilterTranslator.ScopeToSource(rules.FiltersText, root)) : null;
+        var compiled = FilterTranslator.CompileRules(rules.Text);
         bool Excluded(string fullPath, bool directory)
-            => compiled is not null && FilterTranslator.Evaluate(compiled, TreeWalk.Relative(root, fullPath) + (directory ? "/" : "")).Excluded;
+            => compiled.Count > 0 && FilterTranslator.Evaluate(compiled, FilterTranslator.ResticPath(fullPath) + (directory ? "/" : "")).Excluded;
         var finished = TreeWalk.Walk(root, (entry, _) =>
         {
-            if (RecommendedFilters.IsAlwaysExcludedAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
             if (Excluded(entry.FullPath, entry.IsDirectory)) return null;
             if (entry.IsDirectory) return false;
             if (rules.SkipCloudOnly && TreeWalk.IsCloudOnly(entry.Attributes)) return null;

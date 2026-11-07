@@ -106,13 +106,10 @@ public class ResticBackrestEngineTests
     }
 
     [Fact]
-    public void BuildPlanFromBackup_TranslatesMinusPrefixedExcludeFilters()
+    public void BuildPlanFromBackup_HandsTheFiltersTextToResticAsAnExcludeFile()
     {
-        // Restic-native filter syntax: one bare glob per line, `#` for
-        // comments. The translator routes bare-glob lines to the
-        // platform-default bucket — on Windows the host this test runs
-        // on, that's IExcludes. On non-Windows hosts patterns land in
-        // Excludes.
+        // U151: restic gets the Filters text as written, in a file; the
+        // plan carries no rules of its own.
         var backup = new Backup
         {
             Id = "bk-1",
@@ -123,14 +120,9 @@ public class ResticBackrestEngineTests
         var plan = ResticBackrestEngine.BuildPlanFromBackup(
             planId: "p", repoId: "r", backup: backup, sourcePath: "/x");
 
-        var allPatterns = plan.Excludes.Concat(plan.IExcludes).ToArray();
-        var root = System.IO.Path.GetFullPath("/x").Replace('\\', '/');
-        // The backup's own rules come first; the always-excluded files, which
-        // always apply (U106), follow.
-        // "/x" is a folder, not a whole drive: the always-excluded files that
-        // exist only at the top of a drive are not added (U106); Windows' app
-        // aliases, which can be anywhere in a profile, are.
-        Assert.Equal(new[] { root + "/**/*.tmp", root + "/**/node_modules/", root + "/**/AppData/Local/Microsoft/WindowsApps/" }, allPatterns);
+        Assert.Empty(plan.Excludes);
+        Assert.Empty(plan.IExcludes);
+        Assert.Equal(new[] { FilterTranslator.ExcludeFileFlag, "'" + ResticBackrestEngine.ExcludeFilePath("p") + "'" }, plan.BackupFlags.TakeLast(2));
     }
 
     /// <summary>U133: restic gets the rules as written. A repeated rule is

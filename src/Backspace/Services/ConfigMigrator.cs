@@ -209,7 +209,7 @@ public sealed class ConfigMigrator
         backup.SourcePaths.Clear();
         var sp = prefs[0].Repository ?? "";
         if (!string.IsNullOrWhiteSpace(sp)) backup.SourcePaths.Add(sp);
-        backup.FiltersText = ImportFilters(filters);
+        backup.FiltersText = ImportFilters(filters, backup.SourcePaths);
 
         // Legacy yaml storage[] → one BackupTarget each, pointing at an upserted Destination.
         backup.Targets.Clear();
@@ -260,19 +260,21 @@ public sealed class ConfigMigrator
     }
 
     /// <summary>
-    /// Duplicacy rules that are exactly one of Backspace's recommended
-    /// exclusions go into the recommended block, so later list changes can
-    /// be offered for them (U056). Everything else stays as written, in its
-    /// original order, which keeps Duplicacy's first-match meaning.
+    /// Duplicacy's filters as plain restic rules, converted once here (U151):
+    /// restic then reads the text unchanged. Duplicacy rules that are exactly
+    /// one of Backspace's recommended exclusions go into the recommended
+    /// block, so later list changes can be offered for them (U056); the
+    /// others are converted in Duplicacy's order of precedence
+    /// (<see cref="DuplicacyFilterConverter"/>). The essential exclusions
+    /// end the text.
     /// </summary>
-    internal static string ImportFilters(string duplicacyFilters)
+    internal static string ImportFilters(string duplicacyFilters, IReadOnlyCollection<string>? sources = null)
     {
-        if (string.IsNullOrWhiteSpace(duplicacyFilters)) return "";
-        var (custom, recommended) = RecommendedFilters.RecognizeImported(duplicacyFilters);
-        var note = "# Imported from Duplicacy. e: lines exclude, i: lines include;\n" +
-                   "# the first matching line decides, as in Duplicacy.\n";
-        if (recommended.Count == 0) return note + duplicacyFilters.Replace("\r\n", "\n").Trim('\n');
-        return RecommendedFilters.MergeIntoFilters(note + custom, RecommendedFilters.RenderBlock(recommended));
+        if (string.IsNullOrWhiteSpace(duplicacyFilters)) return RecommendedFilters.WithAlwaysBlock("");
+        var (custom, recommended) = RecommendedFilters.RecognizeImported(duplicacyFilters, sources);
+        var converted = DuplicacyFilterConverter.Convert(custom, sources, wildcardLines: true);
+        if (recommended.Count == 0) return converted;
+        return RecommendedFilters.MergeIntoFilters(converted, RecommendedFilters.RenderBlock(recommended));
     }
 
     private Destination UpsertDestinationFromPreference(AppConfig cfg, string backupName, LegacyPreferences p, string scriptDir)

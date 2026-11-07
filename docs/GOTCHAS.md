@@ -509,6 +509,53 @@ locked file as missing, empty or corrupt (U135, 4 November 2026).
 Known gap: `ConfigStore` saves while holding its in-memory gate, so a long
 lock during a save also delays code that reads the settings meanwhile.
 
+## Filters are restic's exclude file (U151)
+
+A backup's Filters text goes to restic unchanged, as a file
+(`EngineWorkPaths.Root\filters\<plan id>.txt`), through the plan's
+`backup_flags`: `--iexclude-file` on Windows, `--exclude-file` elsewhere. Not
+as `excludes`/`iexcludes` arguments, which Backrest passes as `--iexclude X`:
+restic expands `$NAME` (and `${NAME}`) in an exclude file but not in an
+argument, so the same text would mean two things. Backrest splits each
+`backup_flags` element like a shell (`shlex`), so the path is single-quoted
+(`QuoteArg`). The file is rewritten before every use of the plan; the plan's
+flags only change when the path does.
+
+Traps, each checked with restic 0.19.1:
+
+- **`$` in a rule.** `?:/$WinREAgent/` expands to `?://` when the variable is
+  unset: the whole drive. Literal dollars are written `$$`; the recommended
+  lists and the Duplicacy conversion do so.
+- **The drive.** On Windows restic matches `C:/Users/…`. A rule starting with a
+  plain `/` matches nothing there; `?:/X` is X at the top of any drive (only a
+  drive name holds `:`). An unanchored rule's first `*` can match `C:`, so
+  `*/**/X/*` also matches `C:/X/…`.
+- **Anywhere means anywhere.** An unanchored rule also matches the backed-up
+  folder and the folders above it: `skip` takes all of `D:\skip\tree` (E30).
+  Recommended rules that would leave out a whole backed-up folder are not
+  offered for it (`RecommendedFilters.AppliesTo`): tests run in a folder inside
+  the profile's Temp, which `?:/Users/*/AppData/Local/Temp/` covers.
+- **A trailing `/`** is cleaned off by restic: `Cache/` also excludes a file
+  named Cache. Restic cannot tell files from folders.
+- **An invalid rule** (an unclosed `[`) makes restic refuse the whole file and
+  the backup fails. The editor names such rules (`FilterTranslator.InvalidRules`).
+
+Count, Simulate, the size estimates, the change listing and test-restore
+completeness read the text with `FilterTranslator` on full paths, restic's
+semantics. Known difference: a rule with two `**` (see below for restic's loop
+bound) can match a path one folder shorter here than in restic. The
+environment is this process's; Backrest's restic inherits the daemon's, which
+for the background service is the service's own. E57 compares both with
+`restic backup --dry-run` on the same file. On 6 November 2026 the owner's
+converted lists, on real folders, kept the same files in Simulate and in
+restic (local_c 26,639 plus 17 files Chrome held locked, which restic could
+not read; local_d 956; local_dropbox 4,887).
+
+Duplicacy lines are converted once (`DuplicacyFilterConverter`), when the
+settings load and at import, and the result is saved. Nothing reads `e:`/`i:`
+lines at run time any more; a text that still has them would reach restic as
+odd file names, and `[^/]` in them makes restic refuse the file.
+
 ## Restic's exclusion matching is slow
 
 Restic tests every exclusion rule against every path, on every run (twice

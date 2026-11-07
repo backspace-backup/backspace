@@ -7,9 +7,11 @@ using System.Text.RegularExpressions;
 namespace Backspace.Services;
 
 /// <summary>
-/// Translates imported Duplicacy filter lines (<c>e:</c> exclude and
-/// <c>i:</c> include regexes) into restic patterns with the same meaning
-/// (U054, 31 October 2026). The earlier best-effort translation lost root
+/// Translates Duplicacy filter lines (<c>e:</c> exclude and <c>i:</c>
+/// include regexes) into restic patterns with the same meaning (U054,
+/// 31 October 2026), relative to the backed-up folder. Used once per text,
+/// by <see cref="DuplicacyFilterConverter"/>, which ties the rooted patterns
+/// to the drive and saves the result (U151). The earlier best-effort translation lost root
 /// anchors, so <c>^Python[^/]*/</c> excluded every folder named Python*
 /// anywhere (4.6 GB of the maintainer's D: drive), ignored include lines
 /// and dropped alternatives such as <c>\.(tmp|temp)$</c>.

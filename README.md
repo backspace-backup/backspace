@@ -172,8 +172,8 @@ and scheduled backups before sign-in in an isolated Windows 11 virtual machine.
 ## Coming from Duplicacy?
 
 **Settings → Import existing backups** imports your Duplicacy backups' folders,
-destinations, filters and retention settings. Filter rules keep their meaning,
-including include rules. Your existing Duplicacy storage and its history are
+destinations, filters and retention settings. Filter rules are converted once
+into plain restic rules with the same meaning, include rules too. Your existing Duplicacy storage and its history are
 left untouched; Backspace starts a fresh restic repository beside it.
 [Details](docs/USER-GUIDE.md#importing-from-duplicacy).
 

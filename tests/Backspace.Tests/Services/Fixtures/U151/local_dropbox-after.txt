@@ -1,0 +1,34 @@
+# Your rules, converted from Duplicacy. restic lets the last matching rule decide,
+# so a rule starting with ! comes after the rules it overrides.
+# was: e:(?i)^\.dropbox\.cache/
+?:/Users/Erwin/Dropbox/.dropbox.cache/*
+# was: e:(?i)^Applications/Duplicacy/
+?:/Users/Erwin/Dropbox/Applications/Duplicacy/*
+# was: e:(?i)^Apps/InpsydeBackWPup/
+?:/Users/Erwin/Dropbox/Apps/InpsydeBackWPup/*
+# was: e:(?i)^Apps/SMSBackupRestore/
+?:/Users/Erwin/Dropbox/Apps/SMSBackupRestore/*
+# was: e:(?i)^Backup/Duplicacy/[^/]+/shadow/
+?:/Users/Erwin/Dropbox/Backup/Duplicacy/*/shadow/*
+# was: e:(?i)^Backup/Data/iPad/
+?:/Users/Erwin/Dropbox/Backup/Data/iPad/*
+
+
+# === Backspace essential exclusions (always applied) ===
+?:/pagefile.sys
+?:/hiberfil.sys
+?:/swapfile.sys
+?:/DumpStack.log.tmp
+?:/System Volume Information/
+?:/Config.Msi/
+?:/$$WinREAgent/
+?:/$$GetCurrent/
+?:/$$SysReset/
+?:/$$Windows.~BT/
+?:/$$Windows.~WS/
+?:/Windows10Upgrade/
+?:/bootmgr
+?:/BOOTNXT
+?:/BOOTSECT.BAK
+?:/OneDriveTemp/
+?:/Users/*/AppData/Local/Microsoft/WindowsApps/

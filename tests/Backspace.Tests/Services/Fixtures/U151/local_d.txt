@@ -1,0 +1,386 @@
+# === Backspace custom exclusions — start ===
+# Imported from Duplicacy. e: lines exclude, i: lines include;
+# the first matching line decides, as in Duplicacy.
+# ========== HOW TO USE
+#
+# This file is used
+# - when the repository is at the root of the drive: "C:/" (so you have "C:/.duplicacy/")
+#
+# ========== EXPLANATION OF THE REGEXES
+#
+# 0. (?i) means "case insensitive"
+#
+#
+# 1. "^" is used for detecting root-level folders.
+#   Example: "(?i)^Recovery/"
+#     matches only root-level folder: "Recovery/"
+#     does not match: "Users/something/Recovery/"
+#
+#
+# 2. "(^|/)foldername" is used to match folders which have exact name "foldername"
+#   Example: "(?i)(^|/)temp/"
+#     matches root-level folder: "temp/"
+#     matches any folder from any path named "temp": "long/path/temp/"
+#     does not match folders which have "temp" in their name: "long/path/somefolder.temp/"
+#
+#
+# 3. "[^/]+/": has the purpose of assuring that there is only 1 folder in the matched path (only 1 "/")
+#   Example: "(?i)/AppData/[^/]+/Steam/"
+#     matches: "C:/Users/anyUserName/AppData/Local/Steam/"
+#     does not match:"C:/Users/anyUserName/AppData/Local/someotherfolder/Steam/", as there has to be ONLY 1 FOLDER in between "AppData" and "Steam" folders
+#
+#
+# ==========
+
+# ============================ exclude temp/cache files/folders everywhere
+#e:(?i)\.cache$
+#e:(?i)(^|/)cache/
+#e:(?i)/Package Cache/
+
+# Users/a/AppData/Local/Google/Chrome/User Data/Default/Service Worker/CacheStorage/fodisjfladsf87-a9ds8fa87d6f8as-d7f6978690-7df6a78fs6a
+# e:(?i)/Service Worker/CacheStorage/
+
+# Users/cpasat/AppData/Local/Mozilla/Firefox/Profiles/6tdz9jz4.default/OfflineCache/5/D/
+#/OfflineCache/
+
+# Users/cpasat/AppData/Roaming/Apple Computer/Logs/CrashReporter/MobileDevice/
+e:(?i)/Logs/CrashReporter/
+
+# Chrome/electron based apps
+e:(?i)/ShaderCache/
+e:(?i)/GPUCache/
+
+# npm/node related
+e:(?i)/compile-cache/
+e:(?i)/node_modules/
+e:(?i)/npm-cache/
+
+e:(?i)/InternalCache/
+
+
+# Ignore telegram's media cache
+e:(?i)/tdata/user_data/media_cache/
+
+# ============================ Google Drive Cache
+e:(?i)/\.tmp\.drivedownload/
+
+# ============================ Onedrive Cache
+e:(?i)/OneDriveTemp/
+
+# ============================ Dropbox Cache
+e:(?i)/\.dropbox\.cache/
+
+
+# ================================================
+# ================================================ windows/system files
+# ================================================
+
+# ============================ recycle bin
+e:(?i)\$RECYCLE\.BIN/
+e:(?i)\$RECYCLED/
+e:(?i)\$RECYCLER/
+
+
+# ============================ system folders
+e:(?i)^\$SysReset
+e:(?i)^Boot/
+e:(?i)^Documents and Settings
+e:(?i)/Temporary Internet Files
+
+# ============================ windows update related
+
+
+# ============================ system files in root
+
+# ============================ system files anywhere
+# ntuser.dat may contain come other things at the end, therefore don't end with "$"
+e:(?i)ntuser\.dat
+
+e:(?i)(^|/)IconCache\.db
+
+
+
+# ==============================================================================
+# ==============================================================================
+# ============================================================================== Local excludes (user specific)
+# ==============================================================================
+# ============================================================================== Analyze carefully and de-exclude anything that might be useful to someone
+# ==============================================================================
+# ==============================================================================
+
+
+# ============================ already backed-up and versioned controlled folders (eg. dropbox/google user folders)
+#e:(?i)^Users/[^/]+/OneDrive/
+
+# ================================================ Program files should be all ignored
+# ================================================ Optionally backup the apps' names to provide a list of installed applications
+
+# ============================ Optional: explicitly include program names, to use as a list of installed apps
+i:(?i)^Program Files[^/]*/$
+i:(?i)^Program Files[^/]*/[^/]+/$
+
+# ============================ ignore program files
+e:(?i)^Program Files[^/]*/
+
+
+# ================================================ Exclude all AppData folders with known useless-but-heavy content
+# ============================ C:/Users/<username>/AppData/ holds app's configurations specific for each user
+# ============================ C:/ProgramData/ holds app's configurations global to all users (every time you select "Install to all users")
+
+
+e:(?i)^Users/[^/]+/AppData/[^/]+/Caches?/
+e:(?i)^Users/[^/]+/AppData/[^/]+/.*/Caches?/
+e:(?i)^Users/[^/]+/AppData/[^/]+/.*crashlogs?/
+e:(?i)^Users/[^/]+/AppData/[^/]+/CapCut/User Data/Cache/
+e:(?i)^Users/[^/]+/AppData/[^/]+/CapCut/User Data/Crash/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Adobe/webview2/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Adobe/CCX Welcome/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Adobe/CRLogs?/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Adobe/.*/Logs?/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Comms/
+e:(?i)^Users/[^/]+/AppData/[^/]+/D3DSCache/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Intel/
+# Exclude Chrome except extension settings for Bitwarden backup (folder: nngceckbapebfimnlniiiahkandclblb)
+i:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/$
+i:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/User Data/$
+i:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/User Data/[^/]+/$
+i:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/User Data/[^/]+/Local Extension Settings/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Google/Software Reporter Tool/
+#C:\Users\erwin\AppData\Local\Google\Chrome\User Data\Default\Local Extension Settings
+e:(?i)^Users/[^/]+/AppData/[^/]+/Package Cache/
+e:(?i)^Users/[^/]+/AppData/[^/]+/WhatsApp/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Edge/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/.*webview2/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/.*Caches?/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/.*Logs?/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Credentials/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/GameDVR/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/CLR[^/]*/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Internet Explorer/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/.*/INetCookies/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/OTele/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/SolutionPackages/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/.*/[^/]*Packages/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/.*/Teaching[^/]*/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/.*/[^/]*Metrics[^/]*/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Office/Licenses/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/OneDrive/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/OneAuth/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/PenWorkspace/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/SolutionPackages/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/TokenBroker/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Windows/.*\.dat.LOG1$
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Windows/Recent/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Windows/Explorer/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Windows/Notifications/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Windows/Safety/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/VSApplicationInsights/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/Installer/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/input/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/AugLoop/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Microsoft/.*CatalogCacheMetaData\.xml$
+e:(?i)^Users/[^/]+/AppData/[^/]+/MicrosoftEdge/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Missive/
+e:(?i)^Users/[^/]+/AppData/[^/]+/OneDrive/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Roblox/.*Caches?/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Overwolf/.*Caches?/
+e:(?i)^Users/[^/]+/AppData/[^/]+/PDF Architect 9/logs/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Mozilla/Firefox/
+e:(?i)^Users/[^/]+/AppData/[^/]+/TeamViewer/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Zoom/
+e:(?i)^Users/[^/]+/AppData/[^/]+/TunnelBear/
+e:(?i)^Users/[^/]+/AppData/[^/]+/vstelemetry/
+e:(?i)^Users/[^/]+/AppData/[^/]+/ConnectedDevicesPlatform/
+e:(?i)^Users/[^/]+/AppData/[^/]+/CrashDumps/
+e:(?i)^Users/[^/]+/AppData/[^/]+/CrashPlan/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Diagnostics/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Downloaded Installations/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Dropbox/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Duplicati/
+e:(?i)^Users/[^/]+/AppData/[^/]+/ElevatedDiagnostics/
+e:(?i)^Users/[^/]+/AppData/[^/]+/npm/
+e:(?i)^Users/[^/]+/AppData/[^/]+/NVIDIA[^/]*/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Oracle/
+e:(?i)^Users/[^/]+/AppData/[^/]+/PackageStaging/
+e:(?i)^Users/[^/]+/AppData/[^/]+/PeerDistRepub/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Publishers/
+e:(?i)^Users/[^/]+/AppData/[^/]+/TileDataLayer/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Veeam/
+e:(?i)^Users/[^/]+/AppData/[^/]+/Lenovo/
+
+# ============================ "packages" is because of "skype modern app" which throws an error even with -vss flag (and duplicacy stops). I have opened a bug to for duplicacy.
+#e:(?i)/AppData/[^/]+/Packages/
+
+e:(?i)/AppData/Local/Packages/
+e:(?i)/AppData/Local/CEF/
+e:(?i)/AppData/Local/AMD/
+e:(?i)/AppData/Local/atom/
+e:(?i)/AppData/Local/ForensiT/
+e:(?i)/AppData/Local/GitHubDesktop/
+e:(?i)/AppData/Local/gitkraken/
+e:(?i)/AppData/Local/go-build/
+e:(?i)/AppData/Local/kotlin/
+e:(?i)/AppData/Local/PackageManagement/
+e:(?i)/AppData/Local/pip/
+e:(?i)/AppData/Local/Programs/Python/
+e:(?i)/AppData/Local/SquirrelTemp/
+
+e:(?i)^ProgramData/Acronis/
+e:(?i)^ProgramData/Adobe/
+e:(?i)^ProgramData/Apple/Installer Cache/
+e:(?i)^ProgramData/AVAST[^/]*/
+e:(?i)^ProgramData/CrashPlan/
+e:(?i)^ProgramData/Dell/drivers/
+e:(?i)^ProgramData/Dropbox/
+e:(?i)^ProgramData/Duplicati/
+e:(?i)^ProgramData/Epson/
+e:(?i)^ProgramData/Eset/
+e:(?i)^ProgramData/GetSupportService/
+e:(?i)^ProgramData/Hp/
+e:(?i)^ProgramData/Intel[^/]*/
+e:(?i)^ProgramData/Malwarebytes/
+e:(?i)^ProgramData/Microsoft[^/]*/
+e:(?i)^ProgramData/MiKTeX/
+e:(?i)^ProgramData/Mozilla/
+e:(?i)^ProgramData/NVIDIA[^/]*/
+e:(?i)^ProgramData/Oracle/
+e:(?i)^ProgramData/Packages/
+e:(?i)^ProgramData/Skype/
+e:(?i)^ProgramData/SoftwareDistribution/
+e:(?i)^ProgramData/Soluto/
+e:(?i)^ProgramData/SteelSeries/
+e:(?i)^ProgramData/SupremoRemoteDesktop/
+e:(?i)^ProgramData/SystemAcCrux/
+e:(?i)^ProgramData/USOPrivate/
+e:(?i)^ProgramData/USOShared/
+e:(?i)^ProgramData/Veeam/
+e:(?i)^ProgramData/WindowsHolographicDevices/
+
+# ============== Gaming stuff, but no savegames
+e:(?i)/AppData/[^/]+/Steam/
+e:(?i)^ProgramData/Battle\.net/
+e:(?i)^ProgramData/GOG.com/
+e:(?i)^ProgramData/Origin/
+
+# ============================ useless files anywhere, by extension
+
+# ============================ exclude ".DS_Store" and "._.DS_Store"
+e:\.*DS_Store
+
+
+e:(?i)^adobeTemp/
+e:(?i)^DELL/
+e:(?i)^hp/
+e:(?i)^hpswsetup/
+e:(?i)^InetPub/
+e:(?i)^MSI/
+e:(?i)^Jts/
+e:(?i)^Python[^/]*/
+e:(?i)^ProgramData/
+e:(?i)^Users/Visitor/
+e:(?i)^Users/Public/AccountPictures/
+e:(?i)^Users/[^/]+/Dropbox/
+e:(?i)^Users/[^/]+/\.dropbox_bi/
+e:(?i)^Users/[^/]+/\.thumbnails/
+e:(?i)^Users/[^/]+/OneDrive/
+e:(?i)^Users/[^/]+/Documents/IISExpress/
+e:(?i)^Users/[^/]+/MicrosoftEdgeBackups/
+e:(?i)^Users/[^/]+/Tracing/
+e:(?i)^Users/[^/]+/.*/Library/PackageCache/
+e:(?i)^Users/[^/]+/Semantic Labs/cronjobs*
+e:(?i)^ComfyUI/ComfyUI_windows_portable/ComfyUI/models/
+e:(?i)^AI/cache/
+# === Backspace custom exclusions — end ===
+
+# === Backspace recommended exclusions — start ===
+# Generated by Backspace. Edit if you like: this whole block
+# will be replaced (preserving your edits outside the markers)
+# the next time you click "Apply recommended exclusions".
+
+# Essentials: always excluded; safe for any source.
+/pagefile.sys
+/hiberfil.sys
+/swapfile.sys
+/DumpStack.log.tmp
+/System Volume Information/
+/$RECYCLE.BIN/
+/Config.Msi/
+/$WinREAgent/
+/$GetCurrent/
+/$SysReset/
+/$Windows.~BT/
+/$Windows.~WS/
+/Windows10Upgrade/
+/Windows.old/
+/bootmgr
+/BOOTNXT
+/BOOTSECT.BAK
+/OneDriveTemp/
+/PerfLogs/
+
+# Windows system files: locked, regenerable, or restore-unsafe.
+/Windows/
+/MSOCache/
+thumbs.db
+IconCache.db
+Temporary Internet Files/
+/ProgramData/Microsoft/Search/
+/ProgramData/Microsoft/Windows/WER/
+/ProgramData/Microsoft/Windows Defender/
+/ProgramData/Package Cache/
+/Program Files/desktop.ini
+/Program Files (x86)/desktop.ini
+/Users/Default/
+/Drivers/
+/SWSetup/
+/NVIDIA/
+/AMD/
+/Intel/
+
+# App caches, temp files, dev junk: universally safe to skip.
+Users/*/AppData/Local/Temp/
+*.crdownload
+Logs/CrashReporter/
+ShaderCache/
+GPUCache/
+InternalCache/
+icon_cache/
+.dropbox.cache/
+.tmp.drivedownload/
+node_modules/
+npm-cache/
+compile-cache/
+__pycache__/
+Users/*/.nuget/packages/
+Users/*/.gradle/caches/
+Users/*/AppData/Local/pip/cache/
+Users/*/AppData/Local/go-build/
+.DS_Store
+Users/*/AppData/**/Cache/
+Users/*/AppData/**/Caches/
+Users/*/AppData/**/Code Cache/
+Users/*/AppData/**/GrShaderCache/
+Users/*/AppData/**/DawnCache/
+Users/*/AppData/**/DawnGraphiteCache/
+Users/*/AppData/**/DawnWebGPUCache/
+Users/*/AppData/**/Service Worker/CacheStorage/
+Users/*/AppData/**/Service Worker/ScriptCache/
+Users/*/AppData/Local/CrashDumps/
+Users/*/AppData/Local/D3DSCache/
+Users/*/AppData/Local/Microsoft/Windows/INetCache/
+Users/*/AppData/Local/Microsoft/Windows/Explorer/
+Users/*/AppData/Local/Microsoft/Windows/WER/
+Users/*/AppData/Local/Package Cache/
+tdata/user_data/media_cache/
+Users/*/AppData/Local/Packages/*/AC/
+Users/*/AppData/Local/Packages/*/TempState/
+Users/*/AppData/*/Microsoft/Windows/Recent/
+Users/*/AppData/*/Microsoft/Windows/Notifications/
+
+# Your own rules kept from this block.
+/Recovery/
+*.tmp
+*.temp
+
+# === Backspace recommended exclusions — end ===

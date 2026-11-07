@@ -33,10 +33,14 @@ public sealed class S34_SavingsLabelStates : ScenarioBase
     protected override async Task RunAsync(ScenarioContext ctx)
     {
         var estimator = ServiceLocator.Savings;
+        // As the editor renders it for these folders: no rule that would leave
+        // out a whole source (they sit in a profile's Temp folder, which the
+        // recommended ?:/Users/*/AppData/Local/Temp/ covers, U151).
         var filtersText = RecommendedFilters.RenderBlock(
             includeWindowsSystem: true,
             includeCachesAndJunk: true,
-            cloudExcludes: System.Array.Empty<RecommendedFilters.CloudSyncFolder>());
+            cloudExcludes: System.Array.Empty<RecommendedFilters.CloudSyncFolder>(),
+            sources: new[] { ctx.RootDir });
 
         // -------- Case 1: narrow source (only Documents-style files) --------
         var narrow = Path.Combine(ctx.RootDir, "narrow");

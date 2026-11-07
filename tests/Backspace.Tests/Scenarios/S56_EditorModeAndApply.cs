@@ -69,9 +69,12 @@ public sealed class S56_EditorModeAndApply : ScenarioBase
         Assert.Equal(1, merged.Split('\n').Count(line => line.Trim() == RecommendedFilters.AutoBlockHeader));
         Assert.DoesNotContain("stale-copied-rule/", merged);
         // A folder backup gets the rules that can match in it (U148): not the
-        // drive-top /pagefile.sys, but the caches.
-        Assert.DoesNotContain("/pagefile.sys", merged);
-        Assert.Contains("node_modules/", merged);
+        // drive-top ?:/pagefile.sys, but the caches. The essential block,
+        // which every backup's text ends with (U151), still holds it.
+        var recommendedBlock = merged.Substring(generated, merged.IndexOf(RecommendedFilters.AutoBlockFooter, StringComparison.Ordinal) - generated);
+        Assert.DoesNotContain("pagefile.sys", recommendedBlock);
+        Assert.Contains("node_modules/", recommendedBlock);
+        Assert.Contains(RecommendedFilters.AlwaysBlockHeader, merged);
         // Nothing is left to apply, so the button says so by being disabled
         // (U105); applying again would leave the text unchanged.
         Assert.True(advancedVm.RecommendedApplied);

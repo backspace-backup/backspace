@@ -24,13 +24,8 @@ namespace Backspace.Services;
 /// the result carries a flag the UI surfaces as a "~" prefix to make
 /// clear the number is a lower bound.
 ///
-/// Pattern syntax supported (mirrors <see cref="FilterSimulator"/>):
-///   - Lines starting with <c>#</c> or whitespace-only: ignored.
-///   - Restic glob exclusions, including character classes and ordered
-///     <c>!</c> exceptions within each case-sensitivity list.
-///   - Supported imported <c>e:&lt;regex&gt;</c> shapes are translated
-///     by FilterTranslator. Imported include hints are not executed.
-///   - Paths are relative to each source root, with forward slashes.
+/// The rules are read as restic reads the exclude file, and matched on full
+/// paths with forward slashes (<see cref="FilterTranslator"/>).
 /// </summary>
 public sealed class SavingsEstimator
 {
@@ -69,8 +64,7 @@ public sealed class SavingsEstimator
             if (string.IsNullOrWhiteSpace(src) || !Directory.Exists(src)) continue;
             scanned++;
 
-            var sourceRules = ParseRules(FilterTranslator.ScopeToSource(filtersText, src));
-            var perSource = await Task.Run(() => WalkOne(src, sourceRules, ct), ct);
+            var perSource = await Task.Run(() => WalkOne(src, rules, ct), ct);
             excluded += perSource.Excluded;
             included += perSource.Included;
             if (perSource.Truncated) truncated = true;
@@ -103,9 +97,9 @@ public sealed class SavingsEstimator
                 if (!entry.IsDirectory) Interlocked.Add(ref excluded, entry.Length);
                 return true;
             }
-            var rel = TreeWalk.Relative(rootFull, entry.FullPath);
-            if (entry.IsDirectory) return IsExcluded(rules, rel + "/");
-            if (IsExcluded(rules, rel)) Interlocked.Add(ref excluded, entry.Length);
+            var path = FilterTranslator.ResticPath(entry.FullPath);
+            if (entry.IsDirectory) return IsExcluded(rules, path + "/");
+            if (IsExcluded(rules, path)) Interlocked.Add(ref excluded, entry.Length);
             else Interlocked.Add(ref included, entry.Length);
             return null;
         }, DateTime.UtcNow + MaxScanDuration, ct);
@@ -119,8 +113,8 @@ public sealed class SavingsEstimator
     /// nothing later can re-include the file. Default for a path that
     /// no rule touches: INCLUDED.
     /// </summary>
-    internal static bool IsExcluded(IReadOnlyList<Rule> rules, string relativePath)
-        => FilterTranslator.Evaluate(rules, relativePath).Excluded;
+    internal static bool IsExcluded(IReadOnlyList<Rule> rules, string path)
+        => FilterTranslator.Evaluate(rules, path).Excluded;
 
     internal static List<Rule> ParseRules(string? text) => FilterTranslator.CompileRules(text);
 }

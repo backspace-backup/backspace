@@ -14,22 +14,22 @@ public sealed class DeadExceptionTests
         Assert.Equal("!cache/keep/ can never apply: the backup never looks inside cache, which cache/ excludes. "
             + "To keep it, exclude what cache contains (cache/*) rather than the folder itself.", dead);
         // With wildcards: the Code Cache folder is excluded wherever it is.
-        Assert.Single(FilterTranslator.DeadExceptions("Users/*/AppData/**/Code Cache/\n!Users/*/AppData/Roaming/App/Code Cache/keep/"));
+        Assert.Single(FilterTranslator.DeadExceptions("?:/Users/*/AppData/**/Code Cache/\n!?:/Users/*/AppData/Roaming/App/Code Cache/keep/"));
     }
 
     [Theory]
     [InlineData("cache/*\n!cache/keep/")]            // the contents are excluded, not the folder
     [InlineData("*.tmp\n!important.tmp")]             // a file exception at the top
-    [InlineData("!/Program Files/")]                  // nothing above it
+    [InlineData("!?:/Program Files/")]                // nothing above it
     [InlineData("logs/\n!other/keep/")]               // unrelated folder
     [InlineData("")]
     public void Exceptions_that_can_apply_are_not_reported(string rules)
         => Assert.Empty(FilterTranslator.DeadExceptions(rules));
 
     [Fact]
-    public void Imported_Duplicacy_includes_are_translated_so_they_apply()
+    public void Converted_Duplicacy_includes_apply()
     {
-        // local_c's Chrome rules: Chrome is excluded except its extension settings.
+        // local_c's Chrome rules, converted (U151): Chrome is excluded except its extension settings.
         const string imported = """
             i:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/$
             i:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/User Data/$
@@ -40,6 +40,10 @@ public sealed class DeadExceptionTests
             i:(?i)^Program Files[^/]*/[^/]+/$
             e:(?i)^Program Files[^/]*/
             """;
-        Assert.Empty(FilterTranslator.DeadExceptions(imported));
+        Assert.Empty(FilterTranslator.DeadExceptions(DuplicacyFilterConverter.Convert(imported, new[] { @"C:\" })));
+        // The owner's converted local_c and local_d (U151) have none either.
+        foreach (var name in new[] { "local_c-after.txt", "local_d-after.txt" })
+            Assert.Empty(FilterTranslator.DeadExceptions(System.IO.File.ReadAllText(
+                System.IO.Path.Combine(System.AppContext.BaseDirectory, "Services", "Fixtures", "U151", name))));
     }
 }

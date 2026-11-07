@@ -13,51 +13,63 @@ namespace Backspace.Tests.Services;
 /// </summary>
 public sealed class RuleShortcutTests
 {
-    // Shapes taken from local_c's imported rules and Backspace's recommendations.
+    // Shapes taken from local_c's converted rules and Backspace's recommendations (U151).
     private const string Rules = """
-        e:(?i)/node_modules/
-        e:(?i)^Users/[^/]+/AppData/[^/]+/Google/Chrome/
-        i:(?i)^Program Files[^/]*/$
-        i:(?i)^Program Files[^/]*/[^/]+/$
-        e:(?i)^Program Files[^/]*/
-        e:(?i)\$RECYCLE\.BIN/
-        e:(?i)(^|/)IconCache\.db
-        e:(?i)^Users/[^/]+/Dropbox/
-        e:\.*DS_Store
-        /pagefile.sys
+        */**/node_modules/*
+        ?:/Users/*/AppData/*/Google/Chrome/*
+        !?:/Program Files*
+        ?:/Program Files*/*
+        !?:/Program Files*/*
+        ?:/Program Files*/*/*
+        *$$RECYCLE.BIN/*
+        IconCache.db*
+        ?:/Users/*/Dropbox/*
+        *DS_Store*
+        ?:/pagefile.sys
         OneDriveTemp/
-        Users/*/AppData/**/Code Cache/
+        ?:/Users/*/AppData/**/Code Cache/
         __pycache__/
         *.tmp
         UsrClass.dat*
         cache/
         !cache/keep/
-        Users/*/.nuget/packages/
+        ?:/Users/*/.nuget/packages/
         [Tt]emp?/
         **/Logs/CrashReporter/
+        /home/*/.cache/
         """;
 
     private static readonly string[] Paths =
     [
-        "Users", "Users/me", "Users/me/AppData", "Users/me/AppData/Local/Google/Chrome", "Users/me/AppData/Local/Google/Chrome/x.db",
-        "Users/ME/APPDATA/local/GOOGLE/chrome/User Data/x", "Users/me/code/app/node_modules", "Users/me/code/app/node_modules/lib.js",
-        "Users/me/code/app/NODE_MODULES/x", "Program Files", "Program Files/App", "Program Files/App/app.exe", "Program Files (x86)/A/b/c.dll",
-        "$RECYCLE.BIN", "$Recycle.Bin/S-1/x", "Users/me/AppData/Local/IconCache.db", "iconcache.db", "Users/me/Dropbox", "Users/me/Dropbox/a.mp4",
-        "Users/me/Dropbox.txt", "a/.DS_Store", "a/DS_Store", "pagefile.sys", "x/pagefile.sys", "OneDriveTemp", "Users/me/OneDriveTemp/f",
-        "Users/me/AppData/Roaming/Code/Code Cache/js/x", "Users/me/AppData/Roaming/Code/Code Cache", "src/__pycache__/m.pyc", "a/b.tmp", "a/b.TMP",
-        "Users/me/AppData/Local/Microsoft/Windows/UsrClass.dat.LOG1", "app/cache/x", "app/cache/keep/y", "app/Cache/x", "Users/me/.nuget/packages/a/b",
-        "Temp1/x", "temp2", "TempAB/x", "x/Logs/CrashReporter/r.txt", "Logs/CrashReporter", "Users/me/Documents/taxes.pdf", "", "a",
+        "C:/Users", "C:/Users/me", "C:/Users/me/AppData", "C:/Users/me/AppData/Local/Google/Chrome", "C:/Users/me/AppData/Local/Google/Chrome/x.db",
+        "C:/Users/ME/APPDATA/local/GOOGLE/chrome/User Data/x", "C:/Users/me/code/app/node_modules", "C:/Users/me/code/app/node_modules/lib.js",
+        "C:/Users/me/code/app/NODE_MODULES/x", "C:/Program Files", "C:/Program Files/App", "C:/Program Files/App/app.exe", "C:/Program Files (x86)/A/b/c.dll",
+        "C:/$RECYCLE.BIN", "C:/$Recycle.Bin/S-1/x", "C:/Users/me/AppData/Local/IconCache.db", "C:/iconcache.db", "C:/Users/me/Dropbox", "C:/Users/me/Dropbox/a.mp4",
+        "C:/Users/me/Dropbox.txt", "C:/a/.DS_Store", "C:/a/DS_Store", "C:/pagefile.sys", "C:/x/pagefile.sys", "C:/OneDriveTemp", "C:/Users/me/OneDriveTemp/f",
+        "C:/Users/me/AppData/Roaming/Code/Code Cache/js/x", "C:/Users/me/AppData/Roaming/Code/Code Cache", "C:/src/__pycache__/m.pyc", "C:/a/b.tmp", "C:/a/b.TMP",
+        "C:/Users/me/AppData/Local/Microsoft/Windows/UsrClass.dat.LOG1", "C:/app/cache/x", "C:/app/cache/keep/y", "C:/app/Cache/x", "C:/Users/me/.nuget/packages/a/b",
+        "C:/Temp1/x", "C:/temp2", "C:/TempAB/x", "C:/x/Logs/CrashReporter/r.txt", "C:/Logs/CrashReporter", "C:/Users/me/Documents/taxes.pdf", "C:/", "C:/a", "/home/me/.cache/x", "/data/home/me/.cache",
     ];
 
     [Fact]
     public void Skipping_rules_whose_text_is_missing_never_changes_a_decision()
     {
-        var fast = FilterTranslator.CompileRules(Rules);
-        Assert.Contains(fast, r => r.Required is not null);
-        var slow = fast.Select(r => r with { Required = null }).ToList();
-        foreach (var path in Paths)
-            foreach (var form in new[] { path, path + "/" })
-                Assert.Equal(FilterTranslator.Evaluate(slow, form), FilterTranslator.Evaluate(fast, form));
+        foreach (var ignoreCase in new[] { true, false })
+        {
+            var fast = FilterTranslator.CompileRules(Rules, ignoreCase);
+            Assert.Contains(fast, r => r.Required is not null);
+            var slow = fast.Select(r => r with { Required = null }).ToList();
+            foreach (var path in Paths)
+                foreach (var form in new[] { path, path + "/" })
+                    Assert.Equal(FilterTranslator.Evaluate(slow, form), FilterTranslator.Evaluate(fast, form));
+            // The decisions themselves, so the comparison above is not of two no-ops.
+            Assert.True(FilterTranslator.Evaluate(fast, "C:/Users/me/Dropbox/a.mp4").Excluded);
+            Assert.False(FilterTranslator.Evaluate(fast, "C:/Users/me/Dropbox.txt").Excluded);
+            Assert.True(FilterTranslator.Evaluate(fast, "C:/$Recycle.Bin/S-1/x").Excluded == ignoreCase);
+            Assert.False(FilterTranslator.Evaluate(fast, "C:/Program Files/App").Excluded);
+            Assert.True(FilterTranslator.Evaluate(fast, "C:/Program Files/App/app.exe").Excluded);
+            Assert.True(FilterTranslator.Evaluate(fast, "/home/me/.cache/x").Excluded);
+        }
     }
 
     [Theory]

@@ -146,30 +146,30 @@ public sealed class S88_BackupSettingsLayoutAndRelevantRules : ScenarioBase
         const string dropbox = @"D:\Dropbox";
         var block = RecommendedFilters.RenderBlock(true, true, Array.Empty<RecommendedFilters.CloudSyncFolder>(), new[] { dropbox });
         var lines = block.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).ToList();
-        Assert.DoesNotContain("/Windows/", lines);
-        Assert.DoesNotContain("/pagefile.sys", lines);
-        Assert.DoesNotContain(lines, l => l.StartsWith("Users/", StringComparison.Ordinal));
+        Assert.DoesNotContain("?:/Windows/", lines);
+        Assert.DoesNotContain("?:/pagefile.sys", lines);
+        Assert.DoesNotContain(lines, l => l.StartsWith("?:/Users/", StringComparison.Ordinal));
         Assert.Contains("node_modules/", lines);
         Assert.Contains("thumbs.db", lines);
-        // A Dropbox folder inside a profile: the profile rules match below the
-        // source, where there is no Users folder, so they are not offered either.
+        // A Dropbox folder inside a profile: the profile rules (?:/Users/*/AppData/…)
+        // lead elsewhere in the profile, so they are not offered either (U151).
         var inProfile = RecommendedFilters.RenderBlock(true, true, Array.Empty<RecommendedFilters.CloudSyncFolder>(), new[] { @"C:\Users\me\Dropbox" });
         var profileLines = inProfile.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).ToList();
-        Assert.DoesNotContain(profileLines, l => l.StartsWith("Users/", StringComparison.Ordinal));
+        Assert.DoesNotContain(profileLines, l => l.StartsWith("?:/Users/", StringComparison.Ordinal));
         Assert.Contains("node_modules/", profileLines);
 
         // An existing backup of that folder with the full lists is offered
         // their removal; widening it to a whole drive offers them back.
         var full = RecommendedFilters.RenderBlock(true, true, Array.Empty<RecommendedFilters.CloudSyncFolder>());
         var update = RecommendedFilters.CheckForUpdates(full, sources: new[] { dropbox });
-        Assert.Contains("/Windows/", update.Remove);
-        Assert.Contains("Users/*/AppData/Local/Temp/", update.Remove);
+        Assert.Contains("?:/Windows/", update.Remove);
+        Assert.Contains("?:/Users/*/AppData/Local/Temp/", update.Remove);
         Assert.DoesNotContain("node_modules/", update.Remove);
         Assert.Empty(update.Add);
         var trimmed = RecommendedFilters.ApplyUpdates(full, update);
         Assert.True(RecommendedFilters.CheckForUpdates(trimmed, sources: new[] { dropbox }).IsEmpty);
         const string drive = @"D:\";
-        Assert.Contains("/Windows/", RecommendedFilters.CheckForUpdates(trimmed, sources: new[] { dropbox, drive }).Add);
+        Assert.Contains("?:/Windows/", RecommendedFilters.CheckForUpdates(trimmed, sources: new[] { dropbox, drive }).Add);
         ctx.Report.RecordNote("Recommended block for a Dropbox folder", block);
     }
 }

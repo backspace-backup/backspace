@@ -409,7 +409,7 @@ service (administrator access), the sign-in start entry, and the WinFsp driver.
 - `<exe-dir>/Backspace.config/vault-conversion.json` — only while the one-time move from the earlier files is unfinished: its stage, vault id, count and digest, never a value.
 - `<exe-dir>/Backspace.config/secrets.bin` — the earlier credential file (Windows-protected for one account on one computer). Read only by the one-time move, and deleted after the first successful run on `vault.bin`.
 - `<exe-dir>/Backspace.config/pending-removals.json` — removed backups whose stored copies are still to be erased; absent when nothing is waiting
-- `%LOCALAPPDATA%/Backspace/engine/<16 hex of SHA-256 of the upper-case configuration folder>/` — this computer's engine working files (`EngineWorkPaths`): `backrest/` (the GUI-owned Backrest data directory: its config.json holds every repository password in readable form, plus its sign-in files, operation database, operation logs and mount cache), `rclone-remotes/` (one generated remote per cloud destination, with its token), `rclone.conf`, `engine-runs/` (isolated directories for scheduled runs and elevated VSS helpers, so one process cannot shut down another's daemon) and, for the background service, `scratch/`. Never in the synced folder; rebuilt at start from the settings and the vault (seed configuration, sign-in, plans and repositories through `EnsurePlanAndRepo`, rclone remotes). Backrest's operation database starts empty on a new computer; run history is unaffected (below). The service's folder is named after `Backspace.config\service`. `BACKSPACE_MACHINE_ROOT` overrides `%LOCALAPPDATA%\Backspace` (tests; the service sets it to the owner's folder); a test configuration outside an executable's folder without it uses `<config>\engine`.
+- `%LOCALAPPDATA%/Backspace/engine/<16 hex of SHA-256 of the upper-case configuration folder>/` — this computer's engine working files (`EngineWorkPaths`): `backrest/` (the GUI-owned Backrest data directory: its config.json holds every repository password in readable form, plus its sign-in files, operation database, operation logs and mount cache), `rclone-remotes/` (one generated remote per cloud destination, with its token), `rclone.conf`, `engine-runs/` (isolated directories for scheduled runs and elevated VSS helpers, so one process cannot shut down another's daemon), `filters/<plan id>.txt` (each plan's exclude file: the backup's Filters text, written unchanged before every use of the plan, U151) and, for the background service, `scratch/`. Never in the synced folder; rebuilt at start from the settings and the vault (seed configuration, sign-in, plans and repositories through `EnsurePlanAndRepo`, rclone remotes). Backrest's operation database starts empty on a new computer; run history is unaffected (below). The service's folder is named after `Backspace.config\service`. `BACKSPACE_MACHINE_ROOT` overrides `%LOCALAPPDATA%\Backspace` (tests; the service sets it to the owner's folder); a test configuration outside an executable's folder without it uses `<config>\engine`.
 - `<exe-dir>/Backspace.config/test-restores/` — saved test-restore plans, completed batch results and sample history. Temporary recovered files live separately under `verify/`.
 - `<exe-dir>/Backspace.config/logs/app/` — Serilog daily-rolling Backspace logs
 - `<exe-dir>/Backspace.config/logs/engine/<backup-name>/` — per-run engine transcripts (restic stdout via Backrest)
@@ -781,6 +781,21 @@ is converted.
   `SetConfig` and the migration path in `EnsurePlanAndRepoCoreAsync` is
   the only thing that lets users recover without manually editing
   Backrest's config.
+- A backup's Filters text is restic's exclude file (U151). The engine writes it
+  unchanged (`ResticBackrestEngine.WriteExcludeFile`) and the plan passes it
+  with `--iexclude-file` on Windows, `--exclude-file` elsewhere
+  (`FilterTranslator.ExcludeFileFlag`); the plan's `excludes`/`iexcludes`
+  stay empty. Never rewrite, bind or append rules on the way: restic expands
+  `$NAME` in a file but not in an argument, and the owner's rules must work
+  with restic alone. Count, Simulate, the size estimates, the change listing
+  and test-restore completeness read the same text with
+  `FilterTranslator.CompileRules`/`Evaluate`, restic's matching on full paths
+  (`C:/…`, `?:` for any drive, last match wins); E57 checks them against
+  `restic backup --dry-run`. Duplicacy lines are converted once
+  (`DuplicacyFilterConverter`: when settings load and at import) and saved; no
+  code path reads them at run time. Recommended rules
+  (`RecommendedFilters`) are written in the same syntax, `$` as `$$`, and the
+  essential rules are a visible block at the end of each new backup's text.
 - A destination missing its sign-in, S3 keys or storage password
   (`DestinationReadiness`, typically imported from Duplicacy) never reaches
   restic: Run now opens it for setup, and a run's cell fails at once with the

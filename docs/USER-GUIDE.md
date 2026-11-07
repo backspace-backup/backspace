@@ -220,22 +220,47 @@ that runs the backup. See
 
 ## Filters
 
-Edit restic's filter syntax with a live simulation pane that shows which files
-would be included or excluded before you run.
+A backup's filters are a restic exclude file, and Backspace hands that text to
+restic as it is: `restic backup --iexclude-file` on Windows (upper and lower
+case don't matter) and `--exclude-file` on macOS and Linux. Nothing is
+rewritten on the way, so the same file gives the same backup with restic
+alone. **Filters → Advanced** shows the text, with a simulation pane that
+lists what would be kept or left out before you run.
 
-A rule starting with `!` is an exception: it brings back something an earlier
-rule excludes. The engine never goes into a folder it excludes, so an
+How restic reads the rules, one per line (`#` starts a comment):
+
+- A rule is matched against the full path. On Windows that path starts with
+  its drive (`C:/Users/me/…`), so `?:/` means the top of any drive:
+  `?:/Users/*/AppData/Local/Temp/` is each profile's Temp folder and nothing
+  deeper down. A rule starting with a plain `/` matches nothing on Windows. On
+  macOS and Linux `/` is the top of the file system: write the full path
+  (`/home/*/.cache/`).
+- A rule without `?:/` or `/` matches at any depth, including the backed-up
+  folder itself and the folders above it: `node_modules/` anywhere.
+- `*` matches within one name, `**` any number of folders, and a rule also
+  covers everything inside what it matches. A trailing `/` changes nothing for
+  restic: `Cache/` also leaves out a file named Cache.
+- `$NAME` is an environment variable, so a literal `$` is written `$$`
+  (`?:/$$RECYCLE.BIN/`). Written `?:/$WinREAgent/`, an unset variable would
+  leave `?://`: the whole drive.
+
+A rule starting with `!` is an exception, and the last rule that matches a
+path decides. The engine never goes into a folder it excludes, so an
 exception below a folder excluded whole keeps nothing: `cache/` then
 `!cache/keep/` backs up nothing from `cache`. Exclude the folder's contents
 instead (`cache/*` then `!cache/keep/`). **Filters → Advanced** warns about
-such an exception and shows the fix. Imported Duplicacy include rules are
-translated so that they apply.
+such an exception and shows the fix, and about a rule restic can't read (such
+as an unclosed `[`): restic refuses the whole list, so the backup would stop.
+
+The essential exclusions (below, under Sizes and logs) are written into each
+backup's text as their own block at the end, headed
+`# === Backspace essential exclusions (always applied) ===`. New backups get
+it, and **Apply recommended exclusions** keeps it last.
 
 The engine checks every rule against every file and folder it looks at. With
 hundreds of rules that used to take most of a large backup's time; on Windows,
 Backspace's build of the engine skips a rule at once when a path can't match it,
-which makes this about 5 times faster. The rules are passed on as written; a
-rule repeated in the list is passed once.
+which makes this about 5 times faster.
 
 **Filters → Recommended** groups the suggested exclusions (Windows system
 files, app caches, cloud-synced folders). A green **✓ Applied** line means
@@ -246,21 +271,25 @@ much the ticked recommendations leave out of them. On **Filters → Advanced**,
 **Count** says how much all the rules leave out, your own included, and
 **Simulate** lists what each rule keeps or leaves out.
 
-Only cloud-synced folders inside the backup's folders are offered, and only
-rules that can match there: a backup of a Dropbox folder is not offered the
-Windows folder or the profiles' AppData rules. Rules for the top of a drive
-and for the profiles (`Users/*/…`) apply only when the backup includes a whole
-drive.
+Recommended rules start at the top of the drive (`?:/Windows/`,
+`?:/Users/*/AppData/**/Cache/`), so a folder you made deeper down, such as an
+old PC's copied profile, is never matched. Rules useful wherever they are
+(`node_modules/`, `__pycache__/`, `*.tmp`, `*.temp`, `.DS_Store`, thumbnail
+caches) match at any depth. Only cloud-synced folders inside the backup's
+folders are offered, and only rules that can match there: a backup of
+C:\Users\me gets the profile rules, a backup of a Dropbox folder is not offered
+the Windows folder or the profiles' AppData rules, and no rule is offered that
+would leave out a whole backed-up folder.
 
 Recommendations only name things that can be rebuilt or downloaded again:
-app and browser caches, Windows' own temp folder for each account, package
-caches (npm, NuGet, Gradle, pip, Go), thumbnail caches, `node_modules`, and,
-in the Windows group, the Windows folder, Windows.old, the Recycle Bin and
-installer folders. Folders named temp or tmp elsewhere, `.tmp`, `.dump` and
-`.dmp` files, apps' Logs folders, Store apps' LocalCache and the registry
-files are not recommended: they can hold someone's own work or settings.
-Rules for the top of a drive (such as `/Windows/` or `/Intel/`) apply only
-when the source is a whole drive, never to a folder of yours with that name.
+app and browser caches, Windows' own temp folder for each account, `.tmp` and
+`.temp` files, package caches (npm, NuGet, Gradle, pip, Go), thumbnail caches,
+`node_modules`, and, in the Windows group, the Windows folder, Windows.old, the
+Recycle Bin and installer folders. Folders named temp or tmp elsewhere,
+`.dump` and `.dmp` files, apps' Logs folders, Store apps' LocalCache and the
+registry files are not recommended: they can hold someone's own work or
+settings. On macOS and Linux the profile rules start at `/home/*/` or
+`/Users/*/`, and the Windows ones are not offered.
 
 ## Sizes and logs
 
@@ -284,8 +313,9 @@ profile. With administrator access on, backups include them and the size
 counts them. Without it, backups leave them out, and so does the size; the
 settings window then says how many folders won't be backed up, naming one.
 
-A few Windows files are never backed up and never counted, whatever a
-backup's filters say, because no restore can use them: the page, swap and
+A few Windows files are left out by the essential block each backup's filters
+end with (see Filters), and never counted, because no restore can use them:
+the page, swap and
 hibernation files (pagefile.sys, swapfile.sys, hiberfil.sys, DumpStack.log.tmp),
 System Volume Information (shadow copies and the search index), the temporary
 folders of Windows Update, upgrades, resets and installers (Config.Msi,
@@ -594,13 +624,22 @@ destination has them, **Run now** opens it with a note saying what to finish
 (connect the account, choose a storage password), and a scheduled run stops
 with the same reason instead of retrying. Older versions stay in Duplicacy.
 
-Filters keep Duplicacy's meaning: `e:` and `i:` lines, and the first matching
-line wins. Rules that are exactly one of Backspace's recommended exclusions
-move into the recommended block. Restic's patterns cannot tell files from
-folders, so two cases differ: a folder named like a file-only rule (such as
-`\.tmp$`) is skipped with its contents, and files lying directly in a folder
-kept only to reach a subfolder are kept. Email and Healthchecks settings are
-not imported; set them up in Settings.
+Filters are converted once, at import, into plain restic rules with
+Duplicacy's meaning; backups imported by an earlier version are converted the
+first time Backspace starts. Duplicacy lets the first matching `e:`/`i:` (or
+`-`/`+`) line decide and restic the last, so each converted rule sits in
+restic's order under a `# was:` comment naming the line it came from. A rule
+tied to the top of the backed-up folder (`^Apps/…`) becomes a rule from the
+top of the drive with the folder's path (`?:/Users/me/Dropbox/Apps/…`); the
+others match at any depth. The Duplicacy explanation comments are dropped, and
+a line restic can't express is named in a comment rather than guessed. Rules
+that are exactly one of Backspace's recommended exclusions move into the
+recommended block. Restic's patterns cannot tell files from folders, so two
+cases differ: a folder named like a file-only rule (such as `\.tmp$`) is
+skipped with its contents, and files lying directly in a folder kept only to
+reach a subfolder are kept. One list ignores case or doesn't, so on Windows a
+line without `(?i)` ignores case too. Email and Healthchecks settings are not
+imported; set them up in Settings.
 
 When Backspace's recommended exclusions change, your saved backups keep their
 rules. Editing a backup lists the additions and removals for the groups it

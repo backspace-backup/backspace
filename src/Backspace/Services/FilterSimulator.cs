@@ -27,13 +27,11 @@ namespace Backspace.Services;
 ///    list of candidate paths without touching the disk. Instant;
 ///    useful while typing.
 ///
-/// Both modes route the filter text through <see cref="FilterTranslator"/>
-/// first so what they show matches what the engine actually sends to
-/// restic. The "matching rule" string surfaced for each excluded path
-/// is the original glob. Engine plans additionally bind that glob to
-/// the selected source, rather than matching its parent directories.
-/// Paths are matched RELATIVE to their source root with forward-slash
-/// separators, mirroring <see cref="SavingsEstimator"/>.
+/// Both modes read the Filters text as restic reads the exclude file the
+/// engine hands it (<see cref="FilterTranslator"/>) and match full paths
+/// with forward slashes (<c>C:/Users/me/x</c>), as restic does. The
+/// "matching rule" string surfaced for each excluded path is the line as
+/// written.
 /// </summary>
 public sealed class FilterSimulator
 {
@@ -71,9 +69,8 @@ public sealed class FilterSimulator
             if (ct.IsCancellationRequested || emitted >= MaxEntries) break;
             if (string.IsNullOrWhiteSpace(sourcePath) || !Directory.Exists(sourcePath)) continue;
 
-            var sourceRules = CompileRules(FilterTranslator.ScopeToSource(backup.FiltersText, sourcePath) ?? "");
             var (count, hitCap) = await Task.Run(
-                () => WalkOne(sourcePath, sourceRules, onEntry, MaxEntries - emitted, ct), ct);
+                () => WalkOne(sourcePath, rules, onEntry, MaxEntries - emitted, ct), ct);
             emitted += count;
             if (hitCap) truncated = true;
         }
@@ -114,8 +111,7 @@ public sealed class FilterSimulator
                 if (truncated) break;
                 if (f.IsDirectory || f.IsLink) continue;
 
-                var rel = TreeWalk.Relative(rootFull, f.FullPath);
-                var (included, rule) = Evaluate(rules, rel);
+                var (included, rule) = Evaluate(rules, FilterTranslator.ResticPath(f.FullPath));
                 Emit(new SimulatedEntry(f.FullPath, included, rule));
             }
 
@@ -125,8 +121,7 @@ public sealed class FilterSimulator
                 if (!d.IsDirectory || d.IsLink) continue;
                 var sub = d.FullPath;
 
-                var rel = TreeWalk.Relative(rootFull, sub) + "/";
-                var (included, rule) = Evaluate(rules, rel);
+                var (included, rule) = Evaluate(rules, FilterTranslator.ResticPath(sub) + "/");
                 if (included)
                 {
                     stack.Push(sub);            // descend silently — files report themselves
@@ -145,8 +140,8 @@ public sealed class FilterSimulator
     /// <summary>
     /// Synchronous preview: runs the supplied filter text against
     /// <paramref name="candidatePaths"/>. The rule string returned in
-    /// <see cref="SimulatedEntry.MatchingRule"/> is the bare restic
-    /// glob, evaluated relative to the selected source.
+    /// <see cref="SimulatedEntry.MatchingRule"/> is the rule as written.
+    /// Each candidate is a full path, as restic sees it (<c>C:/Users/me/x</c>).
     /// </summary>
     public IReadOnlyList<SimulatedEntry> Preview(string filtersText, IEnumerable<string> candidatePaths)
     {

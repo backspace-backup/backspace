@@ -42,7 +42,8 @@ public sealed class S81_SizeWithRulesAndHonestProgress : ScenarioBase
         File.WriteAllBytes(Path.Combine(drive, "Users", "me", "Documents", "report.pdf"), new byte[3_000_000]);
         File.WriteAllBytes(Path.Combine(drive, "Users", "me", "Dropbox", "holiday.mp4"), new byte[60_000_000]);
         var withRules = new Backup { Name = "local_c", SourcePaths = { drive }, ExcludeCloudFiles = true,
-            FiltersText = "# already backed up and versioned (Dropbox)\ne:(?i)^Users/[^/]+/Dropbox/\n" };
+            // local_c's imported rule, converted once (U151) for this folder.
+            FiltersText = Backspace.Services.DuplicacyFilterConverter.Convert("# already backed up and versioned (Dropbox)\ne:(?i)^Users/[^/]+/Dropbox/\n", new[] { drive }) };
         var noRules = new Backup { Name = "Same folder, no exclusion rules", SourcePaths = { drive } };
         foreach (var b in new[] { withRules, noRules }) b.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });
         ServiceLocator.Config.Update(cfg => { cfg.Destinations.Add(dest); cfg.Backups.Add(withRules); cfg.Backups.Add(noRules); });

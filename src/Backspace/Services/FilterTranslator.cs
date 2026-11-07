@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -8,81 +7,120 @@ using System.Text.RegularExpressions;
 namespace Backspace.Services;
 
 /// <summary>
-/// Translates Backspace's filter text into the two glob lists Backrest's
-/// plan model consumes (<c>excludes</c> case-sensitive, <c>iexcludes</c>
-/// case-insensitive — mapped 1:1 to restic's <c>--exclude</c> /
-/// <c>--iexclude</c> flags).
+/// Reads a backup's Filters text the way restic reads an exclude file, so
+/// Count, Simulate and the size estimates decide exactly as the backup does
+/// (U151, 6 November 2026).
 ///
-/// The source format uses restic globs, one per line with <c>#</c>
-/// comments. Backspace evaluates them relative to each selected source.
-/// Engine plans bind those globs to the absolute source path so an
-/// ancestor named "temp" cannot exclude the selected source itself.
+/// The Filters text IS the exclude file: the engine hands it to restic
+/// unchanged with <c>--iexclude-file</c> on Windows (names ignore case) and
+/// <c>--exclude-file</c> on Linux and macOS. That flag is the only thing
+/// Backspace decides. Here, as in restic:
 ///
-/// Case sensitivity: lines route to the platform's natural default —
-/// <c>iexcludes</c> on Windows (the filesystem is case-insensitive, so
-/// a case-sensitive pattern would silently miss files whose stored case
-/// differs), <c>excludes</c> on Linux / macOS-on-case-sensitive volumes.
+/// • Each line is trimmed; blank lines and lines starting with <c>#</c> are
+///   skipped. <c>$NAME</c> and <c>${NAME}</c> are environment variables and
+///   <c>$$</c> is a literal <c>$</c> (Go's <c>os.Expand</c>).
+/// • A rule is matched against the full path, with forward slashes:
+///   <c>C:/Users/me/x</c> on Windows, <c>/home/me/x</c> elsewhere. A rule
+///   starting with <c>/</c> starts at the top of the file system (so it
+///   matches nothing on Windows, where paths start with the drive); any other
+///   rule may start at any folder. <c>?:/</c> is the top of any drive.
+/// • <c>*</c> and <c>?</c> stay within one name, <c>**</c> is any number of
+///   folders, and a rule also matches everything below what it matches. A
+///   trailing <c>/</c> changes nothing: restic cleans it off.
+/// • The last matching rule decides; a rule starting with <c>!</c> keeps what
+///   an earlier rule excluded.
 ///
-/// Duplicacy regex shapes (<c>e:&lt;regex&gt;</c>) are also accepted so
-/// the "Import from existing Duplicacy" path keeps working without a
-/// separate translation step at migration time. Each <c>e:</c> line is
-/// rewritten to a best-effort restic glob — see <see cref="TryRegexToGlob"/>.
-/// Imports survive; emitters always write bare globs.
+/// Known difference: restic tries a first <c>**</c> on at most as many
+/// folders as the rest of the rule leaves room for, counting a second
+/// <c>**</c> as one folder (docs/GOTCHAS.md). Here each <c>**</c> is any
+/// number of folders, so a rule with two <c>**</c> can match a path one
+/// folder shorter than restic would.
 /// </summary>
 public static class FilterTranslator
 {
-    /// <summary>Result of translating a filter text — two lists matching
-    /// the <c>excludes</c> / <c>iexcludes</c> fields on Backrest's plan
-    /// shape one-for-one.</summary>
-    public readonly record struct Result(
-        IReadOnlyList<string> Excludes,
-        IReadOnlyList<string> IExcludes);
+    /// <summary>True when restic gets the rules with <c>--iexclude-file</c>.</summary>
+    internal static bool IgnoresCase => Platform.PlatformInfo.IsWindows;
 
-    /// <summary>
-    /// Translate the filter text into restic-compatible exclude lists,
-    /// using the platform's natural case-sensitivity default.
-    /// </summary>
-    public static Result Translate(string? filtersText) =>
-        Translate(filtersText, defaultsToCaseInsensitive: Platform.PlatformInfo.IsWindows);
+    /// <summary>The restic flag that reads the Filters text.</summary>
+    internal static string ExcludeFileFlag => IgnoresCase ? "--iexclude-file" : "--exclude-file";
 
-    /// <summary>The filter text that applies to one source: rules for the top
-    /// of a drive (System Volume Information, /Windows/, /Intel/…) only when
-    /// the source is a whole drive, so they never match a person's own folder
-    /// of the same name at the top of a backed-up folder (U106).</summary>
-    internal static string? ScopeToSource(string? filtersText, string sourcePath)
-    {
-        if (filtersText is null || TreeWalk.IsDriveRoot(sourcePath)) return filtersText;
-        return string.Join("\n", filtersText.Replace("\r\n", "\n").Split('\n').Where(l => !RecommendedFilters.IsDriveTopPattern(l)));
-    }
-
-    /// <summary>Bind source-relative exclusions to the paths restic walks.</summary>
-    internal static Result TranslateForSource(string? filtersText, string sourcePath)
-    {
-        var translated = Translate(ScopeToSource(filtersText, sourcePath));
-        var root = Path.GetFullPath(sourcePath).Replace('\\', '/').TrimEnd('/');
-        // Escape only the literal path prefix; user globs retain their syntax.
-        root = root.Replace("[", "[[]").Replace("*", "[*]").Replace("?", "[?]");
-        string Bind(string pattern)
-        {
-            var negated = pattern.StartsWith('!');
-            var glob = (negated ? pattern[1..] : pattern).Replace('\\', '/');
-            return (negated ? "!" : "") + root +
-                   (glob.StartsWith('/') ? glob : "/**/" + glob);
-        }
-        return new Result(translated.Excludes.Select(Bind).ToArray(),
-            translated.IExcludes.Select(Bind).ToArray());
-    }
-
+    /// <param name="Glob">The rule as written in the Filters text, shown as
+    /// the rule that decided.</param>
     /// <param name="Required">Text every path the rule matches contains, or
     /// null. Most paths lack it, and looking for it is far cheaper than the
-    /// pattern: two thirds of the time to count C:\ with local_c's 270 imported
-    /// rules went into the patterns (U123, 4 November 2026).</param>
-    internal readonly record struct CompiledRule(string Glob, Regex Pattern, bool Negated, bool CaseInsensitive, string? Required = null);
+    /// pattern: two thirds of the time to count C:\ with local_c's 270 rules
+    /// went into the patterns (U123, 4 November 2026).</param>
+    /// <param name="Rooted">The rule starts with <c>/</c>: only a path that
+    /// starts with <c>/</c> can match it.</param>
+    internal readonly record struct CompiledRule(string Glob, Regex Pattern, bool Negated, bool CaseInsensitive, string? Required = null, bool Rooted = false);
 
-    /// <summary>The longest run of plain characters in <paramref name="glob"/>,
-    /// without the slashes at its ends (an anchor or a folder mark may make
-    /// those optional), when it is at least two ASCII characters; else null.
-    /// Every path the glob's pattern matches contains it.</summary>
+    /// <summary>The rules restic reads from <paramref name="text"/>, in order:
+    /// each with the line as written and the pattern after <c>$</c> expansion.</summary>
+    internal static List<(string Line, string Pattern)> ReadRules(string? text, Func<string, string?>? getenv = null)
+    {
+        var rules = new List<(string, string)>();
+        if (string.IsNullOrEmpty(text)) return rules;
+        getenv ??= Environment.GetEnvironmentVariable;
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line[0] == '#') continue;
+            var pattern = Expand(line, getenv);
+            if (pattern.Length == 0) continue; // restic ignores empty patterns
+            rules.Add((line, pattern));
+        }
+        return rules;
+    }
+
+    /// <summary>Go's <c>os.Expand</c> as restic calls it on each line of an
+    /// exclude file: <c>$$</c> is <c>$</c>, <c>$NAME</c> and <c>${NAME}</c>
+    /// are environment variables (empty when unset).</summary>
+    internal static string Expand(string s, Func<string, string?> getenv)
+    {
+        StringBuilder? buf = null;
+        var i = 0;
+        for (var j = 0; j < s.Length; j++)
+        {
+            if (s[j] != '$' || j + 1 >= s.Length) continue;
+            buf ??= new StringBuilder(s.Length * 2);
+            buf.Append(s, i, j - i);
+            var (name, w) = ShellName(s, j + 1);
+            if (name.Length == 0 && w > 0) { /* invalid syntax: Go drops it */ }
+            else if (name.Length == 0) buf.Append('$');
+            else buf.Append(name == "$" ? "$" : getenv(name) ?? "");
+            j += w;
+            i = j + 1;
+        }
+        return buf is null ? s : buf.Append(s, i, s.Length - i).ToString();
+    }
+
+    private static bool IsShellSpecial(char c) => c is '*' or '#' or '$' or '@' or '!' or '?' or '-' or (>= '0' and <= '9');
+    private static bool IsAlphaNum(char c) => c == '_' || c is >= '0' and <= '9' or >= 'a' and <= 'z' or >= 'A' and <= 'Z';
+
+    private static (string Name, int Width) ShellName(string s, int start)
+    {
+        if (s[start] == '{')
+        {
+            if (s.Length - start > 2 && IsShellSpecial(s[start + 1]) && s[start + 2] == '}') return (s.Substring(start + 1, 1), 3);
+            for (var i = start + 1; i < s.Length; i++)
+            {
+                if (s[i] != '}') continue;
+                if (i == start + 1) return ("", 2);
+                return (s[(start + 1)..i], i - start + 1);
+            }
+            return ("", 1);
+        }
+        if (IsShellSpecial(s[start])) return (s.Substring(start, 1), 1);
+        var end = start;
+        while (end < s.Length && IsAlphaNum(s[end])) end++;
+        return (s[start..end], end - start);
+    }
+
+    /// <summary>A path as restic matches it: forward slashes, with its drive
+    /// on Windows (<c>C:/Users/me</c>).</summary>
+    internal static string ResticPath(string fullPath) => fullPath.Replace('\\', '/');
+
+    /// <param name="Required">See <see cref="CompiledRule.Required"/>.</param>
     internal static string? RequiredText(string glob)
     {
         glob = glob.Replace('\\', '/');
@@ -113,42 +151,60 @@ public static class FilterTranslator
     }
 
     /// <summary>Time limit for the imported Duplicacy regexes, which run only
-    /// while a rule is translated.</summary>
+    /// while a rule is converted.</summary>
     internal static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(1);
 
-    internal static List<CompiledRule> CompileRules(string? text)
+    /// <summary>The rules of a Filters text, compiled, as restic gets them on
+    /// this system.</summary>
+    internal static List<CompiledRule> CompileRules(string? text) => CompileRules(text, IgnoresCase);
+
+    internal static List<CompiledRule> CompileRules(string? text, bool ignoreCase)
     {
-        var translated = Translate(text);
         var rules = new List<CompiledRule>();
-        void Add(string glob, bool insensitive)
+        foreach (var (line, pattern) in ReadRules(text))
         {
-            var negated = glob.StartsWith('!');
-            // A pathological rule (an imported "*a*a*a*…b") must not hang the
-            // walk on one long name (U152). The non-backtracking engine takes
-            // time in proportion to the name, whatever the rule. It is also
-            // faster here than a time limit, which cost a quarter of the
-            // matching time (300,000 paths against local_c's 273 rules: 4.1 s,
-            // against 5.8 s with a time limit and 4.4 s with neither;
-            // 6 November 2026).
+            var negated = pattern[0] == '!';
+            var glob = negated ? pattern[1..] : pattern;
+            // A pathological rule ("*a*a*a*…b") must not hang the walk on one
+            // long name (U152). The non-backtracking engine takes time in
+            // proportion to the name, whatever the rule. It is also faster
+            // here than a time limit (300,000 paths against local_c's 273
+            // rules: 4.1 s, against 5.8 s with a time limit; 6 November 2026).
             var options = RegexOptions.NonBacktracking | RegexOptions.CultureInvariant;
-            if (insensitive) options |= RegexOptions.IgnoreCase;
-            Regex pattern;
-            try { pattern = new Regex(GlobToRegex(negated ? glob[1..] : glob), options); }
-            catch (ArgumentException) { pattern = new Regex(@"[^\s\S]"); }
-            rules.Add(new(glob, pattern, negated, insensitive, RequiredText(negated ? glob[1..] : glob)));
+            if (ignoreCase) options |= RegexOptions.IgnoreCase;
+            Regex regex;
+            // Restic refuses the whole file for an invalid rule; the editor
+            // says which (InvalidRules). Here it simply matches nothing.
+            try { regex = new Regex(GlobToRegex(glob), options); }
+            catch (ArgumentException) { regex = new Regex(@"[^\s\S]"); }
+            rules.Add(new(line, regex, negated, ignoreCase, RequiredText(glob), IsRooted(glob)));
         }
-        foreach (var glob in translated.Excludes) Add(glob, false);
-        foreach (var glob in translated.IExcludes) Add(glob, true);
         return rules;
+    }
+
+    private static bool IsRooted(string glob) => glob.Length > 0 && (glob[0] == '/' || (glob[0] == '\\' && Platform.PlatformInfo.IsWindows));
+
+    /// <summary>Lines restic refuses as patterns (an unclosed <c>[</c>, for
+    /// example). Restic then refuses the whole file, so the backup fails.</summary>
+    internal static IReadOnlyList<string> InvalidRules(string? text)
+    {
+        var invalid = new List<string>();
+        foreach (var (line, pattern) in ReadRules(text))
+        {
+            var glob = pattern[0] == '!' ? pattern[1..] : pattern;
+            try { _ = new Regex(GlobToRegex(glob), RegexOptions.NonBacktracking | RegexOptions.CultureInvariant); }
+            catch (ArgumentException) { invalid.Add(line); }
+        }
+        return invalid;
     }
 
     /// <summary>
     /// Exceptions (<c>!</c> rules) that can never bring anything back, each with
-    /// why (U127, 4 November 2026). The engine decides on a folder before going
-    /// into it and never enters an excluded one, so <c>!cache/keep/</c> under
-    /// <c>cache/</c> keeps nothing: <c>cache/*</c> would. Each exception is tried
-    /// on a sample path (a wildcard stands for any name) whose folders are
-    /// checked with all the rules, exceptions included.
+    /// why (U127, 4 November 2026). Restic decides on a folder before going
+    /// into it and never enters an excluded one, so <c>!?:/cache/keep/</c>
+    /// under <c>?:/cache/</c> keeps nothing: <c>?:/cache/*</c> would. Each
+    /// exception is tried on a sample path (a wildcard stands for any name)
+    /// whose folders are checked with all the rules, exceptions included.
     /// </summary>
     internal static IReadOnlyList<string> DeadExceptions(string? filtersText)
     {
@@ -156,10 +212,12 @@ public static class FilterTranslator
         var found = new List<string>();
         foreach (var exception in rules.Where(r => r.Negated))
         {
-            var parts = SamplePath(exception.Glob[1..]);
+            var glob = exception.Glob[1..];
+            var parts = SamplePath(Expand(glob, _ => ""));
+            var start = IsRooted(glob) ? "/" : "";
             for (var depth = 1; depth < parts.Count; depth++)
             {
-                var folder = string.Join("/", parts.Take(depth));
+                var folder = start + string.Join("/", parts.Take(depth));
                 if (Evaluate(rules, folder + "/") is not { Excluded: true, Rule: { } by }) continue;
                 found.Add($"{exception.Glob} can never apply: the backup never looks inside {folder}, which {by} excludes. To keep it, exclude what {folder} contains ({by.TrimEnd('/')}/*) rather than the folder itself.");
                 break;
@@ -195,107 +253,50 @@ public static class FilterTranslator
         return parts;
     }
 
-    internal static (bool Excluded, string? Rule) Evaluate(IReadOnlyList<CompiledRule> rules, string relativePath)
+    /// <summary>Whether the rules exclude <paramref name="path"/>, a full path
+    /// as restic sees it (<see cref="ResticPath"/>), and the rule that decided.
+    /// A trailing <c>/</c> (a folder, for display) is ignored.</summary>
+    internal static (bool Excluded, string? Rule) Evaluate(IReadOnlyList<CompiledRule> rules, string path)
     {
-        // Walkers identify directories with a trailing separator for display;
-        // restic matches the directory's own name before deciding to descend.
-        relativePath = relativePath.TrimEnd('/');
-        string? sensitive = null, insensitive = null;
+        path = path.TrimEnd('/');
+        // Restic splits "/home/me" into "/", "home", "me": a rule starting with
+        // "/" must start at that top, and any other rule starts at a name.
+        var absolute = path.StartsWith('/');
+        var body = absolute ? path[1..] : path;
+        string? decided = null;
         foreach (var rule in rules)
         {
+            if (rule.Rooted && !absolute) continue;
             if (rule.Required is { } text
-                && relativePath.IndexOf(text, rule.CaseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) < 0) continue;
-            if (!rule.Pattern.IsMatch(relativePath)) continue;
-            // Ordered exceptions apply separately to --exclude and --iexclude.
-            if (rule.CaseInsensitive) insensitive = rule.Negated ? null : rule.Glob;
-            else sensitive = rule.Negated ? null : rule.Glob;
+                && body.IndexOf(text, rule.CaseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) < 0) continue;
+            if (!rule.Pattern.IsMatch(body)) continue;
+            decided = rule.Negated ? null : rule.Glob;
         }
-        return (sensitive is not null || insensitive is not null, sensitive ?? insensitive);
+        return (decided is not null, decided);
     }
 
     /// <summary>
-    /// Test-friendly overload that pins the platform default explicitly.
-    /// </summary>
-    internal static Result Translate(string? filtersText, bool defaultsToCaseInsensitive)
-        => Translate(filtersText, defaultsToCaseInsensitive, null);
-
-    /// <param name="untranslated">Receives imported Duplicacy lines that have
-    /// no exact restic equivalent; they are left out rather than guessed.</param>
-    internal static Result Translate(string? filtersText, bool defaultsToCaseInsensitive, ICollection<string>? untranslated)
-    {
-        var excludes = new List<string>();
-        var iExcludes = new List<string>();
-        if (string.IsNullOrEmpty(filtersText)) return new Result(excludes, iExcludes);
-
-        void AddDefault(string glob)
-        {
-            if (glob.Length == 0) return;
-            (defaultsToCaseInsensitive ? iExcludes : excludes).Add(glob);
-        }
-
-        // Imported Duplicacy lines (e: exclude, i: include) keep Duplicacy's
-        // first-match meaning within each uninterrupted group of them; see
-        // DuplicacyFilterTranslator. Comments and blank lines do not split a group.
-        var run = new List<DuplicacyFilterTranslator.Line>();
-        void Flush()
-        {
-            if (run.Count == 0) return;
-            foreach (var rule in DuplicacyFilterTranslator.TranslateRun(run, untranslated))
-                (rule.CaseInsensitive ? iExcludes : excludes).Add((rule.Negated ? "!" : "") + rule.Glob);
-            run.Clear();
-        }
-
-        foreach (var raw in filtersText.Split('\n'))
-        {
-            var line = raw.TrimEnd('\r').Trim();
-            if (line.Length == 0 || line[0] == '#') continue;
-            if (DuplicacyFilterTranslator.IsDuplicacyLine(line)) { run.Add(DuplicacyFilterTranslator.Parse(line)); continue; }
-            Flush();
-            AddDefault(line);
-        }
-        Flush();
-        return new Result(excludes, iExcludes);
-    }
-
-    /// <summary>First restic glob for one Duplicacy regex, or null when it has
-    /// no exact equivalent. Kept for callers that show a single pattern.</summary>
-    internal static string? TryRegexToGlob(string regex)
-        => DuplicacyFilterTranslator.ToGlobs(regex) is { Count: > 0 } globs ? globs[0].Glob : null;
-
-    /// <summary>
-    /// Compile a restic glob pattern into the equivalent regex used by
-    /// the local preview/walk paths (FilterSimulator + SavingsEstimator).
-    /// Mirrors restic's own pattern semantics so the preview can't drift
-    /// from what the engine actually does:
+    /// Compile a restic pattern (without its <c>!</c>) into the regex used by
+    /// Count, Simulate and the size estimates, matched against a full path
+    /// without its leading <c>/</c> (<see cref="Evaluate"/>):
     ///
-    /// • Leading <c>/</c> anchors to the source root; an unrooted
-    ///   pattern matches at any path segment boundary
-    ///   (<c>cache</c> matches <c>cache</c>, <c>dir/cache</c>, etc.).
-    /// • A pattern also matches everything below what it matches, as in
-    ///   restic, where <c>!keep/in</c> re-includes <c>keep/in/deep/k.txt</c>.
-    ///   A trailing <c>/</c> changes nothing: restic's <c>*Cache/</c> also
-    ///   excludes a file named <c>ModuleAnalysisCache</c> (both checked with
-    ///   restic 0.19.1 on 31 October 2026).
-    /// • <c>*</c> matches any number of characters except <c>/</c>.
-    /// • <c>**</c> matches zero or more path components — including the
-    ///   empty case, so <c>Documents/**/*.txt</c> matches
-    ///   <c>Documents/notes.txt</c> as well as <c>Documents/sub/notes.txt</c>.
-    /// • <c>?</c> matches a single character except <c>/</c>.
-    /// • Backslashes are normalised to forward slashes so a Windows user
-    ///   typing <c>Documents\Letters\*.pdf</c> still matches restic's
-    ///   forward-slash-internal paths.
+    /// • Like restic (<c>filepath.Clean</c>), doubled slashes, <c>.</c> names
+    ///   and a trailing <c>/</c> are dropped. A leading <c>/</c> ties the rule
+    ///   to the top; otherwise it may start at any name.
+    /// • A rule matches a run of whole names and everything below it.
+    /// • <c>*</c> matches any characters except <c>/</c>, <c>?</c> one of them,
+    ///   <c>[…]</c> one character of a class (<c>[^…]</c> negated).
+    /// • A whole-name <c>**</c> matches zero or more names.
+    /// • Backslashes are slashes, as in restic on Windows.
     /// </summary>
     internal static string GlobToRegex(string glob)
     {
         if (string.IsNullOrEmpty(glob)) return "(?!)";
 
-        // Restic stores paths with forward slashes regardless of host OS.
         glob = glob.Replace('\\', '/');
-
-        bool rooted = glob[0] == '/';
-        if (rooted) glob = glob.Substring(1);
-        bool dirOnly = glob.EndsWith("/", StringComparison.Ordinal);
-        if (dirOnly) glob = glob.Substring(0, glob.Length - 1);
+        var rooted = glob[0] == '/';
+        glob = string.Join("/", glob.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(p => p != "."));
+        if (glob.Length == 0) return rooted ? "^.*$" : "(?!)";
 
         var sb = new StringBuilder();
         sb.Append(rooted ? "^" : "(?:^|/)");
@@ -303,53 +304,22 @@ public static class FilterTranslator
         int i = 0;
         while (i < glob.Length)
         {
-            // `**` runs — handle them with awareness of the surrounding
-            // slashes so the zero-component case (restic-canonical) works.
+            // A whole-name "**": zero or more names.
             if (i + 1 < glob.Length && glob[i] == '*' && glob[i + 1] == '*'
                 && (i == 0 || glob[i - 1] == '/')
                 && (i + 2 == glob.Length || glob[i + 2] == '/'))
             {
-                bool followedBySlash = i + 2 < glob.Length && glob[i + 2] == '/';
-                bool atEnd = i + 2 == glob.Length;
-                bool precededBySlashInEmitted = sb.Length > 0 && sb[sb.Length - 1] == '/';
-
+                bool followedBySlash = i + 2 < glob.Length;
+                bool precededBySlash = sb.Length > 0 && sb[^1] == '/';
                 if (followedBySlash)
                 {
-                    // `**/X` shape. Make the whole `**/` optional so the
-                    // zero-intermediate-component case matches too.
-                    if (precededBySlashInEmitted)
-                    {
-                        // `/**/X` → undo the trailing `/`, emit `(?:/.*)?/`
-                        sb.Length--;
-                        sb.Append("(?:/.*)?/");
-                    }
-                    else
-                    {
-                        // `**/X` at the start of the body (after the
-                        // segment-boundary prefix) → optional any-prefix.
-                        sb.Append("(?:.*/)?");
-                    }
+                    if (precededBySlash) { sb.Length--; sb.Append("(?:/.*)?/"); } // "a/**/b"
+                    else sb.Append("(?:.*/)?");                                    // "**/b"
                     i += 3;
                     continue;
                 }
-                if (atEnd)
-                {
-                    // `**` at end of glob → match everything (including
-                    // the zero-suffix case so `Cache/**` matches `Cache`).
-                    if (precededBySlashInEmitted)
-                    {
-                        sb.Length--;
-                        sb.Append("(?:/.*)?");
-                    }
-                    else
-                    {
-                        sb.Append(".*");
-                    }
-                    i += 2;
-                    continue;
-                }
-                // Standalone `**X` (no surrounding slashes) — greedy any.
-                sb.Append(".*");
+                if (precededBySlash) { sb.Length--; sb.Append("(?:/.*)?"); }     // "a/**"
+                else sb.Append(".*");                                              // "**"
                 i += 2;
                 continue;
             }

@@ -43,6 +43,7 @@
 
   <ItemGroup>
     <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Services\Fixtures\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
     <!-- Custom artifacts-path outputs are outside the test project's tree.
          The screenshot harness resolves its reference folder beside the test
          assembly there. Always supply the repository's references, including

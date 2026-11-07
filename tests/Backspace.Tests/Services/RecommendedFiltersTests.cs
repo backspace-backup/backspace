@@ -109,12 +109,10 @@ public class RecommendedFiltersTests
             includeWindowsSystem: false,
             includeCachesAndJunk: false,
             cloudExcludes: new[] { folder });
-        // The cloud-exclude line is a source-anchored bare glob
-        // (`/Users/me/Dropbox/`) so only the specific cloud-sync
+        // The cloud-exclude line starts at the top of the drive
+        // (`?:/Users/me/Dropbox/`) so only the specific cloud-sync
         // folder is excluded, not a same-named subdir elsewhere.
-        // FilterTranslator routes the line through restic's
-        // --iexclude on Windows because bare globs are platform-default.
-        Assert.Contains("/Users/me/Dropbox/", block);
+        Assert.Contains("?:/Users/me/Dropbox/", block.Replace("\r\n", "\n").Split('\n'));
         // The label comment shows the original path so the user can
         // identify what was excluded.
         Assert.Contains(@"C:\Users\me\Dropbox", block);
@@ -184,11 +182,77 @@ public class RecommendedFiltersTests
         var block = "AUTO";
         var merged = RecommendedFilters.MergeIntoFilters("", block);
         // Custom block (empty placeholder) comes first; recommended
-        // block follows.
+        // block follows, then the essential exclusions (U151).
         Assert.StartsWith(RecommendedFilters.CustomBlockHeader, merged);
         Assert.Contains(RecommendedFilters.CustomBlockFooter, merged);
-        Assert.EndsWith("AUTO", merged);
+        var lines = merged.Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+        if (RecommendedFilters.AlwaysExcludedPatterns.Count == 0) { Assert.Equal("AUTO", lines[^1]); return; }
+        Assert.Equal(RecommendedFilters.AlwaysBlockLines(), lines[^RecommendedFilters.AlwaysBlockLines().Count..]);
+        Assert.Equal("AUTO", lines[^(RecommendedFilters.AlwaysBlockLines().Count + 2)]);
     }
+
+    /// <summary>U151: the essential exclusions are a visible block at the end
+    /// of the text; Apply keeps it last, with any edit the person made in it.</summary>
+    [Fact]
+    public void The_essential_block_stays_last_and_keeps_the_persons_edits()
+    {
+        if (RecommendedFilters.AlwaysExcludedPatterns.Count == 0) return;
+        var edited = string.Join("\n", RecommendedFilters.AlwaysBlockLines()
+            .Where(l => l != "?:/OneDriveTemp/").Append("my-extra-in-block/"));
+        var text = "own/\n\n" + edited + "\n\nafter/\n";
+        var merged = RecommendedFilters.MergeIntoFilters(text, RecommendedFilters.RenderBlock(false, false, Array.Empty<RecommendedFilters.CloudSyncFolder>()))
+            .Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+        Assert.Equal(edited.Split('\n'), merged[^edited.Split('\n').Length..]);
+        Assert.Contains("own/", merged);
+        Assert.Contains("after/", merged);
+        Assert.Equal(1, merged.Count(l => l == RecommendedFilters.AlwaysBlockHeader));
+
+        // A new backup's text gets the block once.
+        var fresh = RecommendedFilters.WithAlwaysBlock("x/\n");
+        Assert.Equal("x/\n\n" + RecommendedFilters.AlwaysBlockText() + "\n", fresh);
+        Assert.Equal(fresh, RecommendedFilters.WithAlwaysBlock(fresh));
+        Assert.Equal(RecommendedFilters.AlwaysBlockText() + "\n", RecommendedFilters.WithAlwaysBlock(""));
+    }
+
+    [Fact]
+    public void The_always_block_is_the_approved_list()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        Assert.Equal(new[]
+        {
+            "?:/pagefile.sys", "?:/hiberfil.sys", "?:/swapfile.sys", "?:/DumpStack.log.tmp", "?:/System Volume Information/",
+            "?:/Config.Msi/", "?:/$$WinREAgent/", "?:/$$GetCurrent/", "?:/$$SysReset/", "?:/$$Windows.~BT/", "?:/$$Windows.~WS/",
+            "?:/Windows10Upgrade/", "?:/bootmgr", "?:/BOOTNXT", "?:/BOOTSECT.BAK", "?:/OneDriveTemp/",
+            "?:/Users/*/AppData/Local/Microsoft/WindowsApps/",
+        }, RecommendedFilters.AlwaysExcludedPatterns);
+    }
+
+    [Theory]
+    [InlineData("/Windows/", "?:/Windows/")]
+    [InlineData("/$RECYCLE.BIN/", "?:/$$RECYCLE.BIN/")]
+    [InlineData("Users/*/AppData/**/Cache/", "?:/Users/*/AppData/**/Cache/")]
+    [InlineData("InternalCache/", "?:/Users/*/AppData/**/InternalCache/")]
+    [InlineData("Logs/CrashReporter/", "?:/Users/*/AppData/**/Logs/CrashReporter/")]
+    [InlineData("AppData/Local/Microsoft/WindowsApps/", "?:/Users/*/AppData/Local/Microsoft/WindowsApps/")]
+    [InlineData("node_modules/", "node_modules/")]
+    [InlineData("ntuser.dat*", "ntuser.dat*")]
+    public void Recommended_rules_written_before_U151_take_the_approved_restic_form(string before, string after)
+        => Assert.Equal(after, RecommendedFilters.LegacyToRestic(before));
+
+    /// <summary>U148, U151: a rule from the top of the drive applies to a
+    /// folder on its way or inside it.</summary>
+    [Theory]
+    [InlineData("?:/Users/*/AppData/Local/Temp/", @"C:\", true)]
+    [InlineData("?:/Users/*/AppData/Local/Temp/", @"C:\Users\me", true)]
+    [InlineData("?:/Users/*/AppData/Local/Temp/", @"C:\Users\me\AppData\Local\Temp\x", false)] // it would leave out the whole backup
+    [InlineData("?:/Users/*/AppData/Local/Temp/", @"C:\Users\me\Dropbox", false)]
+    [InlineData("?:/Users/*/AppData/**/Cache/", @"C:\Users\me\AppData\Roaming\App", true)]
+    [InlineData("?:/Windows/", @"D:\Projects", false)]
+    [InlineData("?:/$$RECYCLE.BIN/", @"D:\", true)]
+    [InlineData("node_modules/", @"C:\Users\me\Dropbox", true)]
+    [InlineData("/home/*/.cache/", @"C:\", false)]
+    public void A_drive_rule_applies_to_folders_on_its_way_or_inside_it(string rule, string source, bool applies)
+        => Assert.Equal(applies, RecommendedFilters.AppliesTo(rule, new[] { source }));
 
     [Fact]
     public void ToSourceRelativePath_stripsDriveLetterAndForwardSlashes()
@@ -305,7 +369,10 @@ public class RecommendedFiltersTests
         Assert.Contains("/Recovery/", update.Remove);
         Assert.DoesNotContain(update.Add, p => p.Contains("Recovery"));
         Assert.Contains("Users/*/AppData/Local/Packages/", update.Remove);
-        Assert.Contains("/Config.Msi/", update.Add);
+        // Written before U151 from the top of the backed-up folder: offered in its restic form.
+        Assert.Contains("/pagefile.sys", update.Remove);
+        Assert.Contains("?:/pagefile.sys", update.Add);
+        Assert.Contains("?:/Config.Msi/", update.Add);
         Assert.Contains("node_modules/", update.Add);
         // The Windows system group was never chosen; nothing from it is offered.
         Assert.DoesNotContain("/Windows/", update.Add);
@@ -324,8 +391,9 @@ public class RecommendedFiltersTests
         Assert.Contains("mine/", lines);
         Assert.Contains("my-extra/", lines);
         Assert.Contains("/Users/me/Dropbox/", lines);
-        Assert.Contains("/Config.Msi/", lines);
+        Assert.Contains("?:/Config.Msi/", lines);
         Assert.DoesNotContain("Config.Msi/", lines);
+        Assert.DoesNotContain("/pagefile.sys", lines);
         // Recovery, anchored or not, is gone: a manufacturer may keep recovery files there.
         Assert.DoesNotContain(lines, l => l.Contains("Recovery"));
         Assert.True(RecommendedFilters.CheckForUpdates(updated).IsEmpty);
@@ -343,13 +411,10 @@ public class RecommendedFiltersTests
     }
 
     [Fact]
-    public void A_declined_essential_addition_is_not_brought_back_by_the_essentials_block()
+    public void A_declined_essential_addition_is_not_brought_back()
     {
-        // An essentials-only block from an earlier version, missing one essential.
         var missing = RecommendedFilters.EssentialPatterns.Last();
-        var saved = string.Join("\n", new[] { RecommendedFilters.EssentialBlockHeader }
-            .Concat(RecommendedFilters.EssentialPatterns.Where(p => p != missing))
-            .Append(RecommendedFilters.EssentialBlockFooter));
+        var saved = RecommendedFilters.RenderBlock(RecommendedFilters.EssentialPatterns.Where(p => p != missing).ToList());
         var all = RecommendedFilters.CheckForUpdates(saved);
         Assert.Contains(missing, all.Add);
 
@@ -358,9 +423,7 @@ public class RecommendedFiltersTests
         Assert.DoesNotContain(missing, declined.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()));
         Assert.True(RecommendedFilters.CheckForUpdates(declined, new[] { missing }).IsEmpty);
 
-        // Accepting it still renders the standard essentials block.
         var accepted = RecommendedFilters.ApplyUpdates(saved, all);
-        Assert.Contains(RecommendedFilters.EssentialBlockHeader, accepted);
         Assert.Contains(missing, accepted.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()));
     }
 

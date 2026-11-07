@@ -209,21 +209,20 @@ public sealed class SourceSizeProbe
     /// <summary>
     /// Counts what a backup of <paramref name="root"/> holds: files its
     /// exclusion rules leave out (a Dropbox folder, caches) are not counted,
-    /// nor are files kept only in the cloud, nor the files no backup ever
-    /// holds (pagefile.sys…). Excluded folders are not even read (U123,
-    /// 4 November 2026: C:\ showed 791 GB because its own rules were
-    /// ignored). Shared by the app and the background service.
+    /// nor are files kept only in the cloud. Without a backup's rules, the
+    /// essential exclusions a new backup gets apply (pagefile.sys…).
+    /// Excluded folders are not even read (U123, 4 November 2026: C:\ showed
+    /// 791 GB because its own rules were ignored). Shared by the app and the
+    /// background service.
     /// </summary>
     /// <returns>False when <paramref name="deadline"/> passed before the end.</returns>
     internal static bool CountIncluded(string root, SourceSizeRules rules, DateTime deadline, CancellationToken ct, Count count)
     {
-        var compiled = rules.HasRules ? FilterTranslator.CompileRules(FilterTranslator.ScopeToSource(rules.FiltersText, root)) : null;
+        var compiled = FilterTranslator.CompileRules(rules.Text);
         bool Excluded(string fullPath, bool directory)
-            => compiled is not null && FilterTranslator.Evaluate(compiled, TreeWalk.Relative(root, fullPath) + (directory ? "/" : "")).Excluded;
+            => compiled.Count > 0 && FilterTranslator.Evaluate(compiled, FilterTranslator.ResticPath(fullPath) + (directory ? "/" : "")).Excluded;
         return TreeWalk.Walk(root, (entry, _) =>
         {
-            // Never backed up (System Volume Information, pagefile.sys…), so never counted.
-            if (RecommendedFilters.IsAlwaysExcludedAtRoot(root, entry.FullPath, entry.IsDirectory)) return null;
             if (Excluded(entry.FullPath, entry.IsDirectory)) return null;
             if (entry.IsDirectory) return false;
             if (rules.SkipCloudOnly && TreeWalk.IsCloudOnly(entry.Attributes))
@@ -260,16 +259,21 @@ public sealed class SourceSizeProbe
 /// the cloud.</summary>
 public sealed record SourceSizeRules(string? FiltersText, bool SkipCloudOnly)
 {
-    /// <summary>Every file counted, except files no backup holds and cloud placeholders.</summary>
+    /// <summary>No backup yet: a new backup's essential exclusions
+    /// (pagefile.sys…) apply, and cloud placeholders are not counted.</summary>
     public static SourceSizeRules None { get; } = new(null, false);
 
-    public static SourceSizeRules For(Models.Backup backup) => new(backup.FiltersText, backup.ExcludeCloudFiles);
+    public static SourceSizeRules For(Models.Backup backup) => new(backup.FiltersText ?? "", backup.ExcludeCloudFiles);
 
     internal bool HasRules => !string.IsNullOrWhiteSpace(FiltersText);
 
+    /// <summary>The rules that apply: the backup's Filters text, as restic
+    /// reads it, or the essential block without a backup.</summary>
+    internal string Text => FiltersText ?? RecommendedFilters.AlwaysBlockText();
+
     // Identifies the rules in the cache without keeping long rule texts as keys.
-    internal string Key { get; } = (SkipCloudOnly ? "c" : "a") + (string.IsNullOrWhiteSpace(FiltersText) ? ""
-        : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(FiltersText.Replace("\r\n", "\n")))));
+    internal string Key { get; } = (SkipCloudOnly ? "c" : "a") + (FiltersText is null ? ""
+        : "t" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(FiltersText.Replace("\r\n", "\n")))));
 }
 
 /// <param name="Path">Folder probed.</param>

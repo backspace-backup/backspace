@@ -642,6 +642,8 @@ public sealed partial class OnboardingViewModel : ViewModelBase
                     cloud,
                     sourcePaths);
             }
+            // The essential exclusions, written into the rules (U151).
+            Working.FiltersText = RecommendedFilters.WithAlwaysBlock(Working.FiltersText);
 
             // Persist + register schedule.
             // Stamp the mode the user committed in so a future Edit

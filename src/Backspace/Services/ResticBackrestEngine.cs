@@ -590,8 +590,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         yield return "[setup] " + (previous is { } p
             ? $"Previous backup to «{destination.Name}»: {p.When.ToLocalTime():yyyy-MM-dd HH:mm}, snapshot {p.Id[..8]}. Only changes are sent."
             : $"No earlier backup of this folder in «{destination.Name}»: everything is read and sent.");
-        var translated = FilterTranslator.TranslateForSource(RecommendedFilters.WithAlwaysExcluded(backup.FiltersText), sourcePath);
-        var rules = WithoutRepeats(translated.Excludes).Count + WithoutRepeats(translated.IExcludes).Count;
+        var rules = FilterTranslator.ReadRules(backup.FiltersText).Count;
         static string N(int n) => n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
         yield return $"[setup] {N(rules)} exclusion rule{(rules == 1 ? "" : "s")} loaded"
             + (Services.Platform.PlatformInfo.IsWindows && backup.ExcludeCloudFiles ? "; files kept only in the cloud are skipped." : ".");
@@ -2664,6 +2663,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
         var planId = MakePlanId(backup, sourcePath, destination, storageName);
+        // Before every use of the plan: restic reads it when it starts.
+        WriteExcludeFile(planId, backup.FiltersText, ct);
 
         await new RcloneConfigBuilder(_secrets).EnsureDriveIdentityAsync(destination, ct, ServiceLocator.Config).ConfigureAwait(false);
         if (checkConnection)
@@ -3213,26 +3214,45 @@ public sealed class ResticBackrestEngine : IBackupEngine
         return kept;
     }
 
+    /// <summary>Where a plan's exclude file lives: the engine's per-computer
+    /// work folder (<see cref="EngineWorkPaths"/>), beside its other files.</summary>
+    internal static string ExcludeFilePath(string planId) => Path.Combine(EngineWorkPaths.Root, "filters", planId + ".txt");
+
+    /// <summary>Writes the backup's Filters text, unchanged, as the plan's
+    /// exclude file, which restic reads at the start of each run. Unchanged
+    /// contents are not rewritten.</summary>
+    internal static string WriteExcludeFile(string planId, string? filtersText, CancellationToken ct = default)
+    {
+        var path = ExcludeFilePath(planId);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var bytes = new System.Text.UTF8Encoding(false).GetBytes(filtersText ?? "");
+        if (File.Exists(path) && FileAccessRetry.Get(() => File.ReadAllBytes(path), path, ct: ct).AsSpan().SequenceEqual(bytes)) return path;
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        File.WriteAllBytes(temporary, bytes);
+        try { FileAccessRetry.Run(() => File.Move(temporary, path, overwrite: true), path, ct: ct); }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        return path;
+    }
+
     internal static BackrestPlan BuildPlanFromBackup(string planId, string repoId, Backup backup, string sourcePath)
     {
         var paths = new List<string> { sourcePath };
-        // FilterTranslator turns Backspace's filter text (a superset of
-        // Duplicacy + native syntax) into the two-list shape Backrest /
-        // restic actually consumes. The earlier hand-rolled parser
-        // silently dropped every Duplicacy-style `e:` line — which
-        // meant RecommendedFilters and any imported Duplicacy filters
-        // were no-ops, and backups ran without the exclusions the user
-        // thought they'd applied.
-        // Useless-in-any-restore files are excluded whatever the filter text says (U106).
-        var translated = FilterTranslator.TranslateForSource(RecommendedFilters.WithAlwaysExcluded(backup.FiltersText), sourcePath);
+        // The Filters text is restic's exclude file, handed over unchanged
+        // (U151): --iexclude-file on Windows, --exclude-file elsewhere. Not
+        // as --iexclude arguments: restic expands $NAME in an exclude file
+        // (a literal $ is written $$) but not in an argument, so the same
+        // text would mean something else. Backrest splits each flag like a
+        // shell, so the path is quoted.
         var backupFlags = BuildBackupFlags(backup);
+        backupFlags.Add(FilterTranslator.ExcludeFileFlag);
+        backupFlags.Add(QuoteArg(ExcludeFilePath(planId)));
         return new BackrestPlan
         {
             Id = planId,
             Repo = repoId,
             Paths = paths,
-            Excludes = WithoutRepeats(translated.Excludes),
-            IExcludes = WithoutRepeats(translated.IExcludes),
+            Excludes = new(),
+            IExcludes = new(),
             BackupFlags = backupFlags,
             // Backrest 1.13's Forget RPC refuses to run without a
             // retention policy on the plan ("forget called with nil
@@ -3339,15 +3359,6 @@ public sealed class ResticBackrestEngine : IBackupEngine
     /// list.</summary>
     internal static string ResticUriFor(Destination destination)
         => ResticUriResolver.Resolve(destination, secrets: new SecretsStore(), rcloneConfigPath: RcloneConfigBuilder.DefaultPath).Uri;
-
-    // Exclude parsing previously lived inline here as a hand-rolled
-    // single-format parser that only recognised the `-glob` shape.
-    // RecommendedFilters and any Duplicacy-imported filter files use
-    // `e:(?i)regex` patterns, so every one of those lines was silently
-    // no-op'd before restic ever saw them. Translation now lives in
-    // <see cref="FilterTranslator"/> — a single shared parser used
-    // here and by the preview path in FilterSimulator so the two
-    // can't diverge again.
 
     private static string Slug(string input)
     {

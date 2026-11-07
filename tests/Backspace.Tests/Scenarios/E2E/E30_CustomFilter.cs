@@ -16,9 +16,9 @@ namespace Backspace.Tests.Scenarios.E2E;
 
 /// <summary>
 /// Custom exclude-filter against the real engine: a backup with a
-/// non-default <c>FiltersText</c> must propagate the negative globs
-/// into the Backrest plan's <c>Excludes</c> field AND the resulting
-/// restic invocation must actually skip the excluded files. Both
+/// non-default <c>FiltersText</c> must reach restic (as its exclude file,
+/// since U151) AND the resulting restic invocation must actually skip
+/// the excluded files. Both
 /// halves of the contract matter: the filter could round-trip into
 /// config but be applied at the wrong layer; or the filter could
 /// apply but not survive the SetConfig drift check, replicating on
@@ -41,8 +41,10 @@ public sealed class E30_CustomFilter : BackupE2EBase
 
     protected override async Task RunE2EAsync(ScenarioContext ctx, RealEngineFixture fixture)
     {
-        // The excluded name is deliberately also an ancestor. Only matching
-        // children of this selected source may be excluded; brackets are literal.
+        // The excluded name is deliberately also an ancestor. Restic reads a
+        // bare "skip" anywhere in the full path, the ancestor included (U151);
+        // the rules below name this source's own skip/ and root-only.txt from
+        // the top of the drive, with the brackets of tree[1] escaped.
         var sourceRoot = Path.Combine(ctx.SourcesDir, "skip", "tree[1]");
         var keepDir    = Path.Combine(sourceRoot, "keep");
         var skipDir    = Path.Combine(sourceRoot, "skip");
@@ -69,6 +71,8 @@ public sealed class E30_CustomFilter : BackupE2EBase
         var destPath   = ctx.MakeLocalDestination("filter-local");
         var restoreDir = ctx.MakeRestoreTarget("restored");
 
+        var top = DuplicacyFilterConverter.Prefixes(new[] { sourceRoot })[0];
+        Assert.Contains("tree[[]1]", top);
         var dest = new Destination
         {
             Name = "Local — filter target",
@@ -81,10 +85,8 @@ public sealed class E30_CustomFilter : BackupE2EBase
         {
             Name = "Filtered docs (E30)",
             SourcePaths = { sourceRoot },
-            // Restic-native filter: one bare glob per line. "skip" is
-            // unanchored so restic --exclude treats it as "directory
-            // or file named skip, anywhere in the tree".
-            FiltersText = "skip\n/root-only.txt",
+            // restic's own syntax, handed to restic unchanged (U151).
+            FiltersText = top + "/skip/\n" + top + "/root-only.txt",
             UseVss = false, VssDisabledAcknowledged = true,
             // Non-null sentinels suppress inline prune/check.
             PruneSchedule = new BackupSchedule(),
@@ -101,7 +103,14 @@ public sealed class E30_CustomFilter : BackupE2EBase
         var preview = new System.Collections.Generic.List<SimulatedEntry>();
         await new FilterSimulator().SimulateAsync(backup, preview.Add, CancellationToken.None);
         Assert.Contains(preview, e => e.Included && e.Path.EndsWith("k00.txt"));
-        Assert.Contains(preview, e => !e.Included && e.MatchingRule == "/root-only.txt");
+        Assert.Contains(preview, e => !e.Included && e.MatchingRule == top + "/root-only.txt");
+        Assert.Contains(preview, e => e.Included && e.Path == Path.Combine(keepDir, "root-only.txt"));
+        // The same name without its anchor is restic's "skip anywhere": the
+        // ancestor named skip takes the whole source with it.
+        var floating = new System.Collections.Generic.List<SimulatedEntry>();
+        await new FilterSimulator().SimulateAsync(new Backup { SourcePaths = { sourceRoot }, FiltersText = "skip" }, floating.Add, CancellationToken.None);
+        Assert.NotEmpty(floating);
+        Assert.All(floating, e => Assert.False(e.Included, e.Path));
 
         var view = new BackupsView { DataContext = new BackupsViewModel() };
         var host = new Window { Width = 1100, Height = 760, Content = view };
@@ -139,6 +148,6 @@ public sealed class E30_CustomFilter : BackupE2EBase
             $"skip/ subtree leaked into restore at '{restoredSkipDir}' — the filter didn't apply.");
         Assert.False(File.Exists(Path.Combine(restoreDir, "root-only.txt")));
         AssertBytesEqual(keepDir, Path.Combine(restoreDir, "keep"), ctx);
-        ctx.Report.RecordNote("Source-relative exclusion proof", "Preview and real backup both retained files beneath a parent named skip and a source with literal brackets. Recovery retained the nested root-only.txt, omitted its root-level namesake, and omitted the excluded skip subtree.");
+        ctx.Report.RecordNote("Source-relative exclusion proof", "Preview and real backup both retained files beneath a parent named skip and a source with literal brackets, with the rules written from the top of the drive (U151). Recovery retained the nested root-only.txt, omitted its root-level namesake, and omitted the excluded skip subtree.");
     }
 }

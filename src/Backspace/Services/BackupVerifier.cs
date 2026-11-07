@@ -541,7 +541,7 @@ public sealed class BackupVerifier
                 if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
                 var relative = Path.GetRelativePath(sourceRoot, entry).Replace('\\', '/');
                 var isDirectory = (attributes & FileAttributes.Directory) != 0;
-                if (SavingsEstimator.IsExcluded(rules, relative + (isDirectory ? "/" : ""))) continue;
+                if (SavingsEstimator.IsExcluded(rules, FilterTranslator.ResticPath(entry) + (isDirectory ? "/" : ""))) continue;
                 if (isDirectory) { stack.Push(entry); continue; }
                 if (known.Contains(relative)) continue;
                 var file = new FileInfo(entry);

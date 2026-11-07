@@ -130,10 +130,15 @@ public sealed class ConfigStore
                     // it consumed a legacy field; persist immediately
                     // so the next load deserializes the canonical shape.
                     var migrated = MigrateLegacyNotificationModel(_current);
-                    if (migrated)
+                    // Duplicacy filter lines become plain restic rules once
+                    // (U151); converted text holds none, so this runs once.
+                    var converted = DuplicacyFilterConverter.ConvertStored(_current);
+                    if (converted.Count > 0)
+                        _log.Information("Converted the Duplicacy filters of {Backups} to restic rules", string.Join(", ", converted));
+                    if (migrated || converted.Count > 0)
                     {
                         try { Save_NoLock(); }
-                        catch (Exception ex) { _log.Warning(ex, "Persisting notification-model migration failed (will retry next save)"); }
+                        catch (Exception ex) { _log.Warning(ex, "Persisting a settings conversion failed (will retry next save)"); }
                     }
                 }
                 catch (JsonException ex)

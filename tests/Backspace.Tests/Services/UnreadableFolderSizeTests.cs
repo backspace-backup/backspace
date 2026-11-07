@@ -142,27 +142,27 @@ public sealed class UnreadableFolderSizeTests
         Assert.Throws<InvalidDataException>(() => Parse(new { version = 1, command = "measure-result", runId = "not-an-id" }));
     }
 
-    /// <summary>U106 follow-up: System Volume Information, the page and
-    /// hibernation files and the other files useless in any restore are never
-    /// backed up, whatever a backup's filter text says, and never counted.</summary>
+    /// <summary>U106 follow-up, U151: System Volume Information, the page and
+    /// hibernation files and the other files useless in any restore are in
+    /// the essential block every backup's text carries, last, and a folder
+    /// counted before there is a backup leaves them out too.</summary>
     [Fact]
-    public async Task Useless_system_files_are_always_excluded_and_never_counted()
+    public async Task Useless_system_files_are_excluded_by_the_essential_block_and_not_counted()
     {
-        // An imported backup with no filters at all still excludes them.
-        var plan = ResticBackrestEngine.BuildPlanFromBackup("plan", "repo", new Backspace.Models.Backup { FiltersText = "" }, @"C:\");
-        var all = string.Join("\n", plan.Excludes.Concat(plan.IExcludes));
-        foreach (var name in new[] { "System Volume Information", "pagefile.sys", "hiberfil.sys", "swapfile.sys" })
-            Assert.Contains(name, all);
-        Assert.Equal(plan.IExcludes.Count, plan.IExcludes.Distinct().Count());
+        if (!OperatingSystem.IsWindows()) return;
+        var all = RecommendedFilters.AlwaysBlockText();
+        var rules = FilterTranslator.CompileRules(all);
+        foreach (var path in new[] { "C:/System Volume Information/tracking.log", "C:/pagefile.sys", "D:/hiberfil.sys", "C:/swapfile.sys", "C:/OneDriveTemp/x" })
+            Assert.True(FilterTranslator.Evaluate(rules, path).Excluded, path);
         // OneDrive's scratch only at the top of the drive, never a folder of that name anywhere.
-        Assert.Contains("C:/OneDriveTemp/", all);
-        Assert.DoesNotContain("**/OneDriveTemp", all);
-        // Things someone may want back are only recommended, never forced.
-        foreach (var name in new[] { "Windows.old", "$RECYCLE.BIN", "Recovery", "ntuser.dat", "UsrClass.dat", "/Windows/" })
+        Assert.False(FilterTranslator.Evaluate(rules, "C:/Users/me/OneDriveTemp/x").Excluded);
+        Assert.False(FilterTranslator.Evaluate(rules, "C:/Users/me/pagefile.sys").Excluded);
+        // Things someone may want back are only recommended, never in this block.
+        foreach (var name in new[] { "Windows.old", "RECYCLE.BIN", "Recovery", "ntuser.dat", "UsrClass.dat", "?:/Windows/" })
             Assert.DoesNotContain(name, all);
-        // A rule in the text can't bring them back: the essentials come last.
-        var withNegation = ResticBackrestEngine.BuildPlanFromBackup("plan", "repo", new Backspace.Models.Backup { FiltersText = "!/hiberfil.sys" }, @"C:\");
-        Assert.EndsWith("hiberfil.sys", withNegation.IExcludes.Concat(withNegation.Excludes).Last(p => p.Contains("hiberfil")));
+        // The block ends a new backup's text, so no earlier rule brings them back.
+        var text = RecommendedFilters.WithAlwaysBlock("!?:/hiberfil.sys\n");
+        Assert.True(FilterTranslator.Evaluate(FilterTranslator.CompileRules(text), "C:/hiberfil.sys").Excluded);
 
         using var workspace = new TempWorkspace("essential-size", vault: false);
         File.WriteAllBytes(Path.Combine(workspace.Root, "pagefile.sys"), new byte[5000]);
@@ -175,8 +175,5 @@ public sealed class UnreadableFolderSizeTests
         var size = await new SourceSizeProbe().GetOrComputeAsync(workspace.Root, CancellationToken.None);
         Assert.Equal(12111, size.Bytes);
         Assert.Equal(4, size.FileCount);
-        Assert.True(RecommendedFilters.IsAlwaysExcludedAtRoot(@"C:\", @"C:\System Volume Information", isDirectory: true));
-        Assert.False(RecommendedFilters.IsAlwaysExcludedAtRoot(@"C:\", @"C:\System Volume Information", isDirectory: false));
-        Assert.False(RecommendedFilters.IsAlwaysExcludedAtRoot(@"C:\", @"C:\Users\me\pagefile.sys", isDirectory: false));
     }
 }

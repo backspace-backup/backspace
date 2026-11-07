@@ -42,14 +42,21 @@ the Advanced editor's recommended filters and restores its source from beneath
 a `temp` ancestor. E30 checks a source beneath an excluded ancestor, literal
 brackets in the source name, and a root-only exclusion with a nested namesake
 that must survive. E54 confirms that an edited exclusion reaches an existing
-Backrest plan and does not change older snapshots. The preview uses paths
-relative to each selected source; engine patterns must bind to that same source
-before restic evaluates absolute paths.
+Backrest plan and does not change older snapshots. Restic gets the Filters
+text unchanged as its exclude file, and the preview reads it the same way, on
+full paths (U151).
 
-E57 compares the preview and savings estimate with an actual backup and
-byte-verified recovery. Its filters include character classes, literal brackets,
-ordered `!` exceptions and a bare directory name. The assertions require both
-the included files and the excluded files to agree across all three paths.
+E57 compares the preview and savings estimate with restic's own
+`backup --dry-run -vv` run directly with the same exclude file, an actual
+backup and byte-verified recovery, for three backups: character classes,
+literal brackets, ordered `!` exceptions and a bare directory name; restic's
+syntax (`?:/` for the top of the drive, `$$`, `$USERNAME`, `**`, a trailing
+`/`, a plain leading `/`); and a stored Duplicacy filter converted when the
+settings load. The assertions require both the included files and the
+excluded files to agree across every path. `DuplicacyFilterConverterTests`
+converts the owner's three approved backups byte for byte
+(`Services/Fixtures/U151`, kept exact by `.gitattributes`); S90 shows the
+converted local_c in the editor after a settings load.
 
 `RunHistoryFileTests` exercises actual Windows replacement locks, bounded
 retry exhaustion, recovery after an interrupted rename, an undeletable old
@@ -895,6 +902,8 @@ older scenario comments that describe broader coverage.
 | Apply recommended block | `RecommendedFiltersTests` plus `S56_EditorModeAndApply`: actual Apply pointer clicks preserve custom rules above generated rules and are idempotent across Easy/Advanced mode switches | ✅ |
 | Custom-block markers placed above generated | `S30_CustomExclusionMarkerPlacement` asserts merged strings, legacy-rule preservation and idempotence; no rendered editor in S30 | ✅ |
 | Filter simulation pane (Simulate button) | `S40_FilterSimulationPane` | ✅ |
+| Simulate, estimate and real restic agree | `E57_CustomFilterParity` (restic `--dry-run` with the same exclude file, real backup and recovery) | ✅ |
+| Duplicacy rules converted once at load | `DuplicacyFilterConverterTests` (byte-for-byte against the approved texts), `S90_DuplicacyRulesConvertedOnce`, E57 part 3 | ✅ |
 
 ### Settings
 

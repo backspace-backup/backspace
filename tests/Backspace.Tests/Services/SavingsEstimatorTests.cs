@@ -7,6 +7,8 @@ using Xunit;
 
 namespace Backspace.Tests.Services;
 
+/// <summary>The estimate reads the rules as restic reads the exclude file
+/// and matches full paths (U151).</summary>
 public class SavingsEstimatorTests
 {
     [Fact]
@@ -18,7 +20,7 @@ public class SavingsEstimatorTests
         Directory.CreateDirectory(Path.Combine(tmp.Path, "Cache"));
         File.WriteAllBytes(Path.Combine(tmp.Path, "Cache", "x.bin"), new byte[2000]);
 
-        var filters = "e:(?i)\\.tmp$\ne:(?i)(^|/)Cache/";
+        var filters = "*.tmp\nCache/";
 
         var est = new SavingsEstimator();
         var r = await est.ComputeAsync(new[] { tmp.Path }, filters, CancellationToken.None);
@@ -42,18 +44,13 @@ public class SavingsEstimatorTests
     }
 
     [Fact]
-    public async Task ComputeAsync_IncludeLine_silentlyDropped_underResticContract()
+    public async Task ComputeAsync_an_exception_before_its_exclusion_changes_nothing()
     {
         using var tmp = new TempDir();
         File.WriteAllBytes(Path.Combine(tmp.Path, "junk.tmp"), new byte[200]);
 
-        // The filter language is restic-native: there's an exclude
-        // list, full stop — no "i:" include override that re-rescues
-        // an excluded path. The translator silently drops legacy
-        // Duplicacy "i:" lines so an imported config keeps loading,
-        // but the resulting rule set behaves exactly the way restic
-        // would: the exclude wins.
-        var filters = "e:(?i)\\.tmp$\ni:(?i)^junk\\.tmp$";
+        // As in restic, the last matching rule decides.
+        var filters = "!" + Top(tmp.Path) + "/junk.tmp\n*.tmp";
 
         var est = new SavingsEstimator();
         var r = await est.ComputeAsync(new[] { tmp.Path }, filters, CancellationToken.None);
@@ -65,21 +62,18 @@ public class SavingsEstimatorTests
     [Fact]
     public async Task ComputeAsync_dirExclusion_winsOverFileLevelInclude()
     {
-        // Mirrors actual restic semantics: once a directory is
-        // excluded, its contents are not scanned. An `i:` rule that
-        // names a specific file inside the excluded dir has no effect
-        // (matching restic's behaviour, not just "what we'd like").
+        // Mirrors actual restic semantics: once a directory is excluded,
+        // its contents are not scanned. A ! rule that names a file inside
+        // the excluded dir has no effect.
         using var tmp = new TempDir();
         Directory.CreateDirectory(Path.Combine(tmp.Path, "AppData", "Local"));
         File.WriteAllBytes(Path.Combine(tmp.Path, "AppData", "Local", "important.bin"), new byte[500]);
 
-        var filters = "e:(?i)^AppData/\ni:(?i)^AppData/Local/important\\.bin$";
+        var filters = Top(tmp.Path) + "/AppData/\n!" + Top(tmp.Path) + "/AppData/Local/important.bin";
 
         var est = new SavingsEstimator();
         var r = await est.ComputeAsync(new[] { tmp.Path }, filters, CancellationToken.None);
 
-        // AppData/ is excluded as a whole; the include can't reach into
-        // a pruned subtree. Total under AppData = 500 → ExcludedBytes.
         Assert.Equal(500, r.ExcludedBytes);
         Assert.Equal(0, r.IncludedBytes);
     }
@@ -99,7 +93,7 @@ public class SavingsEstimatorTests
         }
         File.WriteAllBytes(Path.Combine(tmp.Path, "keep.txt"), new byte[50]);
 
-        var filters = "e:(?i)^skip/";
+        var filters = Top(tmp.Path) + "/skip/";
 
         var est = new SavingsEstimator();
         var r = await est.ComputeAsync(new[] { tmp.Path }, filters, CancellationToken.None);
@@ -115,12 +109,7 @@ public class SavingsEstimatorTests
         File.WriteAllBytes(Path.Combine(tmp.Path, "a.log"), new byte[10]);
         File.WriteAllBytes(Path.Combine(tmp.Path, "b.txt"), new byte[20]);
 
-        // restic-native glob: bare line, no prefix. The old
-        // Duplicacy-style "-*.log" prefix isn't recognised any more
-        // because the filter language is restic — one glob per line,
-        // matching `restic --exclude` / `--iexclude` directly. Importers
-        // translate Duplicacy regex via "e:" prefixes; bare lines are
-        // already in the final form.
+        // restic's own syntax: one rule per line, as in its exclude file.
         var filters = "*.log";
 
         var est = new SavingsEstimator();
@@ -132,9 +121,12 @@ public class SavingsEstimatorTests
     [Fact]
     public void IsExcluded_nonMatchingPath_defaultsToIncluded()
     {
-        var rules = SavingsEstimator.ParseRules("e:(?i)^something-else/");
-        Assert.False(SavingsEstimator.IsExcluded(rules, "Documents/letter.docx"));
+        var rules = SavingsEstimator.ParseRules("?:/something-else/");
+        Assert.False(SavingsEstimator.IsExcluded(rules, "C:/Documents/letter.docx"));
     }
+
+    /// <summary>The folder as a restic rule writes it (?:/… on Windows).</summary>
+    private static string Top(string folder) => DuplicacyFilterConverter.Prefixes(new[] { folder })[0];
 
     private sealed class TempDir : IDisposable
     {

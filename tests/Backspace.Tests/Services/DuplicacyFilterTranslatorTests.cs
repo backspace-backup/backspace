@@ -9,7 +9,7 @@ namespace Backspace.Tests.Services;
 
 /// <summary>
 /// Imported Duplicacy filters must back up exactly what Duplicacy did (U054).
-/// Each case compares the translated restic rules with Duplicacy's own
+/// Each case compares the converted restic rules (U151) with Duplicacy's own
 /// first-match rule (MatchPath in duplicacy_utils.go) on the same paths,
 /// skipping below excluded folders as both engines do. The 31 October 2026
 /// dry run on the maintainer's C: drive found the earlier translation backing
@@ -74,22 +74,51 @@ public sealed class DuplicacyFilterTranslatorTests
         "Backups/OldPC/Users/bob/AppData/Local/Cache/x", "Backups/OldPC/Users/bob/AppData/Local/Google/Chrome/User Data/Default/History",
     };
 
+    /// <summary>The converted text (U151), as restic reads it on a backup of C:\.</summary>
+    private static string Converted => DuplicacyFilterConverter.Convert(Filters, new[] { @"C:\" });
+
+    private static List<FilterTranslator.CompiledRule> Rules(string text) => FilterTranslator.CompileRules(text, ignoreCase: true);
+
+    private static bool ExcludedOnC(List<FilterTranslator.CompiledRule> rules, string relative)
+        => FilterTranslator.Evaluate(rules, "C:/" + relative).Excluded;
+
     [Fact]
-    public void Translated_rules_keep_Duplicacys_decision_for_every_path()
+    public void Converted_rules_keep_Duplicacys_decision_for_every_path()
     {
-        var untranslated = new List<string>();
-        var translated = FilterTranslator.Translate(Filters, defaultsToCaseInsensitive: true, untranslated);
-        Assert.Empty(untranslated);
-        var rules = FilterTranslator.CompileRules(Filters);
+        var converted = Converted;
+        Assert.DoesNotContain("# Not converted", converted);
+        var rules = Rules(converted);
         var reference = DuplicacyReference.Parse(Filters);
         // Restic cannot tell a file from a folder: a file lying directly in a
-        // folder that Duplicacy keeps only as a folder is kept too.
-        var knownRestic = new HashSet<string> { "Program Files/desktop.ini" };
+        // folder that Duplicacy keeps only as a folder is kept too. And one
+        // list ignores case or not: on Windows the e:\.*DS_Store line, which
+        // has no (?i), ignores case too; and "/node_modules/" (below some
+        // folder) becomes */**/node_modules/*, where the drive counts as that
+        // folder (both approved 6 November 2026).
+        var knownRestic = new HashSet<string> { "Program Files/desktop.ini", "Mac/.ds_store", "node_modules/x.js" };
         var differences = Paths.Where(p => !knownRestic.Contains(p))
-            .Where(p => Included(p, path => !reference.Included(path)) != Included(p, path => FilterTranslator.Evaluate(rules, path).Excluded))
+            .Where(p => Included(p, path => !reference.Included(path)) != Included(p, path => ExcludedOnC(rules, path)))
             .Select(p => $"{p}: Duplicacy {(Included(p, path => !reference.Included(path)) ? "keeps" : "skips")}")
             .ToList();
-        Assert.True(differences.Count == 0, string.Join("\n", differences) + "\n\n" + string.Join("\n", translated.IExcludes));
+        Assert.True(differences.Count == 0, string.Join("\n", differences) + "\n\n" + converted);
+    }
+
+    /// <summary>A backup of a folder: "^X" is X at the top of that folder,
+    /// written from the top of the drive with the folder's path.</summary>
+    [Fact]
+    public void Converted_rules_tied_to_a_backed_up_folder_keep_Duplicacys_decision()
+    {
+        var anchored = string.Join("\n", Filters.Split('\n').Select(l => l.Trim())
+            .Where(l => l.Contains('^') && !l.Contains("(^|/)", StringComparison.Ordinal)));
+        var rules = Rules(DuplicacyFilterConverter.Convert(anchored, new[] { @"C:\Users\me\Dropbox" }));
+        var reference = DuplicacyReference.Parse(anchored);
+        var differences = Paths.Where(p => p != "Program Files/desktop.ini")
+            .Where(p => Included(p, path => !reference.Included(path))
+                != Included(p, path => FilterTranslator.Evaluate(rules, "C:/Users/me/Dropbox/" + path).Excluded))
+            .ToList();
+        Assert.Empty(differences);
+        // The same names elsewhere on the drive are not this backup's.
+        Assert.False(FilterTranslator.Evaluate(rules, "C:/Windows/System32/x.dll").Excluded);
     }
 
     [Theory]
@@ -103,21 +132,30 @@ public sealed class DuplicacyFilterTranslatorTests
     [InlineData("Backups/OldPC/Users/bob/AppData/Local/Cache/x", true)]
     public void The_regressions_found_on_the_maintainers_drives_are_fixed(string path, bool backedUp)
     {
-        var rules = FilterTranslator.CompileRules(Filters);
-        Assert.Equal(backedUp, Included(path, p => FilterTranslator.Evaluate(rules, p).Excluded));
+        var rules = Rules(Converted);
+        Assert.Equal(backedUp, Included(path, p => ExcludedOnC(rules, p)));
     }
 
-    /// <summary>U151: a Duplicacy rule "^Users/…" reaches restic anchored at the
-    /// drive's top, as Duplicacy meant it; Backspace's own "Users/*/…" rules
-    /// (no leading "/") are not anchored today.</summary>
+    /// <summary>U151: a Duplicacy rule "^Users/…" becomes a rule from the top
+    /// of the drive, as Duplicacy meant it for a backup of C:\.</summary>
     [Fact]
     public void Anchored_duplicacy_rules_bind_to_the_top_of_the_drive()
     {
-        var result = FilterTranslator.TranslateForSource("e:(?i)^Users/[^/]+/AppData/Local/Temp/\nUsers/*/AppData/Local/Pip/", @"C:\");
-        var all = result.Excludes.Concat(result.IExcludes).ToList();
-        Assert.Contains(all, g => g.StartsWith("C:/Users/", StringComparison.Ordinal) && g.Contains("Temp", StringComparison.Ordinal));
-        Assert.DoesNotContain(all, g => g.Contains("Temp", StringComparison.Ordinal) && g.Contains("**", StringComparison.Ordinal));
-        Assert.Contains(all, g => g.StartsWith("C:/**/Users/", StringComparison.Ordinal) && g.Contains("Pip", StringComparison.Ordinal));
+        var text = DuplicacyFilterConverter.Convert("e:(?i)^Users/[^/]+/AppData/Local/Temp/", new[] { @"C:\" });
+        Assert.Contains("?:/Users/*/AppData/Local/Temp/*", text.Split('\n'));
+        var rules = Rules(text);
+        Assert.True(FilterTranslator.Evaluate(rules, "C:/Users/me/AppData/Local/Temp/x").Excluded);
+        Assert.False(FilterTranslator.Evaluate(rules, "C:/Backups/OldPC/Users/bob/AppData/Local/Temp/x").Excluded);
+    }
+
+    [Fact]
+    public void An_exclude_before_an_include_still_wins_and_after_it_does_not()
+    {
+        var first = Rules(DuplicacyFilterConverter.Convert("e:(?i)\\.tmp$\ni:(?i)^keep\\.tmp$", new[] { @"C:\" }));
+        Assert.True(FilterTranslator.Evaluate(first, "C:/keep.tmp").Excluded);
+        var second = Rules(DuplicacyFilterConverter.Convert("i:(?i)^keep\\.tmp$\ne:(?i)\\.tmp$", new[] { @"C:\" }));
+        Assert.False(FilterTranslator.Evaluate(second, "C:/keep.tmp").Excluded);
+        Assert.True(FilterTranslator.Evaluate(second, "C:/other.tmp").Excluded);
     }
 
     /// <summary>U152: an imported rule built to explode cannot hang backups.</summary>
@@ -134,16 +172,6 @@ public sealed class DuplicacyFilterTranslatorTests
         var result = FilterTranslator.Evaluate(rules, new string('a', 5000));
         Assert.False(result.Excluded);
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"matching took {watch.Elapsed}");
-    }
-
-    [Fact]
-    public void An_exclude_before_an_include_still_wins_and_after_it_does_not()
-    {
-        var first = FilterTranslator.CompileRules("e:(?i)\\.tmp$\ni:(?i)^keep\\.tmp$");
-        Assert.True(FilterTranslator.Evaluate(first, "keep.tmp").Excluded);
-        var second = FilterTranslator.CompileRules("i:(?i)^keep\\.tmp$\ne:(?i)\\.tmp$");
-        Assert.False(FilterTranslator.Evaluate(second, "keep.tmp").Excluded);
-        Assert.True(FilterTranslator.Evaluate(second, "other.tmp").Excluded);
     }
 
     [Theory]
