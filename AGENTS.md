@@ -80,6 +80,18 @@ then record the findings and review date in R007. This is an instruction for
 the next agent, not a ChatGPT task or other scheduled automation. Do not
 create a scheduler job for it.
 
+**Next-agent reminder — check whether Backspace still needs its own restic,
+on the same date (12 January 2027) and at each restic upgrade.** Backspace's
+Windows restic carries two patches (engine/restic/README.md): 0001 is
+restic PR #22165 (faster exclusion matching, U137) and 0002 is restic
+PR #22134 (two `**` in one rule, restic issue #22131, U151). Check whether
+each PR has merged and whether a stable restic release contains it. When a
+release contains both, follow "When to remove it" in engine/restic/README.md:
+pin that release, drop `resticBackspace` and the patches, make Simulate use
+the fixed matching on every platform (`FilterTranslator.ResticMatch`),
+and run the filter parity scenario (E57). Record the check and its date in
+U151 (and U137 for 0001). Same rule as above: no scheduler job.
+
 The dashboard and its JSON stay Git-excluded at the user's request.
 Copy them separately when moving this checkout. Start the desk with
 `Launch-Audit-Dashboard.bat`; its local README documents recovery and the API.
