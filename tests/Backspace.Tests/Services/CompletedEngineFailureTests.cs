@@ -255,11 +255,8 @@ public sealed class CompletedEngineFailureTests
         }
     }
 
-    /// <summary>Every file of the folder with its hash, leaving out the guard
-    /// files Backspace keeps open while the engine may still work there
-    /// (U152): they are not repository content and vanish when released.</summary>
+    /// <summary>Every file of the folder with its hash.</summary>
     private static System.Collections.Generic.Dictionary<string, string> Contents(string folder) =>
         Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
-            .Where(file => !Path.GetFileName(file).StartsWith(Backspace.Services.Platform.Windows.RepositoryHold.GuardPrefix, StringComparison.Ordinal))
             .ToDictionary(file => file, file => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))));
 }

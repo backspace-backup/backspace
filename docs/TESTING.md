@@ -159,20 +159,10 @@ that acquire protocol monitors: SDK 10.0.401 reused the monitor-cleanup flag
 in a rejected filter. The isolated reproduction and compiled-code evidence
 are attached to N046 in the local Review desk. CI runs the Release subset.
 
-`ServicePathLeaseTests` uses actual Windows directory handles. It attempts to
-rename both a source and its parent, edits and atomically replaces child files,
-rejects real junctions at the source and in an ancestor, and verifies that
-failure releases acquired handles. A native junction mutation fails while
-the terminal guard is held and succeeds on the same directory after release.
-Guard deletion and renaming must fail while held, and the marker must disappear
-after release. Post-release cleanup allows a bounded two-second settling period
-for filesystem filters; rejection assertions during the lease are immediate.
-All fixture paths are disposable. These
-checks do not claim a running production service or network-path coverage.
 
 `ServiceWorkerTests` verifies that approved settings replace obsolete plans
-without replacing newer backup/recovery outcomes, that local sources and
-repositories both require path leases, and that unsupported network/removable
+without replacing newer backup/recovery outcomes, and that unsupported
+network/removable
 paths fail admission. An ordinary test process cannot claim the service's VSS
 capability. Native acceptance must additionally run the actual Backspace
 worker as the isolated VM's virtual service identity, exercise a locked source,

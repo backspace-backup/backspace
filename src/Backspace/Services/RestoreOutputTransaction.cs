@@ -19,14 +19,6 @@ internal sealed class RestoreOutputTransaction
         /// <summary>The restore folder this item belongs to.</summary>
         public string Root { get; init; } = "";
     }
-    /// <summary>The recovery folders, and the folders above them, held until
-    /// the restore is finished (U152).</summary>
-    private readonly List<IDisposable> _holds = new();
-    /// <summary>Also called by a test restore before it deletes its own
-    /// temporary folder: the output there is finished (rolled back or
-    /// committed) only after that, and a held recovery folder could not be
-    /// deleted meanwhile.</summary>
-    internal void ReleaseHolds() { foreach (var hold in _holds) hold.Dispose(); _holds.Clear(); }
     /// <summary>Where each restore folder really was when publishing began.</summary>
     private readonly Dictionary<string, string> _locations = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly List<Entry> _entries = new();
@@ -61,14 +53,6 @@ internal sealed class RestoreOutputTransaction
         {
             recovery = Path.Combine(targetRoot, ".backspace-undo-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(recovery); _roots.Add(targetRoot, recovery);
-#if WINDOWS
-            // Held, with the folders above it, until the restore is finished:
-            // another account can't swap it, or the restore folder, for a link
-            // between two files (U152). A network share's folders can't lead
-            // to this PC's files, and aren't held.
-            if (!recovery.StartsWith(@"\\", StringComparison.Ordinal))
-                _holds.Add(Platform.Windows.ServicePathLease.Acquire(new[] { Path.GetFullPath(recovery) }, ct));
-#endif
         }
         var directoryLink = (File.GetAttributes(staged) & FileAttributes.Directory) != 0;
         string fingerprint = "";
@@ -116,7 +100,6 @@ internal sealed class RestoreOutputTransaction
         if (_finished) return;
         if (_entries.Any(e => !e.Published && e.Original is not null && File.Exists(e.Original)))
         {
-            ReleaseHolds();
             throw new IOException("An original file needs recovery. Its copy and path map are preserved in " + string.Join(", ", _roots.Values));
         }
         // Completed files remain at their requested locations. Originals were
@@ -154,8 +137,7 @@ internal sealed class RestoreOutputTransaction
             }
             catch (Exception ex) { errors.Add(ex.Message); }
         }
-        if (errors.Count > 0) ReleaseHolds();
-        if (errors.Count > 0)
+        if (errors.Count > 0)        if (errors.Count > 0)
             throw new IOException("Restore was cancelled, but some files need attention. Recovery copies are kept in "
                 + string.Join(", ", _roots.Values) + ". " + string.Join(" ", errors));
         CleanupRoots();
@@ -166,7 +148,6 @@ internal sealed class RestoreOutputTransaction
 
     private void CleanupRoots()
     {
-        ReleaseHolds(); // the recovery folders can go now
         foreach (var root in _roots.Values)
             if (Directory.Exists(root))
             {

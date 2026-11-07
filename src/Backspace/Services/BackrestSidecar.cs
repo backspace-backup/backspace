@@ -176,7 +176,6 @@ public sealed class BackrestSidecar : IAsyncDisposable
         // Hold this directory exclusively for the whole daemon lifetime.
         // A second owner must never rewrite its live database or kill it.
         _dataLease = AcquireDataDirectoryLease(DataDir, ct);
-        var startupHolds = new System.Collections.Generic.List<IDisposable>();
         try
         {
             RecoverOwnedSidecar();
@@ -222,19 +221,7 @@ public sealed class BackrestSidecar : IAsyncDisposable
             _proc.OutputDataReceived += (_, e) => { if (e.Data is not null) _log.Debug("[backrest] {Line}", e.Data); };
             _proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) _log.Warning("[backrest] {Line}", e.Data); };
             var startedUtc = DateTime.UtcNow;
-#if WINDOWS
-            // Backrest unlocks, on its own as it starts, every repository an
-            // interrupted operation left marked: restic deletes stale lock
-            // files there by name. Each repository on this PC is held until
-            // the engine is ready (U152, round 5); a link already planted in
-            // one stops the start.
-            startupHolds = HoldLocalRepositories(configPath, ct);
-#endif
             if (!_proc.Start()) throw new InvalidOperationException("The backup engine could not start.");
-#if WINDOWS
-            var engine = _proc;
-            Platform.Windows.RepositoryHold.EngineRunning = () => IsAlive(engine);
-#endif
 
             // Job-object: tie backrest's lifetime to ours so a Backspace
             // crash, an unhandled exception, or the user closing the app
@@ -289,7 +276,6 @@ public sealed class BackrestSidecar : IAsyncDisposable
             };
             var client = new BackrestClient(_http);
             await WaitForReadyAsync(client, startedUtc, ct).ConfigureAwait(false);
-            ReleaseStartupHolds();
 #if WINDOWS
             // The port was free a moment before the engine started: send no
             // password until it is the engine that answers on it (U152).
@@ -303,38 +289,9 @@ public sealed class BackrestSidecar : IAsyncDisposable
         catch
         {
             await StopCoreAsync(TimeSpan.Zero, CancellationToken.None).ConfigureAwait(false);
-            ReleaseStartupHolds();
             throw;
         }
-        void ReleaseStartupHolds()
-        {
-            foreach (var hold in startupHolds) hold.Dispose();
-            startupHolds.Clear();
-        }
     }
-
-#if WINDOWS
-    /// <summary>Holds every repository on this PC listed in Backrest's
-    /// configuration (a drive letter path; clouds and network shares are
-    /// left out). A drive that isn't attached has nothing to hold.</summary>
-    internal static System.Collections.Generic.List<IDisposable> HoldLocalRepositories(string configPath, CancellationToken ct)
-    {
-        var holds = new System.Collections.Generic.List<IDisposable>();
-        try
-        {
-            if (!File.Exists(configPath)) return holds;
-            using var stream = new FileStream(configPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var config = JsonDocument.Parse(stream);
-            if (!config.RootElement.TryGetProperty("repos", out var repos) || repos.ValueKind != JsonValueKind.Array) return holds;
-            foreach (var repo in repos.EnumerateArray())
-                if (repo.ValueKind == JsonValueKind.Object && repo.TryGetProperty("uri", out var uri) && uri.ValueKind == JsonValueKind.String
-                    && uri.GetString() is { Length: >= 3 } path && char.IsAsciiLetter(path[0]) && path[1] == ':' && path[2] is '\\' or '/')
-                    holds.Add(Platform.Windows.RepositoryHold.For(path, create: false, ct));
-            return holds;
-        }
-        catch { foreach (var hold in holds) hold.Dispose(); throw; }
-    }
-#endif
 
     /// <summary>A security scanner or sync client can open the lock file,
     /// and another Backspace process can own the folder. Either way the
@@ -549,12 +506,6 @@ public sealed class BackrestSidecar : IAsyncDisposable
                 _port = 0;
                 _dataLease?.Dispose();
                 _dataLease = null;
-#if WINDOWS
-                // Nothing the engine started can still run: the backups kept
-                // for its follow-up work are released (U152, round 5).
-                Platform.Windows.RepositoryHold.EngineRunning = () => false;
-                Platform.Windows.RepositoryHold.EndEngineSession();
-#endif
             }
         }
     }

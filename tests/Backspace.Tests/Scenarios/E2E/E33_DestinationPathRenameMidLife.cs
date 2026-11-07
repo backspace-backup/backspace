@@ -110,12 +110,10 @@ public sealed class E33_DestinationPathRenameMidLife : BackupE2EBase
         // This is external fixture preparation, not the app's locate action.
         // Completed engine work and filesystem filters can release handles a
         // moment later. Bound that settling period; a persistent holder fails.
-        // The backup folder stays held while the engine runs (U152, round
-        // 5), as when a person moves it with Backspace open: the move waits
-        // until the engine stops after its idle time. Stop it now.
-        var idleAfter = EngineIdleStop.IdleAfter;
-        try { EngineIdleStop.IdleAfter = TimeSpan.Zero; Assert.True(await EngineIdleStop.CheckAsync(), "The idle engine did not stop."); }
-        finally { EngineIdleStop.IdleAfter = idleAfter; }
+        // The engine is still running here: nothing of it keeps the backup
+        // folder open between tasks, so the move works at once (U152,
+        // 7 November 2026: the holds that blocked it were removed).
+        Assert.True(fixture.Sidecar.IsRunning, "The engine should still be running after the backup.");
         var renameDeadline = DateTime.UtcNow.AddSeconds(2);
         var renameWaits = 0;
         while (true)

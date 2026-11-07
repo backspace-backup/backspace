@@ -80,10 +80,10 @@ public sealed class HandleRenameTests
         finally { Directory.Delete(destinationFolder); }
     }
 
-    /// <summary>Between two restored files, the recovery folder (where the
-    /// journal is appended) and the restore folder can't be swapped for links.</summary>
+    /// <summary>A replaced original goes to the recovery folder, which is
+    /// removed once the restore is committed.</summary>
     [Fact]
-    public void The_recovery_folder_and_restore_folder_stay_put_until_the_restore_finishes()
+    public void A_replaced_original_is_kept_until_the_restore_is_committed()
     {
         using var ws = new TempWorkspace("handle-rename-journal");
         var (root, _, staging) = Restore(ws);
@@ -93,41 +93,15 @@ public sealed class HandleRenameTests
         var output = new Backspace.Services.RestoreOutputTransaction();
         output.Publish(Path.Combine(staging, "a.txt"), Path.Combine(root, "a.txt"), root, true, TestContext.Current.CancellationToken);
         var recovery = Assert.Single(Directory.GetDirectories(root, ".backspace-undo-*"));
-        Assert.Throws<IOException>(() => Directory.Move(recovery, recovery + "-away"));
-        Assert.Throws<IOException>(() => Directory.Move(root, root + "-away"));
         output.Publish(Path.Combine(staging, "b.txt"), Path.Combine(root, "b.txt"), root, true, TestContext.Current.CancellationToken);
         output.Commit();
         Assert.False(Directory.Exists(recovery));
         Assert.Equal("a", File.ReadAllText(Path.Combine(root, "a.txt")));
-        Directory.Move(root, root + "-moved"); // released once finished
-    }
-
-    /// <summary>Round 4: while a restore runs, its folder and every folder
-    /// above it stay put (so none can be swapped for a link), and restic and
-    /// the publishing step can still change what is inside.</summary>
-    [Fact]
-    public void A_pinned_restore_folder_and_the_folders_above_it_cannot_be_moved()
-    {
-        using var ws = new TempWorkspace("handle-rename-pin");
-        var parent = Directory.CreateDirectory(Path.Combine(ws.Root, "Drive", "Restores")).FullName;
-        var restore = Directory.CreateDirectory(Path.Combine(parent, "Restore")).FullName;
-        using (HandleRename.Pin(restore))
-        {
-            Assert.Throws<IOException>(() => Directory.Move(restore, restore + "-away"));
-            Assert.Throws<IOException>(() => Directory.Move(parent, parent + "-away"));
-            var staging = Directory.CreateDirectory(Path.Combine(restore, ".backspace-restore-5")).FullName;
-            File.WriteAllText(Path.Combine(staging, "a.txt"), "restored");
-            File.Move(Path.Combine(staging, "a.txt"), Path.Combine(restore, "a.txt"));
-            SafeTreeDelete.Delete(staging);
-            Assert.False(Directory.Exists(staging));
-        }
-        Directory.Move(parent, parent + "-moved"); // released once the restore ends
     }
 
     /// <summary>A test restore deletes its own temporary folder before its
-    /// output is finished (rolled back or committed). The recovery folder's
-    /// hold is released first; otherwise the deletion waited forever on it
-    /// (found by E49 in round 5).</summary>
+    /// output is finished (rolled back or committed); finishing afterwards
+    /// must not fail (found by E49 in round 5).</summary>
     [Fact]
     public void A_test_restore_folder_can_be_deleted_before_its_output_is_finished()
     {
@@ -136,7 +110,6 @@ public sealed class HandleRenameTests
         File.WriteAllText(Path.Combine(staging, "a.txt"), "a");
         var output = new Backspace.Services.RestoreOutputTransaction();
         output.Publish(Path.Combine(staging, "a.txt"), Path.Combine(root, "a.txt"), root, true, TestContext.Current.CancellationToken);
-        output.ReleaseHolds();
         Backspace.Services.ResticBackrestEngine.DeleteRestoreStaging(root, TestContext.Current.CancellationToken);
         Assert.False(Directory.Exists(root));
         output.Rollback(); // finishing afterwards finds nothing left and doesn't fail
@@ -152,7 +125,6 @@ public sealed class HandleRenameTests
         try
         {
             Assert.Throws<IOException>(() => HandleRename.FolderLocation(Path.Combine(link, "Restore")));
-            Assert.Throws<IOException>(() => HandleRename.Pin(Path.Combine(link, "Restore")));
         }
         finally { Directory.Delete(link); }
     }

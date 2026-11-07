@@ -75,10 +75,7 @@ internal static class ServiceApprovedWorker
         using var _shares = shares;
         // The service trusts the owner's folders as the owner does: no guard
         // files are placed in them, and a missing source is reported by the run
-        // itself instead of stopping the worker (lab VM, 2 November 2026). Its
-        // backup folders on this PC are held, every folder of them, for each
-        // destination while the engine works there (RepositoryHold, in the
-        // orchestrator, U152).
+        // itself instead of stopping the worker (lab VM, 2 November 2026).
 
         // All process-local state and engine scratch belongs to the service.
         // A caller's inherited portable-config/TEMP overrides cannot redirect it.

@@ -59,30 +59,6 @@ internal static class HandleRename
         return location;
     }
 
-    /// <summary>Opens the restore folder, checked like
-    /// <see cref="FolderLocation"/>, and keeps it open for the whole restore
-    /// (round 4). While it is open, neither it nor any folder above it can be
-    /// renamed, so it can't be swapped for a link while restic writes there or
-    /// while Backspace publishes and cleans up. Its contents stay free to
-    /// change.</summary>
-    internal static SafeFileHandle Pin(string folder)
-    {
-        // Read access, not only attributes: a metadata-only handle does not
-        // reliably keep a folder from being renamed (see ServicePathLease).
-        var handle = Open(folder, GenericRead, ShareRead | ShareWrite)
-            ?? throw new DirectoryNotFoundException(folder);
-        try
-        {
-            RequireOrdinaryFolder(handle, folder);
-            var location = ExactPathDelete.FinalPath(handle);
-            var full = Path.GetFullPath(folder);
-            if (!IsNetwork(full) && !SamePath(location, full))
-                throw new IOException($"The restore folder {full} leads to {location}. Choose an ordinary folder as the destination.");
-            return handle;
-        }
-        catch { handle.Dispose(); throw; }
-    }
-
     private static bool IsNetwork(string full) => full.StartsWith(@"\\", StringComparison.Ordinal)
         || new DriveInfo(Path.GetPathRoot(full)!).DriveType == DriveType.Network;
 

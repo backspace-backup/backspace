@@ -33,12 +33,6 @@ is matched by its letter until you name it in File Explorer (right-click the
 drive, then **Rename**) and type the same name in Backspace. A backup whose
 drive isn't plugged in is skipped and says so; it doesn't fail.
 
-After Backspace has used a drive (a backup, a restore, browsing its history),
-its backup folder stays open until the backup engine stops, five minutes after
-its last task or when you quit Backspace. Meanwhile Windows reports the drive
-as in use if you try to remove it safely. This keeps other accounts on the PC
-from tampering with the folder while the engine may still be working there.
-
 Backspace never starts a backup over on the wrong drive or network share. The
 first backup to one runs when you start it (**Run now** or **Save & Run**).
 After that, a run goes ahead only if the drive or share holds the backup. If

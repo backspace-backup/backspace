@@ -261,11 +261,12 @@ Rollback checks file contents before removing output. A concurrent user edit
 is preserved alongside recovery copies and reported as an error. Each original
 move has a flushed path map under `.backspace-undo-*`; a crash can leave that
 folder for manual recovery. This is not automatic crash recovery. The
-`.backspace-undo-*` folder is held, with the folders above it, until the
-restore is finished, and the path map is checked to be the real file before
-anything is written to it (U152). A test restore releases that hold before
-it deletes its own temporary folder, since its output is finished only
-afterwards. Verified
+path map is checked to be the real file before anything is written to it
+(U152). Backup folders and the `.backspace-undo-*` folder are not held open
+while the engine works (removed 7 November 2026, U152): restic only creates or
+deletes files named with its own 64-character IDs, so a backup folder swapped
+for a link can't make it touch other files, and restoring into a folder other
+accounts can change is the owner's choice. Verified
 temporary batches release their publication records to keep memory bounded.
 Placing verified files also retries brief Windows sharing locks. Each file
 move rechecks its destination parent and refuses to overwrite a file that
@@ -284,14 +285,10 @@ checked, and held so it can be neither renamed nor replaced while its contents
 go; a link inside is removed itself, never its target. The top folder must
 really be where its name says (a folder above it swapped for a link shows as
 another place), except on a network drive. A restore target other accounts
-can change cannot steer the deletion elsewhere (U152). For the whole restore,
-cleanup included, the restore folder stays open (`HandleRename.Pin`), so
-neither it nor any folder above it can be renamed and swapped for a link
-while restic writes there. What restic makes inside it is not held: another
-account that can change the restore folder can still swap one of restic's new
-subfolders for a link while it writes, so restic's output (the owner's own
-backed-up files) can land in another folder the owner can write. Publishing
-and cleanup never follow such a link. Restored items
+can change cannot steer the deletion elsewhere (U152). The restore folder is
+not held open during the restore (removed 7 November 2026): restoring into a
+folder other accounts can change is the owner's choice. Publishing and cleanup
+never follow a link. Restored items
 are published, and rolled back, by `HandleRename`: the item and the folder it
 goes into are opened without following a link, both must really be inside the
 restore folder as it was when publishing began, and the item is renamed
