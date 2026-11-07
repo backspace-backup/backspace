@@ -141,8 +141,11 @@ because `Backspace.exe` isn't code-signed yet.
   Backups then include files that other programs have open (Windows snapshots,
   VSS) and run even before you sign in. Later changes and updates never ask
   again.
-- **Portable**: your settings, history and encrypted credentials live in
-  `Backspace.config` next to the app. Copy both to move to a new computer.
+- **Portable**: your settings, history and saved passwords live in
+  `Backspace.config` next to the app. Saved passwords are in one file locked
+  with a password you choose (Backspace asks for it the first time one is
+  saved). Copy both to move to a new computer and enter that password once
+  there.
 
 Read the [user guide](docs/USER-GUIDE.md) for schedules and their conditions,
 test restores, checks, alerts and every other detail.
@@ -150,9 +153,11 @@ test restores, checks, alerts and every other detail.
 ## Status
 
 Version 1.1 rebuilt the background service. Before each release, the exact build
-passes the full test suite, a real 20,000-file backup and restore with every
-file compared, live backups and restores on Dropbox, OneDrive and Google Drive,
-and scheduled backups before sign-in in an isolated Windows 11 virtual machine.
+passes the full test suite and a real 20,000-file backup and restore with every
+file compared. Live backups and restores on Dropbox, OneDrive and Google Drive,
+and scheduled backups before sign-in in an isolated Windows 11 virtual machine,
+have been run on earlier builds; each release's notes say which checks it did
+not repeat.
 
 | | |
 |---|---|

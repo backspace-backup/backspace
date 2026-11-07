@@ -127,12 +127,16 @@ footer a { color: var(--fg-dim); }
                 schedules and filter rules, stored as readable JSON.
             </li>
             <li>
-                <strong>An encrypted secrets vault.</strong> Cloud OAuth
-                refresh tokens, S3 access keys, repository encryption
-                passwords. On Windows the vault is wrapped with DPAPI
-                so only the current Windows user account can read it;
-                on macOS and Linux a per-installation key file lives
-                alongside it with user-only file permissions.
+                <strong>An encrypted vault of saved passwords</strong>
+                (<code>vault.bin</code>). Cloud sign-in tokens, S3 access
+                keys, repository encryption passwords and email keys,
+                encrypted (AES-256-GCM) with a key derived from a password
+                you choose. It travels with the folder; on each computer
+                Backspace keeps a copy of the vault key outside the folder,
+                protected for your account by the operating system, so it
+                asks for the password once per computer. If you choose no
+                password, the vault is only obscured: anyone with a copy of
+                the folder can read it.
             </li>
             <li>
                 <strong>Per-run logs.</strong> Each backup run writes a
@@ -145,17 +149,18 @@ footer a { color: var(--fg-dim); }
                 <strong>The Backrest sidecar's data.</strong> Backspace
                 bundles <a href="https://github.com/garethgeorge/backrest">Backrest</a>
                 and drives it as a localhost-only RPC sidecar. Its
-                state (operation history and cached repository metadata) lives under
-                <code>backrest/</code> in the same config directory.
+                state (operation history and cached repository metadata) lives on
+                this computer only, under <code>%LOCALAPPDATA%/Backspace/engine</code>,
+                not in the portable folder.
                 The sidecar binds to <code>127.0.0.1</code> only — it
                 is not reachable from any other computer.
             </li>
         </ul>
         <p>
-            Engine working files can also contain readable cloud credentials
-            and repository passwords while Backspace manages its connections.
-            Keep the whole configuration folder private, not just the encrypted
-            vault. Removing a destination or its local settings does not erase
+            The engine's working files on this computer contain readable cloud
+            credentials and repository passwords while Backspace manages its
+            connections; they stay outside the portable folder. Keep the
+            configuration folder private all the same. Removing a destination or its local settings does not erase
             backups already stored with your provider.
         </p>
 
