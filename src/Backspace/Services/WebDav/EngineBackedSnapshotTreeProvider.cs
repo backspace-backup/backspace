@@ -45,7 +45,7 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
     private Task<SnapshotTree?>? _treeTask;
     private SnapshotTree? _tree;
     private bool _treeUnavailable;
-    private int _treeEntriesRead;
+    private int _treeFilesRead;
     private readonly ConcurrentDictionary<SnapshotTree.Node, IReadOnlyList<WebDavEntry>> _listings = new();
 
     // Folder batches: the folder's path → the restore fetching its files.
@@ -74,8 +74,9 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
     /// engine can't list whole trees.</summary>
     public SnapshotTree? Tree => Volatile.Read(ref _tree);
 
-    /// <summary>Entries read so far by the listing in progress, for progress.</summary>
-    public int TreeEntriesRead => Volatile.Read(ref _treeEntriesRead);
+    /// <summary>Files (not folders) read so far by the listing in progress,
+    /// for progress (U166). Never goes backwards within one listing.</summary>
+    public int TreeFilesRead => Volatile.Read(ref _treeFilesRead);
 
     /// <summary>Reads the whole tree once; every caller shares the one engine
     /// listing. Null when the engine can't list whole trees (the per-folder
@@ -100,10 +101,19 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         // waste a listing others are waiting for. Unmounting cancels it.
         var nodes = await WithReadLeaseAsync(token => _engine.ListSnapshotTreeAsync(
             _backup, _sourcePath, _destination, _storageName, _revision, token, _snapshotId,
-            new Progress<int>(count => Volatile.Write(ref _treeEntriesRead, count))), _lifetime.Token).ConfigureAwait(false);
+            new Progress<int>(count =>
+            {
+                for (var seen = Volatile.Read(ref _treeFilesRead); count > seen;)
+                {
+                    var was = Interlocked.CompareExchange(ref _treeFilesRead, count, seen);
+                    if (was == seen) break;
+                    seen = was;
+                }
+            })), _lifetime.Token).ConfigureAwait(false);
         if (nodes is null)
         {
             lock (_treeGate) _treeUnavailable = true;
+        Volatile.Write(ref _treeFilesRead, 0);
             return null;
         }
         var clock = System.Diagnostics.Stopwatch.StartNew();

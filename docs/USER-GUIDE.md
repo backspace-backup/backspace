@@ -493,7 +493,15 @@ the same rule.
 From then on the card says **Mounting** and what it is doing. Before the drive
 appears, Backspace loads the list of files and folders of each chosen revision:
 for a large backup in the cloud this can take a while per revision (the card
-says which revision and counts what it has loaded), and **Cancel** stops it.
+says which revision and counts the files it has loaded), and **Cancel** stops it.
+When the revisions recorded their number of files (the number the picker
+shows), the bar fills with a percentage for the whole mount, for example
+**Reading the backup's folders, revision 2 of 3: 41%**; a larger revision
+counts for more of the bar. The percentage is an estimate: it never goes
+backwards and only reaches 100% once everything has been read. For an older
+revision that recorded no file count, Backspace estimates from another chosen
+revision of the same folder, or the bar keeps moving without a percentage
+while that revision is read.
 After that, browsing the drive is instant, because a snapshot never changes.
 When the drive is ready, Explorer opens it and the card says **Mounted as Z:**
 and which revision it shows, with **Open in Explorer**. A file is downloaded

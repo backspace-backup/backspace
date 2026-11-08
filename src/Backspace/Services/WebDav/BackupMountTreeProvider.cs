@@ -80,27 +80,34 @@ public sealed class BackupMountTreeProvider : ISnapshotTreeProvider, IDisposable
     /// <summary>Before the drive appears: reads every chosen revision's whole
     /// tree, one after the other (each listing already shares its folders out
     /// between several restic processes). <paramref name="progress"/> hears
-    /// which revision is being read and how many of its files and folders have
-    /// been read. Returns how many revisions the drive shows (0: nothing to
+    /// which revision is being read, how many of its files have been read and,
+    /// when known, the whole mount's percentage (U166). Returns how many revisions the drive shows (0: nothing to
     /// mount). Cancelling stops at once; disposing stops the listing.</summary>
     public async Task<int> PrepareAsync(IProgress<MountReading>? progress, CancellationToken ct)
     {
         var all = _sources.SelectMany(s => s.Revisions.Select(r => (Source: s, View: r))).ToList();
+        // The percentage costs nothing: restic's snapshot summaries already
+        // give each revision's file count (U166).
+        var estimate = new MountReadEstimate(all.Select(a => (a.Source.SourcePath, a.View.Revision.FileCount)).ToList());
         for (var i = 0; i < all.Count; i++)
         {
             var (source, view) = all[i];
             var label = all.Count == 1 ? null
                 : (_sourceLevel ? source.Folder + ", " : "") + MountSelection.When(view.Revision.CreatedUtc);
-            int Read() => view.Tree.Tree is { } tree ? tree.FileCount + tree.DirectoryCount : view.Tree.TreeEntriesRead;
+            MountReading Reading(bool complete)
+            {
+                var files = view.Tree.Tree?.FileCount ?? view.Tree.TreeFilesRead;
+                return new MountReading(files, i + 1, all.Count, label, estimate.Percent(i, files, complete));
+            }
             var reading = view.Tree.LoadTreeAsync(ct);
             while (!reading.IsCompleted)
             {
-                progress?.Report(new MountReading(Read(), i + 1, all.Count, label));
+                progress?.Report(Reading(complete: false));
                 await Task.WhenAny(reading, Task.Delay(250, ct)).ConfigureAwait(false);
                 ct.ThrowIfCancellationRequested();
             }
             await reading.ConfigureAwait(false);
-            progress?.Report(new MountReading(Read(), i + 1, all.Count, label));
+            progress?.Report(Reading(complete: true));
         }
         return all.Count;
     }

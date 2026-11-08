@@ -82,6 +82,15 @@ public sealed class E65_MountSpeedAndSafety : BackupE2EBase
         Assert.Contains("Starting", said);
         Assert.Contains(said, s => s.StartsWith("Reading the backup's folders", StringComparison.Ordinal));
         // One source, one revision (U162): its files at the drive root.
+        // U166: restic's summary counts the 6,000 files, the listing counts the
+        // same files (not the 331 folders), so the read ends at 100%; any
+        // percentage before that only rises and stays at 99% at most.
+        Assert.Contains("Reading the backup's folders: 100%, 6,000 files so far", said);
+        var percents = said.Select(s => System.Text.RegularExpressions.Regex.Match(s, @": (\d+)%")).Where(m => m.Success)
+            .Select(m => int.Parse(m.Groups[1].Value)).ToList();
+        Assert.Equal(percents.OrderBy(p => p), percents);
+        Assert.All(percents.Take(percents.Count - 1), p => Assert.True(p <= 99));
+        ctx.Report.RecordNote("Mount progress (U166)", string.Join("\n", said));
         var root = drive + @"\";
         Assert.Equal(30, Directory.GetDirectories(root).Length);
         Assert.Empty(Directory.GetFiles(root));

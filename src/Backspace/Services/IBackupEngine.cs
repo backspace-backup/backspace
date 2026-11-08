@@ -164,8 +164,9 @@ public interface IBackupEngine
     /// directories report SizeBytes = 0. Returns null when the
     /// implementation can't do a bulk listing for this destination
     /// shape (the caller falls back to the lazy per-directory path).
-    /// <paramref name="progress"/> hears how many entries have been read
-    /// so far, for a large snapshot's mount (U158).</summary>
+    /// <paramref name="progress"/> hears how many files (not folders) have
+    /// been read so far, for a large snapshot's mount (U158): comparable with
+    /// the snapshot summary's file count, for a percentage (U166).</summary>
     Task<IReadOnlyList<RevisionTreeNode>?> ListSnapshotTreeAsync(
         Backup backup,
         string sourcePath,

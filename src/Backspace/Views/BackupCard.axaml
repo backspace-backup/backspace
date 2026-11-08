@@ -437,9 +437,17 @@
               <StackPanel Spacing="5" VerticalAlignment="Center">
                 <TextBlock FontSize="12" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
                            Text="{Binding MountProgress, StringFormat='Mounting · {0}…'}"/>
-                <ProgressBar IsIndeterminate="True" Height="4" MaxWidth="320" HorizontalAlignment="Left"
-                             Background="{DynamicResource BS.Brush.AccentTint}"
-                             Foreground="{DynamicResource BS.Brush.Accent}"/>
+                <!-- A percentage when the revisions' file counts allow one
+                     (U166); otherwise the bar keeps moving. -->
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <ProgressBar Name="MountProgressBar" Height="4" Width="320" VerticalAlignment="Center"
+                               Minimum="0" Maximum="100" Value="{Binding MountPercentValue}"
+                               IsIndeterminate="{Binding !HasMountPercent}"
+                               Background="{DynamicResource BS.Brush.AccentTint}"
+                               Foreground="{DynamicResource BS.Brush.Accent}"/>
+                  <TextBlock FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                             Text="{Binding MountPercentLabel}" IsVisible="{Binding HasMountPercent}"/>
+                </StackPanel>
               </StackPanel>
               <Button Grid.Column="1" Classes="row-action" Margin="12,0,0,0" VerticalAlignment="Center"
                       Content="Cancel" Command="{Binding CancelMountCommand}" ToolTip.Tip="Stop mounting this backup."/>

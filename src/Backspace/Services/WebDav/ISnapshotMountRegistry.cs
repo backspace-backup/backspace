@@ -24,9 +24,12 @@ public interface ISnapshotMountRegistry
     void CancelPending();
     string? GetMountedDrive(string backupId);
     /// <summary>What a mount in progress is doing, in words ("Reading the
-    /// backup's folders: 120,000 so far"); null when none is (U158).
+    /// backup's folders: 41%, 120,000 files so far"); null when none is (U158).
     /// <see cref="Changed"/> fires when it changes.</summary>
     string? GetMountProgress(string backupId) => null;
+    /// <summary>How far the mount in progress has got, 0-100, for its bar;
+    /// null when it cannot be estimated (the bar then keeps moving, U166).</summary>
+    int? GetMountPercent(string backupId) => null;
     /// <summary>Opens Explorer at a mounted snapshot's drive.</summary>
     void OpenInExplorer(string backupId) { }
     Task UnmountAsync(string backupId, CancellationToken ct = default);

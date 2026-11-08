@@ -57,6 +57,19 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ShowMountLine))]
     private string? _mountError;
 
+    /// <summary>How far the mount in progress has got, 0-100, when it can be
+    /// estimated from the revisions' file counts (U166); null keeps the bar
+    /// moving without a percentage.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasMountPercent))]
+    [NotifyPropertyChangedFor(nameof(MountPercentValue))]
+    [NotifyPropertyChangedFor(nameof(MountPercentLabel))]
+    private int? _mountPercent;
+
+    public bool HasMountPercent => MountPercent is not null;
+    public double MountPercentValue => MountPercent ?? 0;
+    public string MountPercentLabel => MountPercent is { } p ? $"{p}%" : "";
+
     public bool IsMounting => MountProgress is not null;
     public string MountActionLabel => IsMounting ? "Mounting…" : MountedDrive is null ? "Mount" : "Unmount";
     public string MountTooltip => IsMounting ? "Mounting the revisions you chose. The drive opens in Explorer when it is ready."
@@ -432,6 +445,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             MountedDrive = _mountRegistry.GetMountedDrive(Id);
             MountedDescription = _mountRegistry.GetMountedDescription(Id);
             MountProgress = _mountRegistry.GetMountProgress(Id);
+            MountPercent = MountProgress is null ? null : _mountRegistry.GetMountPercent(Id);
         }
         _showActions = showActions;
         _showProgress = showProgress;
@@ -1074,6 +1088,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         // Keep "Starting" from the click until the registry reports.
         var progress = _mountRegistry.GetMountProgress(Id);
         MountProgress = progress ?? (_mountClicked ? MountProgress : null);
+        MountPercent = progress is null ? null : _mountRegistry.GetMountPercent(Id);
     }
 
     private bool _mountClicked;

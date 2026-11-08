@@ -914,10 +914,21 @@ snapshot's size.
   (`CloudDestinationPreflight.TrustRecentSuccessFor`), so consecutive reads do
   not each start with a sign-in round trip.
 - **Feedback.** `GetMountProgress` says what a mount is doing ("Reading the
-  backup's folders: 120,000 so far", with several revisions "…, revision 2 of
-  3 (5 Nov 2026 09:12): …"); the card shows it once the picker closes, then
-  "Mounted as Z: (5 Nov 2026 09:12)" (`GetMountedDescription`) with Open in
-  Explorer, or the failure inline.
+  backup's folders: 41%, 120,000 files so far", with several revisions "…,
+  revision 2 of 3 (5 Nov 2026 09:12): …"); the card shows it once the picker
+  closes, then "Mounted as Z: (5 Nov 2026 09:12)" (`GetMountedDescription`)
+  with Open in Explorer, or the failure inline.
+- **Percentage (U166).** The tree listing counts files, not folders, which
+  matches the snapshot summary's file count the picker already has (the
+  owner's snapshot: 486,506 entries = 415,256 files + 71,249 folders + root;
+  summary 415,256 files). `MountReadEstimate` turns files read over that count
+  into one percentage for the whole mount, each revision weighted by its file
+  count; a revision without a summary borrows another chosen revision of the
+  same source, otherwise the bar stays indeterminate while it is read. The
+  percentage never goes backwards and stays at 99% at most until the last
+  tree is read. `GetMountPercent` feeds the card's bar; no restic call is
+  added. While the whole listing and the shared-out one race, progress is the
+  further of the two, not their sum.
 - **Exit.** Quit, normal exit and the process-exit hook call `DisposeAllAsync`.
   The drive is served by the desktop process, so if that process dies
   (crash, Task Manager, force quit) WinFsp removes the drive with it.

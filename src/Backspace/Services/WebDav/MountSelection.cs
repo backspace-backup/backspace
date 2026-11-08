@@ -73,5 +73,7 @@ public sealed record MountSelection(IReadOnlyList<MountSelection.Source> Sources
 
 /// <summary>Where reading a mount's trees has got to: revision
 /// <see cref="Index"/> of <see cref="Count"/> (<see cref="Revision"/>, e.g.
-/// "7 Nov 2026 14:30"), <see cref="Entries"/> files and folders so far.</summary>
-public readonly record struct MountReading(int Entries, int Index = 1, int Count = 1, string? Revision = null);
+/// "7 Nov 2026 14:30"), <see cref="Files"/> of its files read so far, and
+/// <see cref="Percent"/> of the whole mount when it can be estimated
+/// (<see cref="MountReadEstimate"/>, U166).</summary>
+public readonly record struct MountReading(int Files, int Index = 1, int Count = 1, string? Revision = null, int? Percent = null);

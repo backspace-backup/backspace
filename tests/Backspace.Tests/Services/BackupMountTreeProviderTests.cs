@@ -228,11 +228,43 @@ public class BackupMountTreeProviderTests : IDisposable
         Assert.All(heard, r => Assert.Equal(3, r.Count));
         Assert.Equal(MountSelection.When(R3), heard.First().Revision);
         Assert.Equal(MountSelection.When(R1), heard.Last().Revision);
-        Assert.True(heard.Last().Entries > 0);
-        Assert.Equal("Reading the backup's folders, revision 2 of 3 (6 Nov 2026 x): 1,200 so far".Replace("6 Nov 2026 x", MountSelection.When(R2)),
+        // Files only (readme.txt, Documents/notes.txt), not the Documents folder.
+        Assert.Equal(2, heard.Last().Files);
+        Assert.Equal("Reading the backup's folders, revision 2 of 3 (6 Nov 2026 x): 1,200 files so far".Replace("6 Nov 2026 x", MountSelection.When(R2)),
             MountedSnapshotRegistry.ReadingText(new MountReading(1200, 2, 3, MountSelection.When(R2))));
-        Assert.Equal("Reading the backup's folders: 1,200 so far", MountedSnapshotRegistry.ReadingText(1200));
+        Assert.Equal("Reading the backup's folders, revision 2 of 3 (6 Nov 2026 x): 41%, 1,200 files so far".Replace("6 Nov 2026 x", MountSelection.When(R2)),
+            MountedSnapshotRegistry.ReadingText(new MountReading(1200, 2, 3, MountSelection.When(R2), 41)));
+        Assert.Equal("Reading the backup's folders: 1,200 files so far", MountedSnapshotRegistry.ReadingText(1200));
+        Assert.Equal("Reading the backup's folders: 0%", MountedSnapshotRegistry.ReadingText(new MountReading(0, Percent: 0)));
         Assert.Equal("Reading the backup's folders", MountedSnapshotRegistry.ReadingText(0));
+    }
+
+    /// <summary>U166: the revisions' summaries give their file counts, so the
+    /// mount's bar runs once from 0 to 100% over every chosen revision, never
+    /// backwards, and reaches 100% only when the last tree has been read.</summary>
+    [Fact]
+    public async Task Prepare_ReportsAPercentageOverTheWholeMount_FromTheRevisionsFileCounts()
+    {
+        using var provider = Mount(new MountSelection.Source(_alpha, new[] { Alpha(3), Alpha(2), Alpha(1) }));
+        var heard = new List<MountReading>();
+        await provider.PrepareAsync(new Inline(heard.Add), CancellationToken.None);
+        Assert.All(heard, r => Assert.NotNull(r.Percent));
+        var percents = heard.Select(r => r.Percent!.Value).ToList();
+        Assert.Equal(percents.OrderBy(p => p), percents);           // never backwards
+        Assert.Equal(100, percents.Last());
+        Assert.All(heard.Where(r => r.Index < 3), r => Assert.True(r.Percent <= 99));
+        // Each of the three equal revisions done: a third, then two thirds.
+        Assert.Equal(33, heard.Last(r => r.Index == 1).Percent);
+        Assert.Equal(66, heard.Last(r => r.Index == 2).Percent);
+
+        // Revisions without a summary (older snapshots) and no other revision
+        // of the same source to go by: the bar keeps moving, no percentage.
+        using var unknown = Mount(new MountSelection.Source(_alpha, new[] { Alpha(3) with { FileCount = 0 } }));
+        heard.Clear();
+        await unknown.PrepareAsync(new Inline(heard.Add), CancellationToken.None);
+        Assert.NotEmpty(heard);
+        Assert.All(heard, r => Assert.Null(r.Percent));
+        Assert.Equal("Reading the backup's folders: 2 files so far", MountedSnapshotRegistry.ReadingText(heard.Last()));
     }
 
     [Fact]

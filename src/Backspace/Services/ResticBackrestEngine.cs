@@ -1335,13 +1335,21 @@ public sealed class ResticBackrestEngine : IBackupEngine
         // shared-out listing is ready to fan out. Every part is validated
         // like a single listing; any incomplete part fails the tree.
         var listingClock = Stopwatch.StartNew();
+        // Files listed so far (U166). The whole listing and the shared-out one
+        // read the same files while both run: the further of the two counts.
         var counts = new System.Collections.Concurrent.ConcurrentDictionary<SnapshotTreeListing, int>();
-        void Report() => progress?.Report(counts.Values.Sum());
+        SnapshotTreeListing? wholeListing = null;
+        void Report()
+        {
+            var whole = wholeListing is { } w && counts.TryGetValue(w, out var n) ? n : 0;
+            progress?.Report(Math.Max(whole, counts.Where(kv => !ReferenceEquals(kv.Key, wholeListing)).Sum(kv => kv.Value)));
+        }
         async Task<IReadOnlyList<RevisionTreeNode>?> Ls(IReadOnlyList<string> paths, bool recursive, CancellationToken token)
         {
             SnapshotTreeListing? listing = null;
             var partProgress = progress is null ? null : new InlineCount(count => { counts[listing!] = count; Report(); });
             listing = new SnapshotTreeListing(rootBound, snapshotId, partProgress);
+            if (recursive && paths.Count == 1 && paths[0] == rootBound) wholeListing = listing;
             try
             {
                 // restic emits one JSON object per line: the first line is
@@ -1358,7 +1366,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                         snapshotId, result.ExitCode, result.Output);
                     return null;
                 }
-                counts[listing] = listing.Nodes.Count;
+                counts[listing] = listing.Files;
                 return listing.Nodes;
             }
             catch (OperationCanceledException) { counts.TryRemove(listing, out _); throw; }
@@ -1503,8 +1511,12 @@ public sealed class ResticBackrestEngine : IBackupEngine
         private readonly List<RevisionTreeNode> _nodes = new(2048);
         private bool _sawSnapshot;
         private bool _invalid;
+        private int _files;
         internal bool IsComplete => _sawSnapshot && !_invalid;
         internal IReadOnlyList<RevisionTreeNode> Nodes => _nodes;
+        /// <summary>Files (not folders) listed so far: what <c>progress</c>
+        /// hears, comparable with the snapshot summary's file count (U166).</summary>
+        internal int Files { get { lock (_nodes) return _files; } }
 
         internal void Accept(string line)
         {
@@ -1547,7 +1559,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 var directory = parsed.type == "dir";
                 var modified = DateTime.TryParse(parsed.mtime, out var mt) ? mt.ToUniversalTime() : DateTime.MinValue;
                 _nodes.Add(new(relative, directory, directory ? 0 : parsed.size, modified));
-                if (progress is not null && _nodes.Count % 5000 == 0) progress.Report(_nodes.Count);
+                if (!directory) _files++;
+                if (progress is not null && _nodes.Count % 5000 == 0) progress.Report(_files);
             }
         }
     }

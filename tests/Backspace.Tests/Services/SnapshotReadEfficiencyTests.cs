@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net;
@@ -150,6 +151,33 @@ public sealed class SnapshotReadEfficiencyTests
         Assert.True(listing.IsComplete);
         Assert.Equal(new[] { "", "root.txt", "nested/file.txt" }, listing.Nodes.Select(n => n.Path));
     }
+    /// <summary>U166: the mount's progress counts files, not folders, so it
+    /// compares with the snapshot summary's file count (the owner's snapshot:
+    /// 486,506 entries, 415,256 files, and its summary said 415,256 files).</summary>
+    [Fact]
+    public void Progress_counts_files_not_folders()
+    {
+        var heard = new List<int>();
+        var listing = new ResticBackrestEngine.SnapshotTreeListing("/C/source", Snapshot, new Counted(heard.Add));
+        listing.Accept(JsonSerializer.Serialize(new { struct_type = "snapshot", id = Snapshot }));
+        listing.Accept(Node("/C/source", "dir"));
+        for (var folder = 0; folder < 1000; folder++)
+        {
+            listing.Accept(Node($"/C/source/f{folder}", "dir"));
+            for (var file = 0; file < 9; file++) listing.Accept(Node($"/C/source/f{folder}/{file}.txt", "file", 1));
+        }
+        Assert.True(listing.IsComplete);
+        Assert.Equal(10_001, listing.Nodes.Count);
+        Assert.Equal(9_000, listing.Files);
+        // Heard every 5,000 entries: the files among them, never the folders.
+        Assert.Equal(new[] { 4_499, 8_999 }, heard);
+    }
+
+    private sealed class Counted(Action<int> report) : IProgress<int>
+    {
+        public void Report(int value) => report(value);
+    }
+
     private static ResticBackrestEngine.SnapshotTreeListing Tree()
     {
         var listing = new ResticBackrestEngine.SnapshotTreeListing("/C/source", Snapshot);

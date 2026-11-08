@@ -113,11 +113,21 @@ public sealed class S93_MountRevisionPicker : ScenarioBase
         Assert.Equal(source, registry.Last.Sources[0].Path);
         Assert.True(card.IsMounting);
 
-        registry.Report(backup.Id, MountedSnapshotRegistry.ReadingText(new MountReading(212_000, 2, 2, MountSelection.When(revisions[3].CreatedUtc))));
+        // U166: the two revisions' summaries (612,345 and 609,002 files) weight
+        // one bar over the whole mount: the first read in full is 50%, then
+        // 212,000 of the second's files make 67%.
+        var estimate = new MountReadEstimate(registry.Last!.Sources[0].Revisions.Select(r => (source, r.FileCount)).ToList());
+        Assert.Equal(50, estimate.Percent(0, 612_345, complete: true));
+        var percent = estimate.Percent(1, 212_000, complete: false);
+        Assert.Equal(67, percent);
+        registry.Report(backup.Id, new MountReading(212_000, 2, 2, MountSelection.When(revisions[3].CreatedUtc), percent));
         ctx.Driver.Pump();
-        Assert.True(Visible(host, $"Mounting · Reading the backup's folders, revision 2 of 2 ({MountSelection.When(revisions[3].CreatedUtc)}): 212,000 so far…"));
+        Assert.True(Visible(host, $"Mounting · Reading the backup's folders, revision 2 of 2 ({MountSelection.When(revisions[3].CreatedUtc)}): 67%, 212,000 files so far…"));
+        Assert.True(Visible(host, "67%"));
+        Assert.Equal(67, card.MountPercent);
+        Settle(ctx, host);
         ctx.Snapshot(host, "card-reading-second-revision",
-            "While the chosen revisions are read, the card says which one: revision 2 of 2 with its date, and how many files and folders so far.");
+            "While the chosen revisions are read, the card says which one (revision 2 of 2 with its date), the whole mount's 67% with the bar two-thirds full, and how many of its files so far.");
 
         registry.Finish(backup.Id, MountResult.Ok("Z:")); ctx.Driver.Pump();
         await WaitAsync(ctx, () => card.MountedDrive == "Z:" && !card.IsMounting);
@@ -199,7 +209,14 @@ public sealed class S93_MountRevisionPicker : ScenarioBase
         public string? GetMountedDrive(string id) => _drive;
         public string? GetMountedDescription(string id) => _drive is null ? null : _description;
         public string? GetMountProgress(string id) => _progress.TryGetValue(id, out var text) ? text : null;
-        public void Report(string id, string text) { _progress[id] = text; Changed?.Invoke(id); }
+        private readonly Dictionary<string, int> _percent = new();
+        public int? GetMountPercent(string id) => _percent.TryGetValue(id, out var p) ? p : null;
+        public void Report(string id, MountReading reading)
+        {
+            if (reading.Percent is { } p) _percent[id] = p; else _percent.Remove(id);
+            _progress[id] = MountedSnapshotRegistry.ReadingText(reading);
+            Changed?.Invoke(id);
+        }
         public void Finish(string id, MountResult result)
         {
             if (result.Succeeded) { _drive = result.DriveLetter; _description = Last!.Describe(); }
@@ -213,7 +230,7 @@ public sealed class S93_MountRevisionPicker : ScenarioBase
             Last = selection;
             _pending = new TaskCompletionSource<MountResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             try { return await _pending.Task; }
-            finally { _pending = null; _progress.Remove(backup.Id); Changed?.Invoke(backup.Id); }
+            finally { _pending = null; _progress.Remove(backup.Id); _percent.Remove(backup.Id); Changed?.Invoke(backup.Id); }
         }
         public Task UnmountAsync(string id, CancellationToken ct = default) { _drive = null; Changed?.Invoke(id); return Task.CompletedTask; }
         public Task DisposeAllAsync() => Task.CompletedTask;

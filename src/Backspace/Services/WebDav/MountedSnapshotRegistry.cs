@@ -40,6 +40,7 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
 
     private readonly ConcurrentDictionary<string, Mounted> _byBackupId = new();
     private readonly ConcurrentDictionary<string, string> _progress = new();
+    private readonly ConcurrentDictionary<string, int> _percent = new();
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
     private readonly object _cancelGate = new();
@@ -63,6 +64,8 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
         && DriveLetterExists(letter) ? letter : null;
 
     public string? GetMountProgress(string backupId) => _progress.TryGetValue(backupId, out var text) ? text : null;
+
+    public int? GetMountPercent(string backupId) => _percent.TryGetValue(backupId, out var percent) ? percent : null;
 
     public string? GetMountedDescription(string backupId) =>
         GetMountedDrive(backupId) is not null && _byBackupId.TryGetValue(backupId, out var mount) ? mount.Description : null;
@@ -129,30 +132,38 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
         {
             Interlocked.Decrement(ref _pendingCount);
             _progress.TryRemove(backup.Id, out _);
+            _percent.TryRemove(backup.Id, out _);
             Changed?.Invoke(backup.Id);
         }
     }
 
-    private void Report(string backupId, string text)
+    private void Report(string backupId, string text, int? percent = null)
     {
-        if (_progress.TryGetValue(backupId, out var shown) && shown == text) return;
+        var samePercent = _percent.TryGetValue(backupId, out var was) ? percent == was : percent is null;
+        if (_progress.TryGetValue(backupId, out var shown) && shown == text && samePercent) return;
+        if (percent is { } p) _percent[backupId] = p; else _percent.TryRemove(backupId, out _);
         _progress[backupId] = text;
         Changed?.Invoke(backupId);
     }
 
-    /// <summary>"Reading the backup's folders: 120,000 so far".</summary>
-    internal static string ReadingText(int entries) => ReadingText(new MountReading(entries));
+    private void Report(string backupId, MountReading reading) => Report(backupId, ReadingText(reading), reading.Percent);
 
-    /// <summary>"Reading the backup's folders: 120,000 so far" for one
-    /// revision; with several, which one: "Reading the backup's folders,
-    /// revision 2 of 3 (5 Nov 2026 09:12): 120,000 so far".</summary>
+    /// <summary>"Reading the backup's folders: 120,000 files so far".</summary>
+    internal static string ReadingText(int files) => ReadingText(new MountReading(files));
+
+    /// <summary>"Reading the backup's folders: 41%, 120,000 files so far" for
+    /// one revision; with several, which one: "Reading the backup's folders,
+    /// revision 2 of 3 (5 Nov 2026 09:12): 41%, 120,000 files so far". The
+    /// percentage is the whole mount's (U166), left out when unknown.</summary>
     internal static string ReadingText(MountReading reading)
     {
         var which = reading.Count > 1
             ? $", revision {reading.Index} of {reading.Count}" + (reading.Revision is { } r ? $" ({r})" : "")
             : "";
-        return "Reading the backup's folders" + which
-            + (reading.Entries > 0 ? $": {reading.Entries:N0} so far" : "");
+        var parts = new System.Collections.Generic.List<string>(2);
+        if (reading.Percent is { } percent) parts.Add($"{percent}%");
+        if (reading.Files > 0) parts.Add($"{reading.Files:N0} files so far");
+        return "Reading the backup's folders" + which + (parts.Count > 0 ? ": " + string.Join(", ", parts) : "");
     }
 
     private async Task<MountResult> MountCoreAsync(Backup backup, MountSelection? selection, CancellationToken ct)
@@ -249,7 +260,7 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
         // Only this backup's own sources.
         selection = new MountSelection(selection.Sources
             .Where(s => backup.SourcePaths.Contains(s.Path, StringComparer.Ordinal) && s.Revisions.Count > 0).ToList());
-        Report(backup.Id, ReadingText(new MountReading(0, 1, selection.RevisionCount)));
+        Report(backup.Id, new MountReading(0, 1, selection.RevisionCount));
 
         // The composite provider separates destination/source/snapshot IDs
         // below this root; retention changing a display number cannot reuse
@@ -266,7 +277,7 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
         MountResult result;
         try
         {
-            result = await coord.MountAsync(ct, new InlineProgress(reading => Report(backup.Id, ReadingText(reading))))
+            result = await coord.MountAsync(ct, new InlineProgress(reading => Report(backup.Id, reading)))
                 .ConfigureAwait(false);
         }
         catch
