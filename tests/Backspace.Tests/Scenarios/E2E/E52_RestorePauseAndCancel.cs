@@ -58,6 +58,26 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
         Assert.Equal("USER ORIGINAL", File.ReadAllText(Path.Combine(target, "photo.bin")));
         var before = StagedHashes(target); await ctx.Driver.PumpAsync(350); Assert.Equal(before, StagedHashes(target));
         ctx.Snapshot(main, "ordinary-restore-paused", "The actual Pause button stopped the transfer. Resume and Cancel are separate, and the page explains that a file restore resumes while Backspace stays open.");
+
+        // U154: the running restore names its real staging folder, and Open
+        // folder opens exactly that folder.
+        var stagingDir = Directory.GetDirectories(target, ".backspace-restore-*").Single();
+        Assert.True(model.Restore.HasStagingFolder);
+        Assert.Equal(Path.GetFullPath(stagingDir), Path.GetFullPath(model.Restore.StagingFolder!));
+        var wizardSession = ServiceLocator.ActiveRestores.Sessions.Single(s => s.IsRunning && s.TargetPath == target);
+        Assert.Equal(model.Restore.StagingFolder, wizardSession.StagingPath);
+        var opened = new System.Collections.Generic.List<string>();
+        FolderLauncher.LaunchOverride = opened.Add;
+        try { Click("Open folder"); } finally { FolderLauncher.LaunchOverride = null; }
+        Assert.Equal(new[] { model.Restore.StagingFolder }, opened);
+        ctx.Snapshot(main, "staging-folder-while-restoring", "U154: the paused, still-running restore says restored files arrive in a temporary folder until it finishes, names .backspace-restore-… inside the target, offers Open folder, and warns the folder is deleted on cancel.");
+        var restoresNavButton = main.GetVisualDescendants().OfType<RadioButton>().Single(b => b.IsEffectivelyVisible &&
+            b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Restores"));
+        ClickControl(restoresNavButton); await ctx.Driver.PumpAsync(100);
+        Assert.Same(model.ActiveRestores, model.CurrentPage);
+        Assert.True(wizardSession.HasStagingFolder);
+        ctx.Snapshot(main, "staging-folder-on-restores-card", "U154: the Restores page card for the same paused restore shows the temporary folder path with its own Open folder button.");
+        model.SelectedNav = NavItem.Restore; await ctx.Driver.PumpAsync(100);
         // A new revision must not replace the snapshot selected before Pause.
         File.WriteAllBytes(Path.Combine(source, "photo.bin"), RandomNumberGenerator.GetBytes(original.Length));
         backup.BandwidthLimitKBps = 0;
@@ -68,6 +88,11 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
         Assert.Equal(original, File.ReadAllBytes(Path.Combine(target, "photo.bin")));
         Assert.Equal("UNRELATED", File.ReadAllText(Path.Combine(target, "unrelated.txt")));
         Assert.Empty(Directory.GetDirectories(target, ".backspace-*"));
+        Assert.False(model.Restore.HasStagingFolder);
+        Assert.Null(model.Restore.StagingFolder);
+        Assert.False(wizardSession.HasStagingFolder);
+        Assert.Null(wizardSession.StagingPath);
+        Assert.DoesNotContain(main.GetVisualDescendants().OfType<Button>(), b => b.IsEffectivelyVisible && Equals(b.Content, "Open folder"));
         ctx.Snapshot(main, "original-snapshot-restored", "Resume recovered exactly the original selected snapshot, even though a newer snapshot was created while paused.");
 
         var cancelTarget = ctx.MakeRestoreTarget("cancelled");
@@ -79,6 +104,8 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
         Assert.Equal("KEEP THIS ORIGINAL", File.ReadAllText(Path.Combine(cancelTarget, "photo.bin")));
         Assert.Empty(Directory.GetDirectories(cancelTarget, ".backspace-*"));
         Assert.Equal("Restore cancelled", model.Restore.SummaryHeading);
+        Assert.False(model.Restore.HasStagingFolder);
+        Assert.DoesNotContain(ServiceLocator.ActiveRestores.Sessions, s => s.HasStagingFolder);
         Assert.False(ServiceLocator.Maintenance.HasReaders);
         ctx.Snapshot(main, "cancelled-restores-no-files", "Cancel from Paused ended the restore, removed its staging folder, and kept the pre-existing original file.");
 

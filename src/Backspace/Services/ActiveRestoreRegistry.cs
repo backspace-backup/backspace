@@ -60,6 +60,15 @@ public sealed class ActiveRestoreRegistry
         session.RaiseChanged();
     });
 
+    /// <summary>Names the temporary folder the restore writes into, or clears
+    /// it once the engine has finished with it (U154).</summary>
+    public void SetStagingPath(ActiveRestoreSession session, string? path) => MarshalToUi(() =>
+    {
+        if (path is not null && !session.IsRunning) return;
+        session.StagingPath = path;
+        session.RaiseChanged();
+    });
+
     public void End(ActiveRestoreSession session, RestoreTerminalStatus status, string? errorMessage)
     {
         if (session.Control is not null && session.ControlChanged is not null)
@@ -68,6 +77,7 @@ public sealed class ActiveRestoreRegistry
         session.CompletionSource.TrySetResult();
         MarshalToUi(() =>
         {
+            session.StagingPath = null;
             session.Status = status;
             session.ErrorMessage = errorMessage;
             session.IsRunning = false;
@@ -180,6 +190,15 @@ public sealed class ActiveRestoreSession : INotifyPropertyChanged
     public string CancelLabel => IsCancelling ? "Cancelling…" : "Cancel";
     public bool CanCancel => IsRunning && !IsCancelling;
     public string TargetLabel => IsTestRestore ? TargetPath : $"Restoring into {TargetPath}";
+    /// <summary>Temporary folder inside the target where restored files
+    /// arrive until the restore finishes. Null before it exists and after
+    /// the engine has finished with it (U154).</summary>
+    public string? StagingPath { get; set; }
+    public bool HasStagingFolder => IsRunning && !IsTestRestore && !string.IsNullOrEmpty(StagingPath);
+    public void OpenStagingFolder()
+    {
+        if (HasStagingFolder) FolderLauncher.Open(StagingPath!);
+    }
     public RestoreTerminalStatus Status { get; set; }
     public string? ErrorMessage { get; set; }
     internal Action? CancelAction { get; set; }

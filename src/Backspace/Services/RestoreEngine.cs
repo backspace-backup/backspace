@@ -37,6 +37,10 @@ public sealed class RestoreEngine
 
     public event Action<string>? Log;
     public event Action<RestoreProgressSnapshot>? Progress;
+    /// <summary>The temporary folder where restored output arrives before it
+    /// is moved into place, or <c>null</c> once the restore no longer uses
+    /// it (U154).</summary>
+    public event Action<string?>? StagingChanged;
 
     // ---- public API ----
 
@@ -114,7 +118,15 @@ public sealed class RestoreEngine
                 },
                 ct,
                 expectedLeaves: request.Files.Count > 0 ? request.Files : null,
-                expectedSnapshotId: request.SnapshotId, overwrite: request.Overwrite, preserveStructure: request.PreserveStructure, control: control);
+                expectedSnapshotId: request.SnapshotId, overwrite: request.Overwrite, preserveStructure: request.PreserveStructure, control: control,
+                onStaging: path =>
+                {
+                    try { StagingChanged?.Invoke(path); }
+                    catch (Exception ex) { _log.Debug(ex, "Staging observer failed — non-fatal"); }
+                    if (session is not null)
+                        try { ServiceLocator.ActiveRestores.SetStagingPath(session, path); }
+                        catch { /* registry update never blocks restore */ }
+                });
 
             outcome.TotalFiles = request.Files.Count > 0 ? request.Files.Count : result.TotalFiles;
             outcome.RestoredCount = result.FilesRestored;

@@ -254,6 +254,14 @@ owned process because Backrest's native Restore endpoint rejects an existing
 target. Ordinary file restores resume only within the current application
 session. Test restore saves its plan and completed batches across launches.
 
+`IBackupEngine.RestoreFilesAsync` reports the `.backspace-restore-*` staging
+folder through `onStaging` once it exists (the owned path creates it; Backrest's
+native Restore creates it itself, so it is reported at the first poll that finds
+it) and reports `null` after cleanup. `RestoreEngine` raises `StagingChanged`
+for the wizard and sets `ActiveRestoreSession.StagingPath`, which the progress
+card shows with **Open folder** while the session runs (U154). Test restores
+run without a registry session for their batches, so they never show it.
+
 `RestoreOutputTransaction` keeps replaced originals until all selected sources
 finish. Cancellation rolls back those publications, including earlier sources;
 their registry sessions do not report completion before that finalization.

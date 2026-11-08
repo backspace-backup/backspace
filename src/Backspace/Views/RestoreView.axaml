@@ -714,6 +714,16 @@
                 IsVisible="{Binding IsRunning}"/>
         </StackPanel>
         <TextBlock Classes="dim" TextWrapping="Wrap" Text="Pause keeps downloads so you can resume while Backspace stays open. Cancel removes this restore’s output."/>
+        <!-- U154: name the staging folder while restored files arrive there. -->
+        <Grid x:Name="RestoreStagingFolder" ColumnDefinitions="*,Auto" Margin="0,4,0,0" IsVisible="{Binding HasStagingFolder}">
+          <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Classes="body" TextWrapping="Wrap" Text="Restored files arrive in a temporary folder until the restore finishes:"/>
+            <SelectableTextBlock Text="{Binding StagingFolder}" TextWrapping="Wrap" FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12.5"/>
+            <TextBlock Classes="dim" TextWrapping="Wrap" Text="These files aren’t final yet. Backspace moves them into place when the restore finishes. If you cancel, this folder is deleted."/>
+          </StackPanel>
+          <Button Grid.Column="1" Classes="ghost" Content="Open folder" Margin="12,0,0,0" VerticalAlignment="Center"
+                  Command="{Binding OpenStagingFolderCommand}"/>
+        </Grid>
         </StackPanel>
         <TextBlock Grid.Column="0" Grid.ColumnSpan="2" Classes="body"
                    VerticalAlignment="Center"

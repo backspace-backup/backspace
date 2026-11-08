@@ -211,7 +211,10 @@ public interface IBackupEngine
     /// progress update emitted by restic's stdout. The returned task
     /// completes once the restic process reaches a terminal status;
     /// the returned <see cref="RestoreOpResult"/> carries the final
-    /// numbers + any terminal error message.</summary>
+    /// numbers + any terminal error message.
+    /// <paramref name="onStaging"/> receives the temporary folder where
+    /// output arrives once it exists, and <c>null</c> once the restore has
+    /// finished with it (U154).</summary>
     Task<RestoreOpResult> RestoreFilesAsync(
         Backup backup,
         string sourcePath,
@@ -223,7 +226,7 @@ public interface IBackupEngine
         Action<RestoreProgressUpdate>? onProgress,
         CancellationToken ct,
         IReadOnlyList<string>? expectedLeaves = null, string? expectedSnapshotId = null, bool overwrite = true, bool preserveStructure = true,
-        RestoreControl? control = null);
+        RestoreControl? control = null, Action<string?>? onStaging = null);
 
     /// <summary>Initialize the per-(backup,source) repo state on disk if
     /// it doesn't already exist, including registering the destination

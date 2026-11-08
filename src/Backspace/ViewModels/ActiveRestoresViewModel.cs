@@ -57,6 +57,9 @@ public sealed partial class ActiveRestoresViewModel : ViewModelBase, IDisposable
     private void CancelSession(ActiveRestoreSession? session) => session?.Cancel();
 
     [RelayCommand]
+    private void OpenStagingFolder(ActiveRestoreSession? session) => session?.OpenStagingFolder();
+
+    [RelayCommand]
     private void TogglePauseSession(ActiveRestoreSession? session) => session?.TogglePause();
 
     [RelayCommand]

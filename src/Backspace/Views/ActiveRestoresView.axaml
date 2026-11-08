@@ -36,6 +36,16 @@
                   Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).CancelSessionCommand}" CommandParameter="{Binding}" HorizontalAlignment="Left"/>
           </StackPanel>
           <TextBlock Text="Pause keeps progress. Cancel ends this restore and removes its temporary copies." TextWrapping="Wrap" Classes="dim" IsVisible="{Binding IsRunning}"/>
+          <!-- U154: name the staging folder while restored files arrive there. -->
+          <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0" IsVisible="{Binding HasStagingFolder}">
+            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+              <TextBlock Classes="body" TextWrapping="Wrap" Text="Restored files arrive in a temporary folder until the restore finishes:"/>
+              <SelectableTextBlock Text="{Binding StagingPath}" TextWrapping="Wrap" FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12.5"/>
+              <TextBlock Classes="dim" TextWrapping="Wrap" Text="These files aren’t final yet. Backspace moves them into place when the restore finishes. If you cancel, this folder is deleted."/>
+            </StackPanel>
+            <Button Grid.Column="1" Classes="ghost" Content="Open folder" Margin="12,0,0,0" VerticalAlignment="Center"
+                    Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).OpenStagingFolderCommand}" CommandParameter="{Binding}"/>
+          </Grid>
         </StackPanel>
         </StackPanel>
       </Border>
@@ -108,6 +118,15 @@
                         CommandParameter="{Binding}"/>
                 <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Classes="dim" VerticalAlignment="Center"/>
               </StackPanel>
+              <!-- U154: where files wait until the restore finishes. -->
+              <Grid ColumnDefinitions="*,Auto" Margin="8,-8,0,16" IsVisible="{Binding HasStagingFolder}">
+                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Classes="dim" FontSize="14" TextWrapping="Wrap" Text="Restored files arrive in a temporary folder until the restore finishes. If you cancel, it is deleted."/>
+                  <TextBlock Classes="dim" FontSize="12.5" TextTrimming="CharacterEllipsis" FontFamily="{DynamicResource BS.Font.Mono}" Text="{Binding StagingPath}" ToolTip.Tip="{Binding StagingPath}"/>
+                </StackPanel>
+                <Button Grid.Column="1" Classes="ghost" Padding="12,6" Content="Open folder" Margin="12,0,0,0" VerticalAlignment="Center"
+                        Command="{Binding $parent[UserControl].((vm:ActiveRestoresViewModel)DataContext).OpenStagingFolderCommand}" CommandParameter="{Binding}"/>
+              </Grid>
               </StackPanel>
             </DataTemplate>
           </ItemsControl.ItemTemplate>

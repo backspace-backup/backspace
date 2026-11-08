@@ -1099,6 +1099,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         var engine = new RestoreEngine(ServiceLocator.Config, ServiceLocator.Engine, ServiceLocator.Secrets);
         engine.Log += OnEngineLog;
         engine.Progress += OnEngineProgress;
+        engine.StagingChanged += OnEngineStaging;
         // FileFailed / FileRestored engine events removed in 2026-06-12
         // restore-stack refactor.
         IDisposable? restoreLease = null;
@@ -1154,6 +1155,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         {
             engine.Log -= OnEngineLog;
             engine.Progress -= OnEngineProgress;
+            engine.StagingChanged -= OnEngineStaging;
+            OnEngineStaging(null);
             // FileFailed / FileRestored unsubscribe removed.
             await FinishRestoreControlAsync();
             restoreLease?.Dispose();
@@ -1257,6 +1260,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         var engine = new RestoreEngine(ServiceLocator.Config, ServiceLocator.Engine, ServiceLocator.Secrets);
         engine.Log += OnEngineLog;
         engine.Progress += OnEngineProgress;
+        engine.StagingChanged += OnEngineStaging;
         // FileFailed / FileRestored engine events removed in 2026-06-12
         // restore-stack refactor.
 
@@ -1426,6 +1430,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         {
             engine.Log -= OnEngineLog;
             engine.Progress -= OnEngineProgress;
+            engine.StagingChanged -= OnEngineStaging;
+            OnEngineStaging(null);
             // FileFailed / FileRestored unsubscribe removed.
             await FinishRestoreControlAsync();
             restoreLease?.Dispose();
@@ -1498,7 +1504,13 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(RestoreProgressExplanation));
     });
 
-    partial void OnIsRunningChanged(bool value) => OnRestoreControlChanged();
+    partial void OnIsRunningChanged(bool value)
+    {
+        if (!value) StagingFolder = null;
+        OnPropertyChanged(nameof(HasStagingFolder));
+        OpenStagingFolderCommand.NotifyCanExecuteChanged();
+        OnRestoreControlChanged();
+    }
 
     private async Task FinishRestoreControlAsync()
     {
@@ -1635,6 +1647,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         var engine = new RestoreEngine(ServiceLocator.Config, ServiceLocator.Engine, ServiceLocator.Secrets);
         engine.Log += OnEngineLog;
         engine.Progress += OnEngineProgress;
+        engine.StagingChanged += OnEngineStaging;
         IDisposable? restoreLease = null;
         try
         {
@@ -1652,6 +1665,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         {
             engine.Log -= OnEngineLog;
             engine.Progress -= OnEngineProgress;
+            engine.StagingChanged -= OnEngineStaging;
+            OnEngineStaging(null);
             await FinishRestoreControlAsync();
             restoreLease?.Dispose();
             IsRunning = false;
@@ -2082,6 +2097,25 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     private int _msBaselineTotal;
     private int _msBaselineRestored;
     private int _msBaselineFailed;
+
+    /// <summary>Temporary folder inside the target where restored files arrive
+    /// until the restore finishes (U154). Null before it exists and once the
+    /// restore has finished with it.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasStagingFolder))]
+    [NotifyCanExecuteChangedFor(nameof(OpenStagingFolderCommand))]
+    private string? _stagingFolder;
+    public bool HasStagingFolder => IsRunning && !string.IsNullOrEmpty(StagingFolder);
+
+    // Posted in order, so a late "created" never outlives the "finished".
+    private void OnEngineStaging(string? path) =>
+        Dispatcher.UIThread.Post(() => StagingFolder = path is not null && !IsRunning ? null : path);
+
+    [RelayCommand(CanExecute = nameof(HasStagingFolder))]
+    private void OpenStagingFolder()
+    {
+        if (StagingFolder is { } folder) FolderLauncher.Open(folder);
+    }
 
     private void OnEngineProgress(RestoreProgressSnapshot s) =>
         Dispatcher.UIThread.Post(() =>

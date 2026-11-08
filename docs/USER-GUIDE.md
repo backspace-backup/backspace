@@ -412,6 +412,14 @@ the original. An unexpected process exit during final file placement can leave
 recovery copies beside the destination; automatic recovery from that
 interruption is not provided yet.
 
+While a restore runs, its files first arrive in a temporary folder named
+`.backspace-restore-…` inside the folder you restore to. Backspace moves them
+into place only when the restore finishes. The restore's progress, both in the
+wizard and on its **Restores** card, names that folder and offers **Open
+folder** so you can watch files arrive. Those files aren't final yet: if you
+cancel, the folder is deleted. The line disappears once the restore finishes.
+Test restores don't show it; they check copies in Backspace's own folder.
+
 ## Browsing and mounting snapshots
 
 **Browse snapshot** on a backup card walks the snapshot's tree inline, without

@@ -72,10 +72,18 @@ public sealed class E41_NativeRestoreProgress : BackupE2EBase
             Files = selectedFiles.Append("small.txt").ToArray(), IncludePatterns = new[] { "/" }, TargetPath = target }, deadline.Token);
         var live = await WaitForLiveProgress(run, target, ctx, deadline.Token);
         Assert.False(live.IsProgressIndeterminate);
-        ctx.Snapshot(main, "real restore in progress", $"Live progress from bundled Backrest/restic: {live.StatusLabel}. The restore has not finished.");
+        // U154: Backrest's native Restore creates the staging folder itself;
+        // the card names it once it exists.
+        Assert.True(live.HasStagingFolder);
+        Assert.StartsWith(Path.Combine(target, ".backspace-restore-"), live.StagingPath);
+        Assert.True(Directory.Exists(live.StagingPath));
+        ctx.Snapshot(main, "real restore in progress", $"Live progress from bundled Backrest/restic: {live.StatusLabel}. The restore has not finished. The card names the native restore's temporary folder with Open folder (U154).");
         ctx.Report.RecordNote("Live progress", $"Observed {live.BytesRestored:N0} of {live.TotalBytes:N0} bytes before completion. No simulated progress was supplied.");
         var result = await run;
         Assert.True(result.TerminalStatus == RestoreTerminalStatus.Success, result.ErrorMessage);
+        ctx.Driver.Pump();
+        Assert.False(live.HasStagingFolder);
+        Assert.Null(live.StagingPath);
         foreach (var file in selectedFiles)
             Assert.Equal(File.ReadAllBytes(Path.Combine(source, file)), File.ReadAllBytes(Path.Combine(target, file)));
         Assert.Equal(File.ReadAllText(Path.Combine(source, "small.txt")), File.ReadAllText(Path.Combine(target, "small.txt")));

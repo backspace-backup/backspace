@@ -1384,7 +1384,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
         int revision, IReadOnlyList<string> includePatterns, string targetPath,
         Action<RestoreProgressUpdate>? onProgress, CancellationToken ct,
         IReadOnlyList<string>? expectedLeaves = null, string? expectedSnapshotId = null, bool overwrite = true, bool preserveStructure = true,
-        RestoreControl? control = null)
+        RestoreControl? control = null, Action<string?>? onStaging = null)
     {
         if (includePatterns.Count == 0)
             return new RestoreOpResult(0, 0, 0, 0, RestoreTerminalStatus.Success, null);
@@ -1438,8 +1438,21 @@ public sealed class ResticBackrestEngine : IBackupEngine
         using var submissionCts = new CancellationTokenSource();
         Task<BackrestScheduledOperationResponse>? submission = null;
         string captured = "";
+        // The progress card names the staging folder while output arrives
+        // there (U154). Native Restore creates it itself, so report it once
+        // it exists. A UI callback never interferes with the restore.
+        var stagingReported = false;
+        void ReportStaging(string? path)
+        {
+            if (path is not null && (stagingReported || !Directory.Exists(path))) return;
+            if (path is null && !stagingReported) return;
+            stagingReported = path is not null;
+            try { onStaging?.Invoke(path); }
+            catch (Exception ex) { _log.Debug(ex, "Restore staging observer failed"); }
+        }
         try
         {
+            ReportStaging(staging);
             if (!native)
                 await File.WriteAllLinesAsync(includeFile,
                     includes.Select(p => "/" + EscapeBracketsForResticPattern(p)), ct).ConfigureAwait(false);
@@ -1521,6 +1534,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 {
                     terminal = await WaitForOperationTerminalAsync(client, nativeOperationId, ct, observed: op =>
                     {
+                        ReportStaging(staging);
                         if (op.OperationRestore?.LastStatus is { } progress)
                         {
                             var directories = Directory.Exists(outputRoot) ? CountRestoreDirectories(outputRoot) : 0;
@@ -1733,6 +1747,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     error = $"The transfer has stopped, but temporary files could not be removed at {staging}. {ex.Message}";
                 }
             }
+            ReportStaging(null);
         }
         // A bracket pattern can download extra siblings into staging. Once all
         // requested files are safely promoted, those discarded bytes must not
