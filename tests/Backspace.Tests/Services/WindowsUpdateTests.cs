@@ -399,4 +399,40 @@ public sealed class WindowsUpdateTests
         Assert.Single(errors); Assert.IsAssignableFrom<IOException>(errors[0]); Assert.True(File.Exists(path));
         Assert.True(File.Exists(Path.Combine(root, "Backspace.exe")));
     }
+
+    private sealed class DownloadHandler(System.Net.HttpStatusCode github) : System.Net.Http.HttpMessageHandler
+    {
+        public System.Collections.Generic.List<string> Requests { get; } = new();
+        protected override System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, System.Threading.CancellationToken ct)
+        {
+            Requests.Add(request.RequestUri!.Host + " " + string.Join(",", request.Headers.Accept));
+            var status = request.RequestUri.Host == "github.com" ? github : System.Net.HttpStatusCode.OK;
+            return System.Threading.Tasks.Task.FromResult(new System.Net.Http.HttpResponseMessage(status) { Content = new System.Net.Http.ByteArrayContent(new byte[] { 1, 2, 3 }) });
+        }
+    }
+
+    private static string WithApiUrl(string json, string api) => json.Replace("\"browser_download_url\"", "\"url\":\"" + api + "\",\"browser_download_url\"");
+
+    /// <summary>8 November 2026: github.com answered 504 for the release file
+    /// while GitHub's API served it. The updater falls back to the API; a
+    /// client error (404) does not, and the API link must be this repository's.</summary>
+    [Fact]
+    public async System.Threading.Tasks.Task A_server_error_on_github_com_falls_back_to_the_API_asset()
+    {
+        var api = "https://api.github.com/repos/backspace-backup/backspace/releases/assets/123";
+        var release = WindowsUpdatePackage.ParseRelease(WithApiUrl(ReleaseJson(), api), new Version(1, 0))!;
+        Assert.Equal(api, release.ApiAssetUrl);
+
+        var gateway = new DownloadHandler(System.Net.HttpStatusCode.GatewayTimeout);
+        using (var response = await WindowsUpdatePackage.GetAssetAsync(new System.Net.Http.HttpClient(gateway), release, TestContext.Current.CancellationToken))
+            Assert.True(response.IsSuccessStatusCode);
+        Assert.Equal(new[] { "github.com ", "api.github.com application/octet-stream" }, gateway.Requests);
+
+        var missing = new DownloadHandler(System.Net.HttpStatusCode.NotFound);
+        await Assert.ThrowsAsync<System.Net.Http.HttpRequestException>(() => WindowsUpdatePackage.GetAssetAsync(new System.Net.Http.HttpClient(missing), release, TestContext.Current.CancellationToken));
+        Assert.Single(missing.Requests);
+
+        Assert.Null(WindowsUpdatePackage.ParseRelease(WithApiUrl(ReleaseJson(), "https://api.github.com/repos/someone/else/releases/assets/1"), new Version(1, 0))!.ApiAssetUrl);
+        Assert.Null(WindowsUpdatePackage.ParseRelease(ReleaseJson(), new Version(1, 0))!.ApiAssetUrl);
+    }
 }

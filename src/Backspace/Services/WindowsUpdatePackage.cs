@@ -28,7 +28,7 @@ internal static class WindowsUpdatePackage
     private const long MaxDownload = 2L * 1024 * 1024 * 1024;
     private const long MaxExpanded = 4L * 1024 * 1024 * 1024;
     internal sealed record Release(Version Version, string Tag, string Url, string Notes,
-        string AssetUrl, string Digest, long Size, bool Executable = false);
+        string AssetUrl, string Digest, long Size, bool Executable = false, string? ApiAssetUrl = null);
     internal sealed record FileEntry(string Name, long Size, string Sha256);
     internal sealed class Plan
     {
@@ -72,7 +72,15 @@ internal static class WindowsUpdatePackage
         var size = asset.GetProperty("size").GetInt64();
         if (size <= 0 || size > MaxDownload) throw new InvalidDataException("The update size is outside the supported limit.");
         var notes = r.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() ?? "" : "";
-        return new Release(Normalize(version), tag, url, notes, assetUrl, digest[7..], size, assetName == ExecutableAssetName);
+        // The same file through GitHub's API: used when github.com's download
+        // link fails (it answered 504 for hours on 8 November 2026 while the
+        // API served the file). The checksum still decides.
+        var apiUrl = asset.TryGetProperty("url", out var au) && au.ValueKind == JsonValueKind.String ? au.GetString() : null;
+        if (apiUrl is not null && !(Uri.TryCreate(apiUrl, UriKind.Absolute, out var api) && api.Scheme == "https"
+            && api.Host == "api.github.com" && api.UserInfo.Length == 0 && api.Port == 443 && api.Query.Length == 0
+            && Regex.IsMatch(api.AbsolutePath, @"^/repos/backspace-backup/backspace/releases/assets/[0-9]+$")))
+            apiUrl = null;
+        return new Release(Normalize(version), tag, url, notes, assetUrl, digest[7..], size, assetName == ExecutableAssetName, apiUrl);
     }
 
     internal static bool IsReleaseUrl(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri)
@@ -109,10 +117,7 @@ internal static class WindowsUpdatePackage
         var archive = Path.Combine(work, release.Executable ? "download.exe" : "download.zip");
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, release.AssetUrl);
-            request.Headers.UserAgent.ParseAdd("Backspace-Updater");
-            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            using var response = await GetAssetAsync(http, release, ct).ConfigureAwait(false);
             await using (var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
             await using (var target = new FileStream(archive, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
@@ -143,6 +148,34 @@ internal static class WindowsUpdatePackage
             SafeRemoveWork(root, work);
             throw;
         }
+    }
+
+    /// <summary>The release's file from github.com, or, when that fails (a
+    /// server error or no connection), the same file through GitHub's API.</summary>
+    internal static async Task<HttpResponseMessage> GetAssetAsync(HttpClient http, Release release, CancellationToken ct)
+    {
+        static HttpRequestMessage Request(string url, bool api)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.UserAgent.ParseAdd("Backspace-Updater");
+            if (api) request.Headers.Accept.ParseAdd("application/octet-stream");
+            return request;
+        }
+        HttpResponseMessage? first = null;
+        Exception? failure = null;
+        try
+        {
+            using var request = Request(release.AssetUrl, api: false);
+            first = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            if (first.IsSuccessStatusCode || release.ApiAssetUrl is null || (int)first.StatusCode < 500) { first.EnsureSuccessStatusCode(); return first; }
+        }
+        catch (HttpRequestException ex) when (release.ApiAssetUrl is not null && ex.StatusCode is null) { failure = ex; }
+        AppLogger.For(nameof(WindowsUpdatePackage)).Warning(failure, "The update download from github.com failed ({Status}); trying GitHub's API", first?.StatusCode);
+        first?.Dispose();
+        using var retry = Request(release.ApiAssetUrl!, api: true);
+        var second = await http.SendAsync(retry, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        second.EnsureSuccessStatusCode();
+        return second;
     }
 
     internal static void ValidateApplicationVersion(Plan plan, Version expected)
