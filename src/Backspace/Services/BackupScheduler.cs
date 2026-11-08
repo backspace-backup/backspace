@@ -161,11 +161,16 @@ internal static class SchedulePlanner
     }
 }
 
-/// <summary>Runs due schedules one at a time, in the tray app or, with
-/// administrator access, in the background service. Between runs it only
-/// sleeps: it wakes at the next due time, or after at most a minute so that
-/// sleep, hibernation and clock changes are noticed. A due run waits while
-/// its conditions (power, network, Quit) are not met, then runs once.</summary>
+/// <summary>Runs due schedules, in the tray app or, with administrator access,
+/// in the background service. Between runs it only sleeps: it wakes at the
+/// next due time, or after at most a minute so that sleep, hibernation and
+/// clock changes are noticed. A due run waits while its conditions (power,
+/// network, Quit) are not met, then runs once.
+///
+/// <para>With <see cref="Options.MaxParallel"/> above one, due plans start
+/// together (U156): how many back up at once is then up to "Backups at once
+/// per destination" and "in total" (<see cref="RepositoryAccess"/>), and the
+/// ones waiting say "Queued". Otherwise one runs at a time.</para></summary>
 internal sealed class ScheduleLoop(ScheduleLoop.Options options)
 {
     internal sealed record Options(
@@ -179,10 +184,16 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         Func<bool> OnBattery,
         Func<DateTime>? UtcNow = null,
         TimeSpan? MaxSleep = null,
-        TimeSpan? PowerCheck = null);
+        TimeSpan? PowerCheck = null,
+        // Plans started at once; one when not given.
+        Func<int>? MaxParallel = null);
 
     private readonly SemaphoreSlim _wake = new(0, 1);
+    // Guards the saved state file and the two dictionaries: parallel runs end
+    // on their own threads.
+    private readonly object _sync = new();
     private readonly Dictionary<string, string> _waiting = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Task> _running = new(StringComparer.Ordinal);
     private TimeSpan MaxSleep => options.MaxSleep ?? TimeSpan.FromMinutes(1);
     private DateTime Now() => options.UtcNow?.Invoke() ?? DateTime.UtcNow;
     private static Serilog.ILogger Log => AppLogger.For<ScheduleLoop>();
@@ -197,67 +208,136 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     internal async Task RunAsync(CancellationToken stop)
     {
         ResumeInterruptedRuns();
-        while (!stop.IsCancellationRequested)
+        try
         {
-            var sleep = MaxSleep;
-            try { sleep = await TickAsync(stop).ConfigureAwait(false); }
-            catch (OperationCanceledException) when (stop.IsCancellationRequested) { return; }
-            catch (Exception ex) { Log.Warning(ex, "Checking scheduled backups failed; trying again shortly"); }
-            if (sleep <= TimeSpan.Zero) continue;
-            try { await _wake.WaitAsync(sleep, stop).ConfigureAwait(false); }
-            catch (OperationCanceledException) { return; }
+            while (!stop.IsCancellationRequested)
+            {
+                var sleep = MaxSleep;
+                try { sleep = await TickAsync(stop).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (stop.IsCancellationRequested) { return; }
+                catch (Exception ex) { Log.Warning(ex, "Checking scheduled backups failed; trying again shortly"); }
+                if (sleep <= TimeSpan.Zero) continue;
+                try { await _wake.WaitAsync(sleep, stop).ConfigureAwait(false); }
+                catch (OperationCanceledException) { return; }
+            }
+        }
+        finally
+        {
+            // Runs started together end before the loop does, each saving
+            // how it ended (a run cut short is resumed later).
+            Task[] left;
+            lock (_sync) left = _running.Values.ToArray();
+            try { await Task.WhenAll(left).ConfigureAwait(false); } catch { /* Each run logged its own failure. */ }
         }
     }
 
-    /// <summary>Starts at most one due plan and returns how long to sleep.</summary>
+    /// <summary>Starts due plans and returns how long to sleep: at most one,
+    /// awaited, unless <see cref="Options.MaxParallel"/> allows more.</summary>
     internal async Task<TimeSpan> TickAsync(CancellationToken stop)
     {
         if (options.Plans() is not { } plans) return MaxSleep;
-        var state = ScheduleState.Load(options.StatePath);
-        var now = Now();
-        var due = SchedulePlanner.Due(plans, state, now);
-        state.Save();
-        foreach (var key in _waiting.Keys.Where(k => due.All(p => p.Key != k)).ToList()) _waiting.Remove(key);
+        var parallel = Math.Max(1, options.MaxParallel?.Invoke() ?? 1);
+        ScheduleState state;
+        DateTime now;
+        List<SchedulePlan> due;
+        lock (_sync)
+        {
+            state = ScheduleState.Load(options.StatePath);
+            now = Now();
+            due = SchedulePlanner.Due(plans, state, now).Where(p => !_running.ContainsKey(p.Key)).ToList();
+            state.Save();
+            foreach (var key in _waiting.Keys.Where(k => due.All(p => p.Key != k)).ToList()) _waiting.Remove(key);
+        }
+        var startedAny = false;
+        var leftDue = false;
         foreach (var plan in due)
         {
             if (options.Blocked(plan) is { } reason)
             {
-                if (_waiting.GetValueOrDefault(plan.Key) != reason)
-                    Log.Information("{Name} ({Kind}) is due and waits: {Reason}", plan.Backup.Name, plan.Kind, reason);
-                _waiting[plan.Key] = reason;
+                lock (_sync)
+                {
+                    if (_waiting.GetValueOrDefault(plan.Key) != reason)
+                        Log.Information("{Name} ({Kind}) is due and waits: {Reason}", plan.Backup.Name, plan.Kind, reason);
+                    _waiting[plan.Key] = reason;
+                }
+                leftDue = true;
                 continue;
             }
-            var paused = _waiting.GetValueOrDefault(plan.Key) == "paused";
-            if (await RunOneAsync(plan, state, now, stop, quiet: paused).ConfigureAwait(false))
+            bool paused;
+            lock (_sync) paused = _waiting.GetValueOrDefault(plan.Key) == "paused";
+            if (parallel == 1)
             {
-                _waiting.Remove(plan.Key);
-                return TimeSpan.Zero;
+                if (await RunOneAsync(plan, now, stop, quiet: paused).ConfigureAwait(false))
+                {
+                    lock (_sync) _waiting.Remove(plan.Key);
+                    return TimeSpan.Zero;
+                }
+                NotAdmitted(plan, paused);
+                return MaxSleep;
             }
-            // Not admitted (Quit): it stays due. Wait like any blocked run;
-            // retrying at once would spin until the pause ends.
-            if (!paused) Log.Information("{Name} ({Kind}) is due and waits: automatic backups are paused (Quit)", plan.Backup.Name, plan.Kind);
-            _waiting[plan.Key] = "paused";
-            return MaxSleep;
+            lock (_sync)
+            {
+                if (_running.Count >= parallel) { leftDue = true; break; }
+                // Not awaited: the next due plan starts too. Its end wakes
+                // the loop, so a plan left waiting is looked at again.
+                _running[plan.Key] = RunInBackgroundAsync(plan, now, stop, paused);
+            }
+            startedAny = true;
         }
-        if (due.Count > 0) return MaxSleep;
-        var next = state.Entries.Count == 0 ? (DateTime?)null : state.Entries.Values.Min(e => e.NextUtc);
+        if (leftDue || startedAny && parallel == 1) return MaxSleep;
+        ScheduleState saved;
+        lock (_sync) saved = ScheduleState.Load(options.StatePath);
+        var next = saved.Entries.Count == 0 ? (DateTime?)null : saved.Entries.Values.Min(e => e.NextUtc);
         if (next is not { } at) return MaxSleep;
         var wait = at - now;
         return wait < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : wait > MaxSleep ? MaxSleep : wait;
     }
 
+    private void NotAdmitted(SchedulePlan plan, bool paused)
+    {
+        // Not admitted (Quit): it stays due. Wait like any blocked run;
+        // retrying at once would spin until the pause ends.
+        if (!paused) Log.Information("{Name} ({Kind}) is due and waits: automatic backups are paused (Quit)", plan.Backup.Name, plan.Kind);
+        lock (_sync) _waiting[plan.Key] = "paused";
+    }
+
+    private async Task RunInBackgroundAsync(SchedulePlan plan, DateTime now, CancellationToken stop, bool quiet)
+    {
+        await Task.Yield();
+        var ran = false;
+        try { ran = await RunOneAsync(plan, now, stop, quiet).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        catch (Exception ex) { Log.Error(ex, "The scheduled {Kind} for {Name} could not run", plan.Kind, plan.Backup.Name); }
+        finally
+        {
+            lock (_sync)
+            {
+                _running.Remove(plan.Key);
+                if (ran) _waiting.Remove(plan.Key);
+            }
+        }
+        if (!ran) NotAdmitted(plan, quiet);
+        else Wake();
+    }
+
     /// <summary>False when the run was not admitted and stays due.</summary>
-    private async Task<bool> RunOneAsync(SchedulePlan plan, ScheduleState state, DateTime now, CancellationToken stop, bool quiet)
+    private async Task<bool> RunOneAsync(SchedulePlan plan, DateTime now, CancellationToken stop, bool quiet)
     {
         // Record the start first, with the slot being run. A crash, power loss,
         // restart or Quit during the run leaves it recorded, and the next
         // launch resumes it once (ResumeInterruptedRuns); a resumed slot cut
         // short again waits for the next scheduled time.
-        var previous = state.Entries[plan.Key];
-        SchedulePlanner.Advance(state, plan, now);
-        if (plan.Kind == ScheduledTaskKind.Backup && state.Entries.GetValueOrDefault(plan.Key) is { } advanced)
-            state.Set(plan.Key, previous.ResumeDue ? advanced with { Resuming = true } : advanced with { RunningSlotUtc = previous.NextUtc });
-        state.Save();
+        ScheduleState.Entry previous;
+        lock (_sync)
+        {
+            // Read again: a run that ended meanwhile saved its own outcome.
+            var state = ScheduleState.Load(options.StatePath);
+            previous = state.Entries[plan.Key];
+            SchedulePlanner.Advance(state, plan, now);
+            if (plan.Kind == ScheduledTaskKind.Backup && state.Entries.GetValueOrDefault(plan.Key) is { } advanced)
+                state.Set(plan.Key, previous.ResumeDue ? advanced with { Resuming = true } : advanced with { RunningSlotUtc = previous.NextUtc });
+            state.Save();
+        }
         var ran = true;
         using var run = CancellationTokenSource.CreateLinkedTokenSource(stop);
         var limit = plan.Schedule.ExecutionTimeLimit;
@@ -279,24 +359,27 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         }
         if (run.IsCancellationRequested && !stop.IsCancellationRequested && !watching.IsCancellationRequested)
             Log.Warning("Stopped the scheduled {Kind} for {Name}: it reached its time limit or the computer went on battery", plan.Kind, plan.Backup.Name);
-        var after = ScheduleState.Load(options.StatePath);
-        if (!ran) after.Set(plan.Key, previous);
-        // Backspace itself stopping (Quit, Windows shutting down or
-        // restarting) cut the run short: it stays marked, and is resumed
-        // when the schedule starts again, a resume included.
-        else if (stop.IsCancellationRequested && after.Entries.GetValueOrDefault(plan.Key) is { } cut
-            && (cut.RunningSlotUtc is not null || cut.Resuming))
-            after.Set(plan.Key, cut with { RunningSlotUtc = cut.RunningSlotUtc ?? cut.NextUtc, Resuming = false });
-        else
+        lock (_sync)
         {
-            // Slots that passed during a long run are skipped, not queued.
-            if (after.Entries.GetValueOrDefault(plan.Key) is { } entry && entry.NextUtc <= Now())
-                SchedulePlanner.Advance(after, plan, Now());
-            // The run ended, whatever its outcome: it is no longer running.
-            if (after.Entries.GetValueOrDefault(plan.Key) is { } finished && (finished.RunningSlotUtc is not null || finished.Resuming))
-                after.Set(plan.Key, finished with { RunningSlotUtc = null, Resuming = false });
+            var after = ScheduleState.Load(options.StatePath);
+            if (!ran) after.Set(plan.Key, previous);
+            // Backspace itself stopping (Quit, Windows shutting down or
+            // restarting) cut the run short: it stays marked, and is resumed
+            // when the schedule starts again, a resume included.
+            else if (stop.IsCancellationRequested && after.Entries.GetValueOrDefault(plan.Key) is { } cut
+                && (cut.RunningSlotUtc is not null || cut.Resuming))
+                after.Set(plan.Key, cut with { RunningSlotUtc = cut.RunningSlotUtc ?? cut.NextUtc, Resuming = false });
+            else
+            {
+                // Slots that passed during a long run are skipped, not queued.
+                if (after.Entries.GetValueOrDefault(plan.Key) is { } entry && entry.NextUtc <= Now())
+                    SchedulePlanner.Advance(after, plan, Now());
+                // The run ended, whatever its outcome: it is no longer running.
+                if (after.Entries.GetValueOrDefault(plan.Key) is { } finished && (finished.RunningSlotUtc is not null || finished.Resuming))
+                    after.Set(plan.Key, finished with { RunningSlotUtc = null, Resuming = false });
+            }
+            after.Save();
         }
-        after.Save();
         return ran;
     }
 

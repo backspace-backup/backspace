@@ -46,7 +46,7 @@ internal sealed class BackgroundServiceActivity : IDisposable
             // previously authenticated identity, never a different run.
             if (next is { BackupId: null, RunId: not null } && next.RunId == Current?.RunId)
                 next = next with { BackupId = Current.BackupId, Operation = Current.Operation, StartedUtc = Current.StartedUtc };
-            if (next is null && Current?.State is "starting" or "running" or "stopping" or "unknown")
+            if (next is null && (Current?.State is "starting" or "running" or "stopping" or "unknown" || ServiceActivity.AnyRunning(Current)))
                 throw new IOException("The running background backup is no longer reachable.");
             Current = next; Error = null;
         }

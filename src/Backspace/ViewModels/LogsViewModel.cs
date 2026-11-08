@@ -236,7 +236,10 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     private void OnBackgroundActivityChanged() => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
     {
         if (_disposed) return;
-        var current = _backgroundActivity?.Current;
+        // The selected backup's run when several run at once (U156).
+        var selectedId = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Name == SelectedBackup)?.Id;
+        var current = selectedId is null ? _backgroundActivity?.Current
+            : Services.Platform.Windows.ServiceActivity.ForBackup(_backgroundActivity?.Current, selectedId);
         var oldId = _serviceRun?.Id; var oldStatus = _serviceRun?.Status;
         var tail = current?.Progress?.TranscriptTail ?? "";
         if (current?.RunId == _clearedServiceRun && current?.Progress is { } progress)

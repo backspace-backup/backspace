@@ -323,6 +323,7 @@ public sealed class ConfigStore
             current.Mail = next.Mail;
             current.Restore = next.Restore;
             current.Logging = next.Logging;
+            current.Limits = next.Limits;
             current.RcloneOAuthApps = next.RcloneOAuthApps;
         });
     }

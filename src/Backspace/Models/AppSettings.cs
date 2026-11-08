@@ -37,6 +37,10 @@ public sealed class AppConfig
 
     public LoggingSettings Logging { get; set; } = new();
 
+    /// <summary>How many backups run at once (U156). Read by the app and the
+    /// background service alike.</summary>
+    public BackupLimits Limits { get; set; } = new();
+
     /// <summary>
     /// Per-provider OAuth app credentials for rclone. Default empty:
     /// rclone falls back to its built-in shared client_ids, which are
@@ -74,6 +78,26 @@ public sealed class RcloneOAuthApp
     /// user only registered a public/installed-app client (no secret).
     /// rclone tolerates the missing secret in that case.</summary>
     public string? ClientSecretRef { get; set; }
+}
+
+/// <summary>How many backups may run at the same time (U156, owner's request
+/// of 7 November 2026): two backups to one destination share its network
+/// connection, so by default they take turns; in total, two at once keep the
+/// computer's disk from being overloaded. Cleanup and checks of a destination
+/// always run alone on it, whatever these say.</summary>
+public sealed class BackupLimits
+{
+    /// <summary>The most either setting can be.</summary>
+    public const int Maximum = 8;
+
+    /// <summary>Backups at once to the same destination (1 to 8).</summary>
+    public int PerDestination { get; set; } = 1;
+
+    /// <summary>Backups at once, all destinations together (1 to 8).</summary>
+    public int Total { get; set; } = 2;
+
+    public int PerDestinationClamped => Math.Clamp(PerDestination, 1, Maximum);
+    public int TotalClamped => Math.Clamp(Total, 1, Maximum);
 }
 
 public sealed class LoggingSettings

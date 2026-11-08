@@ -830,7 +830,10 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         try
         {
             // Null: the background service ran it and the card follows its activity.
-            if (await DesktopBackupRun.RunAsync(card.Snapshot, CancellationToken.None) is { } record) card.Apply(record);
+            // "Queued: …" while the background service can't start it yet (U156).
+            if (await DesktopBackupRun.RunAsync(card.Snapshot, CancellationToken.None,
+                    reason => OnUiThread(() => card.SetQueuedReason(reason))) is { } record)
+                card.Apply(record);
         }
         catch (Exception ex)
         {

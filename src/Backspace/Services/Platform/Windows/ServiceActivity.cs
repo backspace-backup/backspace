@@ -12,14 +12,33 @@ namespace Backspace.Services.Platform.Windows;
 /// desktop requests cannot supply progress, file paths or execution arguments.</summary>
 internal static class ServiceActivity
 {
-    internal const int MaximumBytes = 512 * 1024;
+    // Several runs at once (U156), each with its transcript tail.
+    internal const int MaximumBytes = 2 * 1024 * 1024;
     internal sealed record Source(string Path, double Percent, bool Running, string Detail, string Phase);
     internal sealed record Destination(string Name, double Percent);
     internal sealed record Progress(string BackupId, double Percent, string Queued,
-        Source[] Sources, Destination[] Destinations, RunRecord? Result = null, string TranscriptTail = "", string? LogRunId = null, long TranscriptEnd = 0);
+        Source[] Sources, Destination[] Destinations, RunRecord? Result = null, string TranscriptTail = "", string? LogRunId = null, long TranscriptEnd = 0,
+        double QueuedSeconds = 0);
     internal const int TranscriptCharacters = 32768;
     internal sealed record Snapshot(int Version, string? RunId, string State, string? BackupId,
-        string? Operation, DateTime? StartedUtc, Progress? Progress, string? Error = null);
+        string? Operation, DateTime? StartedUtc, Progress? Progress, string? Error = null, Snapshot[]? Runs = null);
+
+    /// <summary>The run of one backup in an activity report: the service runs
+    /// several at once (U156). <see cref="Snapshot.Runs"/> lists each one
+    /// running and the last one finished for each backup; the report itself
+    /// is the run started last. Without one for this backup, the report
+    /// itself, so a card can tell its own run has gone.</summary>
+    internal static Snapshot? ForBackup(Snapshot? activity, string backupId)
+    {
+        if (activity?.Runs is not { Length: > 0 } runs) return activity;
+        return runs.Where(r => r.BackupId == backupId)
+            .OrderByDescending(r => r.State is "starting" or "running" or "stopping" or "unknown")
+            .ThenByDescending(r => r.StartedUtc).FirstOrDefault() ?? activity;
+    }
+
+    /// <summary>True while any run of the report is going.</summary>
+    internal static bool AnyRunning(Snapshot? activity) => activity is not null
+        && (activity.State is "starting" or "running" or "stopping" || activity.Runs?.Any(r => r.State is "starting" or "running" or "stopping") == true);
 
     internal static Progress Capture(string backupId, BackupProgressService progress, string queued, RunRecord? result = null)
     {
@@ -56,6 +75,7 @@ internal static class ServiceActivity
     private static void Validate(Progress p, string backupId)
     {
         if (p.BackupId != backupId || !Percent(p.Percent) || p.Queued is null || p.Queued.Length > 4096
+            || !double.IsFinite(p.QueuedSeconds) || p.QueuedSeconds < 0
             || p.TranscriptTail is null || p.TranscriptTail.Length > TranscriptCharacters
             || p.TranscriptEnd < (p.TranscriptTail?.Length ?? 0)
             || (p.LogRunId is not null && !Guid.TryParseExact(p.LogRunId, "N", out _))
@@ -77,6 +97,21 @@ internal static class ServiceActivity
     {
         if (bytes.Length > MaximumBytes) throw new InvalidDataException();
         var value = JsonSerializer.Deserialize<Snapshot>(bytes, ServiceRunAuthorization.Json) ?? throw new InvalidDataException();
+        Check(value);
+        if (value.Runs is { } runs)
+        {
+            if (runs.Length > 256) throw new InvalidDataException("The background service could not report its activity.");
+            foreach (var run in runs)
+            {
+                if (run is null || run.Runs is not null) throw new InvalidDataException("The background service could not report its activity.");
+                Check(run);
+            }
+        }
+        return value;
+    }
+
+    private static void Check(Snapshot value)
+    {
         if (value.Version != 1 || value.Error is not null
             || value.State is not ("idle" or "starting" or "running" or "stopping" or "completed" or "failed" or "failed-to-start" or "interrupted" or "unknown")
             || (value.RunId is not null && !Guid.TryParseExact(value.RunId, "N", out _))
@@ -84,7 +119,6 @@ internal static class ServiceActivity
                 || value.Operation is not ("backup" or "check" or "prune"))))
             throw new InvalidDataException("The background service could not report its activity.");
         if (value.Progress is not null) Validate(value.Progress, value.BackupId ?? "");
-        return value;
     }
 
     internal static async Task<Snapshot> ReadAsync(ServiceWorkerBinding binding, CancellationToken token)
@@ -155,7 +189,8 @@ internal sealed class ServiceWorkerActivity : IAsyncDisposable
         var value = ServiceActivity.Capture(_backupId, _progress, Volatile.Read(ref _queued), Volatile.Read(ref _result));
         string tail; long end; lock (_tailGate) { tail = _tail.ToString(); end = _tailEnd; }
         _orchestrator.TryGetRunningRecord(_backupId, out var running);
-        value = value with { TranscriptTail = tail, LogRunId = value.Result?.Id ?? running?.Id, TranscriptEnd = end };
+        value = value with { TranscriptTail = tail, LogRunId = value.Result?.Id ?? running?.Id, TranscriptEnd = end,
+            QueuedSeconds = _orchestrator.QueuedTime(_backupId).TotalSeconds };
         await BackupServicePipe.WriteMessageAsync(_output, ServiceActivity.Encode(value), TimeSpan.FromSeconds(2), CancellationToken.None).ConfigureAwait(false);
     }
     private async Task PumpAsync()

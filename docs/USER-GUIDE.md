@@ -134,8 +134,35 @@ prune:
   off, a run more than 10 minutes late is skipped.
 
 A run that is due but waiting for power or a network starts as soon as the
-condition is met. Runs never overlap: if one is still running when the next
-is due, the next is skipped.
+condition is met. A backup never overlaps itself: if it is still running when
+its next run is due, the next is skipped.
+
+### Backups at once
+
+Backups that are due together, or that you start one after the other, run
+together up to two limits, in **Settings › Backups at once**:
+
+- **Backups at once per destination** (1 by default): backups to the same
+  destination share its connection, so with 1 they take turns and the first
+  one isn't slowed down by the second.
+- **Backups at once in total** (2 by default): all destinations together, so
+  the computer's disk isn't overloaded.
+
+A backup that has to wait says so on its card, with the reason, instead of
+**Running**: for example **Queued: waiting for local_c (same destination)** or
+**Queued: 2 backups already running**, and "It starts by itself when its turn
+comes". It starts as soon as its turn comes; **Stop** ends the wait. The time
+running shown once it starts leaves out the time it waited. Backups with
+several destinations take their turn for each destination in order.
+
+The limits apply to backups run from the window, scheduled backups and, with
+administrator access, backups the background service runs, together. Cleanup
+and checks of a destination always run alone on it, whatever the limits: a
+backup reaching its cleanup waits for the other backups on that destination
+to finish ("Queued: waiting for local_d (same destination) before cleanup and
+checks"), and no new backup starts there meanwhile. With more than one backup
+per destination, a new backup's first moments (while the engine prepares the
+storage) are still taken one backup at a time.
 
 Backspace doesn't keep the computer awake or hold back restarts, including
 those Windows Update schedules: when to sleep or restart stays your choice
@@ -322,7 +349,8 @@ never excluded: a manufacturer may keep recovery files there.
 
 While a backup runs, its card says **Running** with a turning icon and the
 time the run has taken so far, for example **Running · 12 min** (counted from
-the run's start, for a backup run by the background service too). Each source
+the run's start, for a backup run by the background service too, without the
+time it spent queued: see [Backups at once](#backups-at-once)). Each source
 and the strip below show the percentage, and the line under the strip says
 what is done, in the order it happens, for example "88,211 of ~109,320 files
 checked (30 of ~178 GB) · 2.6 GB of new data uploaded, 5.7 MB/s"; hovering it

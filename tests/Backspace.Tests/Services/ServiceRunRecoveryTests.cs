@@ -27,7 +27,7 @@ public sealed class ServiceRunRecoveryTests
         Assert.True(queue.Acknowledge(claim.Notice.Id, claim.Receipt));
         Assert.Equal(record.Id, restarted.Recover(context.HostRunId)!.Id);
         Assert.Single(logs.LoadTimelineByBackupId("b")); Assert.Null(queue.Take());
-        Assert.True(restarted.Read()!.Complete);
+        Assert.True(restarted.Read(context.HostRunId)!.Complete);
     }
 
     /// <summary>U131 (4 November 2026): the owner asked not to be notified of
@@ -58,14 +58,14 @@ public sealed class ServiceRunRecoveryTests
     {
         using var ws = new TempWorkspace(); var logs = new LogStore(ws.Sub("logs")); var queue = new ServiceNotificationQueue(ws.Root);
         var recovery = new ServiceRunRecovery(ws.Root, logs, queue); var context = Context(); recovery.Begin(context);
-        var path = Path.Combine(ws.Root, "service-worker-context.json");
+        var path = ServiceRunRecovery.PathFor(ws.Root, context.HostRunId);
         var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read); // like a sync client reading it
         var stale = new FileStream(path + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None); // the old fixed name, held
         var release = System.Threading.Tasks.Task.Delay(700).ContinueWith(_ => held.Dispose());
         recovery.StopRequested(context.HostRunId);
         release.Wait(); stale.Dispose();
-        Assert.True(recovery.Read()!.StopRequested);
-        Assert.Empty(Directory.GetFiles(ws.Root, "service-worker-context.json.*.tmp"));
+        Assert.True(recovery.Read(context.HostRunId)!.StopRequested);
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".*.tmp"));
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public sealed class ServiceRunRecoveryTests
     {
         using var ws = new TempWorkspace(); var logs = new LogStore(ws.Sub("logs")); var queue = new ServiceNotificationQueue(ws.Root);
         var recovery = new ServiceRunRecovery(ws.Root, logs, queue); var context = Context(); recovery.Begin(context);
-        recovery.StopRequested(Guid.NewGuid().ToString("N")); Assert.False(recovery.Read()!.StopRequested);
+        recovery.StopRequested(Guid.NewGuid().ToString("N")); Assert.False(recovery.Read(context.HostRunId)!.StopRequested);
         recovery.StopRequested(context.HostRunId);
         Assert.Equal(BackupRunStatus.Skipped, recovery.Recover(context.HostRunId)!.Status); Assert.Null(queue.Take());
     }
@@ -97,11 +97,14 @@ public sealed class ServiceRunRecoveryTests
     {
         using var ws = new TempWorkspace(); var recovery = new ServiceRunRecovery(ws.Root, new(ws.Sub("logs")), new(ws.Root));
         var context = Context(); recovery.Begin(context);
-        Assert.Throws<IOException>(() => recovery.Begin(Context()));
+        Assert.Throws<IOException>(() => recovery.Begin(context));
+        // Workers run side by side (U156): each has its own record.
+        var other = Context(); recovery.Begin(other);
+        Assert.Equal(2, recovery.All().Count);
         Assert.Null(recovery.Recover(Guid.NewGuid().ToString("N")));
         recovery.TrackHistory(context.HostRunId, Guid.NewGuid().ToString("N"));
         Assert.Throws<InvalidDataException>(() => recovery.TrackHistory(context.HostRunId, Guid.NewGuid().ToString("N")));
-        Assert.Equal(context.HostRunId, recovery.Read()!.HostRunId);
+        Assert.Equal(context.HostRunId, recovery.Read(context.HostRunId)!.HostRunId);
     }
 
     [Fact]
@@ -117,7 +120,7 @@ public sealed class ServiceRunRecoveryTests
         var release = System.Threading.Tasks.Task.Delay(1500).ContinueWith(_ => blocked.Dispose());
         recovery.Recover(context.HostRunId);
         release.Wait();
-        Assert.True(recovery.Read()!.Complete); Assert.Single(logs.LoadTimelineByBackupId("b"));
+        Assert.True(recovery.Read(context.HostRunId)!.Complete); Assert.Single(logs.LoadTimelineByBackupId("b"));
         recovery.Recover(context.HostRunId); // again: nothing is added twice
         Assert.Single(logs.LoadTimelineByBackupId("b"));
         Assert.Equal(context.HostRunId, queue.Take()!.Notice.RunId);

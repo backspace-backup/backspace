@@ -202,7 +202,7 @@ public sealed class SessionTaskControl
         if (Platform.Windows.SystemService.Status(system.ServiceName) != System.ServiceProcess.ServiceControllerStatus.Running) return false;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var activity = Platform.Windows.ServiceActivity.ReadAsync(system.Binding, timeout.Token).GetAwaiter().GetResult();
-        return activity.State is "starting" or "running" or "stopping";
+        return Platform.Windows.ServiceActivity.AnyRunning(activity);
     }
 #endif
 

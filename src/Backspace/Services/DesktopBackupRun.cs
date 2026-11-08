@@ -16,7 +16,9 @@ internal static class DesktopBackupRun
 {
     /// <summary>The run's record, or null when the service ran it and its
     /// result arrives through the background activity instead.</summary>
-    internal static async Task<RunRecord?> RunAsync(Backup backup, CancellationToken ct)
+    /// <param name="queued">Hears "Queued" reasons while the service can't
+    /// start the run yet, then "" (U156).</param>
+    internal static async Task<RunRecord?> RunAsync(Backup backup, CancellationToken ct, Action<string>? queued = null)
     {
 #if WINDOWS
         if (OperatingSystem.IsWindows())
@@ -25,7 +27,7 @@ internal static class DesktopBackupRun
             {
                 string? notStarted = null;
                 if (await Platform.Windows.ServiceCommandLineRun.TryRunFromDesktopAsync(
-                        AppContext.BaseDirectory.TrimEnd('\\'), backup, ct, reason => notStarted = reason).ConfigureAwait(false))
+                        AppContext.BaseDirectory.TrimEnd('\\'), backup, ct, reason => notStarted = reason, queued).ConfigureAwait(false))
                     return notStarted is null ? null : new RunRecord
                     {
                         BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Backup,

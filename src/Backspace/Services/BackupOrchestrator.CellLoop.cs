@@ -266,6 +266,36 @@ public sealed partial class BackupOrchestrator
                     // still raises LineWritten for the global "live
                     // tail" subscriber (LogsViewModel) which wants the
                     // union of every active backup.
+                    // Wait for this destination and a total slot (U156):
+                    // "Queued: waiting for local_c (same destination)" or
+                    // "Queued: 2 backups already running" meanwhile. An
+                    // elevated helper cleans up in its own process, out of
+                    // reach of RepositoryAccess.ExclusiveAsync, so its part
+                    // takes the destination alone from the start.
+                    RepositoryAccess access;
+                    try
+                    {
+                        var elevated = _engine is ResticBackrestEngine && VssElevationPolicy.Evaluate(backup).RequiresElevation
+                            && VssElevationPolicy.PromptAllowed;
+                        access = await AcquireRepositoryAsync(backup, final, dest, target.StorageName,
+                            elevated ? RepositoryAccess.Kind.ExclusiveBackup : RepositoryAccess.Kind.Backup, linked.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) { break; }
+                    catch (Exception ex)
+                    {
+                        _log.Warning(ex, "Could not take destination {Dest} for {Src}", dest.Name, sourcePath);
+                        const string unlocked = "Backspace could not lock the backup destination. No repository work was started.";
+                        final.Cells.Add(new CellOutcome
+                        {
+                            SourcePath = sourcePath, DestinationName = dest.Name, StorageName = target.StorageName,
+                            Status = BackupRunStatus.Failed, Summary = unlocked, LastError = ex.Message,
+                        });
+                        final.Errors.Add($"[{sourcePath} → {dest.Name}] {unlocked} {ex.Message}");
+                        continue;
+                    }
+                    using var accessLease = access;
+                    using var accessScope = access.Enter();
+
                     var capturedSourcePath = sourcePath;
                     var capturedDestName = dest.Name;
                     _progress.ReportCellStarted(backup.Id, sourcePath, capturedDestName);

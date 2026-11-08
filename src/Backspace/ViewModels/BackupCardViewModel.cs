@@ -260,8 +260,30 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     }
     partial void OnIsQueuedChanged(bool value)
     {
+        // The time running leaves out the time spent queued (U156).
+        if (value) _queuedSinceUtc ??= UtcNow();
+        else if (_queuedSinceUtc is { } since)
+        {
+            _queuedFor += UtcNow() - since;
+            _queuedSinceUtc = null;
+        }
         OnPropertyChanged(nameof(IsActuallyRunning));
+        OnPropertyChanged(nameof(RunningLabel));
         UpdateElapsedTimer();
+    }
+
+    private DateTime? _queuedSinceUtc;
+    private TimeSpan _queuedFor;
+    // What the background service reports its worker waited (U156).
+    private TimeSpan? _reportedQueued;
+
+    /// <summary>The run's time queued so far: from the background service,
+    /// from this window's orchestrator, or as this card saw it.</summary>
+    private TimeSpan QueuedTime()
+    {
+        if (_reportedQueued is { } reported) return reported;
+        if (ServiceLocator.Orchestrator.IsRunning(Id)) return ServiceLocator.Orchestrator.QueuedTime(Id);
+        return _queuedFor + (_queuedSinceUtc is { } since ? UtcNow() - since : TimeSpan.Zero);
     }
 
     /// <summary>When the run on screen started: the orchestrator's run or
@@ -269,6 +291,10 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [ObservableProperty] private DateTime? _runStartedUtc;
     partial void OnRunStartedUtcChanged(DateTime? value)
     {
+        // Another run (or none): its time queued starts from nothing.
+        _queuedFor = TimeSpan.Zero;
+        _reportedQueued = null;
+        _queuedSinceUtc = IsQueued && value is not null ? UtcNow() : null;
         OnPropertyChanged(nameof(RunningLabel));
         UpdateElapsedTimer();
     }
@@ -277,8 +303,12 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     internal Func<DateTime> UtcNow { get; set; } = () => DateTime.UtcNow;
 
     /// <summary>"Running · 12 min": how long the run has taken so far, live
-    /// (U155, 7 November 2026), for desktop and background runs alike.</summary>
-    public string RunningLabel => RunStartedUtc is { } started ? "Running · " + Elapsed(UtcNow() - started) : "Running";
+    /// (U155, 7 November 2026), for desktop and background runs alike. Time
+    /// spent queued, waiting for another backup, doesn't count (U156): the
+    /// clock stands still while the card says "Queued: …".</summary>
+    public string RunningLabel => RunStartedUtc is { } started
+        ? "Running · " + Elapsed(UtcNow() - started - QueuedTime())
+        : "Running";
 
     /// <summary>"40 s", "12 min", "1 h 05 min".</summary>
     internal static string Elapsed(TimeSpan time) =>
@@ -773,7 +803,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     private void OnBackgroundActivity() => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
     {
         if (!_disposed && _backgroundActivity is not null)
-            ApplyBackgroundActivity(_backgroundActivity.Current, _backgroundActivity.Error);
+            ApplyBackgroundActivity(Services.Platform.Windows.ServiceActivity.ForBackup(_backgroundActivity.Current, Id), _backgroundActivity.Error);
     });
 
     internal void ApplyBackgroundActivity(Services.Platform.Windows.ServiceActivity.Snapshot? activity, string? error)
@@ -797,6 +827,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         {
             BackgroundRunId = activity.RunId;
             SetRunning(activity.StartedUtc);
+            _reportedQueued = TimeSpan.FromSeconds(activity.Progress?.QueuedSeconds ?? 0);
             SetQueuedReason(activity.Progress?.Queued ?? "");
             if (activity.State == "stopping") LastRunLabel = "Stopping background backup…";
             if (error is not null) LastRunLabel = error;

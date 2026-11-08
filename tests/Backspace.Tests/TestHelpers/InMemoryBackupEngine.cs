@@ -45,6 +45,12 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
     public event Action<string>? LineWritten;
 
     public ConcurrentQueue<string> Calls { get; } = new();
+    /// <summary>When set, each backup awaits it before finishing (a long
+    /// backup the test ends when it chooses), U156.</summary>
+    public Func<Backup, CancellationToken, Task>? HoldBackup { get; set; }
+    /// <summary>When set, each backup then cleans up like the real engine:
+    /// it first waits for the destination alone (RepositoryAccess), U156.</summary>
+    public Func<Backup, CancellationToken, Task>? HoldCleanup { get; set; }
 
     /// <summary>Backups currently in flight. Incremented at the top of
     /// <see cref="BackupPruneCheckAsync"/> and decremented after the
@@ -89,6 +95,8 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
         CancellationToken ct, Action<string>? lineSink = null)
     {
         Calls.Enqueue($"BackupPruneCheck({backup.Name},{sourcePath},{destination.Name},{storageName})");
+        // Like the real engine, once its repository is prepared (U156).
+        Backspace.Services.RepositoryAccess.SetupDone();
 
         // Track in-flight count so parallelism tests can prove
         // disjoint-destination backups overlap.
@@ -116,6 +124,12 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
             // directory under our fake store. Source trees rooted under
             // a single sourcePath; preserve their relative layout.
             var (files, bytes) = await SnapshotSourceAsync(backup, sourcePath, destination, ct).ConfigureAwait(false);
+            if (HoldBackup is { } hold) await hold(backup, ct).ConfigureAwait(false);
+            if (HoldCleanup is { } cleanup)
+            {
+                await Backspace.Services.RepositoryAccess.ExclusiveAsync(ct).ConfigureAwait(false);
+                await cleanup(backup, ct).ConfigureAwait(false);
+            }
 
             return new RunRecord
             {

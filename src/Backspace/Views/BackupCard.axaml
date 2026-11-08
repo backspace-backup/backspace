@@ -146,7 +146,7 @@
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
                 <Button Classes="row-action-danger" IsVisible="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
-                <TextBlock IsVisible="{Binding IsQueued}" Text="Waiting for another operation" FontSize="13"
+                <TextBlock IsVisible="{Binding IsQueued}" Text="It starts by itself when its turn comes." FontSize="13"
                            Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"/>
               </WrapPanel>
             </StackPanel>

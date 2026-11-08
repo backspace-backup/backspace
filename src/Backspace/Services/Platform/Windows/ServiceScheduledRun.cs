@@ -19,7 +19,8 @@ internal static class ServiceScheduledRun
     private static readonly TimeSpan ExchangeTimeout = TimeSpan.FromSeconds(8);
 
     internal static async Task<int> RunApprovedAsync(string installation, ServiceWorkerBinding binding,
-        string revision, string backupId, string operation, CancellationToken cancellation, Action<string>? status = null)
+        string revision, string backupId, string operation, CancellationToken cancellation, Action<string>? status = null,
+        Action<string>? queued = null)
     {
         // The service runs the settings as saved (U100); the revision is unused.
         revision = Guid.NewGuid().ToString("N");
@@ -49,15 +50,19 @@ internal static class ServiceScheduledRun
         }, delay: token => Task.Delay(PollInterval(elapsed.Elapsed), token), cancellation, outcome => status?.Invoke(
             outcome.State == "paused" ? "Automatic backups are paused for this Windows session. Nothing was started."
             : outcome.ExitCode == 0 ? "Command finished. See Activity & logs for the backup result."
-            : "The operation did not finish successfully. See Activity & logs for details.")).ConfigureAwait(false);
+            : "The operation did not finish successfully. See Activity & logs for details."), queued).ConfigureAwait(false);
     }
+
+    /// <summary>Shown while the service can't start the run yet.</summary>
+    internal const string BusyReason = "waiting for the background service to start it";
 
     internal static TimeSpan PollInterval(TimeSpan elapsed) => elapsed < TimeSpan.FromSeconds(15)
         ? TimeSpan.FromMilliseconds(250) : TimeSpan.FromSeconds(5);
 
     internal static async Task<int> RunAsync(ServiceHostRequest start,
         Func<ServiceHostRequest, CancellationToken, Task<Response>> exchange,
-        Func<CancellationToken, Task> delay, CancellationToken cancellation, Action<Response>? finishedResponse = null)
+        Func<CancellationToken, Task> delay, CancellationToken cancellation, Action<Response>? finishedResponse = null,
+        Action<string>? queued = null)
     {
         string? runId = null;
         var finished = false;
@@ -66,11 +71,17 @@ internal static class ServiceScheduledRun
             var response = await exchange(start, cancellation).ConfigureAwait(false);
             // Only an explicit refusal is safe to retry. A missing start reply
             // is uncertain and must never launch a duplicate operation.
+            // Busy: this backup already runs in the service, or the service
+            // has as many workers as it starts at once. The card says so
+            // instead of "Running" (U156).
+            var waited = false;
             while (response.Version == 1 && response.Error == "busy")
             {
+                if (!waited) { waited = true; queued?.Invoke(BusyReason); }
                 await delay(cancellation).ConfigureAwait(false);
                 response = await exchange(start, cancellation).ConfigureAwait(false);
             }
+            if (waited) queued?.Invoke("");
             // A paused schedule did not start a worker. No guessed identity,
             // heartbeat or cancellation is sent for the preceding run.
             if (response is { Version: 1, State: "paused", RunId: null, ExitCode: 0, Error: null })

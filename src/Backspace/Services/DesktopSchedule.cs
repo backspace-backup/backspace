@@ -36,7 +36,9 @@ internal static class DesktopSchedule
     internal static void Start()
     {
         if (_loop is not null) return;
-        _loop = new ScheduleLoop(new(StatePath, Plans, RunAsync, Blocked, ScheduleConditions.OnBattery));
+        // Due backups start together; the limits decide who waits (U156).
+        _loop = new ScheduleLoop(new(StatePath, Plans, RunAsync, Blocked, ScheduleConditions.OnBattery,
+            MaxParallel: () => Models.BackupLimits.Maximum));
         TaskSchedulerService.Changed += _loop.Wake;
         ServiceLocator.Config.Changed += (_, _) => _loop.Wake();
         _ = Task.Run(() => _loop.RunAsync(_stop.Token));

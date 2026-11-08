@@ -23,6 +23,10 @@ internal static class ServiceNetworkShares
     /// started, read by the service host to explain the failed run.</summary>
     internal const string ReasonFile = "worker-reason.txt";
 
+    /// <summary>The reason file of one worker: several run at once (U156).</summary>
+    internal static string ReasonFileFor(string? runId) =>
+        runId is not null && Guid.TryParseExact(runId, "N", out _) ? "worker-reason-" + runId + ".txt" : ReasonFile;
+
     /// <summary>
     /// Connects to every network share this backup uses, with the credentials
     /// saved in the service's vault. Disposing disconnects them. A share that

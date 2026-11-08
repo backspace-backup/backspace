@@ -36,7 +36,8 @@ internal static class ServiceCommandLineRun
     /// card follows progress and the result through the service's activity,
     /// except when the service started nothing (a paused schedule or
     /// session): <paramref name="notStarted"/> then says why.</summary>
-    internal static async Task<bool> TryRunFromDesktopAsync(string root, Backup backup, CancellationToken cancellation, Action<string>? notStarted = null)
+    internal static async Task<bool> TryRunFromDesktopAsync(string root, Backup backup, CancellationToken cancellation, Action<string>? notStarted = null,
+        Action<string>? queued = null)
     {
         ServiceWorkerBinding binding;
         string revision;
@@ -54,7 +55,7 @@ internal static class ServiceCommandLineRun
             return false;
         }
         await ServiceScheduledRun.RunApprovedAsync(root, binding, revision, backup.Id, "backup", cancellation,
-            status => { if (status.Contains("Nothing was started", StringComparison.Ordinal)) notStarted?.Invoke(status); }).ConfigureAwait(false);
+            status => { if (status.Contains("Nothing was started", StringComparison.Ordinal)) notStarted?.Invoke(status); }, queued).ConfigureAwait(false);
         return true;
     }
 

@@ -143,6 +143,23 @@ public sealed partial class BackupOrchestrator
         public CancellationTokenSource Cts { get; }
         public DateTime StartedUtc { get; }
         public RunRecord Record { get; }
+        /// <summary>Time spent queued so far (U156): the card's time
+        /// running leaves it out.</summary>
+        private readonly object _queuedGate = new();
+        private DateTime? _queuedSinceUtc;
+        private TimeSpan _queuedFor;
+        public void SetQueued(bool queued)
+        {
+            lock (_queuedGate)
+            {
+                if (queued) _queuedSinceUtc ??= DateTime.UtcNow;
+                else if (_queuedSinceUtc is { } since) { _queuedFor += DateTime.UtcNow - since; _queuedSinceUtc = null; }
+            }
+        }
+        public TimeSpan QueuedFor
+        {
+            get { lock (_queuedGate) return _queuedFor + (_queuedSinceUtc is { } since ? DateTime.UtcNow - since : TimeSpan.Zero); }
+        }
         /// <summary>First-writer-wins cancel reason. Use
         /// <see cref="TrySetCancelReason"/> for atomic publication —
         /// the previous "if (string.IsNullOrEmpty(CancelReason))
@@ -193,12 +210,11 @@ public sealed partial class BackupOrchestrator
     }
 
     /// <summary>
-    /// Cross-process gate name for one (destination, storage) pair.
-    /// Two backups that share a target QUEUE on this name instead of
-    /// racing — restic's prune phase is documented as preferring
-    /// exclusive access to a storage, so serialising at this boundary
-    /// is the cheapest way to guarantee we can't pile two prunes onto
-    /// the same destination at once. Mirrors <see cref="MutexNameFor"/>'s
+    /// Cross-process gate name for one (destination, storage) pair: the
+    /// first of its slots (<see cref="RepositoryAccess"/>, U156). Backups
+    /// beyond "Backups at once per destination" QUEUE on these instead of
+    /// racing, and cleanup and checks take every slot, since restic needs
+    /// the repository alone for them. Mirrors <see cref="MutexNameFor"/>'s
     /// hash-truncation pattern so the name is short, stable, and
     /// session-scoped (Local\) for multi-user safety.
     ///
@@ -219,151 +235,31 @@ public sealed partial class BackupOrchestrator
     }
 
     /// <summary>
-    /// Per-destination polling cadence while we wait for the gate.
-    /// 250ms keeps the wait responsive to cancellation and to a peer
-    /// run finishing without thrashing the kernel handle.
+    /// Waits for one destination for one part of a run (U156): see
+    /// <see cref="RepositoryAccess"/>. While it waits, the run record and the
+    /// card say "Queued: …" with the reason, and say "Running…" again once it
+    /// may go on. Cancellation while waiting throws
+    /// <see cref="OperationCanceledException"/>.
     /// </summary>
-    private static readonly TimeSpan DestinationGatePollInterval = TimeSpan.FromMilliseconds(250);
-
-    /// <summary>
-    /// Acquire (in deterministic order) one named cross-process
-    /// semaphore per (DestinationId, StorageName) the backup writes
-    /// to. Blocks asynchronously until each is free; surfaces a
-    /// "Queued — waiting for …" status on the run record while
-    /// waiting so the BackupCard label flips to it. Honours
-    /// <paramref name="ct"/> cancellation mid-wait so a user clicking
-    /// Stop on a queued run drops out cleanly.
-    ///
-    /// Acquisition order matters: two backups whose targets share a
-    /// SUBSET of destinations would deadlock if one acquired
-    /// {Dest1,Dest2} and the other acquired {Dest2,Dest1}. Sorting
-    /// by key makes the order globally consistent and removes that
-    /// hazard.
-    /// </summary>
-    private async Task AcquireDestinationGatesAsync(
-        Backup backup,
-        RunRecord runRecord,
-        List<CrossProcessGate> acquired,
-        CancellationToken ct)
+    private async Task<RepositoryAccess> AcquireRepositoryAsync(Backup backup, RunRecord runRecord,
+        Destination destination, string storageName, RepositoryAccess.Kind kind, CancellationToken ct)
     {
-        // Distinct + sorted target keys. Distinct collapses a backup
-        // that lists the same destination twice (config rounding) so
-        // we don't try to take the same lock twice and self-deadlock.
-        var keys = backup.Targets
-            .Select(t => (DestId: t.DestinationId ?? "", Storage: t.StorageName ?? "default",
-                Gate: MutexNameForDestination(t.DestinationId ?? "", t.StorageName ?? "default")))
-            .GroupBy(k => k.Gate, StringComparer.Ordinal)
-            .Select(g => g.First())
-            .OrderBy(k => k.Gate, StringComparer.Ordinal)
-            .ToList();
+        var gate = MutexNameForDestination(destination.Id ?? "", string.IsNullOrEmpty(storageName) ? "default" : storageName);
+        return await RepositoryAccess.AcquireAsync(kind, gate, backup.Name, destination.Name,
+            _config.Current.Limits ?? new BackupLimits(), reason => ReportQueued(backup, runRecord, reason), ct).ConfigureAwait(false);
+    }
 
-        if (keys.Count == 0) return;
-
-        foreach (var (destId, storage, name) in keys)
+    private void ReportQueued(Backup backup, RunRecord runRecord, string reason)
+    {
+        if (reason.Length > 0)
         {
-            var sem = new CrossProcessGate(name);
-
-            // Fast path: try once non-blocking. If we get it, great.
-            bool immediatelyAcquired;
-            try { immediatelyAcquired = sem.TryAcquire(); }
-            catch { sem.Dispose(); throw; }
-            if (immediatelyAcquired)
-            {
-                // Defensive: if `acquired.Add(sem)` throws (OOM
-                // adding to the List), we've already taken the
-                // semaphore (count → 0) but never recorded
-                // ownership, so ReleaseDestinationGates would skip
-                // it and the named semaphore would stay locked from
-                // every other process's view forever. Release+
-                // Dispose on the failure path to undo the WaitOne.
-                try { acquired.Add(sem); }
-                catch { try { sem.Release(); } catch { } try { sem.Dispose(); } catch { } throw; }
-                continue;
-            }
-
-            // Slow path: someone else holds it — surface "queued"
-            // and poll until it's free or the user cancels.
-            var destName = ResolveDestinationDisplayName(destId);
-            var reason = $"waiting for «{destName}» (another backup is using it)";
             runRecord.Summary = $"Queued: {reason}";
-            _log.Information(
-                "Run {Name} queued on destination {Dest}/{Storage}", backup.Name, destId, storage);
-            try { RunQueuedReasonChanged?.Invoke(backup.Id, reason); }
-            catch (Exception ex) { _log.Warning(ex, "RunQueuedReasonChanged handler threw for {Name}", backup.Name); }
-
-            try
-            {
-                // Poll asynchronously: WaitOne(0) is non-blocking
-                // (just probes the kernel handle). Between probes,
-                // Task.Delay yields the thread so we don't pin a
-                // thread-pool worker for the entire wait. ct
-                // cancellation cuts the wait short within one poll
-                // interval (250ms) without bouncing off WaitOne's
-                // timer.
-                var taken = false;
-                while (!ct.IsCancellationRequested)
-                {
-                    if (sem.TryAcquire())
-                    {
-                        // Same defensive pattern as the fast path —
-                        // a List.Add throw after we've already
-                        // taken the count must Release before we
-                        // surface the throw, otherwise the cross-
-                        // process semaphore stays locked forever.
-                        try { acquired.Add(sem); }
-                        catch { try { sem.Release(); } catch { } throw; }
-                        taken = true;
-                        break;
-                    }
-                    try { await Task.Delay(DestinationGatePollInterval, ct); }
-                    catch (OperationCanceledException) { break; }
-                }
-                if (!taken)
-                {
-                    sem.Dispose();
-                    ct.ThrowIfCancellationRequested();
-                }
-            }
-            catch
-            {
-                // Don't keep a zombie handle if we throw after a
-                // failed acquisition.
-                try { sem.Dispose(); } catch { }
-                throw;
-            }
+            _log.Information("Run {Name} queued: {Reason}", backup.Name, reason);
         }
-
-        // Acquired everything — clear the queued banner and flip the
-        // run record back to "Running…". Safe to do unconditionally:
-        // if we never queued, the summary was already "Running…".
-        runRecord.Summary = "Running…";
-        try { RunQueuedReasonChanged?.Invoke(backup.Id, ""); }
-        catch (Exception ex) { _log.Warning(ex, "RunQueuedReasonChanged (clear) handler threw for {Name}", backup.Name); }
-    }
-
-    /// <summary>Release + dispose every destination semaphore we
-    /// acquired in <see cref="AcquireDestinationGatesAsync"/>. Called
-    /// from the run's finally so a thrown body still frees the gates
-    /// for the next queued backup.</summary>
-    private static void ReleaseDestinationGates(List<CrossProcessGate> acquired)
-    {
-        for (int i = acquired.Count - 1; i >= 0; i--)
-        {
-            try { acquired[i].Release(); } catch { /* not held — fine */ }
-            try { acquired[i].Dispose(); } catch { }
-        }
-        acquired.Clear();
-    }
-
-    /// <summary>Look up a destination's friendly name from the live
-    /// config for the queued-status message. Falls back to the id
-    /// when the destination has been deleted between scheduling and
-    /// the gate acquire (rare but possible).</summary>
-    private string ResolveDestinationDisplayName(string destinationId)
-    {
-        if (string.IsNullOrEmpty(destinationId)) return "destination";
-        var d = _config.Current.Destinations.FirstOrDefault(x => x.Id == destinationId);
-        return d?.Name ?? destinationId;
+        else if (runRecord.Summary?.StartsWith("Queued: ", StringComparison.Ordinal) == true) runRecord.Summary = "Running…";
+        if (_runningRuns.TryGetValue(backup.Id, out var info) && ReferenceEquals(info.Record, runRecord)) info.SetQueued(reason.Length > 0);
+        try { RunQueuedReasonChanged?.Invoke(backup.Id, reason); }
+        catch (Exception ex) { _log.Warning(ex, "RunQueuedReasonChanged handler threw for {Name}", backup.Name); }
     }
 
     /// <summary>Fired on the thread that started the run, after the run
@@ -439,6 +335,10 @@ public sealed partial class BackupOrchestrator
     /// own backing instance makes the synthetic dropdown entry a stable
     /// object across reloads, so SelectedRun continues to match.
     /// </summary>
+    /// <summary>How long the running backup has waited its turn so far
+    /// (U156), zero when none runs here.</summary>
+    public TimeSpan QueuedTime(string backupId) => _runningRuns.TryGetValue(backupId, out var info) ? info.QueuedFor : TimeSpan.Zero;
+
     public bool TryGetRunningRecord(string backupId, out RunRecord record)
     {
         if (_runningRuns.TryGetValue(backupId, out var info))
@@ -746,25 +646,14 @@ public sealed partial class BackupOrchestrator
             ct = localCts.Token;
             RaiseRunStarted(backup.Id);
 
-            // Per-destination QUEUEING. Two backups whose targets
-            // overlap on a (DestId, StorageName) pair would otherwise
-            // run their backup and cleanup phases against the same
-            // repository at once. Cross-process gates coordinate BOTH
-            // the GUI's runs AND scheduled service invocations
-            // that happen to fire at the same moment. The user
-            // reported the underlying concern: "if both are scheduled
-            // at the same time, can you confirm they'll be queued?"
-            //
-            // Acquired in deterministic key order so two backups that
-            // share a SUBSET of destinations don't deadlock on
-            // ABBA acquisition.
-            var destinationSemaphores = new List<CrossProcessGate>(backup.Targets.Count);
-            var destinationGatesAcquired = false;
+            // Destinations are taken one part at a time, inside the cell
+            // loop (U156): each source-to-destination part waits for its
+            // destination's slot and a total slot ("Backups at once per
+            // destination" / "in total"), across every Backspace process,
+            // and says "Queued: …" while it waits. Cleanup and checks wait
+            // for the destination alone (RepositoryAccess).
             try
             {
-                await AcquireDestinationGatesAsync(backup, result, destinationSemaphores, ct);
-                destinationGatesAcquired = true;
-
                 // Pass in `result` so RunBackupCoreAsync mutates the
                 // SAME instance the registry is holding — TryGetRunningRecord
                 // and ForceFinaliseRun then see live progress instead of
@@ -774,8 +663,7 @@ public sealed partial class BackupOrchestrator
             }
             catch (OperationCanceledException)
             {
-                // Cancellation while waiting on the destination gate
-                // (or any other awaited cancellation point pre-cells).
+                // Any awaited cancellation point before the cells.
                 // Convert to a clean Skipped RunRecord so callers that
                 // await RunBackupAsync see the same record-shaped result
                 // as a cancelled mid-cells run, instead of having to
@@ -791,23 +679,12 @@ public sealed partial class BackupOrchestrator
             {
                 result.Status = BackupRunStatus.Failed;
                 result.Errors.Add(ex.Message);
-                result.Summary = destinationGatesAcquired ? "Run threw before completing."
-                    : "Backspace could not lock the backup destination. No repository work was started.";
+                result.Summary = "Run threw before completing.";
                 result.EndedUtc = DateTime.UtcNow;
-                if (!destinationGatesAcquired) return result;
                 throw;
             }
             finally
             {
-                // Release destination gates FIRST so a queued backup
-                // can start as soon as the run actually finishes —
-                // before we do the persist + alerts work below
-                // (which can take a couple of seconds for slow disks
-                // or remote toast services). The persisted history
-                // file lives in Backspace.config and doesn't touch the
-                // destination, so this re-ordering is safe.
-                ReleaseDestinationGates(destinationSemaphores);
-
                 await FinaliseRunOwnershipAsync(backup, result);
             }
         }

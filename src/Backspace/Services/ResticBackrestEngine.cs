@@ -152,6 +152,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
         var repoId = MakeRepoId(destination, storageName);
         var planId = MakePlanId(backup, sourcePath, destination, storageName);
         await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
+        // The repository exists now: another backup to it may prepare (U156).
+        RepositoryAccess.SetupDone();
         var started = DateTime.UtcNow;
         var indexBefore = await client.ReadIndexCountersAsync(repoId, ct).ConfigureAwait(false);
         var previous = await PreviousSnapshotAsync(client, repoId, planId, ct).ConfigureAwait(false);
@@ -210,6 +212,11 @@ public sealed class ResticBackrestEngine : IBackupEngine
         CleanupResult cleanup = default;
         if (status is BackupRunStatus.Success or BackupRunStatus.Warning && !ct.IsCancellationRequested)
         {
+            // Restic lets backups share a repository but needs it alone for
+            // forget, prune and check: wait here for the other backups on
+            // this destination ("Queued: … before cleanup and checks", U156).
+            if (backup.PruneSchedule is null || backup.CheckSchedule is null && sourcePath == backup.SourcePaths.LastOrDefault())
+                await RepositoryAccess.ExclusiveAsync(ct).ConfigureAwait(false);
             async Task RunCleanup()
             {
                 try

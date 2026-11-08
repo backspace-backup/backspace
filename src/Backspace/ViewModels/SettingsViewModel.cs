@@ -476,6 +476,27 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         ScheduleAutoSave();
     }
 
+    // ---- backups at once (U156) ----
+    // Read by this window and by the background service from the saved
+    // settings; cleanup and checks always run alone on their destination.
+    [ObservableProperty] private int _backupsPerDestination = 1;
+    [ObservableProperty] private int _backupsInTotal = 2;
+    public int BackupsAtOnceMaximum => BackupLimits.Maximum;
+
+    partial void OnBackupsPerDestinationChanged(int value)
+    {
+        if (_suspendAutoSave || _disposed) return;
+        var clamped = Math.Clamp(value, 1, BackupLimits.Maximum);
+        ServiceLocator.Config.Update(cfg => cfg.Limits.PerDestination = clamped);
+    }
+
+    partial void OnBackupsInTotalChanged(int value)
+    {
+        if (_suspendAutoSave || _disposed) return;
+        var clamped = Math.Clamp(value, 1, BackupLimits.Maximum);
+        ServiceLocator.Config.Update(cfg => cfg.Limits.Total = clamped);
+    }
+
     // ---- logging ----
     [ObservableProperty] private int _logRetentionDays;
     [ObservableProperty] private bool _logsVerbose;
@@ -679,6 +700,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         StartAtSignIn = cfg.Preferences.StartAtSignIn;
         RefreshStartAtSignInDetail();
         LogRetentionDays = Math.Max(1, cfg.Logging.RetentionDays);
+        BackupsPerDestination = (cfg.Limits ?? new BackupLimits()).PerDestinationClamped;
+        BackupsInTotal = (cfg.Limits ?? new BackupLimits()).TotalClamped;
         LogsVerbose = string.Equals(cfg.Logging.MinimumLevel, "Verbose", StringComparison.OrdinalIgnoreCase)
                    || string.Equals(cfg.Logging.MinimumLevel, "Debug",   StringComparison.OrdinalIgnoreCase);
 

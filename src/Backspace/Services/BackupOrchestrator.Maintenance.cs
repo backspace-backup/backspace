@@ -137,6 +137,11 @@ public sealed partial class BackupOrchestrator
                     }
                     try
                     {
+                        // Cleanup and checks need the destination alone,
+                        // whatever "Backups at once per destination" says:
+                        // they wait for the backups running there (U156).
+                        using var access = await AcquireRepositoryAsync(backup, aggregate, dest, target.StorageName,
+                            RepositoryAccess.Kind.Exclusive, linked.Token);
                         var cell = await engineCall(_engine, backup, src, dest, target.StorageName, linked.Token);
                         var status = cell.Status;
                         var summary = cell.Summary;

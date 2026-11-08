@@ -53,14 +53,12 @@ internal static class ServiceApprovedWorker
         // The owner's settings as saved, read now (U100).
         var run = SystemServiceRuns.Authorize(installation, backupId, operation, ownerCommand);
 
-        // Serialize workers across sessions using a private file, not the
-        // interactive user's Local\\ mutex namespace. No automatic replay.
-        // A worker still exiting, or Dropbox or a virus scanner opening the
-        // file, is waited out (U135).
-        var workerLock = Path.Combine(binding.DataDirectory, "worker.lock");
-        using var exclusive = FileAccessRetry.Get(() => new FileStream(workerLock,
-            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None), workerLock, ct: stop);
-        var reasonPath = Path.Combine(binding.DataDirectory, ServiceNetworkShares.ReasonFile);
+        // Several workers run at once (U156): how many back up together is
+        // up to the destination and total limits (RepositoryAccess), which
+        // also say "Queued" while one waits. Each worker has its own engine
+        // folder (EngineSlot, below) and its own reason file; the host passes
+        // its run identity as the revision.
+        var reasonPath = Path.Combine(binding.DataDirectory, ServiceNetworkShares.ReasonFileFor(revision));
         try { File.Delete(reasonPath); } catch (IOException) { }
         var vault = OpenVault(binding, installation, reasonPath);
         ServiceWorkerPrivileges.EnableExistingBackupRights();
@@ -88,9 +86,11 @@ internal static class ServiceApprovedWorker
         Environment.SetEnvironmentVariable("BACKSPACE_NO_UPDATE_CHECK", "1");
         Environment.CurrentDirectory = binding.DataDirectory;
         HasVerifiedVssIdentity = true;
+        // This worker's own engine folder: two engines can't share one.
+        using var engineSlot = await EngineSlot.ClaimAsync(EngineWorkPaths.BackrestDataDir, stop).ConfigureAwait(false);
         try
         {
-            ServiceLocator.InitializeCore(null, vault, new WorkerScheduler());
+            ServiceLocator.InitializeCore(engineSlot.DataDirectory, vault, new WorkerScheduler());
             if (!ServiceLocator.Config.IsLoaded) throw new IOException("The service settings could not be read. No operation was started.");
             ServiceLocator.Config.ApplyServiceApproval(run.Configuration);
             var notifications = new ServiceNotificationQueue(binding.DataDirectory);

@@ -565,6 +565,35 @@ is converted.
    from racing the invisible task. A failed index or unconfirmed cancellation
    blocks further repository work until restart; an unchanged backup that creates
    no snapshot does not wait for an index that will never be scheduled.
+   **Backups at once (U156).** `AppConfig.Limits` (`BackupLimits`, Settings ›
+   Backups at once) holds "per destination" (default 1) and "in total"
+   (default 2), 1 to 8; the window, scheduled runs and the service's workers
+   all read them from the saved settings. `RepositoryAccess` applies them to
+   each part of a run (a source to one destination, in the cell loop), across
+   processes, with `CrossProcessGate`s (session semaphores, or the service's
+   shared lock files): eight slots per repository (the destination gate
+   `MutexNameForDestination`, then `#1`…`#7`), eight total slots
+   (`Local\Backspace-Backups-N`), a `#setup` gate and an `#exclusive` gate. A
+   backup part takes a free slot below the per-destination limit, then a total
+   slot below the total, then the setup gate until the engine has prepared the
+   repository (`RepositoryAccess.SetupDone` after `EnsurePlanAndRepo`: two
+   engines creating one new repository at once each wrote their own key and
+   left it unreadable). Restic lets backups share a repository but needs it
+   alone for forget, prune and check, so before inline cleanup the engine calls
+   `RepositoryAccess.ExclusiveAsync`: the part gives up its total slot and the
+   setup gate, takes the exclusive gate (new backups there wait behind it) and
+   every slot. Stand-alone prune and check take the repository the same way;
+   a part run by the elevated VSS helper, whose cleanup is out of reach, takes
+   it alone from the start. Waiting holds nothing, or only the part's slot
+   (waiting for a total slot), or its slot and total slot (waiting for the
+   setup gate); slots, total slots and the setup gate are held only by parts at
+   work, which let them go before waiting for cleanup, so no wait can close a
+   cycle. While a part waits, the run record and the card say "Queued: …"
+   with the holders' names, noted beside each gate
+   (`CrossProcessGate.Holders`), or "N backups already running", and
+   `RunQueuedReasonChanged` carries it to the card or the service worker's
+   activity. `BackupOrchestrator.QueuedTime` keeps the time spent queued, so
+   "Running · N min" leaves it out.
 2. **All destructive actions are type-to-confirm with the single token
    "OK"** (case-insensitive). Erase-destination, prune-to-latest,
    remove-backup, remove-destination, and restore-overwrite all gate on
@@ -586,8 +615,10 @@ is converted.
    by the background service is not touched by the desktop.
 3. **Current scheduler lifecycle.** Backspace keeps its schedules itself
    (U043, 31 October 2026); nothing is registered with Windows Task Scheduler,
-   launchd or systemd. `ScheduleLoop` (in `BackupScheduler.cs`) runs due plans
-   one at a time. `SchedulePlan.From` lists each backup and its optional check
+   launchd or systemd. `ScheduleLoop` (in `BackupScheduler.cs`) starts due
+   plans together (`MaxParallel`; one at a time without it, as its tests run
+   it): how many back up at once is up to the limits below (U156), and a plan
+   never starts while its previous run goes on. `SchedulePlan.From` lists each backup and its optional check
    and prune cadence. `ScheduleState` saves each plan's next due time beside the
    settings (`schedule-state.json`), so a slot missed while the computer was off
    or Backspace was not running runs once afterwards ("catch up missed runs";
@@ -595,7 +626,9 @@ is converted.
    changed schedules start from their next time; disabled and snoozed backups
    pass over their slots. The start is recorded before the run, so a crash or
    Quit never repeats a slot; slots that pass during a long run are skipped, so
-   runs never overlap. A due plan waits while it is blocked (battery, a network
+   a plan never overlaps itself. Runs ending on their own threads save their
+   outcome under the loop's lock, reading the state file again each time.
+   A due plan waits while it is blocked (battery, a network
    it needs, Quit) and then runs once. The execution time limit and "stop on
    battery" cancel a running plan. Between runs the loop only sleeps until the
    next due time, at most a minute so that sleep, hibernation and clock changes
@@ -675,8 +708,16 @@ is converted.
    Live activity uses the authenticated run endpoint's read-only `activity`
    request. The owned worker sends bounded snapshots over its inherited stdout
    pipe, at most twice per second, rather than writing progress files or blocking
-   the engine's output handler. The host reports only its current worker's
-   identity, phase, source/destination percentages and final metadata. Private
+   the engine's output handler. The service runs one worker per backup, several
+   at once (up to `SystemBackupService.MaxWorkers`, U156); a start for a backup
+   already running, or beyond that number, is answered "busy", and the desktop
+   shows that wait as "Queued: waiting for the background service to start it"
+   (`ServiceScheduledRun`, `DesktopBackupRun`). The activity report is the run
+   started last, with `Runs` listing each running worker and each backup's
+   last finished run (identity, phase, source/destination percentages, the
+   reason it is queued and the time it has spent queued, and final metadata);
+   a card picks its own with `ServiceActivity.ForBackup`, and only running runs
+   carry their transcript tail. Private
    transcript paths are removed. One desktop polling loop updates cards even
    when the backup began before the window opened. An unavailable service leaves
    the last known operation visibly unconfirmed; it never becomes a success.
@@ -696,7 +737,14 @@ is converted.
    the reason in the run's history), connects network shares with their saved
    credentials, sets its configuration and scratch to the service's folders
    (scratch on this computer, U153) and runs the ordinary orchestrator. Its
-   report (`last-service-run.json`) names the vault it used.
+   report (`last-service-run.json`) names the vault it used. Each worker
+   claims its own Backrest folder (`EngineSlot`: `backrest`, `backrest-1`â€¦
+   `backrest-7` beside it, with `worker-slot-N.lock`), kept between runs so its
+   operation history (when it last pruned) stays; two engines never share one.
+   The host passes its run ID as the worker's revision, so each worker has its
+   own reason file (`worker-reason-<run>.txt`). Workers share the service's
+   scratch folder and rclone remotes; restic and rclone name their temporary
+   files uniquely.
 
    Background workers persist desktop alerts through `ServiceNotificationQueue`
    in their private adjacent data folder before exiting. Email delivery stays in
@@ -720,7 +768,9 @@ is converted.
    lock/unlock and visible delivery require VM acceptance.
 
    `ServiceRunRecovery` saves the admitted backup ID, name, operation, start time
-   and failure-alert choices before the worker process starts. The first worker
+   and failure-alert choices before the worker process starts, one record per
+   worker in `service\service-runs\<run>.json` (U156); records whose outcome
+   is saved are removed when the service starts. The first worker
    history ID is retained separately, without writing on every progress update.
    If the worker or SCM host dies before a normal outcome is saved, the next
    confirmed exit/startup creates a dated failed history row and its exact-run
@@ -728,8 +778,8 @@ is converted.
    A normal terminal outcome already present in history wins over recovery;
    a service crash after a successful backup must not rewrite that success.
    Recovery uses the host run ID for its own fallback row and notification,
-   making retries idempotent. A failed history or alert write keeps recovery
-   pending and prevents a new worker from replacing the unresolved context.
+   making retries idempotent. A failed history or alert write keeps that run's
+   recovery pending; it is retried at the next start.
    Stop still proceeds if recording its reason fails. Pending notifications
    are checked every two seconds while idle; delivered backlog alerts are
    spaced ten seconds apart.
