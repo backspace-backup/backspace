@@ -245,7 +245,7 @@ internal sealed class BackupLiveProgress
             counting
                 ? $"{Count(sample.FilesDone)} of ~{Count(p.Files)} files checked (~{Bytes(p.TotalBytes)})"
                 : $"{Count(sample.FilesDone)} of {Count(sample.TotalFiles)} files checked ({Bytes(sample.TotalBytes)})",
-            changedTotal <= 0 ? "no changed files" : "changed files: " + Of(changed, changedTotal, estimated: true) + " backed up",
+            changedTotal <= 0 ? "no changed files" : Of(changed, changedTotal, estimated: true) + " changed files backed up",
         };
         if (Uploaded(sent, rate) is { } uploaded) parts.Add(uploaded);
         if (left is { } l && l < TimeSpan.FromDays(30)) parts.Add(TimeLeft(l));

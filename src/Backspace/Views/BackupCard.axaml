@@ -136,7 +136,7 @@
                 </StackPanel>
                 <TextBlock Grid.Column="2" Text="{Binding LastRunLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold"
                            IsVisible="{Binding !IsActuallyRunning}"
-                           TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding LastRunLabel}"
+                           TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding LastRunDetail}"
                            Classes.fail="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
                            Classes.warn="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
                            Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"/>
@@ -146,8 +146,6 @@
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
                 <Button Classes="row-action-danger" IsVisible="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
-                <TextBlock IsVisible="{Binding IsQueued}" Text="It starts by itself when its turn comes." FontSize="13"
-                           Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"/>
               </WrapPanel>
             </StackPanel>
 

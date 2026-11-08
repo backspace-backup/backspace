@@ -178,47 +178,25 @@ public class EngineBackedSnapshotTreeProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task OpeningAFile_FetchesTheRestOfItsSmallFolderInOneRestore_AndNeverTheWholeSnapshot()
+    public async Task OpeningAFile_FetchesOnlyThatFile_NeverItsFolderOrTheSnapshot()
     {
-        // U158: Explorer previews and the next file opened in a folder
-        // come from one background restore of that folder. The old
-        // "two opens restore the whole snapshot" path would have pulled a
-        // 190 GB backup onto the disk; it must never run.
+        // The owner, 7 November 2026: files nobody opened are not fetched.
         using var provider = new EngineBackedSnapshotTreeProvider(
             _engine, _backup, _backup.SourcePaths[0], _destination, "default", revision: 1, cacheDir: _cacheDir);
 
         await using (var a = await provider.OpenAsync("photos/2026/a.jpg", CancellationToken.None))
             Assert.Equal("beta", await new StreamReader(a).ReadToEndAsync());
-        // The folder's other file arrives by the background batch.
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!File.Exists(Path.Combine(_cacheDir, "files", "photos", "2026", "b.jpg")) && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
-        var restoresBefore = _engine.Calls.Count(c => c.StartsWith("RestoreFiles"));
+        await Task.Delay(300);
+        Assert.False(File.Exists(Path.Combine(_cacheDir, "files", "photos", "2026", "b.jpg")));
+        Assert.Single(_engine.Calls, c => c.StartsWith("RestoreFiles"));
+        // Opening the sibling fetches it then, by itself; reopening is cached.
         await using (var b = await provider.OpenAsync("photos/2026/b.jpg", CancellationToken.None))
             Assert.Equal("gamma", await new StreamReader(b).ReadToEndAsync());
-        Assert.Equal(restoresBefore, _engine.Calls.Count(c => c.StartsWith("RestoreFiles")));
-        Assert.Contains(_engine.Calls, c => c == $"RestoreFiles({_backup.Name},r1,1)");
+        await using (var again = await provider.OpenAsync("photos/2026/a.jpg", CancellationToken.None))
+            Assert.Equal("beta", await new StreamReader(again).ReadToEndAsync());
+        Assert.Equal(2, _engine.Calls.Count(c => c.StartsWith("RestoreFiles")));
         Assert.DoesNotContain(_engine.Calls, c => c.StartsWith("RestoreSnapshotSubtree"));
-        // The root folder was never fetched: nothing was opened there.
         Assert.False(File.Exists(Path.Combine(_cacheDir, "files", "readme.txt")));
-    }
-
-    [Fact]
-    public async Task LargeFolders_AreNeverFetchedAsAWhole()
-    {
-        var source = _backup.SourcePaths[0];
-        var big = Path.Combine(source, "videos");
-        Directory.CreateDirectory(big);
-        using (var stream = File.Create(Path.Combine(big, "large.bin"))) stream.SetLength(EngineBackedSnapshotTreeProvider.FolderBatchMaxBytes + 1);
-        File.WriteAllText(Path.Combine(big, "small.txt"), "small");
-        await _engine.BackupPruneCheckAsync(_backup, source, _destination, "default", CancellationToken.None);
-        using var provider = new EngineBackedSnapshotTreeProvider(
-            _engine, _backup, source, _destination, "default", revision: 2, cacheDir: _cacheDir);
-        await using (var small = await provider.OpenAsync("videos/small.txt", CancellationToken.None))
-            Assert.Equal("small", await new StreamReader(small).ReadToEndAsync());
-        await Task.Delay(200);
-        Assert.False(File.Exists(Path.Combine(_cacheDir, "files", "videos", "large.bin")));
-        Assert.Single(_engine.Calls, c => c.StartsWith("RestoreFiles"));
     }
 
     [Fact]

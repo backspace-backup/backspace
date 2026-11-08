@@ -107,30 +107,24 @@ public sealed class E65_MountSpeedAndSafety : BackupE2EBase
             Assert.Equal("version one", File.ReadAllText(Path.Combine(root, "area 07", "topic 3", "note 05.txt")));
             var firstRead = read.Elapsed;
             // Its folder arrives in one background restore.
+            // Only opened files are fetched (the owner, 7 November 2026): a
+            // sibling is restored when it is opened, then read from the cache.
             var sibling = Path.Combine(root, "area 07", "topic 3", "note 06.txt");
-            var siblingWait = Stopwatch.StartNew();
-            string? siblingText = null;
-            while (siblingWait.Elapsed < TimeSpan.FromSeconds(60))
-            {
-                var once = Stopwatch.StartNew();
-                siblingText = File.ReadAllText(sibling);
-                if (once.Elapsed < TimeSpan.FromMilliseconds(200)) break;
-            }
-            var lastSibling = Stopwatch.StartNew();
-            Assert.StartsWith("area 7 topic 3 note 18", File.ReadAllText(Path.Combine(root, "area 07", "topic 3", "note 18.txt")));
-            var siblingRead = lastSibling.Elapsed;
-            Assert.StartsWith("area 7 topic 3 note 6", siblingText);
+            Assert.StartsWith("area 7 topic 3 note 6", File.ReadAllText(sibling));
+            var again = Stopwatch.StartNew();
+            Assert.StartsWith("area 7 topic 3 note 6", File.ReadAllText(sibling));
+            var siblingRead = again.Elapsed;
 
             ctx.Report.RecordNote("Measured on this machine",
                 $"Mount ready {ready.TotalSeconds:F1} s (folder list read before the drive appeared). " +
                 $"First visit of 12 folders: max {firstVisits.Max():F0} ms; second visit: max {revisits.Max():F1} ms. " +
                 $"Listing all 6,000 files in 330 folders: {walked.TotalMilliseconds:F0} ms. " +
-                $"First file read {firstRead.TotalSeconds:F1} s; a file of the same folder after its background restore: {siblingRead.TotalMilliseconds:F0} ms.");
+                $"First file read {firstRead.TotalSeconds:F1} s; an opened file read again: {siblingRead.TotalMilliseconds:F0} ms.");
             Assert.True(ready < TimeSpan.FromSeconds(60), $"Mount took {ready}.");
             Assert.True(firstVisits.Max() < 500, $"First visit took {firstVisits.Max()} ms.");
             Assert.True(revisits.Max() < 100, $"A repeated listing took {revisits.Max()} ms.");
             Assert.True(walked < TimeSpan.FromSeconds(10), $"The whole walk took {walked}.");
-            Assert.True(siblingRead < TimeSpan.FromMilliseconds(500), $"A prefetched file took {siblingRead}.");
+            Assert.True(siblingRead < TimeSpan.FromMilliseconds(500), $"Reading an opened file again took {siblingRead}.");
 
             // ---- safety while mounted ----
             File.WriteAllText(watched, "version two");

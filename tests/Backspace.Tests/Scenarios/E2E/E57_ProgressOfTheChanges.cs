@@ -17,7 +17,7 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// <summary>
 /// U144 with the real engine: after a first backup, Backspace keeps the
 /// source's listing; the next backup compares the source with it, and its
-/// progress line counts the changes ("changed files: x of ~y backed up") from restic's own
+/// progress line counts the changes ("x of ~y changed files backed up") from restic's own
 /// current files and bytes, not the source's size.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
@@ -73,9 +73,9 @@ public sealed class E57_ProgressOfTheChanges : BackupE2EBase
             var log = File.ReadAllLines(second.Cells.Single().LogPath);
             var progress = log.Where(l => l.StartsWith(BackupLiveProgress.Prefix, StringComparison.Ordinal)).ToArray();
             ctx.Report.RecordNote("Progress lines of the second backup", string.Join(Environment.NewLine, progress));
-            Assert.Contains(progress, l => l.Contains("changed files: ") && l.Contains(" of ~400 MB backed up"));
+            Assert.Contains(progress, l => l.Contains(" of ~400 MB changed files backed up"));
             // Mid-file: some of the 400 MiB counted as backed up, not all.
-            Assert.Contains(progress, l => l.Contains("changed files: ") && !l.Contains("changed files: 0 B") && !l.Contains("changed files: 400 of ~400 MB"));
+            Assert.Contains(progress, l => l.Contains(" changed files backed up") && !l.Contains("· 0 B of ~400 MB changed") && !l.Contains("· 400 of ~400 MB changed"));
             // U145: restic runs with --no-scan and reports no totals; the line
             // takes the source's from Backspace's listing, never "of 0".
             Assert.Contains(progress, l => l.Contains(" files checked (~"));

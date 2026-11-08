@@ -93,7 +93,7 @@ public sealed class S86_ProgressOfTheChanges : ScenarioBase
         await Until(365, 0);
         var checkedAll = card.Sources.Single().PercentComplete;
         Assert.InRange(checkedAll, 5, 40);
-        Assert.Contains("changed files: 0 B of ~8.4 GB backed up", card.ProgressDetail);
+        Assert.Contains("0 B of ~8.4 GB changed files backed up", card.ProgressDetail);
         Assert.Contains("551,000 of 600,001 files checked (176 GB)", card.ProgressDetail);
         await ctx.Driver.PumpAsync(1_200); // the card's one-second refresh of the time running
         Assert.Equal("Running · 6 min", card.RunningLabel);
@@ -107,7 +107,7 @@ public sealed class S86_ProgressOfTheChanges : ScenarioBase
         var runningText = host.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>().Single(t => t.Name == "RunningText");
         Assert.Equal("Running · 30 min", runningText.Text);
         // U155: said as the actions, in the order the work happens.
-        Assert.Matches(@"^Backing up · 551,000 of 600,001 files checked \(176 GB\) · changed files: [0-9.]+ of ~8\.4 GB backed up · [0-9.]+ [KMG]?B of new data uploaded, [0-9.]+ MB/s · about .+ left$", card.ProgressDetail);
+        Assert.Matches(@"^Backing up · 551,000 of 600,001 files checked \(176 GB\) · [0-9.]+ of ~8\.4 GB changed files backed up · [0-9.]+ [KMG]?B of new data uploaded, [0-9.]+ MB/s · about .+ left$", card.ProgressDetail);
         // Hovering the line explains why the upload is smaller than the changes.
         var detailText = host.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>().Single(t => t.Text == card.ProgressDetail);
         Assert.True(detailText.IsEffectivelyVisible);

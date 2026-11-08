@@ -235,7 +235,7 @@ public sealed class BackupLiveProgressTests
         Assert.Equal("[progress] 10.0% · Backing up · 2,000 of ~20,000 files checked (4.7 of ~47 GB)", second);
         Assert.Equal("47 GB", BackupLiveProgress.CountedTotal(second));
         // The changes' total is never taken for the source's.
-        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal("[progress] 30.0% · Backing up · 2,000 of ~20,000 files checked (~47 GB) · changed files: 3.1 of ~9.0 GB backed up · about 5 min left"));
+        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal("[progress] 30.0% · Backing up · 2,000 of ~20,000 files checked (~47 GB) · 3.1 of ~9.0 GB changed files backed up · about 5 min left"));
         // Time left from the pace, as with restic's totals.
         var t = start.AddSeconds(5);
         string? line = null;

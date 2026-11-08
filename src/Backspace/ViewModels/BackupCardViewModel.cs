@@ -288,6 +288,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     }
     partial void OnIsQueuedChanged(bool value)
     {
+        OnPropertyChanged(nameof(LastRunDetail));
         // The time running leaves out the time spent queued (U156).
         if (value) _queuedSinceUtc ??= UtcNow();
         else if (_queuedSinceUtc is { } since)
@@ -718,8 +719,23 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if (!IsRunning) return; // shouldn't happen — orchestrator only fires after RunStarted
         var queued = !string.IsNullOrEmpty(reason);
         IsQueued = queued;
-        LastRunLabel = queued ? $"Queued: {reason}" : "Running…";
+        QueuedReason = queued ? reason : "";
+        // The card says just "Queued"; why is on hover (7 November 2026).
+        LastRunLabel = queued ? "Queued" : "Running…";
     }
+
+    /// <summary>Why a queued run waits ("waiting for local_c (same destination)").</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LastRunDetail))]
+    private string _queuedReason = "";
+
+    /// <summary>The status line's hover text: for a queued run, why it waits
+    /// and that it starts by itself; otherwise the line itself.</summary>
+    public string LastRunDetail => IsQueued && QueuedReason.Length > 0
+        ? $"Queued: {QueuedReason}. It starts by itself when its turn comes."
+        : LastRunLabel;
+
+    partial void OnLastRunLabelChanged(string value) => OnPropertyChanged(nameof(LastRunDetail));
 
     public void Apply(RunRecord r)
     {

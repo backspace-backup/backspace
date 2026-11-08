@@ -96,7 +96,8 @@ public sealed class S22_BackupCardRunningState : ScenarioBase
         listVm.Cards[0].SetQueuedReason("waiting for Photos to finish");
         ServiceLocator.Config.Update(cfg => cfg.Backups[0].Name = "Cloud backup — waiting for a destination");
         ctx.Driver.Pump();
-        Assert.Equal("Queued: waiting for Photos to finish", listVm.Cards[0].LastRunLabel);
+        Assert.Equal("Queued", listVm.Cards[0].LastRunLabel);
+        Assert.StartsWith("Queued: waiting for Photos to finish.", listVm.Cards[0].LastRunDetail);
         // Waiting in line is not running: nothing moves.
         summary = host.GetVisualDescendants().OfType<Border>().First(b => b.Name == "BackupSummary");
         icon = summary.GetVisualDescendants().OfType<PathIcon>().First(i => i.Classes.Contains("status-icon"));

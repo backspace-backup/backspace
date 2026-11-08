@@ -23,21 +23,13 @@ namespace Backspace.Services.WebDav;
 /// an engine that cannot list a whole tree.</para>
 ///
 /// <para><b>Files.</b> A file's bytes are restored into a private cache the
-/// first time it is opened and read from there afterwards. Opening a file
-/// also fetches the rest of its folder in one background restore when that
-/// folder is small (<see cref="FolderBatchMaxBytes"/>, <see cref="FolderBatchMaxFiles"/>),
-/// so previews, thumbnails and the next file opened there need no further
-/// engine call. A large folder or the whole snapshot is never fetched just
-/// because files were opened: opening one file from a 190 GB backup must not
-/// download 190 GB.</para>
+/// first time it is opened and read from there afterwards. Only files that are
+/// opened are fetched: never their folder's other files, and never the whole
+/// snapshot (the owner, 7 November 2026: opening one file from a 190 GB backup
+/// must not download anything else).</para>
 /// </summary>
 public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, IDisposable
 {
-    /// <summary>A folder whose files together stay under this is fetched in
-    /// one restore once any of its files is opened.</summary>
-    internal const long FolderBatchMaxBytes = 64L * 1024 * 1024;
-    internal const int FolderBatchMaxFiles = 2000;
-
     private readonly IBackupEngine _engine;
     private readonly Backup _backup;
     private readonly string _sourcePath;
@@ -57,8 +49,6 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
     private readonly ConcurrentDictionary<SnapshotTree.Node, IReadOnlyList<WebDavEntry>> _listings = new();
 
     // Folder batches: the folder's path → the restore fetching its files.
-    private readonly ConcurrentDictionary<string, Task> _folderBatches = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, Task> _filesInBatch = new(StringComparer.OrdinalIgnoreCase);
 
     // Fallback only (an engine without whole-tree listings).
     private sealed record DirectoryFetch(Task<IReadOnlyList<WebDavEntry>?> Task, CancellationToken OwnerToken);
@@ -160,16 +150,6 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         key = entry.RelativePath; // the snapshot's own spelling of the name
         if (TryGetCachedPath(key) is { } cached) return OpenCached(cached);
 
-        // Another open already started a restore of this file's folder.
-        if (_filesInBatch.TryGetValue(key, out var batch))
-        {
-            try { await batch.WaitAsync(ct).ConfigureAwait(false); }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch { /* restore it by itself below */ }
-            if (TryGetCachedPath(key) is { } batched) return OpenCached(batched);
-        }
-        StartFolderBatch(key);
-
         var gate = _perFileGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -186,47 +166,6 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
                 : throw new FileNotFoundException($"Engine did not materialise {relativePath} into the cache.", relativePath);
         }
         finally { gate.Release(); }
-    }
-
-    /// <summary>Fetches the other files of <paramref name="key"/>'s folder in
-    /// one background restore, once per folder, when the folder is small.</summary>
-    private void StartFolderBatch(string key)
-    {
-        var tree = Tree;
-        if (tree is null) return;
-        var slash = key.LastIndexOf('/');
-        var folderPath = slash < 0 ? "" : key[..slash];
-        if (_folderBatches.ContainsKey(folderPath) || tree.Find(folderPath) is not { IsDirectory: true } folder) return;
-        var files = folder.Children.Where(c => !c.IsDirectory).ToArray();
-        var others = files.Select(f => (folderPath.Length == 0 ? "" : folderPath + "/") + f.Name)
-            .Where(path => !string.Equals(path, key, StringComparison.OrdinalIgnoreCase) && TryGetCachedPath(path) is null)
-            .ToArray();
-        if (others.Length == 0 || files.Length > FolderBatchMaxFiles || files.Sum(f => f.SizeBytes) > FolderBatchMaxBytes)
-        {
-            _folderBatches.TryAdd(folderPath, Task.CompletedTask);
-            return;
-        }
-        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!_folderBatches.TryAdd(folderPath, start.Task)) return;
-        foreach (var path in others) _filesInBatch.TryAdd(path, start.Task);
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await WithReadLeaseAsync(token => _engine.RestoreFilesAsync(_backup, _sourcePath, _destination, _storageName,
-                    _revision, others.Select(p => "/" + p).ToArray(), _cacheDir, onProgress: null, token,
-                    expectedLeaves: others, expectedSnapshotId: _snapshotId), _lifetime.Token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                AppLogger.For<EngineBackedSnapshotTreeProvider>().Debug(ex, "Folder prefetch for a mounted snapshot failed; files are fetched one by one");
-            }
-            finally
-            {
-                foreach (var path in others) _filesInBatch.TryRemove(path, out _);
-                start.TrySetResult();
-            }
-        });
     }
 
     public void Dispose()

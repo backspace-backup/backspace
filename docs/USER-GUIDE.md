@@ -148,10 +148,10 @@ together up to two limits, in **Settings › Backups at once**:
 - **Backups at once in total** (2 by default): all destinations together, so
   the computer's disk isn't overloaded.
 
-A backup that has to wait says so on its card, with the reason, instead of
-**Running**: for example **Queued: waiting for local_c (same destination)** or
-**Queued: 2 backups already running**, and "It starts by itself when its turn
-comes". It starts as soon as its turn comes; **Stop** ends the wait. The time
+A backup that has to wait says **Queued** on its card instead of **Running**.
+Hovering it shows why, for example "Queued: waiting for local_c (same
+destination). It starts by itself when its turn comes." or "Queued: 2 backups
+already running". It starts as soon as its turn comes; **Stop** ends the wait. The time
 running shown once it starts leaves out the time it waited. A backup can also
 wait briefly for "another backup's Windows snapshot": Windows makes one
 snapshot at a time, and each backup that uses Windows snapshots waits for its
@@ -389,7 +389,7 @@ date (in `%LOCALAPPDATA%\Backspace\change-lists`; a cache it rebuilds when
 missing). At the start of the next backup it lists the source again (seconds)
 and compares: a file whose size or date differs is one the engine will read,
 as the engine itself decides. The line then reads, for example, "Backing up ·
-504,701 of 601,922 files checked (190 GB) · changed files: 3.1 of ~9.0 GB
+504,701 of 601,922 files checked (190 GB) · 3.1 of ~9.0 GB changed files
 backed up · 881 MB of new data uploaded, 3.8 MB/s · about 25 min left" (or
 "no changed files" when nothing changed). The percentage and the time left are of
 the work: checking the unchanged files counts for a small part, reading and
@@ -481,10 +481,9 @@ after that, every folder of the drive opens at once, because a snapshot never
 changes. An older snapshot, under **All revisions**, is read the first time
 you open its folder. When the drive is ready, Explorer opens it and the card
 says **Mounted as Z:** with **Open in Explorer**. A file's contents are
-fetched the first time you open it; the other files of a small folder come
-with it, so the next one opens at once. Copying a large folder out of the
-drive fetches its files one folder at a time: **Restore files** is faster
-for that.
+fetched the first time you open it, and only the files you open are fetched.
+Copying a large folder out of the drive fetches its files one by one:
+**Restore files** is faster for that.
 
 While a snapshot is mounted, and while a restore or test restore runs,
 Backspace changes nothing in that backup's storage: cleanup after a backup

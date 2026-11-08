@@ -892,10 +892,9 @@ takes milliseconds, whatever the snapshot's size.
 - **Windows caching.** File, folder, volume and security information never
   expire (`uint.MaxValue`), and the file contents Windows cached stay valid.
   Directory listings resume after a marker by binary search.
-- **Files.** The first open restores the file into the mount's cache; a small
-  folder's other files follow in one background restore
-  (`FolderBatchMaxBytes`, `FolderBatchMaxFiles`). A whole snapshot is never
-  restored because files were opened.
+- **Files.** The first open restores that file alone into the mount's cache;
+  files nobody opened are never fetched (the owner, 7 November 2026), and a
+  whole snapshot is never restored because files were opened.
 - **Cloud.** A successful cloud connection check is trusted for two minutes
   (`CloudDestinationPreflight.TrustRecentSuccessFor`), so consecutive reads do
   not each start with a sign-in round trip.
