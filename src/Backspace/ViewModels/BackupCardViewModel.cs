@@ -575,8 +575,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         var status = useHistory ? latest!.Status : saved.LastRunStatus;
         var end = useHistory ? latest!.EndedUtc : saved.LastRunEndUtc;
         var summary = useHistory ? latest!.Summary : saved.LastRunSummary;
+        // Any earlier run that stored something counts, background runs
+        // included: the latest run may have failed (U157).
         _displayedRunStoredSomething = end is not null && (status is BackupRunStatus.Success or BackupRunStatus.Warning
-            || useHistory && latest!.Cells.Any(c => c.Status is BackupRunStatus.Success or BackupRunStatus.Warning));
+            || useHistory && latest!.Cells.Any(c => c.Status is BackupRunStatus.Success or BackupRunStatus.Warning))
+            || RestorableRuns.Any(saved, _checkRuns);
         StatusClass = status switch
         {
             BackupRunStatus.Success => "ok", BackupRunStatus.Warning => "warn", BackupRunStatus.Failed => "fail",

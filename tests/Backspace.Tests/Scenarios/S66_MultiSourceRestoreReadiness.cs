@@ -40,6 +40,21 @@ public sealed class S66_MultiSourceRestoreReadiness : ScenarioBase
         proxy.DelayedSource = sourceB;
         typeof(ServiceLocator).GetProperty(nameof(ServiceLocator.Revisions))!
             .SetValue(null, new RevisionBrowser(engine, ServiceLocator.Secrets));
+        // U157: a backup run only by the background service has nothing in
+        // the settings; its success is in the run history. Restore must go on.
+        var background = new Backup { Name = "Background only", SourcePaths = { sourceA },
+            Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
+        ServiceLocator.Config.Update(c => c.Backups.Add(background));
+        using (var bgVm = new RestoreViewModel { SelectedBackup = background })
+        {
+            await bgVm.NextFromBackupCommand.ExecuteAsync(null);
+            Assert.Contains("hasn't completed a successful run yet", bgVm.PickBackupNoticeText);
+            ServiceLocator.Logs.AppendRun(new RunRecord { BackupId = background.Id, BackupName = background.Name, Status = BackupRunStatus.Success,
+                StartedUtc = DateTime.UtcNow.AddMinutes(-20), EndedUtc = DateTime.UtcNow.AddMinutes(-3) });
+            await bgVm.NextFromBackupCommand.ExecuteAsync(null);
+            Assert.Equal("", bgVm.PickBackupNoticeText);
+            Assert.NotEqual(RestoreViewModel.Step.PickBackup, bgVm.CurrentStep);
+        }
         using var vm = new RestoreViewModel { SelectedBackup = backup };
         var window = ctx.Driver.Show(new Window { Width = 1100, Height = 780,
             Content = new RestoreView { DataContext = vm } });
