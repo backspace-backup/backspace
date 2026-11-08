@@ -412,6 +412,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 // destinations step, where an existing destination is picked
                 // or edited (U147), not a form for one destination.
                 fresh.EditDestinationRequested = _ => EditBackupAsync(fresh, atDestinations: true);
+                fresh.ChooseMountRevisions = () => ChooseMountRevisionsAsync(fresh);
                 Cards.Insert(i, fresh);
             }
         }
@@ -1072,6 +1073,18 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         if (Cards.FirstOrDefault(c => c.Id == backupId) is not { } card) return;
         if (reason.Length > 0 && !card.IsRunning) card.SetRunning();
         card.SetQueuedReason(reason);
+    }
+
+    /// <summary>Mount's first step (U162): which revisions the drive shows.
+    /// Null when the person cancels.</summary>
+    private async Task<Services.WebDav.MountSelection?> ChooseMountRevisionsAsync(BackupCardViewModel card)
+    {
+        var owner = TestRestoreOwner?.Invoke() ?? Owner();
+        if (owner is null) return null;
+        var backup = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == card.Id) ?? card.Snapshot;
+        var picker = new MountRevisionPickerViewModel(backup,
+            (path, ct) => Services.WebDav.MountSelection.ListRevisionsAsync(backup, path, ct));
+        return await new MountRevisionPickerWindow(picker).ShowDialog<Services.WebDav.MountSelection?>(owner);
     }
 
     private static Avalonia.Controls.Window? Owner()

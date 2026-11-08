@@ -29,7 +29,7 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
 {
     private static ILogger _log => AppLogger.For<MountedSnapshotRegistry>();
 
-    private sealed record Mounted(WinFspMountCoordinator Coordinator, IDisposable Readers) : IAsyncDisposable
+    private sealed record Mounted(WinFspMountCoordinator Coordinator, IDisposable Readers, string Description) : IAsyncDisposable
     {
         public async ValueTask DisposeAsync()
         {
@@ -64,6 +64,9 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
 
     public string? GetMountProgress(string backupId) => _progress.TryGetValue(backupId, out var text) ? text : null;
 
+    public string? GetMountedDescription(string backupId) =>
+        GetMountedDrive(backupId) is not null && _byBackupId.TryGetValue(backupId, out var mount) ? mount.Description : null;
+
     public void OpenInExplorer(string backupId)
     {
         if (GetMountedDrive(backupId) is { } drive) WinFspMountCoordinator.OpenExplorerAt(drive);
@@ -95,12 +98,19 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
     /// </summary>
     public Func<Task<bool>>? RequestInstallConsent { get; set; }
 
-    /// <summary>Mount the latest revision of <paramref name="backup"/>
-    /// against its first (source × destination × storage) plan,
-    /// pop Explorer at the drive letter, and remember the live
-    /// mount under the backup id so subsequent calls reuse
-    /// it instead of fighting for a second drive letter.</summary>
-    public async Task<MountResult> MountForAsync(Backup backup, CancellationToken ct = default)
+    /// <summary>Mount the latest revision of every source of
+    /// <paramref name="backup"/> (what the picker pre-selects).</summary>
+    public Task<MountResult> MountForAsync(Backup backup, CancellationToken ct = default)
+        => MountAsync(backup, null, ct);
+
+    /// <summary>Mount the chosen revisions of <paramref name="backup"/> at its
+    /// first destination, pop Explorer at the drive letter, and remember the
+    /// live mount under the backup id so subsequent calls reuse it instead of
+    /// fighting for a second drive letter (U162).</summary>
+    public Task<MountResult> MountForAsync(Backup backup, MountSelection selection, CancellationToken ct = default)
+        => MountAsync(backup, selection, ct);
+
+    private async Task<MountResult> MountAsync(Backup backup, MountSelection? selection, CancellationToken ct)
     {
         if (backup is null) return MountResult.Failed("No backup selected.");
         CancellationTokenSource pending;
@@ -112,7 +122,7 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
         try
         {
             await _mutationGate.WaitAsync(linked.Token).ConfigureAwait(false);
-            try { return await MountCoreAsync(backup, linked.Token).ConfigureAwait(false); }
+            try { return await MountCoreAsync(backup, selection, linked.Token).ConfigureAwait(false); }
             finally { _mutationGate.Release(); }
         }
         finally
@@ -131,11 +141,21 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
     }
 
     /// <summary>"Reading the backup's folders: 120,000 so far".</summary>
-    internal static string ReadingText(int entries) => entries <= 0
-        ? "Reading the backup's folders"
-        : $"Reading the backup's folders: {entries:N0} so far";
+    internal static string ReadingText(int entries) => ReadingText(new MountReading(entries));
 
-    private async Task<MountResult> MountCoreAsync(Backup backup, CancellationToken ct)
+    /// <summary>"Reading the backup's folders: 120,000 so far" for one
+    /// revision; with several, which one: "Reading the backup's folders,
+    /// revision 2 of 3 (5 Nov 2026 09:12): 120,000 so far".</summary>
+    internal static string ReadingText(MountReading reading)
+    {
+        var which = reading.Count > 1
+            ? $", revision {reading.Index} of {reading.Count}" + (reading.Revision is { } r ? $" ({r})" : "")
+            : "";
+        return "Reading the backup's folders" + which
+            + (reading.Entries > 0 ? $": {reading.Entries:N0} so far" : "");
+    }
+
+    private async Task<MountResult> MountCoreAsync(Backup backup, MountSelection? selection, CancellationToken ct)
     {
         if (!OperatingSystem.IsWindows())
             return MountResult.Failed("Snapshot mount is Windows-only.");
@@ -159,8 +179,8 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
             }
         }
 
-        // The first target, as Restore and Browse use. Every source has its
-        // own folder in the drive (BackupMountTreeProvider).
+        // The first target, as Restore and Browse use. With several sources,
+        // each has its own folder in the drive (BackupMountTreeProvider).
         if (backup.SourcePaths.Count == 0 || backup.Targets.Count == 0)
             return MountResult.Failed("Add a source folder and destination before mounting.");
         var target = backup.Targets[0];
@@ -209,24 +229,44 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
         // Waits while a cleanup there is running.
         var readers = await SnapshotReaders.HoldAsync(destination, target.StorageName, SnapshotReaders.Kind.Mount,
             waiting => { if (waiting.Length > 0) Report(backup.Id, waiting); }, ct).ConfigureAwait(false);
-        Report(backup.Id, ReadingText(0));
+
+        // Nobody chose (tests, callers without the picker): the latest
+        // revision of every source, as the picker pre-selects.
+        if (selection is null)
+        {
+            Report(backup.Id, "Reading the backup's revisions");
+            try { selection = await MountSelection.LatestAsync(backup, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) { readers.Dispose(); throw; }
+            catch (Exception ex)
+            {
+                readers.Dispose();
+                _log.Error(ex, "Listing the revisions to mount failed for {Backup}", backup.Name);
+                return MountResult.Failed(
+                    "Couldn't read the backup's revisions from the destination. " +
+                    "Check the destination is reachable and try again. Underlying error: " + ex.Message);
+            }
+        }
+        // Only this backup's own sources.
+        selection = new MountSelection(selection.Sources
+            .Where(s => backup.SourcePaths.Contains(s.Path, StringComparer.Ordinal) && s.Revisions.Count > 0).ToList());
+        Report(backup.Id, ReadingText(new MountReading(0, 1, selection.RevisionCount)));
 
         // The composite provider separates destination/source/snapshot IDs
-        // below this root. Latest and All revisions share verified bytes;
-        // retention changing a display number cannot reuse another snapshot.
+        // below this root; retention changing a display number cannot reuse
+        // another snapshot's cached bytes.
         WinFspMountCoordinator coord;
         try
         {
             var cacheDir = System.IO.Path.Combine(AppPaths.BackrestDataDir, "mount-cache", backup.Id);
             coord = new WinFspMountCoordinator(new BackupMountTreeProvider(
-                ServiceLocator.Engine, backup, destination, target.StorageName, cacheDir), OpenExplorer);
+                ServiceLocator.Engine, backup, destination, target.StorageName, cacheDir, selection), OpenExplorer);
         }
         catch { readers.Dispose(); throw; }
-        var mount = new Mounted(coord, readers);
+        var mount = new Mounted(coord, readers, selection.Describe());
         MountResult result;
         try
         {
-            result = await coord.MountAsync(ct, new InlineProgress(entries => Report(backup.Id, ReadingText(entries))))
+            result = await coord.MountAsync(ct, new InlineProgress(reading => Report(backup.Id, ReadingText(reading))))
                 .ConfigureAwait(false);
         }
         catch
@@ -251,9 +291,9 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
 
     /// <summary>Reports on the reporting thread, unlike <see cref="Progress{T}"/>,
     /// which posts to whatever context created it.</summary>
-    private sealed class InlineProgress(Action<int> report) : IProgress<int>
+    private sealed class InlineProgress(Action<MountReading> report) : IProgress<MountReading>
     {
-        public void Report(int value) => report(value);
+        public void Report(MountReading value) => report(value);
     }
 
     /// <summary>True iff <paramref name="driveLetter"/> (e.g. "Z:")

@@ -62,12 +62,13 @@ public sealed class MountBenchmark(ITestOutputHelper output)
 
         var cache = Path.Combine(root!, "mount-cache-" + Guid.NewGuid().ToString("N")[..8]);
         watch.Restart();
-        var provider = new BackupMountTreeProvider(fixture.Engine, backup, destination, "default", cache);
+        var provider = new BackupMountTreeProvider(fixture.Engine, backup, destination, "default", cache,
+            new MountSelection(new[] { new MountSelection.Source(source, new[] { revisions[0] }) }));
         await using var mount = new WinFspMountCoordinator(provider, openExplorer: false);
         var mounted = await mount.MountAsync(CancellationToken.None);
         Assert.True(mounted.Succeeded, mounted.Message);
         Note($"mount ready: {watch.ElapsedMilliseconds} ms at {mounted.DriveLetter}; managed memory after a full collection: {GC.GetTotalMemory(true) / (1024 * 1024)} MB");
-        var latest = mounted.DriveLetter + @"\Latest revision\C";
+        var latest = mounted.DriveLetter + @"\";
         Measure("first listing of the source folder", () => Directory.GetFileSystemEntries(latest).Length);
         Measure("listing a third-level folder", () => Directory.GetFileSystemEntries(Path.Combine(latest, "Users", "folder 03")).Length);
         Measure("listing a deep folder", () => Directory.GetFileSystemEntries(Path.Combine(latest, "Photos", "folder 07", "sub 04 batch0", "leaf 6")).Length);
@@ -83,8 +84,6 @@ public sealed class MountBenchmark(ITestOutputHelper output)
         Measure("reading 5 more siblings", () => Enumerable.Range(7, 5).Sum(i => File.ReadAllBytes(Path.Combine(folder, $"file {i:D2} é.txt")).Length));
         var expected = File.ReadAllBytes(Path.Combine(source, "Documents", "folder 02", "sub 01 batch0", "leaf 3", "file 05 é.txt"));
         Assert.Equal(expected, File.ReadAllBytes(Path.Combine(folder, "file 05 é.txt")));
-        var older = mounted.DriveLetter + @"\All revisions";
-        Measure("listing All revisions", () => Directory.GetFileSystemEntries(older).Length);
         await mount.DisposeAsync();
         try { Directory.Delete(cache, recursive: true); } catch { }
         File.AppendAllText(Path.Combine(root!, "results.txt"), $"--- {DateTime.Now:yyyy-MM-dd HH:mm:ss} {Environment.GetEnvironmentVariable("BACKSPACE_MOUNT_BENCH_LABEL")}\n" + report);

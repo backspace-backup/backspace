@@ -870,13 +870,27 @@ is converted.
 
 `MountedSnapshotRegistry` owns one mount per backup in the desktop process.
 `WinFspMountCoordinator` first reads what the drive will show, then mounts a
-read-only `WinFspSnapshotFs` over `BackupMountTreeProvider` (Latest revision
-and All revisions, one `EngineBackedSnapshotTreeProvider` per source and
-snapshot). The objective set for U158 (7 November 2026): the card answers the
-click at once and counts what is read; the drive appears when the latest
-snapshot's tree is in memory; from then on every folder listing and look-up
-takes milliseconds, whatever the snapshot's size.
+read-only `WinFspSnapshotFs` over `BackupMountTreeProvider` (one
+`EngineBackedSnapshotTreeProvider` per chosen source and snapshot). The
+objective set for U158 (7 November 2026): the card answers the click at once
+and counts what is read; the drive appears when its trees are in memory; from
+then on every folder listing and look-up takes milliseconds, whatever the
+snapshot's size.
 
+- **Choice (U162).** Mount opens `MountRevisionPickerWindow`
+  (`MountRevisionPickerViewModel`): the revisions of each source, newest first,
+  the latest ticked. The result is a `MountSelection`; nothing is remembered.
+  Only the chosen trees are read, all of them, one after the other, before
+  the drive appears, and nothing is read afterwards: there is no lazily read
+  "All revisions" folder (on the owner's 600,000-file cloud backup, Explorer
+  touching it read every older tree, 30-53 s each, for four minutes). Layout:
+  every level with a single choice is left out. One source and one revision:
+  its files at the drive root; several revisions: a folder per revision named
+  by local date and time (`2026-11-05 09-12`, seconds added when two share a
+  minute); several sources: a folder per source, the same rule inside. The
+  revisions' file count and size come from restic's snapshot summary when the
+  snapshot has one. `ResticBackrestEngine.TreeListingStarted` reports each tree
+  read from the repository; E65 counts them.
 - **Tree.** `ListSnapshotTreeAsync` reads the whole tree with
   `restic ls --json --recursive` and reports its progress. restic walks one
   folder at a time, so for a mount the source's top-level folders are shared
@@ -885,22 +899,25 @@ takes milliseconds, whatever the snapshot's size.
   for a small snapshot. 632,000 entries: 27-36 s in one process, about 13 s
   shared out. `SnapshotTree` keeps the result (names, sizes,
   dates, sorted children) for the mount's life. A snapshot is immutable, so
-  nothing is asked twice. An older snapshot's tree is read the first time its
-  folder is opened; listings meanwhile wait for that one read. The
-  per-folder `ListSnapshotDirectoryAsync` is only the fallback for an engine
-  that cannot list whole trees.
+  nothing is asked twice. The per-folder `ListSnapshotDirectoryAsync` is only
+  the fallback for an engine that cannot list whole trees.
 - **Windows caching.** File, folder, volume and security information never
   expire (`uint.MaxValue`), and the file contents Windows cached stay valid.
   Directory listings resume after a marker by binary search.
 - **Files.** The first open restores that file alone into the mount's cache;
   files nobody opened are never fetched (the owner, 7 November 2026), and a
-  whole snapshot is never restored because files were opened.
+  whole snapshot is never restored because files were opened. Files and
+  folders carry `NOT_CONTENT_INDEXED`, so the search indexer leaves them alone.
+  A program that opens a file (an Explorer thumbnail or preview of a photo,
+  for instance) still fetches it.
 - **Cloud.** A successful cloud connection check is trusted for two minutes
   (`CloudDestinationPreflight.TrustRecentSuccessFor`), so consecutive reads do
   not each start with a sign-in round trip.
 - **Feedback.** `GetMountProgress` says what a mount is doing ("Reading the
-  backup's folders: 120,000 so far"); the card shows it from the click, then
-  "Mounted as Z:" with Open in Explorer, or the failure inline.
+  backup's folders: 120,000 so far", with several revisions "…, revision 2 of
+  3 (5 Nov 2026 09:12): …"); the card shows it once the picker closes, then
+  "Mounted as Z: (5 Nov 2026 09:12)" (`GetMountedDescription`) with Open in
+  Explorer, or the failure inline.
 - **Exit.** Quit, normal exit and the process-exit hook call `DisposeAllAsync`.
   The drive is served by the desktop process, so if that process dies
   (crash, Task Manager, force quit) WinFsp removes the drive with it.

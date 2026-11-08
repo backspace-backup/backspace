@@ -273,9 +273,12 @@ public sealed class WinFspSnapshotFs : FileSystemBase
     {
         const uint FILE_ATTRIBUTE_DIRECTORY = 0x10;
         const uint FILE_ATTRIBUTE_READONLY = 0x1;
-        const uint FILE_ATTRIBUTE_NORMAL = 0x80;
-        if (entry.IsDirectory) return FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_READONLY;
-        return FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_NORMAL;
+        // Tells the search indexer to leave the snapshot alone, should anyone
+        // add the drive to it: indexing would open, and so fetch, every file
+        // (U162). Listings and sizes come from memory regardless.
+        const uint FILE_ATTRIBUTE_NOT_CONTENT_INDEXED = 0x2000;
+        if (entry.IsDirectory) return FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED;
+        return FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED;
     }
 
     private FspFileInfo ToFileInfo(WebDavEntry entry)

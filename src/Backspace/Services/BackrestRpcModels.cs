@@ -248,6 +248,15 @@ internal sealed class ResticSnapshotDto
     [JsonPropertyName("parent")] public string Parent { get; set; } = "";
     [JsonPropertyName("paths")] public List<string> Paths { get; set; } = new();
     [JsonPropertyName("tags")] public List<string> Tags { get; set; } = new();
+    /// <summary>restic 0.17+ keeps the backup's totals in the snapshot; null
+    /// for older snapshots.</summary>
+    [JsonPropertyName("summary")] public ResticSnapshotSummaryDto? Summary { get; set; }
+}
+
+internal sealed class ResticSnapshotSummaryDto
+{
+    [JsonPropertyName("totalFilesProcessed")] public long TotalFilesProcessed { get; set; }
+    [JsonPropertyName("totalBytesProcessed")] public long TotalBytesProcessed { get; set; }
 }
 
 internal sealed class RestoreSnapshotRequest

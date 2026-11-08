@@ -35,6 +35,15 @@ public interface ISnapshotMountRegistry
     /// file-browser at the result. Idempotent for the same backup id.</summary>
     Task<MountResult> MountForAsync(Backup backup, CancellationToken ct = default);
 
+    /// <summary>Mount the revisions the person chose (U162): only their trees
+    /// are read, all before the drive appears.</summary>
+    Task<MountResult> MountForAsync(Backup backup, MountSelection selection, CancellationToken ct = default)
+        => MountForAsync(backup, ct);
+
+    /// <summary>What a mounted drive shows, for the card ("7 Nov 2026 14:30",
+    /// "3 revisions"); null when not mounted or unknown.</summary>
+    string? GetMountedDescription(string backupId) => null;
+
     /// <summary>Tear down every mount this registry owns. Wired
     /// into app shutdown so leaving Backspace running for hours
     /// doesn't leave orphan drive letters / mountpoints.</summary>

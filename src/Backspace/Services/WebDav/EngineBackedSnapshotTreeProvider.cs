@@ -16,8 +16,8 @@ namespace Backspace.Services.WebDav;
 /// once, with one engine listing (<see cref="IBackupEngine.ListSnapshotTreeAsync"/>,
 /// a single restic process), and kept in memory as a <see cref="SnapshotTree"/>.
 /// Every later listing, look-up and size sweep is answered from memory. The
-/// mount reads the latest snapshot's tree before the drive appears; an older
-/// snapshot's tree is read the first time its folder is opened. Asking the
+/// mount reads the tree of every revision the person chose before the drive
+/// appears, and no other (U162). Asking the
 /// engine one folder at a time (a restic process per folder, plus a cloud
 /// connection check for each on a cloud destination) is only the fallback for
 /// an engine that cannot list a whole tree.</para>

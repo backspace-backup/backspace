@@ -480,16 +480,28 @@ checks for it and asks for administrator approval to install it when it's
 missing. Backspace itself stays portable, and normal restores don't need the
 driver.
 
-From the click, the card says **Mounting** and what it is doing. Backspace
-first reads the whole list of the latest snapshot's files and folders, which
-for a large backup in the cloud can take a while (the card counts them);
-after that, every folder of the drive opens at once, because a snapshot never
-changes. An older snapshot, under **All revisions**, is read the first time
-you open its folder. When the drive is ready, Explorer opens it and the card
-says **Mounted as Z:** with **Open in Explorer**. A file's contents are
-fetched the first time you open it, and only the files you open are fetched.
-Copying a large folder out of the drive fetches its files one by one:
-**Restore files** is faster for that.
+Mount first asks which revision the drive should show. The backup's
+revisions are listed newest first with their date, time and, when the
+snapshot recorded them, its number of files and size; the latest is ticked.
+Tick another one instead to look at an older state, or tick several (or
+**Select all**) to compare them; **Enter** mounts what is ticked. With one
+revision, its files are at the root of the drive. With several, the drive has
+one folder per revision, named by its date and time (`2026-11-05 09-12`). A
+backup with several source folders has a folder per source, each following
+the same rule.
+
+From then on the card says **Mounting** and what it is doing. Backspace reads
+the whole list of each chosen revision's files and folders, one revision after
+the other, before the drive appears: for a large backup in the cloud this can
+take a while per revision (the card says which revision and counts what it has
+read), and **Cancel** stops it. After that, every folder of the drive opens at
+once and nothing more is read from the backup while you browse, because a
+snapshot never changes. When the drive is ready, Explorer opens it and the card
+says **Mounted as Z:** and which revision it shows, with **Open in Explorer**.
+A file's contents are fetched the first time you open it, and only the files
+you open are fetched. Copying a large folder out of the drive fetches its files
+one by one: **Restore files** is faster for that. To see another revision,
+**Unmount** and mount again.
 
 While a snapshot is mounted, and while a restore or test restore runs,
 Backspace changes nothing in that backup's storage: cleanup after a backup

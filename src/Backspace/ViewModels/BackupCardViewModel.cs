@@ -36,6 +36,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ShowMountLine))]
     private string? _mountedDrive;
 
+    /// <summary>What the mounted drive shows ("7 Nov 2026 14:30", "3 revisions", U162).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(MountedLine))]
+    private string? _mountedDescription;
+
     /// <summary>What the mount in progress is doing, from the click until the
     /// drive is ready (U158); null otherwise.</summary>
     [ObservableProperty]
@@ -54,14 +59,14 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     public bool IsMounting => MountProgress is not null;
     public string MountActionLabel => IsMounting ? "Mounting…" : MountedDrive is null ? "Mount" : "Unmount";
-    public string MountTooltip => IsMounting ? "Mounting the latest snapshot. The drive opens in Explorer when it is ready."
+    public string MountTooltip => IsMounting ? "Mounting the revisions you chose. The drive opens in Explorer when it is ready."
         : MountedDrive is null
-        ? HasRestorableRun ? "Browse your snapshots as a read-only drive in Explorer." : NothingToRestoreTooltip
+        ? HasRestorableRun ? "Choose a revision, then browse it as a read-only drive in Explorer." : NothingToRestoreTooltip
         : $"Unmount {MountedDrive}. Your snapshots stay safely in the backup.";
     /// <summary>Mount needs something stored; Unmount is always possible,
     /// even while a backup runs (it only adds a new snapshot, U159).</summary>
     public bool CanMountOrUnmount => !IsMounting && (MountedDrive is not null || HasRestorableRun);
-    public string MountedLine => MountedDrive is null ? "" : $"Mounted as {MountedDrive}, read-only. Backspace unmounts it when you quit.";
+    public string MountedLine => MountedDrive is null ? "" : $"Mounted as {MountedDrive}" + (MountedDescription is { } shows ? $" ({shows})" : "") + ", read-only. Backspace unmounts it when you quit.";
     public bool ShowMountLine => IsMounting || MountedDrive is not null || MountError is not null;
 
     public string Id { get; }
@@ -425,6 +430,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         {
             _mountRegistry.Changed += OnMountChanged;
             MountedDrive = _mountRegistry.GetMountedDrive(Id);
+            MountedDescription = _mountRegistry.GetMountedDescription(Id);
             MountProgress = _mountRegistry.GetMountProgress(Id);
         }
         _showActions = showActions;
@@ -1064,6 +1070,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     {
         if (_disposed || _mountRegistry is null) return;
         MountedDrive = _mountRegistry.GetMountedDrive(Id);
+        MountedDescription = _mountRegistry.GetMountedDescription(Id);
         // Keep "Starting" from the click until the registry reports.
         var progress = _mountRegistry.GetMountProgress(Id);
         MountProgress = progress ?? (_mountClicked ? MountProgress : null);
@@ -1071,10 +1078,16 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     private bool _mountClicked;
 
-    /// <summary>Mount the latest snapshot of this backup as a Windows drive,
-    /// then open Explorer at it; Unmount when mounted. From the click the
-    /// card says "Mounting…" with what it is doing, then "Mounted as Z:" with
-    /// Open in Explorer; a failure is shown on the card (U158).</summary>
+    /// <summary>Asks which revisions to mount (U162): the picker window, wired
+    /// by the backups page. Null (tests, a card shown elsewhere) mounts the
+    /// latest revision; a null answer means the person cancelled.</summary>
+    public Func<Task<Services.WebDav.MountSelection?>>? ChooseMountRevisions { get; set; }
+
+    /// <summary>Mount the chosen revisions of this backup as a Windows drive,
+    /// then open Explorer at it; Unmount when mounted. The picker comes first
+    /// (U162); from then on the card says "Mounting…" with what it is doing,
+    /// then "Mounted as Z:" with Open in Explorer; a failure is shown on the
+    /// card (U158).</summary>
     [RelayCommand]
     private async Task MountInExplorer()
     {
@@ -1088,10 +1101,17 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
                 await registry.UnmountAsync(Id);
                 return;
             }
+            var choose = ChooseMountRevisions;
+            if (choose is null) { _mountClicked = true; MountProgress = "Starting"; }
+            if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to open this backup.").ConfigureAwait(true)) return;
+            Services.WebDav.MountSelection? selection = null;
+            if (choose is not null && (selection = await choose().ConfigureAwait(true)) is null)
+                return; // cancelled in the picker
             _mountClicked = true;
             MountProgress = "Starting";
-            if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to open this backup.").ConfigureAwait(true)) return;
-            var result = await registry.MountForAsync(Snapshot).ConfigureAwait(true);
+            var result = selection is null
+                ? await registry.MountForAsync(Snapshot).ConfigureAwait(true)
+                : await registry.MountForAsync(Snapshot, selection).ConfigureAwait(true);
             if (!result.Succeeded && !_disposed) MountError = "Couldn't mount: " + result.Message;
         }
         catch (OperationCanceledException) { /* Cancel on the card */ }

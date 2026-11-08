@@ -62,9 +62,9 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
     public string? DriveLetter => _mountedDriveLetter;
 
     /// <summary>Reads what the drive shows first, then mounts it.
-    /// <paramref name="progress"/> hears how many of the snapshot's files and
-    /// folders have been read so far.</summary>
-    public async Task<MountResult> MountAsync(CancellationToken ct = default, IProgress<int>? progress = null)
+    /// <paramref name="progress"/> hears which revision is being read and how
+    /// many of its files and folders have been read so far.</summary>
+    public async Task<MountResult> MountAsync(CancellationToken ct = default, IProgress<MountReading>? progress = null)
     {
         if (!OperatingSystem.IsWindows())
             return MountResult.Failed("Snapshot mount is Windows-only.");

@@ -52,21 +52,24 @@ public sealed class E45_MountedSnapshotSafety : BackupE2EBase
         ctx.Report.RecordNote("Complete nested bulk restore", "The actual bundled Backrest and restic restored all three files and the empty/deeper folder. Directory counts did not turn a successful restore into a warning.");
 
         var cache = ctx.MakeRestoreTarget("mount-cache");
-        using (var provider = new BackupMountTreeProvider(fixture.Engine, backup, destination, "default", cache))
+        using (var provider = new BackupMountTreeProvider(fixture.Engine, backup, destination, "default", cache,
+            new MountSelection(new[] { new MountSelection.Source(source, new[] { revisions.Single(r => r.Number == 1) }) })))
         {
-            await using (var first = await provider.OpenAsync("All revisions/source (3 revisions)/r1/readme.txt", ct))
+            await using (var first = await provider.OpenAsync("readme.txt", ct))
                 Assert.Equal("root-version-1", await new StreamReader(first).ReadToEndAsync(ct));
-            await using (var second = await provider.OpenAsync("All revisions/source (3 revisions)/r1/nested/one.txt", ct))
+            await using (var second = await provider.OpenAsync("nested/one.txt", ct))
                 Assert.Equal("nested-version-1", await new StreamReader(second).ReadToEndAsync(ct));
-            await using (var third = await provider.OpenAsync("All revisions/source (3 revisions)/r1/nested/deeper/two.txt", ct))
+            await using (var third = await provider.OpenAsync("nested/deeper/two.txt", ct))
                 Assert.Equal("deep-version-1", await new StreamReader(third).ReadToEndAsync(ct));
         }
         ctx.Report.RecordNote("Mounted reads use the production engine", "The first file came through lazy restore; the second and third came through the published complete bulk cache. All three contents matched the chosen oldest snapshot.");
 
         await fixture.Engine.PruneSnapshotIdAsync(backup, source, destination, "default",
             revisions.Single(r => r.Number == 1).SnapshotId!, ct);
-        using (var remounted = new BackupMountTreeProvider(fixture.Engine, backup, destination, "default", cache))
-        await using (var stream = await remounted.OpenAsync("All revisions/source (2 revisions)/r1/readme.txt", ct))
+        var afterPrune = await fixture.Engine.ListSnapshotsAsync(backup, source, destination, "default", ct);
+        using (var remounted = new BackupMountTreeProvider(fixture.Engine, backup, destination, "default", cache,
+            new MountSelection(new[] { new MountSelection.Source(source, new[] { afterPrune.Single(r => r.Number == 1) }) })))
+        await using (var stream = await remounted.OpenAsync("readme.txt", ct))
             Assert.Equal("root-version-2", await new StreamReader(stream).ReadToEndAsync(ct));
         ctx.Report.RecordNote("Retention cannot reuse another snapshot's cached bytes", "After the oldest snapshot was deleted, a new mount using the same cache root returned version 2 for the new revision 1. It did not return the version-1 file left by the earlier mount.");
 

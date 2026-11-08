@@ -1100,8 +1100,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
             revisions.Add(new RevisionSummary(
                 Number: sorted.Count - i,
                 CreatedUtc: when,
-                FileCount: 0,
-                TotalBytes: 0) { SnapshotId = s.Id });
+                // Known from restic 0.17's snapshot summary; 0 when unknown.
+                FileCount: (int)Math.Min(int.MaxValue, s.Summary?.TotalFilesProcessed ?? 0),
+                TotalBytes: s.Summary?.TotalBytesProcessed ?? 0) { SnapshotId = s.Id });
         }
         return revisions;
     }
@@ -1244,6 +1245,11 @@ public sealed class ResticBackrestEngine : IBackupEngine
         return children;
     }
 
+    /// <summary>Raised with the snapshot ID each time a whole tree is read
+    /// from the repository (not from memory), so E65 can prove a mount reads
+    /// only the trees it was asked for (U162).</summary>
+    internal event Action<string>? TreeListingStarted;
+
     public async Task<IReadOnlyList<RevisionTreeNode>?> ListSnapshotTreeAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
         int revision, CancellationToken ct, string? expectedSnapshotId = null, IProgress<int>? progress = null)
@@ -1264,6 +1270,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             repo.Guid, repo.Uri, cfg.Modno, snapshotId);
         lock (_snapshotTreeGate)
             if (_snapshotTrees.TryGetValue(identity, out var cached)) return cached;
+        TreeListingStarted?.Invoke(snapshotId);
         await new CloudDestinationPreflight(_secrets).CheckAsync(destination, ct).ConfigureAwait(false);
         // The listing reads without a repository lock: keep cleanup out (U159).
         using var reading = await SnapshotReaders.HoldAsync(destination, storageName, SnapshotReaders.Kind.Restore, null, ct).ConfigureAwait(false);

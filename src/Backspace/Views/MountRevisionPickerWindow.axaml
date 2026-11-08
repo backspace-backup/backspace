@@ -1,0 +1,76 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Backspace.ViewModels"
+        x:Class="Backspace.Views.MountRevisionPickerWindow"
+        x:DataType="vm:MountRevisionPickerViewModel"
+        Title="Mount - Backspace" Width="560" Height="560" MinHeight="360" CanResize="True"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource BS.Brush.BgBase}">
+  <!-- U162: which revisions the drive shows. The latest is ticked; only the
+       ticked revisions' folders are read, all before the drive opens. -->
+  <Grid Margin="28,26,28,22" RowDefinitions="Auto,*,Auto,Auto">
+    <StackPanel Spacing="6" Margin="0,0,0,16">
+      <TextBlock Text="{Binding Title}" Classes="card-title" TextWrapping="Wrap"/>
+      <TextBlock Classes="body" TextWrapping="Wrap"
+                 Text="Which revision should the drive show? The latest is ticked; tick more to compare them side by side."/>
+    </StackPanel>
+
+    <!-- Reading the revisions -->
+    <StackPanel Grid.Row="1" Spacing="10" VerticalAlignment="Center" IsVisible="{Binding IsLoading}">
+      <TextBlock Classes="dim" HorizontalAlignment="Center" Text="Reading this backup's revisions…"/>
+      <ProgressBar IsIndeterminate="True" Width="220" HorizontalAlignment="Center"/>
+    </StackPanel>
+    <TextBlock Grid.Row="1" Name="ErrorText" TextWrapping="Wrap" VerticalAlignment="Top"
+               Foreground="{DynamicResource BS.Brush.Danger}"
+               IsVisible="{Binding Error, Converter={x:Static vm:NotEmpty.To}}" Text="{Binding Error}"/>
+
+    <Border Grid.Row="1" IsVisible="{Binding ShowList}" CornerRadius="12"
+            Background="{DynamicResource BS.Brush.BgSurface}" Padding="6">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl Name="GroupList" ItemsSource="{Binding Groups}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:MountRevisionGroup">
+              <StackPanel Margin="0,0,0,6">
+                <TextBlock Classes="label-caps" Margin="10,8,10,4" Text="{Binding Folder}"
+                           IsVisible="{Binding ShowHeading}"/>
+                <ItemsControl ItemsSource="{Binding Rows}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:MountRevisionRow">
+                      <CheckBox IsChecked="{Binding IsSelected}" Margin="6,1" Padding="8,6,6,6"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                        <Grid ColumnDefinitions="*,Auto">
+                          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Classes="body" Text="{Binding When}" VerticalAlignment="Center"/>
+                            <Border IsVisible="{Binding IsLatest}" CornerRadius="999" Padding="8,1"
+                                    VerticalAlignment="Center" Background="{DynamicResource BS.Brush.AccentTint}">
+                              <TextBlock Text="Latest" FontSize="11" FontWeight="SemiBold"
+                                         Foreground="{DynamicResource BS.Brush.AccentTintFg}"/>
+                            </Border>
+                          </StackPanel>
+                          <TextBlock Grid.Column="1" Classes="dim" VerticalAlignment="Center" Margin="12,0,4,0"
+                                     Text="{Binding Details}" IsVisible="{Binding HasDetails}"/>
+                        </Grid>
+                      </CheckBox>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,12,0,0" IsVisible="{Binding ShowList}">
+      <TextBlock Classes="dim" TextWrapping="Wrap" VerticalAlignment="Center" Text="{Binding Hint}"/>
+      <Button Grid.Column="1" Classes="row-action" Margin="12,0,0,0" VerticalAlignment="Top"
+              Content="{Binding SelectAllLabel}" Command="{Binding ToggleAllCommand}" IsVisible="{Binding ShowSelectAll}"
+              ToolTip.Tip="Tick every revision, or go back to the latest only."/>
+    </Grid>
+
+    <StackPanel Grid.Row="3" Margin="0,18,0,0" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+      <Button Content="Cancel" Classes="ghost" Padding="14,10" Click="OnCancel"/>
+      <Button Name="MountButton" Classes="primary" Content="{Binding MountLabel}"
+              IsEnabled="{Binding CanMount}" Click="OnMount"/>
+    </StackPanel>
+  </Grid>
+</Window>

@@ -81,7 +81,10 @@ public sealed class E65_MountSpeedAndSafety : BackupE2EBase
         Assert.Null(registry.GetMountProgress(backup.Id));
         Assert.Contains("Starting", said);
         Assert.Contains(said, s => s.StartsWith("Reading the backup's folders", StringComparison.Ordinal));
-        var root = Path.Combine(drive + @"\", "Latest revision", "Documents");
+        // One source, one revision (U162): its files at the drive root.
+        var root = drive + @"\";
+        Assert.Equal(30, Directory.GetDirectories(root).Length);
+        Assert.Empty(Directory.GetFiles(root));
 
         try
         {
@@ -136,8 +139,9 @@ public sealed class E65_MountSpeedAndSafety : BackupE2EBase
             Assert.Equal(2, revisions.Count); // "keep the latest" was not applied
             // The drive still shows the snapshot it opened.
             Assert.Equal("version one", File.ReadAllText(Path.Combine(root, "area 07", "topic 3", "note 05.txt")));
-            Assert.Single(Directory.GetDirectories(Path.Combine(drive + @"\", "All revisions")));
-            Assert.Equal("All revisions\\Documents (1 revision)", Path.GetRelativePath(drive + @"\", Directory.GetDirectories(Path.Combine(drive + @"\", "All revisions"))[0]));
+            // The new snapshot does not appear in the drive either.
+            Assert.Equal(30, Directory.GetDirectories(root).Length);
+            Assert.False(Directory.Exists(Path.Combine(root, "All revisions")));
 
             var prune = await fixture.Engine.RunPruneOnlyAsync(backup, source, destination, "default", ct);
             Assert.Equal(BackupRunStatus.Skipped, prune.Status);
@@ -164,5 +168,80 @@ public sealed class E65_MountSpeedAndSafety : BackupE2EBase
         Assert.Single(await ServiceLocator.Revisions.ListRevisionsAsync(backup, source, destination, "default", ct));
         ctx.Report.RecordNote("After unmounting",
             $"Unmounting everything removed {drive}. The cleanup then ran ({after.Status}) and applied \"keep the latest\", leaving one snapshot.");
+
+        await MountOneOlderRevisionAsync(ctx, fixture, backup, source, destination, watched, ct);
+    }
+
+    /// <summary>U162: the person picks one older revision. Only its tree is
+    /// read (counted at the engine, which reports every tree it reads from the
+    /// repository); afterwards walking, sizing and re-listing every folder
+    /// reads nothing more and stays instant, and its files are that revision's.</summary>
+    private static async Task MountOneOlderRevisionAsync(ScenarioContext ctx, RealEngineFixture fixture, Backup backup,
+        string source, Destination destination, string watched, CancellationToken ct)
+    {
+        backup.KeepPolicy = "0:365 30:90 7:30 1:7"; // keep every snapshot from here on
+        foreach (var version in new[] { "version three", "version four" })
+        {
+            File.WriteAllText(watched, version);
+            Assert.Equal(BackupRunStatus.Success, (await fixture.Engine.BackupPruneCheckAsync(backup, source, destination, "default", ct)).Status);
+        }
+        var revisions = await ServiceLocator.Revisions.ListRevisionsAsync(backup, source, destination, "default", ct);
+        Assert.Equal(3, revisions.Count);
+        var oldest = revisions[^1];
+
+        var treesRead = new List<string>();
+        void Heard(string id) { lock (treesRead) treesRead.Add(id); }
+        fixture.Engine.TreeListingStarted += Heard;
+        var registry = new MountedSnapshotRegistry { OpenExplorer = false };
+        try
+        {
+            var clock = Stopwatch.StartNew();
+            var mounted = await registry.MountForAsync(backup,
+                new MountSelection(new[] { new MountSelection.Source(source, new[] { oldest }) }), ct);
+            var ready = clock.Elapsed;
+            Assert.True(mounted.Succeeded, mounted.Message);
+            var drive = mounted.DriveLetter! + @"\";
+            Assert.Equal(MountSelection.When(oldest.CreatedUtc), registry.GetMountedDescription(backup.Id));
+            Assert.Equal(new[] { oldest.SnapshotId! }, treesRead);
+
+            // Everything Explorer, thumbnails, folder sizes and the indexer do.
+            var walk = Stopwatch.StartNew();
+            var entries = Directory.EnumerateFileSystemEntries(drive, "*", SearchOption.AllDirectories).ToList();
+            var bytes = new DirectoryInfo(drive).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+            foreach (var folder in Directory.EnumerateDirectories(drive, "*", SearchOption.AllDirectories))
+                _ = File.GetAttributes(folder);
+            var walked = walk.Elapsed;
+            Assert.Equal(6000 + 330, entries.Count);
+            Assert.True(bytes > 6000 * 200);
+            var listings = new List<double>();
+            foreach (var a in new[] { 2, 17, 28 })
+            {
+                var sw = Stopwatch.StartNew();
+                Assert.Equal(20, Directory.GetFiles(Path.Combine(drive, $"area {a:D2}", "topic 4")).Length);
+                listings.Add(sw.Elapsed.TotalMilliseconds);
+            }
+            Assert.False(Directory.Exists(Path.Combine(drive, "All revisions")));
+            Assert.False(Directory.Exists(Path.Combine(drive, "Latest revision")));
+            var attributes = File.GetAttributes(Path.Combine(drive, "area 07", "topic 3", "note 05.txt"));
+            Assert.True(attributes.HasFlag(FileAttributes.ReadOnly) && attributes.HasFlag(FileAttributes.NotContentIndexed), attributes.ToString());
+            // The oldest revision's bytes, fetched when opened.
+            Assert.Equal("version two", File.ReadAllText(Path.Combine(drive, "area 07", "topic 3", "note 05.txt")));
+            Assert.Equal(new[] { oldest.SnapshotId! }, treesRead);
+
+            ctx.Report.RecordNote("One older revision (U162)",
+                $"Mounted only the oldest of 3 revisions ({MountSelection.When(oldest.CreatedUtc)}) in {ready.TotalSeconds:F1} s. " +
+                $"Trees read from the repository: {treesRead.Count} (snapshot {oldest.SnapshotId![..8]}), before and after walking all {entries.Count:N0} entries, " +
+                $"summing every file's size and reading each folder's attributes ({walked.TotalMilliseconds:F0} ms). " +
+                $"Folder listings afterwards: max {listings.Max():F1} ms. Its file read \"version two\"; the drive root holds the files, with no All revisions folder. " +
+                $"Files are marked read-only and not to be indexed ({attributes}). " +
+                $"The picker's details for this revision: {oldest.FileCount:N0} files, {oldest.TotalBytes:N0} bytes (0 = not recorded by the snapshot).");
+            Assert.True(walked < TimeSpan.FromSeconds(10), $"The walk took {walked}.");
+            Assert.True(listings.Max() < 100, $"A listing took {listings.Max()} ms.");
+        }
+        finally
+        {
+            fixture.Engine.TreeListingStarted -= Heard;
+            await registry.DisposeAllAsync();
+        }
     }
 }
