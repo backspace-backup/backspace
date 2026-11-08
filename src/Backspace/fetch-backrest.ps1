@@ -67,7 +67,18 @@ function Fetch-FromGitHubRelease {
     New-Item -ItemType Directory -Path $tmpDir | Out-Null
     try {
         $archivePath = Join-Path $tmpDir $asset.name
-        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archivePath -Headers $headers -TimeoutSec 600 -UseBasicParsing
+        try {
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archivePath -Headers $headers -TimeoutSec 600 -UseBasicParsing
+        } catch {
+            # github.com answered 504 to anonymous downloads of this
+            # repository's release files on 8 November 2026 while the API
+            # served them: fetch the same asset through the API (U163).
+            # The hash checks below still apply.
+            Write-Host "[fetch-backrest] Download from github.com failed ($($_.Exception.Message)); trying the GitHub API"
+            $assetHeaders = $apiHeaders.Clone()
+            $assetHeaders['Accept'] = 'application/octet-stream'
+            Invoke-WebRequest -Uri $asset.url -OutFile $archivePath -Headers $assetHeaders -TimeoutSec 600 -UseBasicParsing
+        }
 
         # Supply-chain check: stamp the downloaded archive's SHA-256
         # to the build log AND compare it against a pinned manifest
