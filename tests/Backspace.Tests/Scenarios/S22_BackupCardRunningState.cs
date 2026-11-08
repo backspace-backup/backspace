@@ -29,7 +29,7 @@ public sealed class S22_BackupCardRunningState : ScenarioBase
 
     [AvaloniaFact] public async Task Run_S22() => await Run();
 
-    protected override Task RunAsync(ScenarioContext ctx)
+    protected override async Task RunAsync(ScenarioContext ctx)
     {
         var dest = new Destination { Name = "Local", Kind = DestinationKind.LocalFolder, PathOrSubpath = ctx.MakeLocalDestination("d") };
         var backup = new Backup
@@ -58,31 +58,41 @@ public sealed class S22_BackupCardRunningState : ScenarioBase
         Assert.Equal("running", listVm.Cards[0].StatusClass);
 
         // U114: no progress bar under "Running" (the sources and the strip
-        // below carry the percentage); the icon turns and the dots cycle in steps.
+        // below carry the percentage); the icon turns in steps.
         var summary = host.GetVisualDescendants().OfType<Border>().First(b => b.Name == "BackupSummary");
         Assert.DoesNotContain(summary.GetVisualDescendants().OfType<ProgressBar>(), bar => bar.IsEffectivelyVisible);
-        var dots = summary.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "RunningDots");
         var icon = summary.GetVisualDescendants().OfType<PathIcon>().First(i => i.Classes.Contains("status-icon"));
-        Assert.True(dots.IsEffectivelyVisible);
         Assert.True(RunningPulse.IsTicking);
         RunningPulse.Restart();
-        var seenDots = new System.Collections.Generic.List<string>();
         var seenAngles = new System.Collections.Generic.HashSet<double>();
         try
         {
             for (var i = 0; i < 12; i++)
             {
                 RunningPulse.Advance();
-                if (seenDots.LastOrDefault() != dots.Text) seenDots.Add(dots.Text!);
                 seenAngles.Add(Assert.IsType<RotateTransform>(icon.RenderTransform).Angle);
             }
         }
         finally { RunningPulse.Restart(); }
-        // ". .. ..." in that order, one full turn in twelve steps.
-        Assert.Equal(new[] { "...", ".", "..", "..." }, seenDots);
+        // One full turn in twelve steps.
         Assert.Equal(12, seenAngles.Count);
+        // U155: the time the run has taken so far ticks next to "Running",
+        // from the run's start, and survives the settings refresh.
+        var card = listVm.Cards[0];
+        var startedAt = card.RunStartedUtc!.Value;
+        card.UtcNow = () => startedAt.AddSeconds(40);
+        card.SetRunning(); // a later progress update keeps the run's start
+        Assert.Equal(startedAt, card.RunStartedUtc);
+        var running = summary.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "RunningText");
+        ctx.Driver.Pump();
+        Assert.Equal("Running · 40 s", running.Text);
+        card.UtcNow = () => startedAt.AddMinutes(12).AddSeconds(59);
+        await ctx.Driver.PumpAsync(1_500); // the card's one-second refresh
+        Assert.Equal("Running · 12 min", running.Text);
+        Assert.Equal("1 h 05 min", BackupCardViewModel.Elapsed(TimeSpan.FromMinutes(65.5)));
+        Assert.Equal("0 s", BackupCardViewModel.Elapsed(TimeSpan.FromSeconds(-2)));
         ctx.Snapshot(host, "card running blue-badge stop-button",
-            "After a real settings refresh, the card still says Running and offers Stop; yesterday’s skipped result has not replaced it. The engine state is simulated in this visual check.");
+            "After a real settings refresh, the card still says Running, with the time the run has taken so far (12 min), and offers Stop; yesterday’s skipped result has not replaced it. The engine state is simulated in this visual check.");
         listVm.Cards[0].SetQueuedReason("waiting for Photos to finish");
         ServiceLocator.Config.Update(cfg => cfg.Backups[0].Name = "Cloud backup — waiting for a destination");
         ctx.Driver.Pump();
@@ -92,10 +102,9 @@ public sealed class S22_BackupCardRunningState : ScenarioBase
         icon = summary.GetVisualDescendants().OfType<PathIcon>().First(i => i.Classes.Contains("status-icon"));
         RunningPulse.Advance();
         Assert.Null(icon.RenderTransform);
-        Assert.False(summary.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "RunningDots").IsEffectivelyVisible);
+        Assert.False(summary.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "RunningText").IsEffectivelyVisible);
         ctx.Snapshot(host, "queued status survives settings refresh",
             "Queued and its reason survive the settings refresh too. This is a headless visual check with simulated activity.");
         host.Close();
-        return Task.CompletedTask;
     }
 }

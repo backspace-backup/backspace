@@ -58,16 +58,20 @@ public sealed class S86_ProgressOfTheChanges : ScenarioBase
         var progress = ServiceLocator.Progress;
         progress.RegisterRunCells(backup.Id, [drive], [dest.Name]);
         progress.ReportCellStarted(backup.Id, drive, dest.Name);
-        card.SetRunning();
         long sent = 0;
         var live = new BackupLiveProgress(() => 190_000_000_000, () => sent, () => plan, () => null);
         var start = new DateTime(2026, 11, 5, 10, 34, 0, DateTimeKind.Utc);
+        // U155: the card's "Running · 6 min" follows the simulated clock.
+        var clock = start;
+        card.UtcNow = () => clock;
+        card.SetRunning(start);
         var total = plan.TotalBytes;
         long filesDone = 0, bytesDone = 0;
         async Task Until(int seconds, int from)
         {
             for (var t = from; t <= seconds; t += 5)
             {
+                clock = start.AddSeconds(t);
                 string current;
                 if (filesDone < 551_000)
                 {
@@ -89,15 +93,27 @@ public sealed class S86_ProgressOfTheChanges : ScenarioBase
         await Until(365, 0);
         var checkedAll = card.Sources.Single().PercentComplete;
         Assert.InRange(checkedAll, 5, 40);
-        Assert.Contains("changes 0 B / ~8.4 GB", card.ProgressDetail);
+        Assert.Contains("changed files: 0 B of ~8.4 GB backed up", card.ProgressDetail);
+        Assert.Contains("551,000 of 600,001 files checked (176 GB)", card.ProgressDetail);
+        await ctx.Driver.PumpAsync(1_200); // the card's one-second refresh of the time running
+        Assert.Equal("Running · 6 min", card.RunningLabel);
         ctx.Snapshot(host, "unchanged files checked",
-            $"Six minutes in, the 551,000 unchanged files before the large one are checked: {checkedAll:0}%, not 91%. Nothing of the 8.4 GB of changes is read yet, and the time left counts them at the expected upload pace.");
+            $"Six minutes in, the 551,000 unchanged files before the large one are checked: {checkedAll:0}%, not 91%. Nothing of the 8.4 GB of changes is backed up yet, and the time left counts them at the expected upload pace.");
         await Until(1_800, 370);
         var later = card.Sources.Single().PercentComplete;
         Assert.InRange(later, checkedAll + 25, 95);
         Assert.Contains("min left", card.ProgressDetail);
+        await ctx.Driver.PumpAsync(1_200);
+        var runningText = host.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>().Single(t => t.Name == "RunningText");
+        Assert.Equal("Running · 30 min", runningText.Text);
+        // U155: said as the actions, in the order the work happens.
+        Assert.Matches(@"^Backing up · 551,000 of 600,001 files checked \(176 GB\) · changed files: [0-9.]+ of ~8\.4 GB backed up · [0-9.]+ [KMG]?B of new data uploaded, [0-9.]+ MB/s · about .+ left$", card.ProgressDetail);
+        // Hovering the line explains why the upload is smaller than the changes.
+        var detailText = host.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>().Single(t => t.Text == card.ProgressDetail);
+        Assert.True(detailText.IsEffectivelyVisible);
+        Assert.EndsWith(BackupCardViewModel.UploadNote, Avalonia.Controls.ToolTip.GetTip(detailText) as string);
         ctx.Snapshot(host, "sending the changes",
-            $"24 minutes into the large file at 3.8 MB/s: {later:0}%, with the changes read so far, the source's size kept next to the folder, and the time left from the pace measured on the changes.");
+            $"24 minutes into the large file at 3.8 MB/s: {later:0}%. The line under the bar reads \"{card.ProgressDetail}\": files checked, changed files backed up, then the new data uploaded, smaller because only data the backup doesn't already hold is sent, compressed (the hover note says so).");
         host.Close();
     }
 }

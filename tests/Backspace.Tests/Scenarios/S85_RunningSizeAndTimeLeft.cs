@@ -66,7 +66,7 @@ public sealed class S85_RunningSizeAndTimeLeft : ScenarioBase
         await ctx.Driver.PumpAsync(200);
         Assert.Equal("190 GB", source.SizeLabel);
         Assert.Equal("Size counted by the backup in progress.", source.SizeTooltip);
-        Assert.Contains("172 / 190 GB", card.ProgressDetail);
+        Assert.Contains("(172 of 190 GB)", card.ProgressDetail);
         Assert.Contains("about 1 h", card.ProgressDetail);
         ctx.Snapshot(host, "counted size and time left after a slowdown",
             "local_c 80 s after reaching a large changed file sent at 3.8 MB/s: the source shows 190 GB, the size this run counted (it said 179 GB, the last backup's, before), and the time left is over an hour, not 2 min.");

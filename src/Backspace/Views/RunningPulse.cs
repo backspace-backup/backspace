@@ -9,8 +9,8 @@ namespace Backspace.Views;
 
 /// <summary>
 /// The running state's motion on a backup card (U114, 4 November 2026): the
-/// status icon turns and the dots after "Running" cycle. Both move in steps
-/// from one shared timer, eight times a second, and only while a running card
+/// status icon turns in steps (the time running ticks beside it, U155). It
+/// moves from one shared timer, eight times a second, and only while a running card
 /// is on screen. A continuous animation redraws at screen rate, which kept the
 /// GPU at 10-12% while a backup ran (U109).
 /// </summary>
@@ -24,8 +24,6 @@ public static class RunningPulse
 
     internal static readonly TimeSpan Step = TimeSpan.FromMilliseconds(125);
     internal const double DegreesPerStep = 30;
-    // Starts on "..." so a card that has just started reads like "Running…".
-    internal static readonly string[] Dots = ["...", ".", ".."];
 
     // Weak, so cards rebuilt on every settings change aren't kept alive.
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, object> Hooked = new();
@@ -62,7 +60,7 @@ public static class RunningPulse
         else
         {
             Moving.Remove(control);
-            if (control is not TextBlock) control.RenderTransform = null;
+            control.RenderTransform = null;
         }
         if (Moving.Count == 0) { _timer?.Stop(); return; }
         _timer ??= new DispatcherTimer(Step, DispatcherPriority.Background, (_, _) => { if (!Paused) Advance(); });
@@ -85,9 +83,6 @@ public static class RunningPulse
 
     private static void Apply(Control control)
     {
-        if (control is TextBlock text)
-            text.Text = Dots[_tick / 4 % Dots.Length];
-        else
-            control.RenderTransform = new RotateTransform(_tick * DegreesPerStep % 360);
+        control.RenderTransform = new RotateTransform(_tick * DegreesPerStep % 360);
     }
 }

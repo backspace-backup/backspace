@@ -17,7 +17,7 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// <summary>
 /// U144 with the real engine: after a first backup, Backspace keeps the
 /// source's listing; the next backup compares the source with it, and its
-/// progress line counts the changes ("changes x / ~y") from restic's own
+/// progress line counts the changes ("changed files: x of ~y backed up") from restic's own
 /// current files and bytes, not the source's size.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
@@ -73,13 +73,13 @@ public sealed class E57_ProgressOfTheChanges : BackupE2EBase
             var log = File.ReadAllLines(second.Cells.Single().LogPath);
             var progress = log.Where(l => l.StartsWith(BackupLiveProgress.Prefix, StringComparison.Ordinal)).ToArray();
             ctx.Report.RecordNote("Progress lines of the second backup", string.Join(Environment.NewLine, progress));
-            Assert.Contains(progress, l => l.Contains("changes ") && l.Contains("/ ~400 MB"));
-            // Mid-file: some of the 400 MiB counted as read, not all.
-            Assert.Contains(progress, l => l.Contains("changes ") && !l.Contains("changes 0 B") && !l.Contains("changes 400 / ~400 MB"));
+            Assert.Contains(progress, l => l.Contains("changed files: ") && l.Contains(" of ~400 MB backed up"));
+            // Mid-file: some of the 400 MiB counted as backed up, not all.
+            Assert.Contains(progress, l => l.Contains("changed files: ") && !l.Contains("changed files: 0 B") && !l.Contains("changed files: 400 of ~400 MB"));
             // U145: restic runs with --no-scan and reports no totals; the line
-            // takes the source's from Backspace's listing, never "/ 0".
-            Assert.Contains(progress, l => l.Contains(" files, ~"));
-            Assert.DoesNotContain(progress, l => l.Contains(" / 0 files") || l.Contains("/ 0 B"));
+            // takes the source's from Backspace's listing, never "of 0".
+            Assert.Contains(progress, l => l.Contains(" files checked (~"));
+            Assert.DoesNotContain(progress, l => l.Contains(" of 0 files") || l.Contains("of 0 B"));
             Assert.Contains(log, l => l.StartsWith("[recap] Backup complete: ", StringComparison.Ordinal) && !l.StartsWith("[recap] Backup complete: 0 files", StringComparison.Ordinal));
         }
         finally { BackupLiveProgress.Interval = interval; }

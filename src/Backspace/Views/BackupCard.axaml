@@ -126,14 +126,13 @@
                         Classes.running="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=running}"
                         Classes.idle="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"
                         v:RunningPulse.IsActive="{Binding IsActuallyRunning}"/>
-                <!-- While a backup runs, the icon turns and the dots cycle in
-                     steps instead of a progress bar here: the percentage is
-                     already on the sources and the strip below (U114). -->
+                <!-- While a backup runs, the icon turns in steps instead of a
+                     progress bar here: the percentage is already on the
+                     sources and the strip below (U114). The time the run has
+                     taken so far ticks next to "Running" (U155). -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" IsVisible="{Binding IsActuallyRunning}"
                             Background="Transparent" ToolTip.Tip="{Binding ProgressTooltip}">
-                  <TextBlock Name="RunningText" Text="Running" Classes="meta-value" FontSize="14" FontWeight="SemiBold"/>
-                  <TextBlock Name="RunningDots" Text="…" Classes="meta-value" FontSize="14" FontWeight="SemiBold" Width="16"
-                             v:RunningPulse.IsActive="{Binding IsActuallyRunning}"/>
+                  <TextBlock Name="RunningText" Text="{Binding RunningLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold"/>
                 </StackPanel>
                 <TextBlock Grid.Column="2" Text="{Binding LastRunLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold"
                            IsVisible="{Binding !IsActuallyRunning}"
@@ -342,7 +341,11 @@
                          Foreground="{DynamicResource BS.Brush.AccentTintFg}"/>
             </Border>
           </Grid>
-          <TextBlock FontSize="12" Margin="24,-4,0,0" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextTrimming="CharacterEllipsis"
+          <!-- Two lines at most: said as actions (U155), the line no longer
+               fits one line of a card at a common window width, and the
+               speed and time left at its end are what is cut first. -->
+          <TextBlock FontSize="12" Margin="24,-4,0,0" Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                     TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
                      Text="{Binding ProgressDetail}" ToolTip.Tip="{Binding ProgressTooltip}">
             <TextBlock.IsVisible>
               <MultiBinding Converter="{x:Static vm:BoolAnd.To}">

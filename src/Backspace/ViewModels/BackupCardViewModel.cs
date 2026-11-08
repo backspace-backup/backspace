@@ -97,7 +97,12 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// and the speed (U114, 3 November 2026).</summary>
     [ObservableProperty] private string _progressDetail = "";
     public string ProgressTooltip => OverallPercent.ToString("0.0", System.Globalization.CultureInfo.CurrentCulture) + "% done"
-        + (ProgressDetail.Length > 0 ? "\n" + ProgressDetail.Replace(" · ", "\n") : "");
+        + (ProgressDetail.Length > 0 ? "\n" + ProgressDetail.Replace(" · ", "\n") : "")
+        // Why the data uploaded is much less than the changed files backed up (U155).
+        + (ProgressDetail.Contains("uploaded", StringComparison.Ordinal) || ProgressDetail.Contains("changed files", StringComparison.Ordinal)
+            ? "\n\n" + UploadNote : "");
+
+    internal const string UploadNote = "Only data the backup doesn't already hold is uploaded, compressed, so it is usually much less than the changed size.";
     partial void OnOverallPercentChanged(double value) => OnPropertyChanged(nameof(ProgressTooltip));
     partial void OnProgressDetailChanged(string value) => OnPropertyChanged(nameof(ProgressTooltip));
     public string OperationPhaseLabel => IsRunning && IsVerifying ? "Testing restored files" : CurrentPhaseLabel;
@@ -250,9 +255,56 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsIdle));
         OnPropertyChanged(nameof(IsActuallyRunning));
         OnPropertyChanged(nameof(OperationPhaseLabel));
+        if (!value) RunStartedUtc = null;
+        UpdateElapsedTimer();
     }
-    partial void OnIsQueuedChanged(bool value) =>
+    partial void OnIsQueuedChanged(bool value)
+    {
         OnPropertyChanged(nameof(IsActuallyRunning));
+        UpdateElapsedTimer();
+    }
+
+    /// <summary>When the run on screen started: the orchestrator's run or
+    /// the background service's activity. Null when nothing runs.</summary>
+    [ObservableProperty] private DateTime? _runStartedUtc;
+    partial void OnRunStartedUtcChanged(DateTime? value)
+    {
+        OnPropertyChanged(nameof(RunningLabel));
+        UpdateElapsedTimer();
+    }
+
+    /// <summary>The clock for the time running; tests hold it still.</summary>
+    internal Func<DateTime> UtcNow { get; set; } = () => DateTime.UtcNow;
+
+    /// <summary>"Running · 12 min": how long the run has taken so far, live
+    /// (U155, 7 November 2026), for desktop and background runs alike.</summary>
+    public string RunningLabel => RunStartedUtc is { } started ? "Running · " + Elapsed(UtcNow() - started) : "Running";
+
+    /// <summary>"40 s", "12 min", "1 h 05 min".</summary>
+    internal static string Elapsed(TimeSpan time) =>
+        time < TimeSpan.FromMinutes(1) ? $"{Math.Max(0, (int)time.TotalSeconds)} s"
+        : time < TimeSpan.FromHours(1) ? $"{(int)time.TotalMinutes} min"
+        : $"{(int)time.TotalHours} h {time.Minutes:00} min";
+
+    private Avalonia.Threading.DispatcherTimer? _elapsedTimer;
+
+    /// <summary>Refreshes the time running every second, only while the
+    /// card shows a run actually going.</summary>
+    private void UpdateElapsedTimer()
+    {
+        if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(UpdateElapsedTimer);
+            return;
+        }
+        if (!_disposed && IsActuallyRunning && RunStartedUtc is not null)
+        {
+            _elapsedTimer ??= new Avalonia.Threading.DispatcherTimer(TimeSpan.FromSeconds(1), Avalonia.Threading.DispatcherPriority.Background,
+                (_, _) => OnPropertyChanged(nameof(RunningLabel)));
+            _elapsedTimer.Start();
+        }
+        else _elapsedTimer?.Stop();
+    }
     partial void OnIsVerifyingChanged(bool value)
     {
         OnPropertyChanged(nameof(TestRestoreEnabled));
@@ -571,8 +623,16 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         CheckScopeLabel = state.Scope; VerifyDetails = state.Details;
     }
 
-    public void SetRunning()
+    /// <param name="startedUtc">When the run started, if known (the
+    /// background service's activity); otherwise the orchestrator's run, or
+    /// the time already shown, or now.</param>
+    public void SetRunning(DateTime? startedUtc = null)
     {
+        RunStartedUtc = startedUtc
+            ?? (ServiceLocator.Orchestrator.TryGetRunningInfo(Id, out var started) ? started : (DateTime?)null)
+            ?? (IsRunning ? RunStartedUtc : null)
+            ?? DateTime.UtcNow;
+        OnPropertyChanged(nameof(RunningLabel));
         IsRunning = true;
         DisplayedRunStatus = BackupRunStatus.Running;
         IsQueued = false;
@@ -733,7 +793,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if (activity.State is "starting" or "running" or "stopping" or "unknown")
         {
             BackgroundRunId = activity.RunId;
-            SetRunning();
+            SetRunning(activity.StartedUtc);
             SetQueuedReason(activity.Progress?.Queued ?? "");
             if (activity.State == "stopping") LastRunLabel = "Stopping background backup…";
             if (error is not null) LastRunLabel = error;
@@ -795,6 +855,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _disposed = true;
+        UpdateElapsedTimer();
 #if WINDOWS
         if (_backgroundActivity is not null) _backgroundActivity.Changed -= OnBackgroundActivity;
 #endif

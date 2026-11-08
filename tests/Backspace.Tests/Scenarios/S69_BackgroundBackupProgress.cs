@@ -26,13 +26,18 @@ public sealed class S69_BackgroundBackupProgress : ScenarioBase
         var window = ctx.Driver.Show(new Window { Width = 1024, Height = 768, Content = new BackupsView { DataContext = vm } });
         var card = Assert.Single(vm.Cards); var runId = Guid.NewGuid().ToString("N");
         var start = DateTime.UtcNow.AddSeconds(-3);
-        var activity = new ServiceActivity.Snapshot(1, runId, "running", backup.Id, "backup", start,
+        // U155: the card counts the time from the service run's own start,
+        // 1 h 05 min ago here, not from when Backspace saw it.
+        var serviceStart = start.AddMinutes(-65);
+        card.UtcNow = () => serviceStart.AddMinutes(65).AddSeconds(20);
+        var activity = new ServiceActivity.Snapshot(1, runId, "running", backup.Id, "backup", serviceStart,
             new(backup.Id, 42, "", [new(source, 42, true, "42 of 100 files", "Backing up")], [new("Backup drive", 42)]));
         card.ApplyBackgroundActivity(ServiceActivity.Parse(ServiceActivity.Encode(activity)), null);
         await ctx.Driver.PumpAsync(100);
         Assert.True(card.IsRunning); Assert.Equal(runId, card.BackgroundRunId); Assert.Equal(42, card.OverallPercent);
         Assert.Equal("Backing up", card.CurrentPhaseLabel); Assert.False(card.CanRunNow);
-        ctx.Snapshot(window, "background-progress", "The service backup is running with 42% source, destination and overall progress. Run now is replaced by Stop, and the phase says Backing up.");
+        Assert.Equal("Running · 1 h 05 min", card.RunningLabel);
+        ctx.Snapshot(window, "background-progress", "The service backup is running with 42% source, destination and overall progress, and has been for 1 h 05 min (from the service run's start). Run now is replaced by Stop, and the phase says Backing up.");
         card.ApplyBackgroundActivity(activity with { BackupId = "another-backup" }, null);
         Assert.Equal(42, card.OverallPercent);
         card.ApplyBackgroundActivity(activity, "Cannot reach the background service. Completion has not been confirmed.");
@@ -42,6 +47,7 @@ public sealed class S69_BackgroundBackupProgress : ScenarioBase
             Status = BackupRunStatus.Success, Summary = "100 KB backed up" };
         card.ApplyBackgroundActivity(activity with { State = "completed", Progress = activity.Progress with { Result = result } }, null);
         Assert.False(card.IsRunning); Assert.Null(card.BackgroundRunId); Assert.Equal("ok", card.StatusClass);
+        Assert.Null(card.RunStartedUtc); Assert.Equal("Running", card.RunningLabel); // the next run starts its own count
         Assert.Contains("100 KB", card.LastRunLabel);
         await ctx.Driver.PumpAsync(200);
         Assert.Equal("ok", card.StatusClass); Assert.Contains("100 KB", card.LastRunLabel);

@@ -32,13 +32,13 @@ public sealed class BackupLiveProgressTests
         var live = new BackupLiveProgress();
         var start = new DateTime(2026, 11, 3, 7, 30, 0, DateTimeKind.Utc);
         // Totals just found: restic may still be counting, so no percentage yet.
-        Assert.Equal("[progress] 0.0% · Backing up · 4.7 GB · 1,000 / 10,000+ files",
+        Assert.Equal("[progress] 0.0% · Backing up · 1,000 of 10,000+ files checked (4.7 GB)",
             live.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
         // Too soon for another line.
         Assert.Null(live.Next(Operation(0.11, 5_500_000_000, 50_000_000_000, 1_100, 10_000), start.AddSeconds(2)));
         // The totals stayed the same for 30 s: they are final. 150 MB in 30 s,
         // 44.85 GB to go: about 2 h 29 min.
-        Assert.Equal("[progress] 10.3% · Backing up · 4.8 / 47 GB · 1,200 / 10,000 files · about 2 h 29 min left",
+        Assert.Equal("[progress] 10.3% · Backing up · 1,200 of 10,000 files checked (4.8 of 47 GB) · about 2 h 29 min left",
             live.Next(Operation(0.103, 5_150_000_000, 50_000_000_000, 1_200, 10_000), start.AddSeconds(30)));
     }
 
@@ -47,7 +47,7 @@ public sealed class BackupLiveProgressTests
     {
         var live = new BackupLiveProgress();
         var start = DateTime.UtcNow;
-        Assert.Equal("[progress] 0.0% · Scanning · 0 B · 0 / 18,000+ files",
+        Assert.Equal("[progress] 0.0% · Scanning · 0 of 18,000+ files checked (0 B)",
             live.Next(Operation(0, 0, 12_000_000_000, 0, 18_000), start));
         Assert.Null(live.Next(Operation(0, 0, 12_000_000_000, 0, 18_000), start.AddMinutes(1)));
         Assert.Null(live.Next(null, start.AddMinutes(2)));
@@ -65,7 +65,7 @@ public sealed class BackupLiveProgressTests
         var start = new DateTime(2026, 11, 4, 8, 9, 50, DateTimeKind.Utc);
         // Restic said 90.7% of the first 97 MB it had found.
         var first = live.Next(Operation(0.907, 88_000_000, 97_000_000, 614, 683), start)!;
-        Assert.StartsWith("[progress] 0.0% · Backing up · 84 MB · 614 / 683+ files", first);
+        Assert.StartsWith("[progress] 0.0% · Backing up · 614 of 683+ files checked (84 MB)", first);
         // Totals growing at every poll: still no percentage and no time left.
         var t = start;
         foreach (var (pct, done, total, files, found) in new[] { (0.678, 19_000_000_000L, 28_000_000_000L, 37_113L, 62_564L),
@@ -74,7 +74,7 @@ public sealed class BackupLiveProgressTests
             t = t.AddSeconds(5);
             var line = live.Next(Operation(pct, done, total, files, found), t)!;
             Assert.StartsWith("[progress] 0.0% · Backing up · ", line);
-            Assert.EndsWith("+ files", line);
+            Assert.Contains("+ files checked (", line);
             Assert.DoesNotContain("left", line);
             Assert.DoesNotContain("/s", line); // no speed made of files that needed nothing sent
         }
@@ -86,10 +86,10 @@ public sealed class BackupLiveProgressTests
         // The last backup read 150 GB (or the estimate says so).
         var live = new BackupLiveProgress(expectedBytes: 150_000_000_000);
         var line = live.Next(Operation(0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564), DateTime.UtcNow)!;
-        Assert.Equal("[progress] 12.7% · Backing up · 18 / ~140 GB · 37,113 / 62,564+ files", line);
+        Assert.Equal("[progress] 12.7% · Backing up · 37,113 of 62,564+ files checked (18 of ~140 GB)", line);
         // Found more than expected: the share of what was found, never more.
         var bigger = new BackupLiveProgress(expectedBytes: 20_000_000_000);
-        Assert.StartsWith("[progress] 67.9% · Backing up · 18 / ~26 GB", bigger.Next(Operation(0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564), DateTime.UtcNow));
+        Assert.StartsWith("[progress] 67.9% · Backing up · 37,113 of 62,564+ files checked (18 of ~26 GB)", bigger.Next(Operation(0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564), DateTime.UtcNow));
     }
 
     [Fact]
@@ -99,9 +99,9 @@ public sealed class BackupLiveProgressTests
         long expected = 0;
         var live = new BackupLiveProgress(() => expected, null);
         var start = new DateTime(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
-        Assert.StartsWith("[progress] 0.0% · Backing up · 18 GB · 37,113 / 62,564+ files", live.Next(Operation(0.9, 19_000_000_000, 21_000_000_000, 37_113, 62_564), start));
+        Assert.StartsWith("[progress] 0.0% · Backing up · 37,113 of 62,564+ files checked (18 GB)", live.Next(Operation(0.9, 19_000_000_000, 21_000_000_000, 37_113, 62_564), start));
         expected = 190_800_000_000; // 177.7 GB, as the card shows
-        Assert.StartsWith("[progress] 47.3% · Backing up · 84 / ~178 GB",
+        Assert.StartsWith("[progress] 47.3% · Backing up · 269,809 of 390,263+ files checked (84 of ~178 GB)",
             live.Next(Operation(0.95, 90_200_000_000, 95_000_000_000, 269_809, 390_263), start.AddSeconds(5)));
     }
 
@@ -111,13 +111,13 @@ public sealed class BackupLiveProgressTests
         long sent = 0;
         var live = new BackupLiveProgress(sentBytes: () => sent);
         var start = new DateTime(2026, 11, 4, 9, 0, 0, DateTimeKind.Utc);
-        Assert.EndsWith(" · 0 B sent", live.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
+        Assert.EndsWith(" · 0 B of new data uploaded", live.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
         // 3 GB read in 5 s, mostly unchanged files; 60 million bytes actually sent: 11 MB/s.
         sent = 60_000_000;
-        Assert.EndsWith(" · 57 MB sent at 11 MB/s", live.Next(Operation(0.16, 8_000_000_000, 50_000_000_000, 4_000, 10_000), start.AddSeconds(5)));
+        Assert.EndsWith(" · 57 MB of new data uploaded, 11 MB/s", live.Next(Operation(0.16, 8_000_000_000, 50_000_000_000, 4_000, 10_000), start.AddSeconds(5)));
         // When Windows can't tell (two backups at once), no speed rather than a wrong one.
         var unknown = new BackupLiveProgress(sentBytes: () => null);
-        Assert.DoesNotContain("sent", unknown.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
+        Assert.DoesNotContain("uploaded", unknown.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
     }
 
     /// <summary>U133 (4 November 2026): the line ran past the card
@@ -130,20 +130,20 @@ public sealed class BackupLiveProgressTests
         long sent = 900_000;
         var live = new BackupLiveProgress(() => 190_800_000_000, () => sent);
         var start = new DateTime(2026, 11, 4, 21, 20, 0, DateTimeKind.Utc);
-        Assert.Equal("[progress] 16.9% · Backing up · 30 / ~178 GB · 88,211 / 109,320+ files · 879 KB sent",
+        Assert.Equal("[progress] 16.9% · Backing up · 88,211 of 109,320+ files checked (30 of ~178 GB) · 879 KB of new data uploaded",
             live.Next(Operation(0.25, 32_200_000_000, 120_000_000_000, 88_211, 109_320), start));
         // Files already stored: restic's listings (here 20 KB/s, as on local_c) are no upload, so no speed.
         sent += 600_000;
-        Assert.Equal("[progress] 17.5% · Backing up · 31 / ~178 GB · 90,000 / 111,000+ files · 1.4 MB sent",
+        Assert.Equal("[progress] 17.5% · Backing up · 90,000 of 111,000+ files checked (31 of ~178 GB) · 1.4 MB of new data uploaded",
             live.Next(Operation(0.26, 33_400_000_000, 121_000_000_000, 90_000, 111_000), start.AddSeconds(30)));
         // New data: 150 MB in the next 30 s, and a quiet 5 s right after keeps the speed.
         sent += 150_000_000;
-        Assert.EndsWith(" · 144 MB sent at 4.8 MB/s", live.Next(Operation(0.27, 33_600_000_000, 122_000_000_000, 90_100, 112_000), start.AddSeconds(60)));
-        Assert.EndsWith(" sent at 4.1 MB/s", live.Next(Operation(0.27, 33_610_000_000, 122_000_000_000, 90_110, 112_000), start.AddSeconds(65)));
+        Assert.EndsWith(" · 144 MB of new data uploaded, 4.8 MB/s", live.Next(Operation(0.27, 33_600_000_000, 122_000_000_000, 90_100, 112_000), start.AddSeconds(60)));
+        Assert.EndsWith(" uploaded, 4.1 MB/s", live.Next(Operation(0.27, 33_610_000_000, 122_000_000_000, 90_110, 112_000), start.AddSeconds(65)));
         // Once restic has counted everything: its own totals, no "~" and no "+".
-        Assert.StartsWith("[progress] 53.3% · Backing up · 94 / 177 GB · 385,715 / 586,925 files",
+        Assert.StartsWith("[progress] 53.3% · Backing up · 385,715 of 586,925 files checked (94 of 177 GB)",
             BackupLiveProgress.Format(new(53.3, 190_100_000_000, 101_000_000_000, 586_925, 385_715), false, 190_800_000_000, null, null));
-        Assert.Equal("880 MB / ~178 GB", BackupLiveProgress.Of(922_746_880, 190_800_000_000, estimated: true));
+        Assert.Equal("880 MB of ~178 GB", BackupLiveProgress.Of(922_746_880, 190_800_000_000, estimated: true));
     }
 
     /// <summary>U133 (4 November 2026, owner's reply): any speed proves the
@@ -174,7 +174,7 @@ public sealed class BackupLiveProgressTests
         // A very slow real upload, 2 KB/s: its speed shows within a minute.
         var slow = Enumerable.Range(0, 24).Select(_ => Step(10_240)).ToList();
         Assert.InRange(slow.FindIndex(l => l.Contains("/s")), 0, 12);
-        Assert.EndsWith(" sent at 2.0 KB/s", slow[^1]);
+        Assert.EndsWith(" of new data uploaded, 2.0 KB/s", slow[^1]);
 
         // It stops, then bookkeeping again: the speed goes.
         var after = Enumerable.Range(0, 30).Select(i => Step(i % 12 == 0 ? 102_400 : 0)).ToList();
@@ -182,18 +182,30 @@ public sealed class BackupLiveProgressTests
 
         // A fast destination, where data goes out in bursts of a pack: shown too.
         var fast = Enumerable.Range(0, 12).Select(i => Step(i % 3 == 0 ? 16L << 20 : 0)).ToList();
-        Assert.Contains(" sent at ", fast[^1]);
+        Assert.Contains(" of new data uploaded, ", fast[^1]);
     }
 
     /// <summary>U141: the source shows the size this run counted, once counted.</summary>
     [Fact]
     public void The_counted_total_is_read_only_once_the_count_is_complete()
     {
+        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 91.6% · Backing up · 504,701 of 601,922 files checked (172 of 190 GB) · 881 MB of new data uploaded, 3.8 MB/s · about 2 min left"));
+        Assert.Equal("1.2 GB", BackupLiveProgress.CountedTotal("Backing up · 12 of 40 files checked (880 MB of 1.2 GB)"));
+        Assert.Null(BackupLiveProgress.CountedTotal("[progress] 13.0% · Backing up · 41,135 of 56,281+ files checked (23 of ~177 GB) · 1.6 MB of new data uploaded"));
+        Assert.Null(BackupLiveProgress.CountedTotal("[progress] 0.0% · Backing up · 1,000 of 10,000+ files checked (4.7 GB)"));
+        Assert.Null(BackupLiveProgress.CountedTotal("Pruning…"));
+    }
+
+    /// <summary>U155: a backup an older version started still writes the
+    /// earlier wording; its counted total is still read.</summary>
+    [Fact]
+    public void Lines_in_the_wording_before_U155_are_still_read()
+    {
         Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 91.6% · Backing up · 172 / 190 GB · 504,701 / 601,922 files · 881 MB sent at 3.8 MB/s · about 2 min left"));
         Assert.Equal("1.2 GB", BackupLiveProgress.CountedTotal("Backing up · 880 MB / 1.2 GB · 12 / 40 files"));
+        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal("[progress] 30.0% · Backing up · changes 3.1 / ~9.0 GB · 2,000 / ~20,000 files, ~47 GB · about 5 min left"));
         Assert.Null(BackupLiveProgress.CountedTotal("[progress] 13.0% · Backing up · 23 / ~177 GB · 41,135 / 56,281+ files · 1.6 MB sent"));
         Assert.Null(BackupLiveProgress.CountedTotal("[progress] 0.0% · Backing up · 4.7 GB · 1,000 / 10,000+ files"));
-        Assert.Null(BackupLiveProgress.CountedTotal("Pruning…"));
     }
 
     // ---- U145 (5 November 2026): restic runs with --no-scan, so it reports
@@ -214,16 +226,16 @@ public sealed class BackupLiveProgressTests
         var start = new DateTime(2026, 11, 5, 21, 0, 0, DateTimeKind.Utc);
         // Before the listing is done: the size expected, the files done, never "/ 0".
         var first = live.Next(Operation(0, 4_000_000_000, 0, 1_000, 0), start)!;
-        Assert.Equal("[progress] 10.0% · Backing up · 3.7 / ~37 GB · 1,000 files", first);
+        Assert.Equal("[progress] 10.0% · Backing up · 1,000 files checked (3.7 of ~37 GB)", first);
         Assert.Null(BackupLiveProgress.CountedTotal(first));
         // Listed: 50 GB in 20,000 files. The percentage is of that, at once
         // (no 30 s wait for restic's count to settle), marked "~".
         listed = (20_000, 50_000_000_000);
         var second = live.Next(Operation(0, 5_000_000_000, 0, 2_000, 0), start.AddSeconds(5))!;
-        Assert.Equal("[progress] 10.0% · Backing up · 4.7 / ~47 GB · 2,000 / ~20,000 files", second);
+        Assert.Equal("[progress] 10.0% · Backing up · 2,000 of ~20,000 files checked (4.7 of ~47 GB)", second);
         Assert.Equal("47 GB", BackupLiveProgress.CountedTotal(second));
         // The changes' total is never taken for the source's.
-        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal("[progress] 30.0% · Backing up · changes 3.1 / ~9.0 GB · 2,000 / ~20,000 files, ~47 GB · about 5 min left"));
+        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal("[progress] 30.0% · Backing up · 2,000 of ~20,000 files checked (~47 GB) · changed files: 3.1 of ~9.0 GB backed up · about 5 min left"));
         // Time left from the pace, as with restic's totals.
         var t = start.AddSeconds(5);
         string? line = null;
@@ -232,7 +244,7 @@ public sealed class BackupLiveProgressTests
         Assert.Contains(" left", line);
         // More read than listed (files grew meanwhile): never past 100%.
         var over = live.Next(Operation(0, 60_000_000_000, 0, 25_000, 0), t.AddMinutes(10))!;
-        Assert.StartsWith("[progress] 100.0% · Backing up · 56 / ~56 GB · 25,000 / ~25,000 files", over);
+        Assert.StartsWith("[progress] 100.0% · Backing up · 25,000 of ~25,000 files checked (56 of ~56 GB)", over);
     }
 
     [Fact]
@@ -240,7 +252,7 @@ public sealed class BackupLiveProgressTests
     {
         var live = new BackupLiveProgress(() => 0, null, null, null, () => (1, 1));
         var start = new DateTime(2026, 11, 5, 21, 0, 0, DateTimeKind.Utc);
-        Assert.Equal("[progress] 0.0% · Backing up · 4.7 GB · 1,000 / 10,000+ files",
+        Assert.Equal("[progress] 0.0% · Backing up · 1,000 of 10,000+ files checked (4.7 GB)",
             live.Next(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
     }
 

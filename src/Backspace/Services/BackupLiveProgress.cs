@@ -221,20 +221,30 @@ internal sealed class BackupLiveProgress
             ? TimeSpan.FromSeconds((p.UnchangedFiles - unchanged) / _filesPerSecond + (changedTotal - changed) / _bytesPerSecond)
             : null;
         static string Count(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
+        // Said as the actions, in the order the work happens (U155, 7 November
+        // 2026): "changes 1.0 / ~15 GB … 50 MB sent" left the owner asking why
+        // the changes and the amount sent differ. Files are checked, the
+        // changed ones backed up (owner, 7 November: "read" was misleading),
+        // and only data the storage lacks is uploaded.
         var parts = new System.Collections.Generic.List<string>
         {
             Math.Clamp(percent, 0, 100).ToString("0.0", CultureInfo.InvariantCulture) + "%",
             "Backing up",
-            "changes " + Of(changed, changedTotal, estimated: true),
             counting
-                ? $"{Count(sample.FilesDone)} / ~{Count(p.Files)} files, ~{Bytes(p.TotalBytes)}"
-                : $"{Count(sample.FilesDone)} / {Count(sample.TotalFiles)} files, {Bytes(sample.TotalBytes)}",
+                ? $"{Count(sample.FilesDone)} of ~{Count(p.Files)} files checked (~{Bytes(p.TotalBytes)})"
+                : $"{Count(sample.FilesDone)} of {Count(sample.TotalFiles)} files checked ({Bytes(sample.TotalBytes)})",
+            changedTotal <= 0 ? "no changed files" : "changed files: " + Of(changed, changedTotal, estimated: true) + " backed up",
         };
-        if (sent is { } s)
-            parts.Add(rate is > 0 and var r ? $"{Bytes(s)} sent at {Bytes(Math.Max(1, (long)r))}/s" : $"{Bytes(s)} sent");
+        if (Uploaded(sent, rate) is { } uploaded) parts.Add(uploaded);
         if (left is { } l && l < TimeSpan.FromDays(30)) parts.Add(TimeLeft(l));
         return Prefix + string.Join(" · ", parts);
     }
+
+    /// <summary>"50 MB of new data uploaded, 1.7 MB/s": a speed only while
+    /// new data is being sent (see FlowBytes), however slow.</summary>
+    private static string? Uploaded(long? sent, double? rate) => sent is not { } s ? null
+        : rate is > 0 and var r ? $"{Bytes(s)} of new data uploaded, {Bytes(Math.Max(1, (long)r))}/s"
+        : $"{Bytes(s)} of new data uploaded";
 
     /// <summary>Shares each step's time between checking and reading changes in
     /// proportion to the current pace, and moves each pace towards what the
@@ -310,31 +320,20 @@ internal sealed class BackupLiveProgress
             Math.Clamp(percent, 0, 100).ToString("0.0", CultureInfo.InvariantCulture) + "%",
             sample.BytesDone == 0 && sample.FilesDone == 0 ? "Scanning" : "Backing up",
         };
-        // Compact, so it fits on the card (U133, 4 November 2026): "30 / ~178 GB"
-        // and "88,211 / 109,320+ files" while restic is still counting. "~"
-        // marks Backspace's own count of the source, not yet restic's; "+"
-        // a file total that is still growing.
-        if (!counting)
-        {
-            parts.Add(Of(sample.BytesDone, sample.TotalBytes, estimated: ownTotals));
-            parts.Add($"{Count(sample.FilesDone)} / {(ownTotals ? "~" : "")}{Count(sample.TotalFiles)} files");
-        }
-        else if (ownTotals)
-        {
+        // Compact, so it fits on the card (U133, 4 November 2026), and said as
+        // the action (U155): "88,211 of 109,320+ files checked (30 of ~178 GB)"
+        // while restic is still counting. "~" marks Backspace's own count of
+        // the source, not yet restic's; "+" a file total that is still growing.
+        var size = !counting ? Of(sample.BytesDone, sample.TotalBytes, estimated: ownTotals)
+            : expected ? Of(sample.BytesDone, expectedBytes, estimated: true) : Bytes(sample.BytesDone);
+        parts.Add(!counting ? $"{Count(sample.FilesDone)} of {(ownTotals ? "~" : "")}{Count(sample.TotalFiles)} files checked ({size})"
             // Nothing counted yet: restic counts nothing, Backspace's listing
             // is not done.
-            parts.Add(expected ? Of(sample.BytesDone, expectedBytes, estimated: true) : Bytes(sample.BytesDone));
-            parts.Add($"{Count(sample.FilesDone)} files");
-        }
-        else
-        {
-            parts.Add(expected ? Of(sample.BytesDone, expectedBytes, estimated: true) : Bytes(sample.BytesDone));
-            parts.Add($"{Count(sample.FilesDone)} / {Count(sample.TotalFiles)}+ files");
-        }
+            : ownTotals ? $"{Count(sample.FilesDone)} files checked ({size})"
+            : $"{Count(sample.FilesDone)} of {Count(sample.TotalFiles)}+ files checked ({size})");
         // A speed only while new data is being sent (see FlowBytes), however
         // slow: restic's own bookkeeping alone is no upload.
-        if (sentBytes is { } sent)
-            parts.Add(sentPerSecond is > 0 and var rate ? $"{Bytes(sent)} sent at {Bytes(Math.Max(1, (long)rate))}/s" : $"{Bytes(sent)} sent");
+        if (Uploaded(sentBytes, sentPerSecond) is { } uploaded) parts.Add(uploaded);
         if (left is { } remaining && remaining < TimeSpan.FromDays(30)) parts.Add(TimeLeft(remaining));
         return Prefix + string.Join(" · ", parts);
     }
@@ -346,20 +345,29 @@ internal sealed class BackupLiveProgress
     /// otherwise (U141).</summary>
     internal static string? CountedTotal(string detail)
     {
-        var m = System.Text.RegularExpressions.Regex.Match(detail ?? "", @"· (?!changes )[^·/]+ / (?<own>~?)(?<total>[0-9][^·]*?) · [0-9,]+ / \k<own>[0-9,]+ files(?!,)");
+        detail ??= "";
+        const string size = @"[0-9][0-9.]* (?:B|KB|MB|GB|TB)";
+        // "504,701 of 601,922 files checked (172 of 190 GB)", "~" on both
+        // totals for Backspace's own listing (U155 wording).
+        var m = System.Text.RegularExpressions.Regex.Match(detail, @"[0-9,]+ of (?<own>~?)[0-9,]+ files checked \([^()]*? of \k<own>(?<total>" + size + @")\)");
         if (m.Success) return m.Groups["total"].Value;
-        // With the changes known (U144): "504,701 / 601,922 files, 190 GB".
-        m = System.Text.RegularExpressions.Regex.Match(detail ?? "", @"· [0-9,]+ / ~?[0-9,]+ files, ~?(?<total>[0-9][^·]*?)( ·|$)");
+        // With the changes known (U144): "504,701 of 601,922 files checked (190 GB)".
+        m = System.Text.RegularExpressions.Regex.Match(detail, @"[0-9,]+ of ~?[0-9,]+ files checked \(~?(?<total>" + size + @")\)");
+        if (m.Success) return m.Groups["total"].Value;
+        // Lines written before U155, by a backup an older version started.
+        m = System.Text.RegularExpressions.Regex.Match(detail, @"· (?!changes )[^·/]+ / (?<own>~?)(?<total>[0-9][^·]*?) · [0-9,]+ / \k<own>[0-9,]+ files(?!,)");
+        if (m.Success) return m.Groups["total"].Value;
+        m = System.Text.RegularExpressions.Regex.Match(detail, @"· [0-9,]+ / ~?[0-9,]+ files, ~?(?<total>[0-9][^·]*?)( ·|$)");
         return m.Success ? m.Groups["total"].Value.Trim() : null;
     }
 
-    /// <summary>"30 / 178 GB", or "880 MB / 178 GB" when the units differ.</summary>
+    /// <summary>"30 of 178 GB", or "880 MB of 178 GB" when the units differ.</summary>
     internal static string Of(long done, long total, bool estimated)
     {
         var (a, b) = (Bytes(done), Bytes(total));
         var unit = b[(b.LastIndexOf(' ') + 1)..];
         var head = a.EndsWith(" " + unit, StringComparison.Ordinal) ? a[..^(unit.Length + 1)] : a;
-        return $"{head} / {(estimated ? "~" : "")}{b}";
+        return $"{head} of {(estimated ? "~" : "")}{b}";
     }
 
     internal static string TimeLeft(TimeSpan left) =>

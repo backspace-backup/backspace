@@ -320,10 +320,13 @@ Windows10Upgrade, OneDriveTemp) and the boot files at the top of the drive
 recommended exclusions: a backup can include them. The Recovery folder is
 never excluded: a manufacturer may keep recovery files there.
 
-While a backup runs, its card says **Running** with a turning icon; each
-source and the strip below show the percentage, and hovering **Running** shows
-bytes, files and speed, for example "30 / ~178 GB · 88,211 / ~109,320 files ·
-2.6 GB sent at 5.7 MB/s". The totals, marked "~", are Backspace's own listing
+While a backup runs, its card says **Running** with a turning icon and the
+time the run has taken so far, for example **Running · 12 min** (counted from
+the run's start, for a backup run by the background service too). Each source
+and the strip below show the percentage, and the line under the strip says
+what is done, in the order it happens, for example "88,211 of ~109,320 files
+checked (30 of ~178 GB) · 2.6 GB of new data uploaded, 5.7 MB/s"; hovering it
+shows the same, one item per line. The totals, marked "~", are Backspace's own listing
 of the source with the backup's rules, made as the backup starts (seconds for
 a whole drive). The engine doesn't count the source itself: its separate
 counting pass looked every file up a second time and took as long as the backup
@@ -348,15 +351,17 @@ succeeded, Backspace keeps a list of the source's files with their size and
 date (in `%LOCALAPPDATA%\Backspace\change-lists`; a cache it rebuilds when
 missing). At the start of the next backup it lists the source again (seconds)
 and compares: a file whose size or date differs is one the engine will read,
-as the engine itself decides. The line then reads, for example, "23.4% ·
-Backing up · changes 3.1 / ~9.0 GB · 504,701 / 601,922 files, 190 GB · 881 MB
-sent at 3.8 MB/s · about 25 min left". The percentage and the time left are of
+as the engine itself decides. The line then reads, for example, "Backing up ·
+504,701 of 601,922 files checked (190 GB) · changed files: 3.1 of ~9.0 GB
+backed up · 881 MB of new data uploaded, 3.8 MB/s · about 25 min left" (or
+"no changed files" when nothing changed). The percentage and the time left are of
 the work: checking the unchanged files counts for a small part, reading and
 sending the changes for the rest, each at the pace this backup measures (the
 last backup's pace is the first guess). So a backup no longer races to 99% on
 unchanged files and then waits; the size next to the source stays the
-source's. The changed size is what the engine reads: it can send much less,
-since it stores only the parts it doesn't hold yet. Without the list (a first
+source's. The new data uploaded is usually much less than the changed files
+backed up: only data the backup doesn't already hold is uploaded, compressed,
+as hovering the line recalls. Without the list (a first
 backup, or a list made for another snapshot), progress is shown as above.
 
 **Activity & logs** shows each run as phases. A backup opens with what it
