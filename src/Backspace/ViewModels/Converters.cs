@@ -517,3 +517,35 @@ public static class KeepPhrasesTogether
             => Avalonia.Data.BindingOperations.DoNothing;
     }
 }
+
+/// <summary>
+/// Hover texts made of " · " segments (U164, 8 November 2026): the first two
+/// segments on the first line, then each further segment on its own line, so
+/// no segment is ever split across lines. Text without " · " is unchanged.
+/// </summary>
+public static class HoverSegments
+{
+    public static readonly IValueConverter Lines = new Conv();
+
+    public static string Layout(string? text)
+    {
+        if (string.IsNullOrEmpty(text) || !text.Contains(" · ", StringComparison.Ordinal)) return text ?? "";
+        var lines = new System.Collections.Generic.List<string>();
+        foreach (var paragraph in text.Split('\n'))
+        {
+            var parts = paragraph.Split(" · ");
+            if (parts.Length <= 2) { lines.Add(paragraph); continue; }
+            lines.Add(parts[0] + " · " + parts[1]);
+            for (var i = 2; i < parts.Length; i++) lines.Add(parts[i]);
+        }
+        return string.Join("\n", lines);
+    }
+
+    private sealed class Conv : IValueConverter
+    {
+        public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+            => value is string s ? Layout(s) : value;
+        public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+            => throw new NotSupportedException();
+    }
+}

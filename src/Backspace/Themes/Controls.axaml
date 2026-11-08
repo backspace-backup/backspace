@@ -1,5 +1,24 @@
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Backspace.ViewModels">
+
+  <!-- Hover texts are never cut (U164, 8 November 2026). A tooltip inherits
+       MaxLines and TextTrimming from the TextBlock it belongs to (a two-line
+       card label cut its hover after two lines with "…"), so they are reset
+       here, the tooltip may be wider, and a text of " · " segments shows the
+       first two on its first line and each further one on a line of its own. -->
+  <Style Selector="ToolTip">
+    <Setter Property="MaxWidth" Value="520"/>
+    <Setter Property="TextBlock.MaxLines" Value="0"/>
+    <Setter Property="TextBlock.TextTrimming" Value="None"/>
+    <Setter Property="TextBlock.TextWrapping" Value="Wrap"/>
+    <Setter Property="ContentTemplate">
+      <DataTemplate x:DataType="x:String">
+        <TextBlock Text="{Binding Converter={x:Static vm:HoverSegments.Lines}}"
+                   TextWrapping="Wrap" MaxLines="0" TextTrimming="None"/>
+      </DataTemplate>
+    </Setter>
+  </Style>
 
   <!-- =================================================================== -->
   <!-- Shared type scale: bundled Manrope headings, native readable body. -->
