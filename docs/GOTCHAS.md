@@ -262,7 +262,22 @@ a separate feature and does not require a mounted drive.
 Mounted-file caches are separated by destination, source and immutable snapshot
 ID. A revision number is only a display position and can change after retention;
 never use it to reuse bytes from an earlier mount. Files reach the cache only
-through the engine's restore, which publishes a file after it is complete.
+once complete: a download in progress lives in `partial/` and is renamed into
+`files/` after its size matches the snapshot's.
+
+Never make a WinFsp read wait for a whole file (U167). The first copy out of
+the drive used to wait inside one read for a full `restic restore`: WinFsp
+cancels a request unanswered after its IRP timeout (5 minutes by default), so
+a large file on a slow cloud failed to copy while the restore still finished
+into the cache, and the second copy succeeded. Worse, WinFsp opens a file
+only when none of its reads is in progress (create takes the file's lock
+exclusively, a cached read holds it shared), so everything that asked about
+that file, Explorer's window included, hung for the whole download. Reads are
+now answered per range from a progressive `restic dump`; opening the file
+being copied still waits for the copy's read in progress (measured: median
+0.3 s, at most 1.7 s at 40 MB/s), and its very first read waits for restic to
+find the file. A read far ahead of the download (a player seeking to the end
+of a film) waits until the download gets there: `restic dump` has no ranges.
 Snapshot listing and restore processes retain their repository lease
 until process exit is confirmed; a cancelled HTTP wait alone is not sufficient.
 
@@ -278,8 +293,8 @@ must not go through `StreamingRestoreProcess`'s diagnostics (each line parsed
 and kept), which cost seconds on 600,000 lines.
 Equally, never restore a whole snapshot because a few files were opened: the
 former "two opens fetch everything" rule began restoring all 600,000 files of
-a measured fixture after the second file. Prefetch is limited to a small
-folder (`FolderBatchMaxBytes`, `FolderBatchMaxFiles`). WinFsp's cache
+a measured fixture after the second file. Only files that are read are
+fetched; nothing is prefetched. WinFsp's cache
 timeouts are infinite on this read-only volume; keep them so, or Explorer asks
 again every second.
 

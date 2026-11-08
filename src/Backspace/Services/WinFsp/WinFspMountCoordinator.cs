@@ -176,6 +176,8 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
                 SecurityTimeout = uint.MaxValue,
             };
 
+            // A file's first read waits for restic to find it (U167).
+            WinFspSnapshotFs.RaiseIrpTimeout(_host);
             var mountPoint = letter + ":";
             var status = _host.Mount(mountPoint);
             if (status < 0)

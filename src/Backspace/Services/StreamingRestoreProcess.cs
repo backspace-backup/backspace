@@ -91,6 +91,74 @@ internal static class StreamingRestoreProcess
         }
     }
 
+    /// <summary>Like <see cref="RunAsync"/>, for a process whose standard
+    /// output is data (restic dump): its bytes go to <paramref name="output"/>
+    /// as they arrive. A failed write to <paramref name="output"/> stops the
+    /// process and is rethrown; standard error becomes the diagnostics.</summary>
+    internal static async Task<Result> RunToStreamAsync(ProcessStartInfo start, Stream output,
+        CancellationToken ct, string operationName)
+    {
+        ct.ThrowIfCancellationRequested();
+        start.UseShellExecute = false;
+        start.CreateNoWindow = true;
+        start.RedirectStandardOutput = true;
+        start.RedirectStandardError = true;
+        start.StandardErrorEncoding = Encoding.UTF8;
+        using var process = new Process { StartInfo = start };
+        var elapsed = Stopwatch.StartNew();
+        var firstOutputMs = -1L;
+        var started = false;
+        Task? stdout = null, stderr = null;
+        var diagnostics = new OutputSummary();
+        var failure = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = ct.Register(() => cancellation.TrySetResult());
+
+        async Task CopyAsync()
+        {
+            try
+            {
+                var buffer = new byte[256 * 1024];
+                var data = process.StandardOutput.BaseStream;
+                int read;
+                while ((read = await data.ReadAsync(buffer, CancellationToken.None).ConfigureAwait(false)) > 0)
+                {
+                    Interlocked.CompareExchange(ref firstOutputMs, elapsed.ElapsedMilliseconds, -1);
+                    await output.WriteAsync(buffer.AsMemory(0, read), CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            catch { failure.TrySetResult(); throw; }
+        }
+
+        try
+        {
+            if (!process.Start()) throw new IOException($"The {operationName} process could not start.");
+            started = true;
+            if (!KillOnExitJobObject.TryAssign(process) && !process.HasExited)
+                throw new IOException($"Windows could not attach the {operationName} process to Backspace's lifetime. The operation was stopped.");
+            stdout = CopyAsync();
+            stderr = ReadLinesAsync(process.StandardError, diagnostics.Accept);
+            var exited = process.WaitForExitAsync(CancellationToken.None);
+            var completed = await Task.WhenAny(exited, cancellation.Task, failure.Task).ConfigureAwait(false);
+            await StopAndWaitAsync(process, terminate: completed != exited).ConfigureAwait(false);
+            await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
+            AppLogger.For("EngineTiming").Debug(
+                "{Operation} finished in {ElapsedMs} ms; first bytes after {FirstOutputMs} ms; exit={ExitCode}",
+                operationName, elapsed.ElapsedMilliseconds, firstOutputMs, process.ExitCode);
+            return new Result(process.ExitCode, ct.IsCancellationRequested, diagnostics.Text, diagnostics.HadErrors);
+        }
+        finally
+        {
+            if (started)
+            {
+                // As in RunAsync: never return while the process may still run.
+                await StopAndWaitAsync(process, terminate: true).ConfigureAwait(false);
+                if (stdout is not null) try { await stdout.ConfigureAwait(false); } catch { }
+                if (stderr is not null) try { await stderr.ConfigureAwait(false); } catch { }
+            }
+        }
+    }
+
     private static async Task StopAndWaitAsync(Process process, bool terminate)
     {
         while (true)

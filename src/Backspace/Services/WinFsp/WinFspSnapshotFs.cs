@@ -28,14 +28,15 @@ namespace Backspace.Services.WinFsp;
 ///     enumerate + read; Write / Create / Delete / Rename return the
 ///     base-class default of STATUS_INVALID_DEVICE_REQUEST.
 ///   • Lazy materialisation. Files don't exist on disk until the user
-///     opens them; <see cref="EngineBackedSnapshotTreeProvider.OpenAsync"/>
-///     spawns the restic restore on first read. This is what makes
+///     reads them; <see cref="EngineBackedSnapshotTreeProvider.OpenAsync"/>
+///     starts the file's download on first read. This is what makes
 ///     "browse a 1 TB snapshot" feel like O(1) instead of O(snapshot).
 ///   • Synchronous WinFSP API. The base class is synchronous; the
-///     provider is async. Bridge via <see cref="GetAwaiter"/> on a
-///     captured task — this runs on WinFSP's own dispatch threads
-///     (one per FspFileSystemStartDispatcher worker), so blocking is
-///     correct and expected.
+///     provider is async. Listings and look-ups come from memory and are
+///     bridged with GetAwaiter on WinFSP's dispatch threads. A read of a
+///     file still downloading is answered asynchronously instead
+///     (STATUS_PENDING, then SendReadResponse) once its range has
+///     arrived (U167).
 ///   • No security model. We return a single "everyone read-only"
 ///     security descriptor for every path. Restic snapshots have no
 ///     concept of NTFS ACLs; preserving the original ACL would
@@ -50,11 +51,51 @@ public sealed class WinFspSnapshotFs : FileSystemBase
     private readonly DateTime _volumeCreationUtc;
     private readonly byte[] _readOnlySecurityDescriptor;
 
+    private FileSystemHost? _host;
+    private readonly CancellationTokenSource _stopping = new();
+
     public WinFspSnapshotFs(ISnapshotTreeProvider provider)
     {
         _provider = provider;
         _volumeCreationUtc = DateTime.UtcNow;
         _readOnlySecurityDescriptor = BuildOwnerReadDescriptor();
+    }
+
+    /// <summary>Called by the host just before mounting: keeps the host to
+    /// answer reads later.</summary>
+    public override int Init(object Host)
+    {
+        _host = Host as FileSystemHost;
+        return STATUS_SUCCESS;
+    }
+
+    public override void Unmounted(object Host)
+    {
+        try { _stopping.Cancel(); } catch (ObjectDisposedException) { }
+    }
+
+    /// <summary>The longest a request may wait for its answer before Windows
+    /// cancels it, in ms: WinFsp's maximum (its default is 5 minutes). The
+    /// first read of a file waits for restic to find it in the destination,
+    /// which on a slow cloud can be long (U167). WinFsp.Net does not expose
+    /// the setting; it is a field of the volume parameters it passes to WinFsp.</summary>
+    internal const uint IrpTimeoutMs = 600_000;
+
+    internal static bool RaiseIrpTimeout(FileSystemHost host)
+    {
+        try
+        {
+            var field = typeof(FileSystemHost).GetField("_VolumeParams",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var parameters = field?.GetValue(host);
+            var timeout = parameters?.GetType().GetField("IrpTimeout",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (field is null || parameters is null || timeout is null) { _log.Warning("WinFsp's read timeout could not be raised: this WinFsp.Net has no IrpTimeout field"); return false; }
+            timeout.SetValue(parameters, IrpTimeoutMs);
+            field.SetValue(host, parameters);
+            return true;
+        }
+        catch (Exception ex) { _log.Warning(ex, "WinFsp's read timeout could not be raised"); return false; }
     }
 
     // -------- volume --------
@@ -173,6 +214,8 @@ public sealed class WinFspSnapshotFs : FileSystemBase
         try
         {
             var toRead = (int)Math.Min(Length, size - Offset);
+            if (node.EnsureStream(_provider) is ProgressiveFileStream progressive)
+                return ReadArriving(node, progressive.File, Buffer, (long)Offset, toRead, out BytesTransferred);
             var managed = ArrayPoolRent(toRead);
             try
             {
@@ -194,6 +237,60 @@ public sealed class WinFspSnapshotFs : FileSystemBase
             _log.Warning(ex, "Read failed for {Path}", node.Entry.RelativePath);
             return STATUS_UNEXPECTED_IO_ERROR;
         }
+    }
+
+    /// <summary>A read of a file still downloading (U167). Bytes already here
+    /// are answered at once. Otherwise the read is answered later, when its
+    /// range has arrived, and this dispatcher thread returns: WinFsp's
+    /// threads stay free for every other request. WinFsp opens a file only
+    /// when none of its reads is in progress (anyone opening that same file
+    /// waits), so each read waits only for its own range, never for the
+    /// whole file.</summary>
+    private int ReadArriving(SnapshotNode node, ProgressiveFile file, IntPtr buffer, long offset, int length, out uint bytesTransferred)
+    {
+        bytesTransferred = 0;
+        var managed = ArrayPoolRent(length);
+        var handedOver = false;
+        try
+        {
+            if (file.TryRead(offset, managed.AsSpan(0, length), out var read))
+            {
+                if (read <= 0) return STATUS_END_OF_FILE;
+                Marshal.Copy(managed, 0, buffer, read);
+                bytesTransferred = (uint)read;
+                return STATUS_SUCCESS;
+            }
+            if (_host is not { } host)
+            {
+                // Not mounted through a host (tests): wait here.
+                read = file.ReadAsync(offset, managed.AsMemory(0, length), _stopping.Token).AsTask().GetAwaiter().GetResult();
+                Marshal.Copy(managed, 0, buffer, read);
+                bytesTransferred = (uint)read;
+                return read > 0 ? STATUS_SUCCESS : STATUS_END_OF_FILE;
+            }
+            // WinFsp keeps the caller's buffer mapped until the answer is sent.
+            var hint = host.GetOperationRequestHint();
+            handedOver = true;
+            _ = Task.Run(async () =>
+            {
+                var status = STATUS_UNEXPECTED_IO_ERROR;
+                uint transferred = 0;
+                try
+                {
+                    var arrived = await file.ReadAsync(offset, managed.AsMemory(0, length), _stopping.Token).ConfigureAwait(false);
+                    Marshal.Copy(managed, 0, buffer, arrived);
+                    transferred = (uint)arrived;
+                    status = arrived > 0 ? STATUS_SUCCESS : STATUS_END_OF_FILE;
+                }
+                catch (OperationCanceledException) { status = STATUS_CANCELLED; }
+                catch (Exception ex) { _log.Warning(ex, "Read failed for {Path}", node.Entry.RelativePath); }
+                finally { ArrayPoolReturn(managed); }
+                try { host.SendReadResponse(hint, status, transferred); }
+                catch (Exception ex) { _log.Warning(ex, "Answering a read of {Path} failed", node.Entry.RelativePath); }
+            });
+            return STATUS_PENDING;
+        }
+        finally { if (!handedOver) ArrayPoolReturn(managed); }
     }
 
     // -------- enumerate --------

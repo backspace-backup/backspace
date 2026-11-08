@@ -22,8 +22,10 @@ namespace Backspace.Services.WebDav;
 /// connection check for each on a cloud destination) is only the fallback for
 /// an engine that cannot list a whole tree.</para>
 ///
-/// <para><b>Files.</b> A file's bytes are restored into a private cache the
-/// first time it is opened and read from there afterwards. Only files that are
+/// <para><b>Files.</b> A file's bytes are downloaded into a private cache the
+/// first time it is read and read from there afterwards. Opening returns at
+/// once; while the download runs a read waits only for the bytes it asks for
+/// (U167, <see cref="ProgressiveFile"/>). Only files that are
 /// opened are fetched: never their folder's other files, and never the whole
 /// snapshot (the owner, 7 November 2026: opening one file from a 190 GB backup
 /// must not download anything else).</para>
@@ -39,7 +41,9 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
     private readonly string? _snapshotId;
     private readonly string _cacheDir;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _perFileGates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly string _partialDir;
+    private readonly object _fetchGate = new();
+    private readonly Dictionary<string, ProgressiveFile> _fetches = new(StringComparer.Ordinal);
 
     private readonly object _treeGate = new();
     private Task<SnapshotTree?>? _treeTask;
@@ -68,6 +72,8 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         _snapshotId = snapshotId;
         _cacheDir = Path.Combine(cacheDir, "files");
         Directory.CreateDirectory(_cacheDir);
+        _partialDir = Path.Combine(cacheDir, "partial");
+        RemoveAbandonedDownloads(_partialDir);
     }
 
     /// <summary>The snapshot's tree once read; null before, or when the
@@ -158,24 +164,78 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         if (entry is null || entry.IsDirectory)
             throw new FileNotFoundException("Not a regular file in this snapshot.", relativePath);
         key = entry.RelativePath; // the snapshot's own spelling of the name
-        if (TryGetCachedPath(key) is { } cached) return OpenCached(cached);
+        if (entry.SizeBytes == 0) return new MemoryStream(Array.Empty<byte>(), writable: false);
+        return OpenFetched(key, entry.SizeBytes);
+    }
 
-        var gate = _perFileGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct).ConfigureAwait(false);
+    /// <summary>How long a download continues once nobody has the file open:
+    /// a program that closes and reopens it (Explorer does) keeps it.</summary>
+    internal TimeSpan FetchIdleGrace { get; init; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>The cached file, or a stream over its download (U167): returns
+    /// at once; a read waits only for the bytes it asks for. Everyone opening
+    /// the file meanwhile shares the one download.</summary>
+    private Stream OpenFetched(string key, long length)
+    {
+        lock (_fetchGate)
+        {
+            if (_fetches.TryGetValue(key, out var running))
+            {
+                if (running.TryOpenReader() is { } reader) return reader;
+                _fetches.Remove(key);
+            }
+            if (TryGetCachedPath(key) is { } cached) return OpenCached(cached);
+            var file = ProgressiveFile.Start(_partialDir, CachePath(key), length,
+                (output, token) => FetchAsync(key, output, token), _lifetime.Token, FetchIdleGrace, ended =>
+                {
+                    lock (_fetchGate)
+                        if (_fetches.TryGetValue(key, out var current) && ReferenceEquals(current, ended)) _fetches.Remove(key);
+                });
+            _fetches[key] = file;
+            return file.TryOpenReader() ?? throw new IOException("The download of this file ended before it began.");
+        }
+    }
+
+    /// <summary>Writes the file's bytes to <paramref name="output"/>: straight
+    /// from the destination as they arrive (restic dump), or, for an engine
+    /// that cannot, or a snapshot without its whole tree in memory (which
+    /// could hold links), restored first into a private folder.</summary>
+    private async Task FetchAsync(string key, Stream output, CancellationToken ct)
+    {
+        if (Tree is not null && await WithReadLeaseAsync(token => _engine.DumpSnapshotFileAsync(
+                _backup, _sourcePath, _destination, _storageName, _revision, key, output, token, _snapshotId), ct).ConfigureAwait(false))
+            return;
+        var staging = Path.Combine(_partialDir, Guid.NewGuid().ToString("N"));
         try
         {
-            if (TryGetCachedPath(key) is { } raced) return OpenCached(raced);
             var result = await WithReadLeaseAsync(token => _engine.RestoreFilesAsync(
                 _backup, _sourcePath, _destination, _storageName,
-                _revision, new[] { "/" + key }, _cacheDir,
+                _revision, new[] { "/" + key }, staging,
                 onProgress: null, token,
                 expectedLeaves: new[] { key }, expectedSnapshotId: _snapshotId), ct).ConfigureAwait(false);
             if (result.Status is RestoreTerminalStatus.Error or RestoreTerminalStatus.Cancelled)
                 throw new IOException(result.ErrorMessage ?? "Engine reported restore failure.");
-            return TryGetCachedPath(key) is { } restored ? OpenCached(restored)
-                : throw new FileNotFoundException($"Engine did not materialise {relativePath} into the cache.", relativePath);
+            var restored = Path.Combine(staging, key.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(restored))
+                throw new FileNotFoundException($"Engine did not materialise {key} into the cache.", key);
+            await using var input = OpenCached(restored);
+            await input.CopyToAsync(output, ct).ConfigureAwait(false);
         }
-        finally { gate.Release(); }
+        finally
+        {
+            try { if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true); } catch { }
+        }
+    }
+
+    /// <summary>Removes downloads a previous session left unfinished. A file
+    /// still open (by a mount of the same snapshot) is left alone.</summary>
+    private static void RemoveAbandonedDownloads(string partialDir)
+    {
+        if (!Directory.Exists(partialDir)) return;
+        foreach (var part in Directory.EnumerateFiles(partialDir, "*.part"))
+            try { using var _ = new FileStream(part, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
     }
 
     public void Dispose()
@@ -243,9 +303,11 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         return await operation(linked.Token).ConfigureAwait(false);
     }
 
+    private string CachePath(string key) => Path.Combine(_cacheDir, key.Replace('/', Path.DirectorySeparatorChar));
+
     private string? TryGetCachedPath(string key)
     {
-        var path = Path.Combine(_cacheDir, key.Replace('/', Path.DirectorySeparatorChar));
+        var path = CachePath(key);
         return File.Exists(path) ? path : null;
     }
 

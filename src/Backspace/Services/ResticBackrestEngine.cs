@@ -1576,6 +1576,50 @@ public sealed class ResticBackrestEngine : IBackupEngine
         public string? mtime { get; set; }
     }
 
+    /// <summary>Raised with the file's snapshot path each time a file is read
+    /// from the repository for the mounted drive, so tests can prove that
+    /// readers share one download (U167).</summary>
+    internal event Action<string>? FileDumpStarted;
+
+    /// <summary><c>restic dump</c> of one file: its bytes reach
+    /// <paramref name="output"/> as restic reads them, the first ones as soon
+    /// as restic has found the file, with nothing written elsewhere (U167).
+    /// The path is literal (no pattern), so brackets need no escaping.</summary>
+    public async Task<bool> DumpSnapshotFileAsync(
+        Backup backup, string sourcePath, Destination destination, string storageName,
+        int revision, string fileRelativePath, Stream output, CancellationToken ct, string? expectedSnapshotId = null)
+    {
+        if (!File.Exists(_sidecar.ResticBinaryPath)) return false;
+        var relative = NormalizeRestoreRelativePath(fileRelativePath);
+        if (relative.Length == 0) throw new InvalidOperationException("No file named.");
+        var client = await EnsureClientAsync(ct).ConfigureAwait(false);
+        var (snapshotId, repoGuid) = await ResolveSnapshotIdAsync(
+            backup, sourcePath, destination, storageName, revision, ct, expectedSnapshotId).ConfigureAwait(false);
+        var cfg = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
+            "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
+        var repo = cfg.Repos.FirstOrDefault(r =>
+            r.Id == MakeRepoId(destination, storageName) && string.Equals(r.Guid, repoGuid, StringComparison.OrdinalIgnoreCase));
+        if (repo is null) return false;
+        await new CloudDestinationPreflight(_secrets).CheckAsync(destination, ct).ConfigureAwait(false);
+        // Reads without a repository lock: keep cleanup out meanwhile (U159).
+        using var reading = await SnapshotReaders.HoldAsync(destination, storageName, SnapshotReaders.Kind.Restore, null, ct).ConfigureAwait(false);
+        var srcPrefix = SourcePathToSnapshotPrefix(sourcePath);
+        var path = "/" + (srcPrefix.Length > 0 ? srcPrefix + "/" : "") + relative;
+        var arguments = new List<string> { "dump", "--no-lock", snapshotId, path };
+        if (backup.BandwidthLimitKBps > 0)
+            arguments.AddRange(["--limit-download", backup.BandwidthLimitKBps.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+        FileDumpStarted?.Invoke(path);
+        var result = await StreamingRestoreProcess.RunToStreamAsync(
+            BuildResticStartInfo(_sidecar.ResticBinaryPath, repo, [.. arguments]), output, ct, "file download").ConfigureAwait(false);
+        if (result.Cancelled) throw new OperationCanceledException(ct);
+        if (result.ExitCode != 0)
+        {
+            _log.Warning("restic dump {Snap} exited {Code}: {Err}", snapshotId[..8], result.ExitCode, result.Output);
+            throw new IOException("The backup engine could not read this file from the destination. Open Activity & logs for details.");
+        }
+        return true;
+    }
+
     public async Task<RestoreOpResult> RestoreFilesAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
         int revision, IReadOnlyList<string> includePatterns, string targetPath,

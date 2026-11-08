@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Backspace.Models;
@@ -224,6 +225,24 @@ public interface IBackupEngine
         CancellationToken ct,
         IReadOnlyList<string>? expectedLeaves = null, string? expectedSnapshotId = null, bool overwrite = true, bool preserveStructure = true,
         RestoreControl? control = null, Action<string?>? onStaging = null);
+
+    /// <summary>Writes one file of a snapshot, in order, to
+    /// <paramref name="output"/> as its bytes arrive from the destination,
+    /// without restoring it anywhere (U167: a file copied out of the mounted
+    /// drive starts at once and moves with the download).
+    /// <paramref name="fileRelativePath"/> is source-relative, forward slashes,
+    /// the snapshot's own spelling. Returns false, having written nothing, when
+    /// this engine cannot (the caller restores the file instead).</summary>
+    Task<bool> DumpSnapshotFileAsync(
+        Backup backup,
+        string sourcePath,
+        Destination destination,
+        string storageName,
+        int revision,
+        string fileRelativePath,
+        Stream output,
+        CancellationToken ct, string? expectedSnapshotId = null)
+        => Task.FromResult(false);
 
     /// <summary>Initialize the per-(backup,source) repo state on disk if
     /// it doesn't already exist, including registering the destination

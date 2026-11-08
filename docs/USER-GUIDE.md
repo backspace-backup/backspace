@@ -505,7 +505,10 @@ while that revision is read.
 After that, browsing the drive is instant, because a snapshot never changes.
 When the drive is ready, Explorer opens it and the card says **Mounted as Z:**
 and which revision it shows, with **Open in Explorer**. A file is downloaded
-only when it's used: opened, previewed, or shown as a thumbnail. Copying a large folder out of the drive fetches its files
+only when it's used: opened, previewed, or shown as a thumbnail. Copying a
+file out of the drive works like copying from a slow network share: the copy
+starts as soon as the first bytes arrive and its progress bar follows the
+download, while the rest of the drive stays responsive. Copying a large folder out of the drive fetches its files
 one by one: **Restore files** is faster for that. To see another revision,
 **Unmount** and mount again.
 

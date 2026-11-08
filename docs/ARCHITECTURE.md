@@ -904,9 +904,23 @@ snapshot's size.
 - **Windows caching.** File, folder, volume and security information never
   expire (`uint.MaxValue`), and the file contents Windows cached stay valid.
   Directory listings resume after a marker by binary search.
-- **Files.** The first open restores that file alone into the mount's cache;
+- **Files.** The first read downloads that file alone into the mount's cache;
   files nobody opened are never fetched (the owner, 7 November 2026), and a
-  whole snapshot is never restored because files were opened. Files and
+  whole snapshot is never restored because files were opened. The download
+  is progressive (U167): `restic dump` streams the file
+  (`IBackupEngine.DumpSnapshotFileAsync`) into a temporary file in the
+  revision's `partial/` folder (`ProgressiveFile`); opening returns at once
+  with the size from the tree, and a read waits only until its own range has
+  arrived. `WinFspSnapshotFs` answers such a read asynchronously
+  (`STATUS_PENDING`, then `FileSystemHost.SendReadResponse`), so no WinFsp
+  thread waits on the network. Every reader of the file shares the one
+  download; it becomes the cached file only once complete with exactly the
+  listed size, a failure fails every read and leaves nothing cached, and it
+  stops 15 s after the last reader closes the file. Empty files need no
+  download; an engine without `dump`, or a snapshot read folder by folder
+  (which could hold links), restores the file into `partial/` first. WinFsp's
+  request timeout is raised to its 10-minute maximum through WinFsp.Net's
+  private volume parameters (`WinFspSnapshotFs.RaiseIrpTimeout`). Files and
   folders carry `NOT_CONTENT_INDEXED`, so the search indexer leaves them alone.
   A program that opens a file (an Explorer thumbnail or preview of a photo,
   for instance) still fetches it.
