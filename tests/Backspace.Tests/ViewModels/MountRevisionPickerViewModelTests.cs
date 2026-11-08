@@ -54,7 +54,7 @@ public class MountRevisionPickerViewModelTests
         Assert.True(vm.CanMount);
         Assert.Equal("Mount", vm.MountLabel);
         Assert.Equal("Select all 3", vm.SelectAllLabel);
-        Assert.StartsWith("Backspace reads this revision's folders", vm.Hint);
+        Assert.StartsWith("Before the drive opens, Backspace loads this revision's list of files", vm.Hint);
 
         var selection = vm.ToSelection()!;
         var source = Assert.Single(selection.Sources);

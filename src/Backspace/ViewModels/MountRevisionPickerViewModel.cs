@@ -68,9 +68,9 @@ public sealed partial class MountRevisionPickerViewModel : ObservableObject
     public string Hint => SelectedCount == 0
         ? "Tick at least one revision to mount."
         : SeveralPerSource
-            ? $"Backspace reads the folders of each of the {SelectedCount} revisions before the drive opens, one after the other. " +
-              "For a large backup that takes about as long per revision as mounting one. The drive shows one folder per revision, named by its date and time."
-            : "Backspace reads this revision's folders before the drive opens; after that every folder opens at once. Only the files you open are downloaded.";
+            ? $"Before the drive opens, Backspace loads the list of files of each of the {SelectedCount} revisions; for a large backup that takes about as long per revision as mounting one. " +
+              "The drive shows one folder per revision, named by its date and time. Browsing is then instant, and a file is downloaded only when it's used: opened, previewed or shown as a thumbnail."
+            : "Before the drive opens, Backspace loads this revision's list of files. Browsing is then instant, and a file is downloaded only when it's used: opened, previewed or shown as a thumbnail.";
 
     private bool SeveralPerSource => Groups.Any(g => g.Rows.Count(r => r.IsSelected) > 1);
 

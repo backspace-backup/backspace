@@ -96,6 +96,8 @@ public sealed class S93_MountRevisionPicker : ScenarioBase
         Assert.True(vm.Groups[0].Rows[3].IsSelected);
         Assert.True(Visible(picker!, "Mount 2 revisions"));
         Assert.Contains("each of the 2 revisions", vm.Hint);
+        Assert.DoesNotContain("one after the other", vm.Hint);
+        Assert.Contains("downloaded only when it's used", vm.Hint);
         Settle(ctx, picker!);
         ctx.Snapshot(picker!, "picker-two-ticked",
             "The latest and the one from six days ago ticked: the button reads Mount 2 revisions and the note says each is read before the drive opens, one folder per revision.");

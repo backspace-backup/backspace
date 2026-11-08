@@ -490,16 +490,14 @@ one folder per revision, named by its date and time (`2026-11-05 09-12`). A
 backup with several source folders has a folder per source, each following
 the same rule.
 
-From then on the card says **Mounting** and what it is doing. Backspace reads
-the whole list of each chosen revision's files and folders, one revision after
-the other, before the drive appears: for a large backup in the cloud this can
-take a while per revision (the card says which revision and counts what it has
-read), and **Cancel** stops it. After that, every folder of the drive opens at
-once and nothing more is read from the backup while you browse, because a
-snapshot never changes. When the drive is ready, Explorer opens it and the card
-says **Mounted as Z:** and which revision it shows, with **Open in Explorer**.
-A file's contents are fetched the first time you open it, and only the files
-you open are fetched. Copying a large folder out of the drive fetches its files
+From then on the card says **Mounting** and what it is doing. Before the drive
+appears, Backspace loads the list of files and folders of each chosen revision:
+for a large backup in the cloud this can take a while per revision (the card
+says which revision and counts what it has loaded), and **Cancel** stops it.
+After that, browsing the drive is instant, because a snapshot never changes.
+When the drive is ready, Explorer opens it and the card says **Mounted as Z:**
+and which revision it shows, with **Open in Explorer**. A file is downloaded
+only when it's used: opened, previewed, or shown as a thumbnail. Copying a large folder out of the drive fetches its files
 one by one: **Restore files** is faster for that. To see another revision,
 **Unmount** and mount again.
 
