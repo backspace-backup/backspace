@@ -646,17 +646,26 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             BackupRunStatus.Skipped => "skipped", BackupRunStatus.Running => "running", _ => "idle",
         };
         StatusLabel = status == BackupRunStatus.Success ? "OK" : status == BackupRunStatus.NeverRun ? "Idle" : status.ToString();
-        _lastRun = end is DateTime when ? (NormaliseSuccessSummary(summary, status), when) : null;
+        _lastRun = end is DateTime when ? (NormaliseSuccessSummary(summary, status), when, status) : null;
         LastRunLabel = _lastRunAgeLabel = LastRunText();
         DisplayedRunEndUtc = end;
         DisplayedRunStatus = status;
     }
 
     // The last run shown and its label, so the minute timer can redo "3h ago" (U136).
-    private (string Summary, DateTime When)? _lastRun;
+    private (string Summary, DateTime When, BackupRunStatus Status)? _lastRun;
     private string? _lastRunAgeLabel;
+    private string? _lastRunHover;
 
-    private string LastRunText() => _lastRun is { } last ? $"{last.Summary} · {HumanFormat.Ago(last.When)}" : "Never run";
+    /// <summary>"15m ago · 27.4 MB uploaded"; the counts and duration are on
+    /// hover (U160, 7 November 2026).</summary>
+    private string LastRunText()
+    {
+        if (_lastRun is not { } last) { _lastRunHover = null; return "Never run"; }
+        var (label, hover) = LastRunLine.For(last.Summary, last.Status, last.When);
+        _lastRunHover = hover;
+        return label;
+    }
 
     /// <summary>Redoes the labels that read the clock, every minute (U136,
     /// 4 November 2026): the card said "1h ago" for a backup finished three
@@ -733,6 +742,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// and that it starts by itself; otherwise the line itself.</summary>
     public string LastRunDetail => IsQueued && QueuedReason.Length > 0
         ? $"Queued: {QueuedReason}. It starts by itself when its turn comes."
+        : LastRunLabel == _lastRunAgeLabel && _lastRunHover is { } hover ? hover
         : LastRunLabel;
 
     partial void OnLastRunLabelChanged(string value) => OnPropertyChanged(nameof(LastRunDetail));

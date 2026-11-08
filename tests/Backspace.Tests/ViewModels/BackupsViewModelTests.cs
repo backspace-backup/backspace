@@ -128,7 +128,7 @@ public class BackupsViewModelTests
         card.Apply(new RunRecord { BackupId = card.Id, StartedUtc = DateTime.UtcNow.AddMinutes(-1), EndedUtc = DateTime.UtcNow, Status = BackupRunStatus.Success, Summary = "Completed" });
         Assert.False(card.IsRunning);
         Assert.False(card.IsQueued);
-        Assert.StartsWith("Completed · ", card.LastRunLabel);
+        Assert.StartsWith("Just now · ", card.LastRunLabel);
         ServiceLocator.Config.Update(cfg =>
         {
             cfg.Backups[0].LastRunStatus = BackupRunStatus.Success;
@@ -136,7 +136,8 @@ public class BackupsViewModelTests
             cfg.Backups[0].LastRunEndUtc = System.DateTime.UtcNow;
         });
         Assert.Equal("ok", card.StatusClass);
-        Assert.StartsWith("Completed in 1m 07s", card.LastRunLabel);
+        Assert.EndsWith("nothing new to upload", card.LastRunLabel);
+        Assert.Contains("took 1m 07s", card.LastRunDetail);
     }
 
     [AvaloniaFact]

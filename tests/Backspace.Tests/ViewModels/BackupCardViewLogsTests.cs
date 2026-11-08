@@ -82,9 +82,9 @@ public class BackupCardViewLogsTests
             LastRunEndUtc = DateTime.UtcNow.AddDays(-7),
         };
         using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
-        // LastRunLabel is "{summary} · {ago}" — assert the prefix
-        // got rewritten regardless of the ago text format.
-        Assert.StartsWith("Completed in 4s · ", card.LastRunLabel);
+        // U160: the card says when and what was uploaded; the duration is on hover.
+        Assert.Equal("7d ago · nothing new to upload", card.LastRunLabel);
+        Assert.Contains("took 4s", card.LastRunDetail);
     }
 
     [Fact]
@@ -101,8 +101,9 @@ public class BackupCardViewLogsTests
             LastRunEndUtc = DateTime.UtcNow.AddMinutes(-5),
         };
         using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
-        Assert.StartsWith("Completed in 3s · ", card.LastRunLabel);
-        Assert.DoesNotContain("Completed Completed", card.LastRunLabel);
+        Assert.Equal("5m ago · nothing new to upload", card.LastRunLabel);
+        Assert.Contains("took 3s", card.LastRunDetail);
+        Assert.DoesNotContain("Completed", card.LastRunDetail);
     }
 
     [Fact]
@@ -121,7 +122,7 @@ public class BackupCardViewLogsTests
         };
         using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
         Assert.DoesNotContain("Completed", card.LastRunLabel);
-        Assert.StartsWith("in case of fire", card.LastRunLabel);
+        Assert.DoesNotContain("took", card.LastRunDetail);
     }
 
     [Fact]
@@ -176,8 +177,9 @@ public class BackupCardViewLogsTests
             LastRunEndUtc = DateTime.UtcNow.AddMinutes(-1),
         };
         using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
-        Assert.StartsWith("1.2 GB uploaded · in 5s · ", card.LastRunLabel);
-        Assert.DoesNotContain("Completed", card.LastRunLabel);
+        Assert.Equal("1m ago · 1.2 GB uploaded", card.LastRunLabel);
+        Assert.Contains("took 5s", card.LastRunDetail);
+        Assert.Contains("1.2 GB of new data uploaded", card.LastRunDetail);
     }
 
     private static void ResetConfig()

@@ -57,14 +57,14 @@ public sealed class BackupCardClockLabelTests
         var now = DateTime.UtcNow;
         var backup = new Backup { LastRunStatus = BackupRunStatus.Success, LastRunStartUtc = now.AddHours(-3), LastRunEndUtc = now.AddMinutes(-90), LastRunSummary = "Backup result: STATUS_SUCCESS." };
         using var card = new BackupCardViewModel(backup, false, false);
-        Assert.EndsWith(" · 1h ago", card.LastRunLabel);
+        Assert.StartsWith("1h ago · ", card.LastRunLabel);
 
         // Ninety minutes later: same backup, older.
         var field = typeof(BackupCardViewModel).GetField("_lastRun", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        var last = ((string Summary, DateTime When)?)field.GetValue(card);
-        field.SetValue(card, ((string, DateTime)?)(last!.Value.Summary, now.AddMinutes(-180)));
+        var last = ((string Summary, DateTime When, BackupRunStatus Status)?)field.GetValue(card);
+        field.SetValue(card, ((string, DateTime, BackupRunStatus)?)(last!.Value.Summary, now.AddMinutes(-180), last.Value.Status));
         card.RefreshTimes();
-        Assert.EndsWith(" · 3h ago", card.LastRunLabel);
+        Assert.StartsWith("3h ago · ", card.LastRunLabel);
 
         card.SetRunning();
         card.RefreshTimes();

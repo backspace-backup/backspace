@@ -356,6 +356,12 @@ Windows10Upgrade, OneDriveTemp) and the boot files at the top of the drive
 recommended exclusions: a backup can include them. The Recovery folder is
 never excluded: a manufacturer may keep recovery files there.
 
+After a backup, its card's **Last backup** says when and how much was
+uploaded, for example **15m ago · 27.4 MB uploaded** (with the number of
+warnings, if any; a failed or skipped backup says why). Hovering it shows when
+it finished, how long it took, and how many files were new, changed and
+deleted; **Activity** lists them too.
+
 While a backup runs, its card says **Running** with a turning icon and the
 time the run has taken so far, for example **Running · 12 min** (counted from
 the run's start, for a backup run by the background service too, without the
