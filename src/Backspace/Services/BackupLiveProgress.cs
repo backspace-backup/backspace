@@ -116,10 +116,22 @@ internal sealed class BackupLiveProgress
     internal (double FilesPerSecond, double BytesPerSecond)? MeasuredPace
         => _measuredFiles || _measuredBytes ? (_filesPerSecond, _bytesPerSecond) : null;
 
+    /// <summary>Called once, when restic first reports files or bytes read:
+    /// its Windows snapshot exists by then (VssSnapshotGate, U156).</summary>
+    internal Action? Reading { get; set; }
+
+    /// <summary>Called when the engine holds the backup back for another task.</summary>
+    internal Action? HeldBack { get; set; }
+
     /// <summary>The line to show now, or null when it is too soon or nothing changed.</summary>
     internal string? Next(JsonElement? operationBackup, DateTime nowUtc)
     {
         if (Parse(operationBackup) is not { } sample) return null;
+        if ((sample.FilesDone > 0 || sample.BytesDone > 0) && Reading is { } reading)
+        {
+            Reading = null;
+            reading();
+        }
         // Restic run with --no-scan (U145) reports no totals at all: Backspace's
         // own listing of the source stands in for them, marked "~", and until
         // it is done the run is still counting.

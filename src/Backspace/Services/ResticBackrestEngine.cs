@@ -165,6 +165,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
         var changes = ChangePlanner.Start(ChangePlanStore.ForOwner(), planId, sourcePath, SourceSizeRules.For(backup), previous?.Id, ct);
         var liveProgress = new BackupLiveProgress(ExpectedSize(backup, sourcePath, ct), SentBytesMeter(destination), changes);
         BackrestOperation terminal;
+        // One Windows snapshot made at a time across Backspace (U156): held
+        // until restic reads files, or the engine holds the backup back.
+        using var snapshotTurn = backup.UseVss && Platform.PlatformInfo.IsWindows
+            ? await VssSnapshotGate.AcquireAsync(backup.Name, reason =>
+                { if (reason.Length > 0) RepositoryAccess.Waiting(reason); else RepositoryAccess.NotWaiting(); }, ct).ConfigureAwait(false)
+            : null;
+        liveProgress.Reading = () => snapshotTurn?.Dispose();
+        liveProgress.HeldBack = () => snapshotTurn?.Dispose();
         try
         {
             terminal = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/Backup",
@@ -184,6 +192,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 new BackupRequest { Value = planId }, op => op.PlanId == planId && op.OperationBackup is not null,
                 ct, lineSink, liveProgress).ConfigureAwait(false);
         }
+        snapshotTurn?.Dispose();
         if (BackupLiveProgress.Recap(terminal.OperationBackup) is { } recap)
         {
             RaiseLineWritten(recap); lineSink?.Invoke(recap);
@@ -718,7 +727,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
         BackupLiveProgress? liveProgress = null) where T : class
     {
         var gate = _repoTaskGates.GetOrAdd(repoId, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct).ConfigureAwait(false);
+        // This engine runs one task per repository: a backup waiting here is
+        // not running, and its card says so (U156).
+        if (!await gate.WaitAsync(0, ct).ConfigureAwait(false))
+        {
+            RepositoryAccess.Waiting(RepositoryAccess.EngineRepositoryReason);
+            try { await gate.WaitAsync(ct).ConfigureAwait(false); }
+            finally { RepositoryAccess.NotWaiting(); }
+        }
         using var transport = new CancellationTokenSource();
         Task<BackrestScheduledOperationResponse>? submission = null;
         string? ownedId = null;
@@ -800,6 +816,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
                         recoveryDeadline = null;
                     if (lastStatus != owned.Status)
                     {
+                        // Backrest runs one task at a time: a backup it holds
+                        // back is queued, not running (U156).
+                        if (owned.Status == "STATUS_PENDING")
+                        {
+                            liveProgress.HeldBack?.Invoke();
+                            RepositoryAccess.Waiting(RepositoryAccess.EngineQueueReason);
+                        }
+                        else if (lastStatus == "STATUS_PENDING") RepositoryAccess.NotWaiting();
                         lastStatus = owned.Status;
                         var line = $"[backrest] op={owned.Id} status={owned.Status} {owned.DisplayMessage}".TrimEnd();
                         RaiseLineWritten(line);
@@ -3300,7 +3324,15 @@ public sealed class ResticBackrestEngine : IBackupEngine
         if (Services.Platform.PlatformInfo.IsWindows)
         {
             if (backup.UseVss)
+            {
                 flags.Add("--use-fs-snapshot");
+                // Windows makes one snapshot at a time, and restic retries
+                // while another is being made, until this deadline (2 minutes
+                // by default). With several backups starting together (U156)
+                // a backup must wait its turn, never fall back to no snapshot.
+                flags.Add("-o");
+                flags.Add("vss.timeout=" + VssSnapshotGate.ResticTimeout);
+            }
             if (backup.ExcludeCloudFiles)
                 flags.Add("--exclude-cloud-files");
         }

@@ -79,7 +79,7 @@ public sealed class InfrastructureLifecycleE2ETests
         var saved = await sidecar.Client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
             "/v1.Backrest/GetConfig", new(), timeout.Token);
         // The Filters text reaches restic as an exclude file (U151), its path quoted for Backrest's shell-style split.
-        Assert.Equal(new[] { "--no-scan", "--use-fs-snapshot", "--exclude-cloud-files", "--limit-upload", "123",
+        Assert.Equal(new[] { "--no-scan", "--use-fs-snapshot", "-o", "vss.timeout=" + VssSnapshotGate.ResticTimeout, "--exclude-cloud-files", "--limit-upload", "123",
                 FilterTranslator.ExcludeFileFlag, "'" + ResticBackrestEngine.ExcludeFilePath("flags-plan") + "'" },
             Assert.Single(saved.Plans).BackupFlags);
         Assert.DoesNotContain("backupFlags", File.ReadAllText(System.IO.Path.Combine(sidecar.DataDir, "config.json")));

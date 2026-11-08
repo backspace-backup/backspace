@@ -152,7 +152,16 @@ A backup that has to wait says so on its card, with the reason, instead of
 **Running**: for example **Queued: waiting for local_c (same destination)** or
 **Queued: 2 backups already running**, and "It starts by itself when its turn
 comes". It starts as soon as its turn comes; **Stop** ends the wait. The time
-running shown once it starts leaves out the time it waited. Backups with
+running shown once it starts leaves out the time it waited. A backup can also
+wait briefly for "another backup's Windows snapshot": Windows makes one
+snapshot at a time, and each backup that uses Windows snapshots waits for its
+own rather than back up without one.
+
+Backups run from the window share one backup engine, which runs one backup
+at a time: a second backup the limits allow says "Queued: waiting for the
+backup engine to finish another backup" until the engine starts it. With
+administrator access, the background service runs each backup in its own
+engine, so they do run together. Backups with
 several destinations take their turn for each destination in order.
 
 The limits apply to backups run from the window, scheduled backups and, with

@@ -149,8 +149,10 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
         string[] Of(Backup b) => events.Where(e => e.Id == b.Id).Select(e => e.Reason).ToArray();
         Assert.Contains("waiting for local_c (E64) (same destination)", Of(d));
         Assert.Equal("", Of(d).Last());
-        Assert.Empty(Of(photos));
-        Assert.Empty(Of(c));
+        // photos took its slots at once (no destination or total wait). One
+        // engine runs one backup at a time, so it may say the engine holds it back.
+        Assert.All(Of(photos), r => Assert.True(r is "" or RepositoryAccess.EngineQueueReason, r));
+        Assert.All(Of(c), r => Assert.True(r is "" or RepositoryAccess.EngineQueueReason, r));
         Assert.Contains("2 backups already running", Of(music));
         Assert.Equal("", Of(music).Last());
         // local_d starts only once local_c has ended.
@@ -162,6 +164,41 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
         File.WriteAllText(report2, "Defaults: 1 per destination, 2 in total. One engine.\n" + lines + "\n"
             + string.Join("\n", all.Select(r => $"{r.BackupName}: {r.Status}, {r.StartedUtc:HH:mm:ss}–{r.EndedUtc:HH:mm:ss} UTC")) + "\n");
         Output.WriteLine(File.ReadAllText(report2));
+
+        // ---- Part 3: the window alone, two destinations, one engine ----
+        // Does one Backrest run two allowed backups at once? Whatever it does,
+        // a backup it holds back must say "Queued", not "Running".
+        var x = Backup("window X (E64)", ctx.MakeSource("window-x", seed: 647, targetBytes: 30_000_000), drive, inlineMaintenance: false);
+        var y = Backup("window Y (E64)", ctx.MakeSource("window-y", seed: 648, targetBytes: 30_000_000), nas, inlineMaintenance: false);
+        ServiceLocator.Config.Update(cfg => { cfg.Backups.Add(x); cfg.Backups.Add(y); });
+        var ops = new ConcurrentQueue<(DateTime At, string Line)>();
+        fixture.Engine.LineWritten += line => { if (line.StartsWith("[backrest] op=", StringComparison.Ordinal)) ops.Enqueue((DateTime.UtcNow, line)); };
+        var windowEvents = new ConcurrentQueue<(string Id, string Reason)>();
+        orchestrator.RunQueuedReasonChanged += (id, r) => { if (id == x.Id || id == y.Id) windowEvents.Enqueue((id, r)); };
+        var pair = await Task.WhenAll(Task.Run(() => orchestrator.RunBackupAsync(x, CancellationToken.None)),
+            Task.Run(() => orchestrator.RunBackupAsync(y, CancellationToken.None))).WaitAsync(TimeSpan.FromMinutes(8));
+        Assert.All(pair, r => Assert.Equal(BackupRunStatus.Success, r.Status));
+        // Each operation's time in progress, from Backrest's own status changes.
+        var spans = ops.Select(o => (o.At, Id: o.Line.Split(' ')[1], Status: o.Line.Split(' ')[2]))
+            .GroupBy(o => o.Id).Select(g => (Id: g.Key,
+                Start: g.Where(o => o.Status == "status=STATUS_INPROGRESS").Select(o => (DateTime?)o.At).FirstOrDefault(),
+                End: g.Where(o => o.Status is "status=STATUS_SUCCESS" or "status=STATUS_WARNING").Select(o => (DateTime?)o.At).FirstOrDefault()))
+            .Where(s => s.Start is not null && s.End is not null).OrderBy(s => s.Start).ToList();
+        // Held back: one operation waited STATUS_PENDING until the other ended.
+        var parallel = spans.Count >= 2 && !ops.Any(o => o.Line.Contains("status=STATUS_PENDING", StringComparison.Ordinal));
+        var heldBack = windowEvents.Where(e => e.Reason == RepositoryAccess.EngineQueueReason).ToList();
+        var report3 = Path.Combine(ctx.ScreenshotsDir, "part3-window-one-engine.txt");
+        File.WriteAllText(report3, "The window alone, two backups to two destinations, one engine (defaults).\n"
+            + string.Join("\n", ops.Select(o => $"{o.At:HH:mm:ss.fff} {o.Line}")) + "\n"
+            + string.Join("\n", windowEvents.Select(e => $"{(e.Id == x.Id ? x.Name : y.Name)}: {(e.Reason.Length == 0 ? "runs" : "Queued: " + e.Reason)}")) + "\n"
+            + $"Backrest ran them {(parallel ? "at the same time" : "one after the other")}.\n");
+        Output.WriteLine(File.ReadAllText(report3));
+        // Held back by the engine: the card said so, then ran.
+        if (!parallel)
+        {
+            Assert.NotEmpty(heldBack);
+            Assert.Equal("", windowEvents.Last(e => e.Id == heldBack[0].Id).Reason);
+        }
     }
 
     private static DateTime Min(DateTime x, DateTime y) => x < y ? x : y;

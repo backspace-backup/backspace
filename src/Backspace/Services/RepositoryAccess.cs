@@ -127,6 +127,24 @@ internal sealed class RepositoryAccess : IDisposable
 
     private void ReleaseSetup() { _setup?.Dispose(); _setup = null; }
 
+    /// <summary>The engine holds this part back for another task (one task
+    /// per repository in an engine, one at a time in Backrest's queue).</summary>
+    internal const string EngineRepositoryReason = "waiting for the backup engine to finish another task on this destination";
+    internal const string EngineQueueReason = "waiting for the backup engine to finish another backup";
+    internal const string SnapshotReason = "waiting for another backup's Windows snapshot";
+
+    /// <summary>The engine says the part waits, though it has its gates: the
+    /// card says "Queued: …" instead of "Running" (U156).</summary>
+    internal static void Waiting(string reason)
+    {
+        if (Current is not { _disposed: false } access) return;
+        access._shownQueued = true;
+        access._queued(reason);
+    }
+
+    /// <summary>The engine runs the part again.</summary>
+    internal static void NotWaiting() { if (Current is { _disposed: false } access) access.ClearQueued(); }
+
     private async Task TakeSetupAsync(CancellationToken ct)
     {
         var setup = new CrossProcessGate(SetupName(_gate), _holder);

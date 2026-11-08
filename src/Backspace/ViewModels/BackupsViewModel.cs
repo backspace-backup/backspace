@@ -832,7 +832,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             // Null: the background service ran it and the card follows its activity.
             // "Queued: …" while the background service can't start it yet (U156).
             if (await DesktopBackupRun.RunAsync(card.Snapshot, CancellationToken.None,
-                    reason => OnUiThread(() => card.SetQueuedReason(reason))) is { } record)
+                    reason => OnUiThread(() => ShowServiceQueued(card.Id, reason))) is { } record)
                 card.Apply(record);
         }
         catch (Exception ex)
@@ -1057,10 +1057,21 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         catch (Exception ex) { _log.Error(ex, "Drive confirmation failed for {Name}", b.Name); return; }
         _ = Task.Run(async () =>
         {
-            try { await DesktopBackupRun.RunAsync(b, ct); }
+            // "Queued: …" while the background service can't start it yet,
+            // as for Run now (U156).
+            try { await DesktopBackupRun.RunAsync(b, ct, reason => OnUiThread(() => ShowServiceQueued(b.Id, reason))); }
             catch (OperationCanceledException) { /* VM tore down mid-run */ }
             catch (Exception ex) { _log.Error(ex, "Background run-after-save threw for {Name}", b.Name); }
         });
+    }
+
+    /// <summary>A run the background service can't start yet: its card says
+    /// "Queued: …" (U156); the service's activity takes over once it starts.</summary>
+    internal void ShowServiceQueued(string backupId, string reason)
+    {
+        if (Cards.FirstOrDefault(c => c.Id == backupId) is not { } card) return;
+        if (reason.Length > 0 && !card.IsRunning) card.SetRunning();
+        card.SetQueuedReason(reason);
     }
 
     private static Avalonia.Controls.Window? Owner()

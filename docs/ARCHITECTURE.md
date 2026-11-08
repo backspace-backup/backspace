@@ -593,7 +593,19 @@ is converted.
    (`CrossProcessGate.Holders`), or "N backups already running", and
    `RunQueuedReasonChanged` carries it to the card or the service worker's
    activity. `BackupOrchestrator.QueuedTime` keeps the time spent queued, so
-   "Running · N min" leaves it out.
+   "Running · N min" leaves it out. The engine also reports a part it holds
+   back (`RepositoryAccess.Waiting`): waiting for its in-process one-task-per-
+   repository gate, or a backup Backrest keeps `STATUS_PENDING` behind another
+   task (Backrest 1.14.1 runs one backup at a time: in one process, such as
+   the window, two allowed backups run one after the other, E64 part 3; the
+   service's workers each have their own engine and run together).
+   Windows makes one VSS snapshot set at a time, so two backups starting
+   together could leave the second without a snapshot: a backup using VSS
+   takes `VssSnapshotGate` (one across all Backspace processes) before its
+   engine call and keeps it until restic reads its first files, Backrest
+   holds the backup back, or five minutes pass; restic also gets
+   `-o vss.timeout=30m`, so its own retry on VSS_E_SNAPSHOT_SET_IN_PROGRESS
+   waits instead of backing up without a snapshot after two minutes.
 2. **All destructive actions are type-to-confirm with the single token
    "OK"** (case-insensitive). Erase-destination, prune-to-latest,
    remove-backup, remove-destination, and restore-overwrite all gate on
