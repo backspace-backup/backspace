@@ -16,6 +16,9 @@ namespace Backspace.Services;
 /// </summary>
 internal sealed class CloudDestinationPreflight(SecretsStore secrets)
 {
+    internal static readonly TimeSpan TrustRecentSuccessFor = TimeSpan.FromMinutes(2);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> RecentSuccess = new();
+
     /// <returns>True only when the metadata request succeeded. False means
     /// normal engine handling must decide the outcome; it is not proof of access.</returns>
     internal async Task<bool> CheckAsync(Destination destination, CancellationToken ct)
@@ -30,6 +33,13 @@ internal sealed class CloudDestinationPreflight(SecretsStore secrets)
         var path = builder.MaterialiseDestination(destination, ServiceLocator.Config?.Current?.RcloneOAuthApps);
         var remote = ResticUriResolver.Resolve(destination, secrets, path).Uri["rclone:".Length..];
         var token = destination.OAuthTokenRef is null ? "" : secrets.Get(destination.OAuthTokenRef);
+        // A mounted snapshot reads files one after another; each read used
+        // to start with its own sign-in check, a second or more each on a
+        // cloud drive (U158). A connection that just answered is trusted for
+        // a short while; restic still reports any failure itself.
+        var key = destination.Id + "\0" + remote + "\0" + path + "\0" + token.GetHashCode();
+        if (RecentSuccess.TryGetValue(key, out var answered) && DateTime.UtcNow - answered < TrustRecentSuccessFor)
+            return true;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         var result = await StreamingRestoreProcess.RunAsync(BuildStartInfo(AppPaths.RcloneBinary, remote, path),
@@ -41,7 +51,8 @@ internal sealed class CloudDestinationPreflight(SecretsStore secrets)
         // normal retry policy. This probe only rejects explicit auth failures
         // and recognisable network unavailability; it does not replace restic.
         if (result.Cancelled) return false;
-        if (result.ExitCode == 0) return true;
+        if (result.ExitCode == 0) { RecentSuccess[key] = DateTime.UtcNow; return true; }
+        RecentSuccess.TryRemove(key, out _);
         var error = FailureForDiagnostics(RedactCredentials(result.Output, token));
         if (error is not null) throw error;
         return false;

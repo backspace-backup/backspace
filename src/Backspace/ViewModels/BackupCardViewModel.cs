@@ -31,11 +31,38 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(MountActionLabel))]
     [NotifyPropertyChangedFor(nameof(MountTooltip))]
+    [NotifyPropertyChangedFor(nameof(CanMountOrUnmount))]
+    [NotifyPropertyChangedFor(nameof(MountedLine))]
+    [NotifyPropertyChangedFor(nameof(ShowMountLine))]
     private string? _mountedDrive;
-    public string MountActionLabel => MountedDrive is null ? "Mount" : "Unmount";
-    public string MountTooltip => MountedDrive is null
+
+    /// <summary>What the mount in progress is doing, from the click until the
+    /// drive is ready (U158); null otherwise.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMounting))]
+    [NotifyPropertyChangedFor(nameof(MountActionLabel))]
+    [NotifyPropertyChangedFor(nameof(MountTooltip))]
+    [NotifyPropertyChangedFor(nameof(CanMountOrUnmount))]
+    [NotifyPropertyChangedFor(nameof(ShowMountLine))]
+    private string? _mountProgress;
+
+    /// <summary>Why the last mount failed, shown on the card until the next
+    /// attempt or until dismissed.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowMountLine))]
+    private string? _mountError;
+
+    public bool IsMounting => MountProgress is not null;
+    public string MountActionLabel => IsMounting ? "Mounting…" : MountedDrive is null ? "Mount" : "Unmount";
+    public string MountTooltip => IsMounting ? "Mounting the latest snapshot. The drive opens in Explorer when it is ready."
+        : MountedDrive is null
         ? HasRestorableRun ? "Browse your snapshots as a read-only drive in Explorer." : NothingToRestoreTooltip
         : $"Unmount {MountedDrive}. Your snapshots stay safely in the backup.";
+    /// <summary>Mount needs something stored; Unmount is always possible,
+    /// even while a backup runs (it only adds a new snapshot, U159).</summary>
+    public bool CanMountOrUnmount => !IsMounting && (MountedDrive is not null || HasRestorableRun);
+    public string MountedLine => MountedDrive is null ? "" : $"Mounted as {MountedDrive}, read-only. Backspace unmounts it when you quit.";
+    public bool ShowMountLine => IsMounting || MountedDrive is not null || MountError is not null;
 
     public string Id { get; }
     public Backup Snapshot { get; private set; }
@@ -159,6 +186,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanUseSnapshots));
         OnPropertyChanged(nameof(RestoreFilesTooltip));
         OnPropertyChanged(nameof(MountTooltip));
+        OnPropertyChanged(nameof(CanMountOrUnmount));
         OnPropertyChanged(nameof(TestRestoreEnabled));
         OnPropertyChanged(nameof(TestRestoreTooltip));
     }
@@ -396,6 +424,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         {
             _mountRegistry.Changed += OnMountChanged;
             MountedDrive = _mountRegistry.GetMountedDrive(Id);
+            MountProgress = _mountRegistry.GetMountProgress(Id);
         }
         _showActions = showActions;
         _showProgress = showProgress;
@@ -1002,23 +1031,30 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     private void OnMountChanged(string backupId)
     {
         if (backupId != Id || _disposed) return;
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        {
-            if (!_disposed) MountedDrive = _mountRegistry?.GetMountedDrive(Id);
-        });
+        Avalonia.Threading.Dispatcher.UIThread.Post(RefreshMount);
     }
 
-    /// <summary>Mount the latest snapshot of this backup as a
-    /// Windows drive letter, then open Explorer at it. Wired to
-    /// the "Browse in Explorer" button. Same toast-on-failure
-    /// pattern as <see cref="BrowseSnapshots"/> so a missing
-    /// WebClient service surfaces an actionable reason instead of
-    /// a silent dead-button.</summary>
+    private void RefreshMount()
+    {
+        if (_disposed || _mountRegistry is null) return;
+        MountedDrive = _mountRegistry.GetMountedDrive(Id);
+        // Keep "Starting" from the click until the registry reports.
+        var progress = _mountRegistry.GetMountProgress(Id);
+        MountProgress = progress ?? (_mountClicked ? MountProgress : null);
+    }
+
+    private bool _mountClicked;
+
+    /// <summary>Mount the latest snapshot of this backup as a Windows drive,
+    /// then open Explorer at it; Unmount when mounted. From the click the
+    /// card says "Mounting…" with what it is doing, then "Mounted as Z:" with
+    /// Open in Explorer; a failure is shown on the card (U158).</summary>
     [RelayCommand]
     private async Task MountInExplorer()
     {
         var registry = _mountRegistry;
         if (registry is null) return; // not Windows; the button is hidden anyway
+        MountError = null;
         try
         {
             if (registry.GetMountedDrive(Id) is not null)
@@ -1026,33 +1062,36 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
                 await registry.UnmountAsync(Id);
                 return;
             }
+            _mountClicked = true;
+            MountProgress = "Starting";
             if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to open this backup.").ConfigureAwait(true)) return;
-            var result = await registry.MountForAsync(Snapshot).ConfigureAwait(false);
-            if (!result.Succeeded)
-            {
-                _ = ServiceLocator.Notifier.NotifyAsync(
-                    title: "Couldn't mount the snapshot",
-                    detail: result.Message,
-                    severity: NotificationSeverity.Failure);
-            }
+            var result = await registry.MountForAsync(Snapshot).ConfigureAwait(true);
+            if (!result.Succeeded && !_disposed) MountError = "Couldn't mount: " + result.Message;
         }
+        catch (OperationCanceledException) { /* Cancel on the card */ }
         catch (Exception ex)
         {
-            // The mount path crosses several can-throw seams: engine
-            // RPC (sidecar not up yet → "connection refused"), restic
-            // (no snapshots yet → "repository not found"), WebDAV
-            // listener (port collision), net use (WebClient service
-            // missing). An unhandled throw from any of them
-            // propagates as an async-void crash. Toast + log instead.
+            // The mount path crosses several can-throw seams (the engine,
+            // the destination, the WinFsp driver). Never an async-void crash.
             AppLogger.For<BackupCardViewModel>().Error(ex, "MountInExplorer threw for {Name}", Snapshot.Name);
-            _ = ServiceLocator.Notifier.NotifyAsync(
-                title: "Couldn't mount the snapshot",
-                detail: "Mount failed: " + ex.Message +
-                        " (run a backup first if this is a brand-new destination; there's nothing to mount until a snapshot exists)",
-                severity: NotificationSeverity.Failure);
+            if (!_disposed) MountError = "Couldn't mount: " + ex.Message;
         }
-        finally { OnMountChanged(Id); }
+        finally
+        {
+            _mountClicked = false;
+            if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) RefreshMount();
+            else OnMountChanged(Id);
+        }
     }
+
+    [RelayCommand]
+    private void OpenMountedDrive() => _mountRegistry?.OpenInExplorer(Id);
+
+    [RelayCommand]
+    private void CancelMount() => _mountRegistry?.CancelPending();
+
+    [RelayCommand]
+    private void DismissMountError() => MountError = null;
 
     /// <summary>
     /// Wired by the parent BackupsViewModel at construction. Raised

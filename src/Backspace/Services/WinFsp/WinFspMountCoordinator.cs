@@ -61,7 +61,10 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
     /// successfully.</summary>
     public string? DriveLetter => _mountedDriveLetter;
 
-    public async Task<MountResult> MountAsync(CancellationToken ct = default)
+    /// <summary>Reads what the drive shows first, then mounts it.
+    /// <paramref name="progress"/> hears how many of the snapshot's files and
+    /// folders have been read so far.</summary>
+    public async Task<MountResult> MountAsync(CancellationToken ct = default, IProgress<int>? progress = null)
     {
         if (!OperatingSystem.IsWindows())
             return MountResult.Failed("Snapshot mount is Windows-only.");
@@ -85,6 +88,39 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
                 "Backspace couldn't pre-load the WinFSP native library. " +
                 "Reinstall WinFSP via the bundled installer (click Mount again) " +
                 $"or directly from {WinFspRuntimeDetector.InstallUrl}.");
+        }
+
+        // Read the snapshot's folder tree BEFORE the drive appears (U158).
+        // A snapshot never changes, so once it is read every folder opens
+        // from memory; an initial wait with visible progress replaces a
+        // drive whose every folder made Explorer wait for the engine. It
+        // also surfaces an unreachable destination as an error, not as a
+        // drive that silently fails to open.
+        try
+        {
+            switch (_provider)
+            {
+                case BackupMountTreeProvider backup:
+                    if (await backup.PrepareAsync(progress, ct).ConfigureAwait(false) == 0)
+                        return MountResult.Failed("No snapshots yet. Run a backup first, then come back to mount it.");
+                    break;
+                case EngineBackedSnapshotTreeProvider snapshot:
+                    await snapshot.LoadTreeAsync(ct).ConfigureAwait(false);
+                    break;
+                default:
+                    await _provider.ListAsync("", ct).ConfigureAwait(false);
+                    break;
+            }
+            _log.Information("Snapshot tree read before mounting");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception prefetchEx)
+        {
+            _log.Error(prefetchEx, "Reading the snapshot tree failed");
+            return MountResult.Failed(
+                "Couldn't read the snapshot's folders from the destination. " +
+                "Check the destination is reachable and try again. " +
+                "Underlying error: " + prefetchEx.Message);
         }
 
         // WinFSP's Mount() call is synchronous and lightweight (it
@@ -112,36 +148,6 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
                     "No free drive letters available. Free up a letter and try again.");
             }
 
-            // Single-directory prefetch (root only). Two purposes:
-            //   • Force restic to load the repo INDEX into Backrest's
-            //     memory now, NOT on the kernel's first dispatcher
-            //     call. Restic's first repo-touch can take seconds
-            //     (open repo, fetch keys, load snapshot tree); doing
-            //     it before the volume is visible to Windows keeps
-            //     the kernel's per-op IRP timer well under its
-            //     ceiling.
-            //   • Warm the provider's root-dir cache so Explorer's
-            //     first PROPFIND on Z:\ is an in-memory hit instead
-            //     of another round-trip.
-            // The legacy "preload the entire tree" path that lived
-            // here did N round-trips for a backup with N directories
-            // — on a real backup it took ~2 minutes. This prefetch
-            // is ONE RPC.
-            try
-            {
-                _provider.ListAsync("", ct).GetAwaiter().GetResult();
-                _log.Information("Snapshot root prefetched — repo index warmed");
-            }
-            catch (Exception prefetchEx)
-            {
-                _log.Error(prefetchEx, "Snapshot root prefetch failed");
-                return MountResult.Failed(
-                    "Couldn't read the snapshot's root listing from the destination. " +
-                    "The mount would silently fail to open in Explorer. " +
-                    "Check the destination is reachable and the backup hasn't been pruned. " +
-                    "Underlying error: " + prefetchEx.Message);
-            }
-
             _fs = new WinFspSnapshotFs(_provider);
             _host = new FileSystemHost(_fs)
             {
@@ -154,15 +160,20 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
                 MaxComponentLength = 255,
                 VolumeCreationTime = (ulong)DateTime.UtcNow.ToFileTimeUtc(),
                 VolumeSerialNumber = unchecked((uint)DateTime.UtcNow.Ticks),
-                FileInfoTimeout = 1000,
+                // A snapshot never changes while mounted: Windows may keep
+                // what it learnt about a file, a folder listing, a security
+                // descriptor and file contents for as long as the drive is
+                // mounted, instead of asking again every second (U158).
+                FileInfoTimeout = uint.MaxValue,
                 CaseSensitiveSearch = false,
                 CasePreservedNames = true,
                 UnicodeOnDisk = true,
                 PersistentAcls = false,
                 PostCleanupWhenModifiedOnly = true,
                 FlushAndPurgeOnCleanup = false,
-                VolumeInfoTimeout = 1000,
-                DirInfoTimeout = 1000,
+                VolumeInfoTimeout = uint.MaxValue,
+                DirInfoTimeout = uint.MaxValue,
+                SecurityTimeout = uint.MaxValue,
             };
 
             var mountPoint = letter + ":";
@@ -241,26 +252,7 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
             // its own LSA session. The user gets a normal Explorer
             // window (with an admin-style "Administrator" prefix in
             // the title bar) browsing Z:\.
-            try
-            {
-                if (_openExplorer)
-                {
-                var system32Explorer = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Windows),
-                    "explorer.exe");
-                using var _ = Process.Start(new ProcessStartInfo
-                {
-                    FileName = File.Exists(system32Explorer) ? system32Explorer : "explorer.exe",
-                    Arguments = "/separate," + _mountedDriveLetter + "\\",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                });
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.Warning(ex, "Explorer launch failed; mount at {Letter}", _mountedDriveLetter);
-            }
+            if (_openExplorer) OpenExplorerAt(_mountedDriveLetter);
 
             _log.Information("Snapshot mounted at {Letter} (WinFSP)", _mountedDriveLetter);
             return MountResult.Ok(_mountedDriveLetter);
@@ -313,6 +305,27 @@ public sealed class WinFspMountCoordinator : IAsyncDisposable
         }
 
         await Task.CompletedTask;
+    }
+
+    /// <summary>Opens a separate Explorer window at <paramref name="drive"/>
+    /// (see the reasons above MountCore's call).</summary>
+    internal static void OpenExplorerAt(string drive)
+    {
+        try
+        {
+            var system32Explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+            using var _ = Process.Start(new ProcessStartInfo
+            {
+                FileName = File.Exists(system32Explorer) ? system32Explorer : "explorer.exe",
+                Arguments = "/separate," + drive.TrimEnd('\\') + "\\",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            _log.Warning(ex, "Explorer launch failed; mount at {Letter}", drive);
+        }
     }
 
     /// <summary>Walk Z: → D: looking for the first letter not in the

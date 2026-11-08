@@ -11,25 +11,35 @@ using Serilog;
 namespace Backspace.Services.WebDav;
 
 /// <summary>
-/// Process-wide registry of live <see cref="WinFspMountCoordinator"/>
-/// instances. The "Mount in Explorer" command instantiates one per
-/// backup and stashes it here so:
-///   • The coordinator (and its drive-letter lease) outlives the
-///     command's task, since net use is a process-global mapping.
-///   • <see cref="DisposeAllAsync"/> can clean every mount on app
-///     shutdown — otherwise a forced quit leaves orphan WebDAV
-///     drive letters until the user reboots.
-///   • A future "Unmount" / "Browse" command can look up the live
-///     coordinator by backup id rather than re-mounting.
-///
-/// Windows-only; the entire WebDAV mount surface compiles out on
-/// macOS / Linux via the csproj's Compile Remove.
+/// Process-wide registry of mounted snapshots, one drive per backup.
+///   • The mount (its drive letter and its read of the snapshot) lives here,
+///     not in the command that started it.
+///   • <see cref="DisposeAllAsync"/> unmounts everything when Backspace exits.
+///     The drive is served by this process: if it ends any other way (a crash,
+///     Task Manager), WinFsp removes the drive with it.
+///   • Each mount holds its destination as a snapshot reader
+///     (<see cref="SnapshotReaders"/>) until it is unmounted, so no cleanup,
+///     snapshot removal or password change, in this process or another,
+///     rewrites what the drive shows (U159).
+///   • While a mount is being prepared, <see cref="GetMountProgress"/> says
+///     what it is doing, for the card (U158).
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
 {
     private static ILogger _log => AppLogger.For<MountedSnapshotRegistry>();
-    private readonly ConcurrentDictionary<string, WinFspMountCoordinator> _byBackupId = new();
+
+    private sealed record Mounted(WinFspMountCoordinator Coordinator, IDisposable Readers) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            try { await Coordinator.DisposeAsync().ConfigureAwait(false); }
+            finally { Readers.Dispose(); }
+        }
+    }
+
+    private readonly ConcurrentDictionary<string, Mounted> _byBackupId = new();
+    private readonly ConcurrentDictionary<string, string> _progress = new();
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
     private readonly object _cancelGate = new();
@@ -45,9 +55,19 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
     }
     public event Action<string>? Changed;
 
+    /// <summary>Opens the mount's Explorer window, or not (tests).</summary>
+    public bool OpenExplorer { get; set; } = true;
+
     public string? GetMountedDrive(string backupId) =>
-        _byBackupId.TryGetValue(backupId, out var mount) && mount.DriveLetter is { } letter
+        _byBackupId.TryGetValue(backupId, out var mount) && mount.Coordinator.DriveLetter is { } letter
         && DriveLetterExists(letter) ? letter : null;
+
+    public string? GetMountProgress(string backupId) => _progress.TryGetValue(backupId, out var text) ? text : null;
+
+    public void OpenInExplorer(string backupId)
+    {
+        if (GetMountedDrive(backupId) is { } drive) WinFspMountCoordinator.OpenExplorerAt(drive);
+    }
 
     public async Task UnmountAsync(string backupId, CancellationToken ct = default)
     {
@@ -78,7 +98,7 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
     /// <summary>Mount the latest revision of <paramref name="backup"/>
     /// against its first (source × destination × storage) plan,
     /// pop Explorer at the drive letter, and remember the live
-    /// coordinator under the backup id so subsequent calls reuse
+    /// mount under the backup id so subsequent calls reuse
     /// it instead of fighting for a second drive letter.</summary>
     public async Task<MountResult> MountForAsync(Backup backup, CancellationToken ct = default)
     {
@@ -88,49 +108,50 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
             pending = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown.Token, _pendingCancellation.Token);
         using var linked = pending;
         Interlocked.Increment(ref _pendingCount);
+        Report(backup.Id, "Starting");
         try
         {
             await _mutationGate.WaitAsync(linked.Token).ConfigureAwait(false);
             try { return await MountCoreAsync(backup, linked.Token).ConfigureAwait(false); }
-            finally { _mutationGate.Release(); Changed?.Invoke(backup.Id); }
+            finally { _mutationGate.Release(); }
         }
-        finally { Interlocked.Decrement(ref _pendingCount); }
+        finally
+        {
+            Interlocked.Decrement(ref _pendingCount);
+            _progress.TryRemove(backup.Id, out _);
+            Changed?.Invoke(backup.Id);
+        }
     }
+
+    private void Report(string backupId, string text)
+    {
+        if (_progress.TryGetValue(backupId, out var shown) && shown == text) return;
+        _progress[backupId] = text;
+        Changed?.Invoke(backupId);
+    }
+
+    /// <summary>"Reading the backup's folders: 120,000 so far".</summary>
+    internal static string ReadingText(int entries) => entries <= 0
+        ? "Reading the backup's folders"
+        : $"Reading the backup's folders: {entries:N0} so far";
 
     private async Task<MountResult> MountCoreAsync(Backup backup, CancellationToken ct)
     {
         if (!OperatingSystem.IsWindows())
             return MountResult.Failed("Snapshot mount is Windows-only.");
-        if (backup is null)
-            return MountResult.Failed("No backup selected.");
 
-        // Already mounted? Only reuse the existing coordinator if
-        // the drive letter ACTUALLY EXISTS on this host. Otherwise
-        // the kernel-side mount has been torn down out from under
-        // us (WinFSP service restart, sleep/resume, external
-        // `net use /delete`, etc.) — clicking Mount in that state
-        // would just re-open Explorer at a dead letter and silently
-        // fail (no error, no remount), exactly what the user just
-        // hit. Evict the stale entry and fall through to the fresh-
-        // mount path.
-        if (_byBackupId.TryGetValue(backup.Id, out var existing) && existing.DriveLetter is not null)
+        // Already mounted? Only reuse the existing mount if the drive letter
+        // ACTUALLY EXISTS on this host. Otherwise the kernel-side mount has
+        // been torn down out from under us (WinFSP service restart,
+        // sleep/resume) — evict the stale entry and mount again.
+        if (_byBackupId.TryGetValue(backup.Id, out var existing) && existing.Coordinator.DriveLetter is not null)
         {
-            if (DriveLetterExists(existing.DriveLetter))
+            if (DriveLetterExists(existing.Coordinator.DriveLetter))
             {
-                try
-                {
-                    using var _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = existing.DriveLetter + "\\",
-                        UseShellExecute = true,
-                    });
-                }
-                catch (Exception ex) { _log.Warning(ex, "Re-open Explorer failed for {Letter}", existing.DriveLetter); }
-                return MountResult.Ok(existing.DriveLetter);
+                if (OpenExplorer) WinFspMountCoordinator.OpenExplorerAt(existing.Coordinator.DriveLetter);
+                return MountResult.Ok(existing.Coordinator.DriveLetter);
             }
-            // Stale entry — drive letter is gone from the OS. Dispose
-            // the dead coord and continue to the fresh-mount path.
-            _log.Information("Mount registry entry for {Backup} points at {Letter} but the drive is gone; remounting", backup.Name, existing.DriveLetter);
+            _log.Information("Mount registry entry for {Backup} points at {Letter} but the drive is gone; remounting", backup.Name, existing.Coordinator.DriveLetter);
             if (_byBackupId.TryRemove(backup.Id, out var stale))
             {
                 try { await stale.DisposeAsync().ConfigureAwait(false); }
@@ -138,12 +159,8 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
             }
         }
 
-        // Resolve the plan we'll mount. Same first-target convention
-        // RevisionBrowser + RestoreEngine use — multiple targets stay
-        // out of scope here because Explorer can only mount one drive
-        // letter per backup. Multiple SOURCES *are* in scope — the
-        // mount tree exposes one folder per source × one subfolder
-        // per revision (handled inside BackupMountTreeProvider).
+        // The first target, as Restore and Browse use. Every source has its
+        // own folder in the drive (BackupMountTreeProvider).
         if (backup.SourcePaths.Count == 0 || backup.Targets.Count == 0)
             return MountResult.Failed("Add a source folder and destination before mounting.");
         var target = backup.Targets[0];
@@ -152,34 +169,11 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
         if (destination is null)
             return MountResult.Failed("This backup's first destination is missing from config.");
 
-        // Sanity check: there has to be AT LEAST one snapshot
-        // somewhere in this backup, or the mount root would be empty
-        // and the user would assume the mount itself failed. We probe
-        // the FIRST source's snapshot list; if it has zero revisions
-        // AND every other source also has zero, the mount would be
-        // useless and we surface that upfront. (Probing every source
-        // here would just slow down the common case where the user
-        // backs everything up at once.)
-        bool hasSnapshots = false;
-        foreach (var source in backup.SourcePaths)
-        {
-            var revisions = await ServiceLocator.Revisions
-                .ListRevisionsAsync(backup, source, destination, target.StorageName, ct)
-                .ConfigureAwait(false);
-            if (revisions.Count > 0) { hasSnapshots = true; break; }
-        }
-        if (!hasSnapshots)
-            return MountResult.Failed(
-                "No snapshots yet. Run a backup first, then come back to mount it.");
-
-        // WinFSP runtime check + auto-install on first Mount click.
-        // We do this BEFORE building the provider / coordinator so a
-        // missing runtime doesn't waste a snapshot listing or leak a
-        // half-built tree provider. The MSI ships next to Backspace.exe
-        // (FetchWinFsp.targets + a Content item in the csproj); the
-        // installer service spawns msiexec with UAC elevation.
+        // WinFSP runtime check + auto-install on first Mount click, before
+        // reading anything from the destination.
         if (!WinFspRuntimeDetector.IsInstalled())
         {
+            Report(backup.Id, "Installing the WinFsp driver");
             if (RequestInstallConsent is { } prompt)
             {
                 bool ok;
@@ -201,15 +195,8 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
             _log.Information("WinFSP runtime installed on first Mount click");
         }
 
-        // Bring the WinFSP bin folder onto the process DLL search
-        // path. This is a hard prerequisite for the WinFsp.Net
-        // managed wrapper's static ctor to find winfsp-x64.dll
-        // (its installer doesn't add itself to PATH). Idempotent —
-        // a no-op when already registered, returns true when the
-        // search path now contains the WinFSP bin dir. Without
-        // this the next line throws "The type initializer for
-        // 'Fsp.Interop.Api' threw an exception" at the moment we
-        // touch any Fsp.* type.
+        // The WinFsp.Net wrapper's static ctor needs winfsp-x64.dll on the
+        // DLL search path; its installer doesn't add itself to PATH.
         if (!WinFspNativeLoader.EnsureRegistered())
         {
             return MountResult.Failed(
@@ -218,52 +205,63 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
                 $"{WinFspRuntimeDetector.InstallUrl}.");
         }
 
+        // Hold the destination for as long as the drive shows it (U159).
+        // Waits while a cleanup there is running.
+        var readers = await SnapshotReaders.HoldAsync(destination, target.StorageName, SnapshotReaders.Kind.Mount,
+            waiting => { if (waiting.Length > 0) Report(backup.Id, waiting); }, ct).ConfigureAwait(false);
+        Report(backup.Id, ReadingText(0));
+
         // The composite provider separates destination/source/snapshot IDs
         // below this root. Latest and All revisions share verified bytes;
         // retention changing a display number cannot reuse another snapshot.
-        var cacheDir = System.IO.Path.Combine(AppPaths.BackrestDataDir, "mount-cache", backup.Id);
-        var provider = new BackupMountTreeProvider(
-            ServiceLocator.Engine, backup, destination, target.StorageName, cacheDir);
-
-        var coord = new WinFspMountCoordinator(provider);
-        var result = await coord.MountAsync(ct).ConfigureAwait(false);
+        WinFspMountCoordinator coord;
+        try
+        {
+            var cacheDir = System.IO.Path.Combine(AppPaths.BackrestDataDir, "mount-cache", backup.Id);
+            coord = new WinFspMountCoordinator(new BackupMountTreeProvider(
+                ServiceLocator.Engine, backup, destination, target.StorageName, cacheDir), OpenExplorer);
+        }
+        catch { readers.Dispose(); throw; }
+        var mount = new Mounted(coord, readers);
+        MountResult result;
+        try
+        {
+            result = await coord.MountAsync(ct, new InlineProgress(entries => Report(backup.Id, ReadingText(entries))))
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            await mount.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
         if (!result.Succeeded)
         {
-            // Clean up the half-built coordinator so we don't leak
-            // a WebDAV server / drive-letter intent.
-            await coord.DisposeAsync().ConfigureAwait(false);
+            await mount.DisposeAsync().ConfigureAwait(false);
             return result;
         }
-
-        // Race-safe insert: if a parallel MountForAsync for the same
-        // backup beat us to it, our freshly-mounted drive letter is
-        // now redundant. Tear it down rather than leaking the WebDAV
-        // server + drive-letter mapping; the caller still gets a
-        // success result that points at the winner's drive letter.
-        if (!_byBackupId.TryAdd(backup.Id, coord))
+        if (!_byBackupId.TryAdd(backup.Id, mount))
         {
-            await coord.DisposeAsync().ConfigureAwait(false);
-            return _byBackupId.TryGetValue(backup.Id, out var winner) && winner.DriveLetter is not null
-                ? MountResult.Ok(winner.DriveLetter)
+            await mount.DisposeAsync().ConfigureAwait(false);
+            return _byBackupId.TryGetValue(backup.Id, out var winner) && winner.Coordinator.DriveLetter is not null
+                ? MountResult.Ok(winner.Coordinator.DriveLetter)
                 : result;
         }
         return result;
     }
 
+    /// <summary>Reports on the reporting thread, unlike <see cref="Progress{T}"/>,
+    /// which posts to whatever context created it.</summary>
+    private sealed class InlineProgress(Action<int> report) : IProgress<int>
+    {
+        public void Report(int value) => report(value);
+    }
+
     /// <summary>True iff <paramref name="driveLetter"/> (e.g. "Z:")
-    /// is currently a real logical drive on this host. Used as the
-    /// liveness check before reusing a coordinator from
-    /// <see cref="_byBackupId"/> — if the kernel-side mount has
-    /// been torn down, the coordinator's stored letter no longer
-    /// resolves and we need to remount.</summary>
+    /// is currently a real logical drive on this host.</summary>
     private static bool DriveLetterExists(string driveLetter)
     {
         try
         {
-            // DriveInfo.GetDrives() enumerates the OS's live drive
-            // letters; an unmounted Z: will not appear. The Name
-            // comes back as "Z:\" (trailing slash), so we compare
-            // letter-only.
             var letter = driveLetter.TrimEnd(':', '\\');
             foreach (var d in System.IO.DriveInfo.GetDrives())
             {
@@ -275,24 +273,23 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
         return false;
     }
 
-    /// <summary>Tear down every active mount. Wired into
-    /// <see cref="App"/>'s shutdown handler so leaving Backspace
-    /// running for hours doesn't leave orphan drive letters
-    /// pointing at a stopped WebDAV server.</summary>
+    /// <summary>Unmount every snapshot. Called when Backspace exits (Quit,
+    /// Windows signing out or shutting down, an unhandled error), so no drive
+    /// outlives the app that serves it.</summary>
     public async Task DisposeAllAsync()
     {
         _shutdown.Cancel();
         await _mutationGate.WaitAsync().ConfigureAwait(false);
         try
         {
-        var copies = _byBackupId.ToArray();
-        _byBackupId.Clear();
-        foreach (var kv in copies)
-        {
-            try { await kv.Value.DisposeAsync().ConfigureAwait(false); }
-            catch (Exception ex) { _log.Warning(ex, "Mount dispose threw for {Backup}", kv.Key); }
-            Changed?.Invoke(kv.Key);
-        }
+            var copies = _byBackupId.ToArray();
+            _byBackupId.Clear();
+            foreach (var kv in copies)
+            {
+                try { await kv.Value.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception ex) { _log.Warning(ex, "Mount dispose threw for {Backup}", kv.Key); }
+                Changed?.Invoke(kv.Key);
+            }
         }
         finally { _mutationGate.Release(); }
     }

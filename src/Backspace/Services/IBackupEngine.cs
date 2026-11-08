@@ -163,29 +163,25 @@ public interface IBackupEngine
     /// source-relative with forward slashes and no leading slash;
     /// directories report SizeBytes = 0. Returns null when the
     /// implementation can't do a bulk listing for this destination
-    /// shape (e.g. cloud destinations where restic shells to rclone
-    /// — the caller falls back to the lazy per-directory path).</summary>
+    /// shape (the caller falls back to the lazy per-directory path).
+    /// <paramref name="progress"/> hears how many entries have been read
+    /// so far, for a large snapshot's mount (U158).</summary>
     Task<IReadOnlyList<RevisionTreeNode>?> ListSnapshotTreeAsync(
         Backup backup,
         string sourcePath,
         Destination destination,
         string storageName,
         int revision,
-        CancellationToken ct, string? expectedSnapshotId = null);
+        CancellationToken ct, string? expectedSnapshotId = null, IProgress<int>? progress = null);
 
     /// <summary>Bulk restore — materialise EVERY file in a snapshot's
     /// source subtree onto <paramref name="targetDir"/> in one restic
-    /// invocation. This is the fast-path for WinFSP mounts: the per-
-    /// file <see cref="RestoreFilesAsync"/> path costs hundreds of
-    /// milliseconds PER FILE (each pattern restore fork+execs restic,
-    /// loads the repo, restores one file, exits), so a copy of a
-    /// 2500-file snapshot takes hours. One bulk restore of the same
-    /// subtree completes in seconds.
+    /// invocation. The mounted drive no longer uses it: opening two files
+    /// of a 600,000-file snapshot started restoring all of it (U158); the
+    /// mount fetches one small folder at a time instead.
     ///
     /// Files land at source-relative paths under
-    /// <paramref name="targetDir"/> (matching the same layout the per-
-    /// file path produces, so the mount-cache check
-    /// <c>File.Exists(Path.Combine(cache, rel))</c> sees them).
+    /// <paramref name="targetDir"/>.
     /// Returns false when the implementation can't do a bulk restore
     /// for this destination shape (cloud → the caller falls back to
     /// per-file restore via <see cref="RestoreFilesAsync"/>).</summary>

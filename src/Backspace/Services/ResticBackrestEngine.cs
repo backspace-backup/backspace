@@ -228,6 +228,17 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 await RepositoryAccess.ExclusiveAsync(ct).ConfigureAwait(false);
             async Task RunCleanup()
             {
+                // Never while a snapshot here is mounted or restored (U159):
+                // the backup itself only added a snapshot; cleanup catches up
+                // after a later backup.
+                using var change = SnapshotReaders.TryBeginChange(destination, storageName, out var inUse);
+                if (change is null)
+                {
+                    var skipped = "[backspace] " + SnapshotReaders.CleanupSkipped(inUse);
+                    RaiseLineWritten(skipped); lineSink?.Invoke(skipped);
+                    details += " " + SnapshotReaders.CleanupSkipped(inUse);
+                    return;
+                }
                 try
                 {
                     var prune = await NeedsPruneAsync(client, repoId, planId, started, ct).ConfigureAwait(false);
@@ -315,6 +326,19 @@ public sealed class ResticBackrestEngine : IBackupEngine
         CleanupResult cleanup = default;
         if (kind == RunKind.Prune)
         {
+            // Never while a snapshot here is mounted or restored (U159).
+            using var change = SnapshotReaders.TryBeginChange(destination, storageName, out var inUse);
+            if (change is null)
+            {
+                var skipped = SnapshotReaders.CleanupSkipped(inUse);
+                RaiseLineWritten("[backspace] " + skipped); lineSink?.Invoke("[backspace] " + skipped);
+                return new RunRecord
+                {
+                    BackupId = backup.Id, BackupName = backup.Name, Kind = kind,
+                    StartedUtc = started, EndedUtc = DateTime.UtcNow,
+                    Status = BackupRunStatus.Skipped, Summary = skipped,
+                };
+            }
             (terminal, cleanup) = await RunRetentionAsync(client, repoId, planId, backup, ct, lineSink, prune: true).ConfigureAwait(false);
             if (terminal.Status is BackrestStatus.Success || cleanup != default)
             {
@@ -1222,7 +1246,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
     public async Task<IReadOnlyList<RevisionTreeNode>?> ListSnapshotTreeAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, CancellationToken ct, string? expectedSnapshotId = null)
+        int revision, CancellationToken ct, string? expectedSnapshotId = null, IProgress<int>? progress = null)
     {
         if (!File.Exists(_sidecar.ResticBinaryPath)) return null;
         // Resolve the snapshot ID (via Backrest) and pull the live
@@ -1241,68 +1265,161 @@ public sealed class ResticBackrestEngine : IBackupEngine
         lock (_snapshotTreeGate)
             if (_snapshotTrees.TryGetValue(identity, out var cached)) return cached;
         await new CloudDestinationPreflight(_secrets).CheckAsync(destination, ct).ConfigureAwait(false);
+        // The listing reads without a repository lock: keep cleanup out (U159).
+        using var reading = await SnapshotReaders.HoldAsync(destination, storageName, SnapshotReaders.Kind.Restore, null, ct).ConfigureAwait(false);
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = _sidecar.ResticBinaryPath,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            // restic on Windows emits UTF-8 to stdout regardless of
-            // the console codepage. Pin both encodings here so JSON
-            // entries with non-ASCII filenames (the user has
-            // accented paths) parse cleanly.
-            StandardOutputEncoding = System.Text.Encoding.UTF8,
-            StandardErrorEncoding = System.Text.Encoding.UTF8,
-        };
-        psi.ArgumentList.Add("-r");
-        psi.ArgumentList.Add(repo.Uri);
-        foreach (var f in repo.Flags ?? new List<string>())
-            psi.ArgumentList.Add(f);
-        psi.ArgumentList.Add("ls");
-        psi.ArgumentList.Add("--json");
-        psi.ArgumentList.Add("--no-lock"); // a listing reads only: no lock file to write and delete
-        psi.ArgumentList.Add("--recursive");
-        psi.ArgumentList.Add(snapshotId);
         var srcPrefix = SourcePathToSnapshotPrefix(sourcePath);
         var rootBound = "/" + srcPrefix;
-        psi.ArgumentList.Add(rootBound);
-        // Password — only set when not in insecure-no-password mode.
-        if (!string.IsNullOrEmpty(repo.Password))
-            psi.Environment["RESTIC_PASSWORD"] = repo.Password;
-        // Pass through repo.Env (RCLONE_CONFIG, AWS_*, etc.). Each
-        // entry is "KEY=VALUE" — the BackrestRepo schema flattens
-        // them this way to mirror restic's expected env.
-        foreach (var e in repo.Env ?? new List<string>())
+        ProcessStartInfo StartInfo(IEnumerable<string> paths, bool recursive)
         {
-            var eq = e.IndexOf('=');
-            if (eq <= 0) continue;
-            psi.Environment[e.Substring(0, eq)] = e.Substring(eq + 1);
+            var psi = new ProcessStartInfo
+            {
+                FileName = _sidecar.ResticBinaryPath,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                // restic on Windows emits UTF-8 to stdout regardless of
+                // the console codepage. Pin both encodings here so JSON
+                // entries with non-ASCII filenames (the user has
+                // accented paths) parse cleanly.
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8,
+            };
+            psi.ArgumentList.Add("-r");
+            psi.ArgumentList.Add(repo.Uri);
+            foreach (var f in repo.Flags ?? new List<string>())
+                psi.ArgumentList.Add(f);
+            psi.ArgumentList.Add("ls");
+            psi.ArgumentList.Add("--json");
+            psi.ArgumentList.Add("--no-lock"); // a listing reads only: no lock file to write and delete
+            if (recursive) psi.ArgumentList.Add("--recursive");
+            psi.ArgumentList.Add(snapshotId);
+            foreach (var path in paths) psi.ArgumentList.Add(path);
+            // Password — only set when not in insecure-no-password mode.
+            if (!string.IsNullOrEmpty(repo.Password))
+                psi.Environment["RESTIC_PASSWORD"] = repo.Password;
+            // Pass through repo.Env (RCLONE_CONFIG, AWS_*, etc.). Each
+            // entry is "KEY=VALUE" — the BackrestRepo schema flattens
+            // them this way to mirror restic's expected env.
+            foreach (var e in repo.Env ?? new List<string>())
+            {
+                var eq = e.IndexOf('=');
+                if (eq <= 0) continue;
+                psi.Environment[e.Substring(0, eq)] = e.Substring(eq + 1);
+            }
+            // Match direct restores: use the bundled rclone and Backrest's
+            // destination-specific environment, never a user's global remote.
+            var binaryDirectory = Path.GetDirectoryName(Path.GetFullPath(_sidecar.ResticBinaryPath))!;
+            psi.Environment["PATH"] = binaryDirectory + Path.PathSeparator +
+                (psi.Environment.TryGetValue("PATH", out var oldPath) ? oldPath : "");
+            return psi;
         }
-        // Match direct restores: use the bundled rclone and Backrest's
-        // destination-specific environment, never a user's global remote.
-        var binaryDirectory = Path.GetDirectoryName(Path.GetFullPath(_sidecar.ResticBinaryPath))!;
-        psi.Environment["PATH"] = binaryDirectory + Path.PathSeparator +
-            (psi.Environment.TryGetValue("PATH", out var oldPath) ? oldPath : "");
 
-        // restic emits one JSON object per line: the first line is
-        // the snapshot summary (struct_type=snapshot) which we
-        // skip; every subsequent line is a node (struct_type=node)
-        // with name/type/path/size/mtime fields.
-        var listing = new SnapshotTreeListing(rootBound, snapshotId);
-        var result = await StreamingRestoreProcess.RunAsync(psi, listing.Accept, ct,
-            operationName: "snapshot listing").ConfigureAwait(false);
-        if (result.Cancelled) throw new OperationCanceledException(ct);
-        if (result.ExitCode != 0 || result.HadErrors || !listing.IsComplete)
+        // restic walks a tree one folder at a time in one thread: a 632,000
+        // entry snapshot took 27-36 s in one process (U158). For a mount,
+        // the whole listing starts at once and, beside it, a shared-out one:
+        // the source's top level is listed (one short call), then its folders
+        // are shared between several processes, each walking its share with
+        // --recursive (measured: 9 s instead of 27 s; sharing out the second
+        // level instead was slower, a process given many folders walks them
+        // more slowly than one given a few). A small snapshot's whole
+        // listing ends first and is used; otherwise it is stopped once the
+        // shared-out listing is ready to fan out. Every part is validated
+        // like a single listing; any incomplete part fails the tree.
+        var listingClock = Stopwatch.StartNew();
+        var counts = new System.Collections.Concurrent.ConcurrentDictionary<SnapshotTreeListing, int>();
+        void Report() => progress?.Report(counts.Values.Sum());
+        async Task<IReadOnlyList<RevisionTreeNode>?> Ls(IReadOnlyList<string> paths, bool recursive, CancellationToken token)
         {
-            // An incomplete listing must never become a complete directory
-            // cache: missing files would otherwise disappear from Explorer.
-            _log.Warning("restic ls --json {Snap} exited {Code}: {Err}",
-                snapshotId, result.ExitCode, result.Output);
-            return null;
+            SnapshotTreeListing? listing = null;
+            var partProgress = progress is null ? null : new InlineCount(count => { counts[listing!] = count; Report(); });
+            listing = new SnapshotTreeListing(rootBound, snapshotId, partProgress);
+            try
+            {
+                // restic emits one JSON object per line: the first line is
+                // the snapshot summary (struct_type=snapshot); every
+                // subsequent line is a node (struct_type=node).
+                var result = await StreamingRestoreProcess.RunAsync(StartInfo(paths, recursive), listing.Accept, token,
+                    operationName: "snapshot listing", includeStandardOutput: false).ConfigureAwait(false);
+                if (result.Cancelled) throw new OperationCanceledException(token);
+                if (result.ExitCode != 0 || result.HadErrors || !listing.IsComplete)
+                {
+                    // An incomplete listing must never become a complete directory
+                    // cache: missing files would otherwise disappear from Explorer.
+                    _log.Warning("restic ls --json {Snap} exited {Code}: {Err}",
+                        snapshotId, result.ExitCode, result.Output);
+                    return null;
+                }
+                counts[listing] = listing.Nodes.Count;
+                return listing.Nodes;
+            }
+            catch (OperationCanceledException) { counts.TryRemove(listing, out _); throw; }
         }
-        var nodes = listing.Nodes.ToArray();
+        string Absolute(string relative) => rootBound == "/" ? "/" + relative : rootBound + "/" + relative;
+
+        var fanOut = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<IReadOnlyList<RevisionTreeNode>?> SharedOut(CancellationToken token)
+        {
+            var all = new List<RevisionTreeNode>();
+            var seenDirectories = new HashSet<string>(StringComparer.Ordinal);
+            void Add(IEnumerable<RevisionTreeNode> part)
+            {
+                foreach (var node in part)
+                    if (!node.IsDirectory || seenDirectories.Add(node.Path)) all.Add(node);
+            }
+            using var running = new SemaphoreSlim(ListingProcesses);
+            async Task<IReadOnlyList<RevisionTreeNode>?[]> Shared(IReadOnlyList<string> folders, bool recursive) =>
+                await Task.WhenAll(ShareOut(folders, ListingProcesses).Select(async group =>
+                {
+                    await running.WaitAsync(token).ConfigureAwait(false);
+                    try { return await Ls(group, recursive, token).ConfigureAwait(false); }
+                    finally { running.Release(); }
+                })).ConfigureAwait(false);
+            try
+            {
+                var level1 = await Ls(new[] { rootBound }, recursive: false, token).ConfigureAwait(false);
+                if (level1 is null) return null;
+                Add(level1);
+                var top = level1.Where(n => n.IsDirectory && n.Path.Length > 0).Select(n => Absolute(n.Path)).ToArray();
+                if (top.Length == 0) return all;
+                fanOut.TrySetResult();
+                _log.Information("Snapshot {Snap}: top level listed in {Ms} ms; {Count} folders shared out", snapshotId[..8], listingClock.ElapsedMilliseconds, top.Length);
+                var parts = await Shared(top, recursive: true).ConfigureAwait(false);
+                if (parts.Any(p => p is null)) return null;
+                foreach (var part in parts) Add(part!);
+                return all;
+            }
+            finally { fanOut.TrySetResult(); }
+        }
+
+        IReadOnlyList<RevisionTreeNode>? listed;
+        if (progress is null)
+            listed = await Ls(new[] { rootBound }, recursive: true, ct).ConfigureAwait(false);
+        else
+        {
+            using var wholeStop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            using var sharedStop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var whole = Ls(new[] { rootBound }, recursive: true, wholeStop.Token);
+            var shared = SharedOut(sharedStop.Token);
+            await Task.WhenAny(whole, fanOut.Task).ConfigureAwait(false);
+            if (whole.IsCompletedSuccessfully && whole.Result is not null)
+            {
+                sharedStop.Cancel();
+                try { await shared.ConfigureAwait(false); } catch (Exception) { /* stopped: the whole listing answered */ }
+                listed = whole.Result;
+            }
+            else
+            {
+                wholeStop.Cancel();
+                try { await whole.ConfigureAwait(false); } catch (Exception) when (!ct.IsCancellationRequested) { /* stopped or failed: the shared-out listing answers */ }
+                listed = await shared.ConfigureAwait(false);
+            }
+        }
+        if (listed is null) return null;
+        _log.Information("Listed snapshot {Snap}: {Count} entries in {Ms} ms ({How})", snapshotId[..8], listed.Count, listingClock.ElapsedMilliseconds,
+            progress is null ? "one listing" : fanOut.Task.IsCompleted ? "shared out" : "one listing");
+        var nodes = listed.ToArray();
         if (nodes.Length <= 65536)
         {
             lock (_snapshotTreeGate)
@@ -1338,6 +1455,34 @@ public sealed class ResticBackrestEngine : IBackupEngine
         return result.Status == RestoreTerminalStatus.Success;
     }
 
+    /// <summary>How many restic processes share out a snapshot's tree (U158).
+    /// Each loads the repository index once (285 MB for a 632,000-entry
+    /// fixture), so they are limited to one per free core and per 2 GB of
+    /// memory, at most 12; listing is otherwise one thread per process.</summary>
+    internal static int ListingProcesses => (int)Math.Clamp(Math.Min(Environment.ProcessorCount - 2,
+        GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / (2L << 30)), 2, 12);
+
+    /// <summary>Shares the folders out in turn (so neighbours, often alike in
+    /// size, go to different listings) between <paramref name="processes"/>
+    /// listings, or more when one command line would pass about 16,000
+    /// characters (Windows allows 32,767). The caller runs at most
+    /// <paramref name="processes"/> at once.</summary>
+    internal static List<List<string>> ShareOut(IReadOnlyList<string> folders, int processes)
+    {
+        if (folders.Count == 0) return new();
+        var characters = folders.Sum(f => (long)f.Length + 3);
+        var count = (int)Math.Min(folders.Count, Math.Max(processes, (characters + 15_999) / 16_000));
+        var groups = Enumerable.Range(0, count).Select(_ => new List<string>()).ToList();
+        for (var i = 0; i < folders.Count; i++) groups[i % count].Add(folders[i]);
+        return groups;
+    }
+
+    /// <summary>Reports on the calling thread.</summary>
+    private sealed class InlineCount(Action<int> report) : IProgress<int>
+    {
+        public void Report(int value) => report(value);
+    }
+
     /// <summary>One line from <c>restic ls --json</c>. restic emits one
     /// JSON object per line: the FIRST line is the snapshot summary
     /// (<c>struct_type=snapshot</c>) which we skip, every line after
@@ -1346,7 +1491,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
     /// permissions, atime, ctime) but they don't apply to a
     /// read-only WinFSP volume that presents an everyone-read SD.
     /// Lower-case field names match restic's JSON shape verbatim.</summary>
-    internal sealed class SnapshotTreeListing(string rootBound, string snapshotId)
+    internal sealed class SnapshotTreeListing(string rootBound, string snapshotId, IProgress<int>? progress = null)
     {
         private readonly List<RevisionTreeNode> _nodes = new(2048);
         private bool _sawSnapshot;
@@ -1395,6 +1540,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 var directory = parsed.type == "dir";
                 var modified = DateTime.TryParse(parsed.mtime, out var mt) ? mt.ToUniversalTime() : DateTime.MinValue;
                 _nodes.Add(new(relative, directory, directory ? 0 : parsed.size, modified));
+                if (progress is not null && _nodes.Count % 5000 == 0) progress.Report(_nodes.Count);
             }
         }
     }
@@ -1421,6 +1567,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
             return new RestoreOpResult(0, 0, 0, 0, RestoreTerminalStatus.Success, null);
         ValidateRestoreTarget(targetPath);
         await new CloudDestinationPreflight(_secrets).CheckAsync(destination, ct).ConfigureAwait(false);
+        // What this restore reads stays in place until it ends (U159).
+        using var reading = await SnapshotReaders.HoldAsync(destination, storageName, SnapshotReaders.Kind.Restore, null, ct).ConfigureAwait(false);
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var (snapshotId, repoGuid) = await ResolveSnapshotIdAsync(
             backup, sourcePath, destination, storageName, revision, ct, expectedSnapshotId).ConfigureAwait(false);
@@ -2361,6 +2509,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
         // Backrest removes a successful one-off Forget operation from its history.
         // A tracked command retains a terminal record, so we can confirm completion
         // and keep the repository lease through cancellation and index follow-ups.
+        using var change = SnapshotReaders.TryBeginChange(destination, storageName, out var inUse)
+            ?? throw new InvalidOperationException(SnapshotReaders.Refusal("Removing a snapshot", inUse));
         var command = "forget " + snapshotId;
         var result = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
             new RunCommandRequest { RepoId = repoId, Command = command },
@@ -2375,6 +2525,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
     {
         var client = await EnsureClientAsync(ct).ConfigureAwait(false);
         var repoId = MakeRepoId(destination, storageName);
+        using var change = SnapshotReaders.TryBeginChange(destination, storageName, out var inUse)
+            ?? throw new InvalidOperationException(SnapshotReaders.Refusal("Cleaning up this backup's storage", inUse));
         var result = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/DoRepoTask",
             new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskPrune },
             op => op.OperationPrune is not null, ct).ConfigureAwait(false);
@@ -2461,6 +2613,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
                        "and extract its files together. Keep your existing Backspace.config folder.");
 
         using var maintenance = await ServiceLocator.Maintenance.AcquireAsync("Changing destination password", ct: ct).ConfigureAwait(false);
+        using var change = SnapshotReaders.TryBeginChange(destination, storageName, out var inUse);
+        if (change is null) return (1, SnapshotReaders.Refusal("Changing the password", inUse));
         var rclone = new RcloneConfigBuilder(_secrets);
         await rclone.EnsureDriveIdentityAsync(destination, ct, ServiceLocator.Config).ConfigureAwait(false);
         var rclonePath = RcloneConfigBuilder.NeedsRcloneRemote(destination)

@@ -866,6 +866,69 @@ is converted.
 - A destination missing its sign-in, S3 keys or storage password
   (`DestinationReadiness`, typically imported from Duplicacy) never reaches
   restic: Run now opens it for setup, and a run's cell fails at once with the
+## Mounted snapshots (WinFsp)
+
+`MountedSnapshotRegistry` owns one mount per backup in the desktop process.
+`WinFspMountCoordinator` first reads what the drive will show, then mounts a
+read-only `WinFspSnapshotFs` over `BackupMountTreeProvider` (Latest revision
+and All revisions, one `EngineBackedSnapshotTreeProvider` per source and
+snapshot). The objective set for U158 (7 November 2026): the card answers the
+click at once and counts what is read; the drive appears when the latest
+snapshot's tree is in memory; from then on every folder listing and look-up
+takes milliseconds, whatever the snapshot's size.
+
+- **Tree.** `ListSnapshotTreeAsync` reads the whole tree with
+  `restic ls --json --recursive` and reports its progress. restic walks one
+  folder at a time, so for a mount the source's top-level folders are shared
+  between several restic processes (`ListingProcesses`: one per free core and
+  per 2 GB of memory, at most 12), raced against a single listing that wins
+  for a small snapshot. 632,000 entries: 27-36 s in one process, about 13 s
+  shared out. `SnapshotTree` keeps the result (names, sizes,
+  dates, sorted children) for the mount's life. A snapshot is immutable, so
+  nothing is asked twice. An older snapshot's tree is read the first time its
+  folder is opened; listings meanwhile wait for that one read. The
+  per-folder `ListSnapshotDirectoryAsync` is only the fallback for an engine
+  that cannot list whole trees.
+- **Windows caching.** File, folder, volume and security information never
+  expire (`uint.MaxValue`), and the file contents Windows cached stay valid.
+  Directory listings resume after a marker by binary search.
+- **Files.** The first open restores the file into the mount's cache; a small
+  folder's other files follow in one background restore
+  (`FolderBatchMaxBytes`, `FolderBatchMaxFiles`). A whole snapshot is never
+  restored because files were opened.
+- **Cloud.** A successful cloud connection check is trusted for two minutes
+  (`CloudDestinationPreflight.TrustRecentSuccessFor`), so consecutive reads do
+  not each start with a sign-in round trip.
+- **Feedback.** `GetMountProgress` says what a mount is doing ("Reading the
+  backup's folders: 120,000 so far"); the card shows it from the click, then
+  "Mounted as Z:" with Open in Explorer, or the failure inline.
+- **Exit.** Quit, normal exit and the process-exit hook call `DisposeAllAsync`.
+  The drive is served by the desktop process, so if that process dies
+  (crash, Task Manager, force quit) WinFsp removes the drive with it.
+  Closing the window to the tray keeps the app, and therefore the drive.
+
+### Snapshot readers (U159)
+
+`SnapshotReaders` keeps a destination's stored data in place while it is
+read. A mount holds its destination (and a global "a snapshot is mounted"
+file) until unmounted; every engine restore and whole-tree listing holds it
+while it runs. Locks are files beside the other operation locks
+(`SystemServiceLocks` when the background service is set up, otherwise
+`%LOCALAPPDATA%\Backspace\locks`), opened shared by readers and exclusively
+by a change, so they work across the window, scheduled runs and the service,
+and go away with a process that ends.
+
+| Operation | While read | Where |
+|---|---|---|
+| Cleanup after a backup (`forget --prune`, prune) | Skipped: "Cleanup waits: …"; the backup still succeeds | `BackupPruneCheckAsync` |
+| Stand-alone cleanup | Skipped with the same reason | `RunPruneOnlyAsync` |
+| Removing a snapshot, prune for removal/erase | Refused: "… has to wait: …" | `PruneSnapshotIdAsync`, `PruneExhaustiveAsync` |
+| Password change | Refused | `ChangeStoragePasswordAsync` |
+| Any exclusive maintenance (delete, erase, moves) | Refused while any snapshot is mounted | `MaintenanceCoordinator.AcquireAsync` |
+| Backup into the same destination | Allowed: it only adds a snapshot | — |
+
+A mount that starts while a change holds the destination waits and says so.
+
   reason instead of retrying (U082).
 - `BackupOrchestrator` raises `RunStarted` and `RunEnded` to each subscriber
   separately (`RaiseRunStarted`, `RaiseRunEnded`). A multicast invoke stops at

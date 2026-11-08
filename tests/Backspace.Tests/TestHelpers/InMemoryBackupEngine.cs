@@ -45,6 +45,8 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
     public event Action<string>? LineWritten;
 
     public ConcurrentQueue<string> Calls { get; } = new();
+    /// <summary>When set, a whole-tree listing waits for it (a slow listing).</summary>
+    public ManualResetEventSlim? ListSnapshotTreeGate { get; set; }
     /// <summary>When set, each backup awaits it before finishing (a long
     /// backup the test ends when it chooses), U156.</summary>
     public Func<Backup, CancellationToken, Task>? HoldBackup { get; set; }
@@ -236,9 +238,10 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
 
     public Task<IReadOnlyList<RevisionTreeNode>?> ListSnapshotTreeAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        int revision, CancellationToken ct, string? expectedSnapshotId = null)
+        int revision, CancellationToken ct, string? expectedSnapshotId = null, IProgress<int>? progress = null)
     {
         Calls.Enqueue($"ListSnapshotTree({backup.Name},{sourcePath},r{revision})");
+        if (ListSnapshotTreeGate is { } gate) gate.Wait(ct);
         var revDir = RevisionDir(backup, sourcePath, destination, revision);
         if (!Directory.Exists(revDir))
             return Task.FromResult<IReadOnlyList<RevisionTreeNode>?>(null);

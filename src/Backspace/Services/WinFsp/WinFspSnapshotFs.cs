@@ -217,29 +217,20 @@ public sealed class WinFspSnapshotFs : FileSystemBase
             // the same handle with a marker or restart it from the beginning.
             // The preceding request may also have fetched an entry that did
             // not fit its output buffer, so never reuse its advanced cursor.
-            enumerator = new DirEnumerator(node.GetChildren(_provider));
+            // Marker-resume: WinFSP passes back the filename of the last
+            // returned entry; start after it (case-insensitive, the order
+            // the children are sorted in). A binary search, so a 20,000-file
+            // folder read in many requests does not rescan from the start.
+            var children = node.GetChildren(_provider);
+            enumerator = new DirEnumerator(children.Entries, Marker is null ? 0 : children.IndexAfter(Marker));
             Context = enumerator;
         }
 
-        // Marker-resume: WinFSP passes back the filename of the last
-        // returned entry. Skip everything ≤ Marker (case-insensitive,
-        // matching NTFS's CasePreservedNames=true convention) so
-        // resumption picks up at the next entry.
-        while (enumerator.MoveNext())
-        {
-            var child = enumerator.Current!;
-            var leaf = LeafFor(child);
-            if (Marker is not null)
-            {
-                if (string.Compare(leaf, Marker, StringComparison.OrdinalIgnoreCase) <= 0)
-                    continue;
-            }
-            FileName = leaf;
-            FileInfo = ToFileInfo(child);
-            return true;
-        }
-
-        return false;
+        if (!enumerator.MoveNext()) return false;
+        var child = enumerator.Current!;
+        FileName = LeafFor(child);
+        FileInfo = ToFileInfo(child);
+        return true;
     }
 
     public override int CanDelete(object FileNode, object FileDesc, string FileName)
@@ -271,7 +262,7 @@ public sealed class WinFspSnapshotFs : FileSystemBase
         return fileName.Replace('\\', '/').Trim('/');
     }
 
-    private static string LeafFor(WebDavEntry entry)
+    internal static string LeafFor(WebDavEntry entry)
     {
         var path = entry.RelativePath;
         var idx = path.LastIndexOf('/');
@@ -338,7 +329,7 @@ public sealed class WinFspSnapshotFs : FileSystemBase
     {
         public WebDavEntry Entry { get; }
         private Stream? _stream;
-        private IReadOnlyList<WebDavEntry>? _children;
+        private SortedChildren? _children;
         private readonly object _streamLock = new();
 
         public SnapshotNode(WebDavEntry entry) { Entry = entry; }
@@ -379,12 +370,11 @@ public sealed class WinFspSnapshotFs : FileSystemBase
             }
         }
 
-        public IReadOnlyList<WebDavEntry> GetChildren(ISnapshotTreeProvider provider)
+        public SortedChildren GetChildren(ISnapshotTreeProvider provider)
         {
             lock (_streamLock)
-                return _children ??= (provider.ListAsync(Entry.RelativePath, CancellationToken.None)
-                    .GetAwaiter().GetResult() ?? Array.Empty<WebDavEntry>())
-                    .OrderBy(e => LeafFor(e), StringComparer.OrdinalIgnoreCase).ToArray();
+                return _children ??= new SortedChildren(provider.ListAsync(Entry.RelativePath, CancellationToken.None)
+                    .GetAwaiter().GetResult() ?? Array.Empty<WebDavEntry>());
         }
 
         public void Dispose()
@@ -394,6 +384,44 @@ public sealed class WinFspSnapshotFs : FileSystemBase
                 try { _stream?.Dispose(); } catch { }
                 _stream = null;
             }
+        }
+    }
+
+    /// <summary>A folder's entries in enumeration order (case-insensitive by
+    /// name). A mounted snapshot's listings already come in that order, so
+    /// sorting is skipped unless a provider returns them otherwise.</summary>
+    internal sealed class SortedChildren
+    {
+        private readonly string[] _leaves;
+        public IReadOnlyList<WebDavEntry> Entries { get; }
+
+        public SortedChildren(IReadOnlyList<WebDavEntry> entries)
+        {
+            var leaves = new string[entries.Count];
+            for (var i = 0; i < leaves.Length; i++) leaves[i] = LeafFor(entries[i]);
+            var sorted = true;
+            for (var i = 1; i < leaves.Length && sorted; i++)
+                sorted = string.Compare(leaves[i - 1], leaves[i], StringComparison.OrdinalIgnoreCase) <= 0;
+            if (!sorted)
+            {
+                var copy = entries.ToArray();
+                Array.Sort(leaves, copy, StringComparer.OrdinalIgnoreCase);
+                entries = copy;
+            }
+            _leaves = leaves;
+            Entries = entries;
+        }
+
+        /// <summary>Index of the first entry named after <paramref name="marker"/>.</summary>
+        public int IndexAfter(string marker)
+        {
+            int lo = 0, hi = _leaves.Length;
+            while (lo < hi)
+            {
+                var mid = (lo + hi) >>> 1;
+                if (string.Compare(_leaves[mid], marker, StringComparison.OrdinalIgnoreCase) <= 0) lo = mid + 1; else hi = mid;
+            }
+            return lo;
         }
     }
 
@@ -407,10 +435,10 @@ public sealed class WinFspSnapshotFs : FileSystemBase
         private readonly IReadOnlyList<WebDavEntry> _children;
         private int _index;
 
-        public DirEnumerator(IReadOnlyList<WebDavEntry> children)
+        public DirEnumerator(IReadOnlyList<WebDavEntry> children, int start)
         {
             _children = children;
-            _index = -1;
+            _index = start - 1;
         }
 
         public WebDavEntry? Current => _index >= 0 && _index < _children.Count ? _children[_index] : null;

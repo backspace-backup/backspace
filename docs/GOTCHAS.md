@@ -261,11 +261,34 @@ a separate feature and does not require a mounted drive.
 
 Mounted-file caches are separated by destination, source and immutable snapshot
 ID. A revision number is only a display position and can change after retention;
-never use it to reuse bytes from an earlier mount. Bulk reads restore into a
-private directory and publish it by directory rename only after complete
-success. Failed or cancelled bulk output is never served merely because a file
-exists. Snapshot listing and restore processes retain their repository lease
+never use it to reuse bytes from an earlier mount. Files reach the cache only
+through the engine's restore, which publishes a file after it is complete.
+Snapshot listing and restore processes retain their repository lease
 until process exit is confirmed; a cancelled HTTP wait alone is not sufficient.
+
+Never ask the engine for a mounted snapshot one folder at a time (U158). Each
+folder cost a restic process (repository index load) behind a Backrest call,
+and on a cloud destination also a separate sign-in check, so every folder of a
+large cloud backup took seconds. The mount reads the whole tree with
+`restic ls --recursive` (shared out between processes by top-level folder)
+before the drive appears and answers from memory; the per-folder call remains
+only for an engine that cannot list a whole tree. Giving each process many
+second-level folders instead was measured slower. A listing's standard output
+must not go through `StreamingRestoreProcess`'s diagnostics (each line parsed
+and kept), which cost seconds on 600,000 lines.
+Equally, never restore a whole snapshot because a few files were opened: the
+former "two opens fetch everything" rule began restoring all 600,000 files of
+a measured fixture after the second file. Prefetch is limited to a small
+folder (`FolderBatchMaxBytes`, `FolderBatchMaxFiles`). WinFsp's cache
+timeouts are infinite on this read-only volume; keep them so, or Explorer asks
+again every second.
+
+A mounted snapshot and every restore hold their destination through
+`SnapshotReaders` (U159): cleanup, snapshot removal, prune and password changes
+check it in the engine, so the background service obeys the window's mount.
+Restic's own repository lock does not cover this: listings run with
+`--no-lock`, and a mount reads only now and then, so a prune between two reads
+could remove what the drive shows.
 Mounted reads refuse links and linked parent folders, which could otherwise
 expose today's local files outside the snapshot. Restore can recover the link
 itself; mounted browsing does not currently emulate its filesystem semantics.

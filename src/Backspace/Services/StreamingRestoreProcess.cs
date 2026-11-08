@@ -19,6 +19,9 @@ internal static class StreamingRestoreProcess
     internal sealed record Result(int ExitCode, bool Cancelled, string Output, bool HadErrors);
     internal const int MaximumLineCharacters = 128 * 1024;
 
+    /// <param name="includeStandardOutput">False: standard output goes only to
+    /// <paramref name="onLine"/>, not into the result's diagnostics and error
+    /// detection (standard error always does).</param>
     internal static async Task<Result> RunAsync(ProcessStartInfo start,
         Action<string>? onLine, CancellationToken ct, string operationName = "restore", bool includeStandardOutput = true)
     {
@@ -46,8 +49,10 @@ internal static class StreamingRestoreProcess
                 await ReadLinesAsync(reader, line =>
                 {
                     Interlocked.CompareExchange(ref firstOutputMs, elapsed.ElapsedMilliseconds, -1);
-                    if (!include) return;
-                    output.Accept(line);
+                    // Standard output left out of the diagnostics still reaches
+                    // the caller: a snapshot listing's 600,000 lines must not
+                    // each be parsed and kept as a diagnostic tail (U158).
+                    if (include) output.Accept(line);
                     onLine?.Invoke(line);
                 }).ConfigureAwait(false);
             }

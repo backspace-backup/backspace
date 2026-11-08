@@ -23,6 +23,12 @@ public interface ISnapshotMountRegistry
     bool HasPendingOperations { get; }
     void CancelPending();
     string? GetMountedDrive(string backupId);
+    /// <summary>What a mount in progress is doing, in words ("Reading the
+    /// backup's folders: 120,000 so far"); null when none is (U158).
+    /// <see cref="Changed"/> fires when it changes.</summary>
+    string? GetMountProgress(string backupId) => null;
+    /// <summary>Opens Explorer at a mounted snapshot's drive.</summary>
+    void OpenInExplorer(string backupId) { }
     Task UnmountAsync(string backupId, CancellationToken ct = default);
     /// <summary>Mount the latest snapshot of <paramref name="backup"/>'s
     /// first plan as a system-visible drive / mount, opening a

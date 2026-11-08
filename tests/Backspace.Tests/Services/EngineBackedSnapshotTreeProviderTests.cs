@@ -178,36 +178,87 @@ public class EngineBackedSnapshotTreeProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task OpenAsync_RepeatedReads_PromoteToBulkRestoreExactlyOnce()
+    public async Task OpeningAFile_FetchesTheRestOfItsSmallFolderInOneRestore_AndNeverTheWholeSnapshot()
     {
-        // The performance property: once Backspace has seen multiple
-        // opens on the same (source, revision) — the user is clearly
-        // traversing or copying, not sampling — we MUST switch to a
-        // single bulk subtree restore. Without it an Explorer "Copy"
-        // of a 2500-file revision spent ~2 hours doing one restic
-        // invocation per file. With it the copy completes in seconds.
+        // U158: Explorer previews and the next file opened in a folder
+        // come from one background restore of that folder. The old
+        // "two opens restore the whole snapshot" path would have pulled a
+        // 190 GB backup onto the disk; it must never run.
         using var provider = new EngineBackedSnapshotTreeProvider(
             _engine, _backup, _backup.SourcePaths[0], _destination, "default", revision: 1, cacheDir: _cacheDir);
 
-        var bulkBefore = _engine.Calls.Count(c => c.StartsWith("RestoreSnapshotSubtree"));
+        await using (var a = await provider.OpenAsync("photos/2026/a.jpg", CancellationToken.None))
+            Assert.Equal("beta", await new StreamReader(a).ReadToEndAsync());
+        // The folder's other file arrives by the background batch.
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!File.Exists(Path.Combine(_cacheDir, "files", "photos", "2026", "b.jpg")) && DateTime.UtcNow < deadline)
+            await Task.Delay(20);
+        var restoresBefore = _engine.Calls.Count(c => c.StartsWith("RestoreFiles"));
+        await using (var b = await provider.OpenAsync("photos/2026/b.jpg", CancellationToken.None))
+            Assert.Equal("gamma", await new StreamReader(b).ReadToEndAsync());
+        Assert.Equal(restoresBefore, _engine.Calls.Count(c => c.StartsWith("RestoreFiles")));
+        Assert.Contains(_engine.Calls, c => c == $"RestoreFiles({_backup.Name},r1,1)");
+        Assert.DoesNotContain(_engine.Calls, c => c.StartsWith("RestoreSnapshotSubtree"));
+        // The root folder was never fetched: nothing was opened there.
+        Assert.False(File.Exists(Path.Combine(_cacheDir, "files", "readme.txt")));
+    }
 
-        // First read — per-file path.
-        await using (var s1 = await provider.OpenAsync("readme.txt", CancellationToken.None))
-            Assert.Equal("alpha", await new StreamReader(s1).ReadToEndAsync());
-        Assert.Equal(bulkBefore, _engine.Calls.Count(c => c.StartsWith("RestoreSnapshotSubtree")));
+    [Fact]
+    public async Task LargeFolders_AreNeverFetchedAsAWhole()
+    {
+        var source = _backup.SourcePaths[0];
+        var big = Path.Combine(source, "videos");
+        Directory.CreateDirectory(big);
+        using (var stream = File.Create(Path.Combine(big, "large.bin"))) stream.SetLength(EngineBackedSnapshotTreeProvider.FolderBatchMaxBytes + 1);
+        File.WriteAllText(Path.Combine(big, "small.txt"), "small");
+        await _engine.BackupPruneCheckAsync(_backup, source, _destination, "default", CancellationToken.None);
+        using var provider = new EngineBackedSnapshotTreeProvider(
+            _engine, _backup, source, _destination, "default", revision: 2, cacheDir: _cacheDir);
+        await using (var small = await provider.OpenAsync("videos/small.txt", CancellationToken.None))
+            Assert.Equal("small", await new StreamReader(small).ReadToEndAsync());
+        await Task.Delay(200);
+        Assert.False(File.Exists(Path.Combine(_cacheDir, "files", "videos", "large.bin")));
+        Assert.Single(_engine.Calls, c => c.StartsWith("RestoreFiles"));
+    }
 
-        // Second read — promotes to bulk. Even though THIS file is
-        // a different one in a deep subdir, bulk picks up both.
-        await using (var s2 = await provider.OpenAsync("photos/2026/a.jpg", CancellationToken.None))
-            Assert.Equal("beta", await new StreamReader(s2).ReadToEndAsync());
-        Assert.Equal(bulkBefore + 1, _engine.Calls.Count(c => c.StartsWith("RestoreSnapshotSubtree")));
+    [Fact]
+    public async Task TheWholeTreeIsReadOnce_ThenEveryListingAndLookupComesFromMemory()
+    {
+        using var provider = new EngineBackedSnapshotTreeProvider(
+            _engine, _backup, _backup.SourcePaths[0], _destination, "default", revision: 1, cacheDir: _cacheDir);
+        Assert.NotNull(await provider.LoadTreeAsync(CancellationToken.None));
+        var calls = _engine.Calls.Count;
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.Equal(2, (await provider.ListAsync("", CancellationToken.None))!.Count);
+            Assert.Equal(2, (await provider.ListAsync("photos/2026", CancellationToken.None))!.Count);
+            Assert.True((await provider.StatAsync("PHOTOS/2026/A.JPG", CancellationToken.None))!.SizeBytes > 0);
+            Assert.Null(await provider.ListAsync("photos/nope", CancellationToken.None));
+            Assert.Null(await provider.StatAsync("photos/2026/c.jpg", CancellationToken.None));
+        }
+        Assert.Equal(calls, _engine.Calls.Count);
+        Assert.Single(_engine.Calls, c => c.StartsWith("ListSnapshotTree"));
+        Assert.DoesNotContain(_engine.Calls, c => c.StartsWith("ListSnapshotDirectory"));
+    }
 
-        // Third read of yet another file: singleton bulk task → no
-        // new bulk call, served from the cache the bulk restore
-        // populated.
-        await using (var s3 = await provider.OpenAsync("photos/2026/b.jpg", CancellationToken.None))
-            Assert.Equal("gamma", await new StreamReader(s3).ReadToEndAsync());
-        Assert.Equal(bulkBefore + 1, _engine.Calls.Count(c => c.StartsWith("RestoreSnapshotSubtree")));
+    [Fact]
+    public async Task ListingsDuringTheTreeRead_WaitForThatOneRead_InsteadOfAskingPerFolder()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        _engine.ListSnapshotTreeGate = gate;
+        try
+        {
+            using var provider = new EngineBackedSnapshotTreeProvider(
+                _engine, _backup, _backup.SourcePaths[0], _destination, "default", revision: 1, cacheDir: _cacheDir);
+            var listings = Enumerable.Range(0, 4).Select(_ => Task.Run(() => provider.ListAsync("photos", CancellationToken.None))).ToArray();
+            await Task.Delay(150);
+            Assert.All(listings, l => Assert.False(l.IsCompleted));
+            gate.Set();
+            foreach (var listing in listings) Assert.Single((await listing)!);
+            Assert.Single(_engine.Calls, c => c.StartsWith("ListSnapshotTree"));
+            Assert.DoesNotContain(_engine.Calls, c => c.StartsWith("ListSnapshotDirectory"));
+        }
+        finally { _engine.ListSnapshotTreeGate = null; }
     }
 
     [Fact]
@@ -235,53 +286,6 @@ public class EngineBackedSnapshotTreeProviderTests : IDisposable
             Assert.DoesNotContain(_engine.Calls, c => c.StartsWith("RestoreFiles"));
         }
         finally { Directory.Delete(junction); }
-    }
-
-    [Fact]
-    public async Task FailedBulkRestore_NeverServesPreallocatedFiles_AndFallsBackToVerifiedFiles()
-    {
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var proxy = DispatchProxy.Create<IBackupEngine, BulkEngineProxy>();
-        var control = (BulkEngineProxy)proxy;
-        control.Inner = _engine;
-        control.Bulk = async args =>
-        {
-            var target = (string)args[5]!;
-            Directory.CreateDirectory(Path.Combine(target, "photos", "2026"));
-            File.WriteAllText(Path.Combine(target, "photos", "2026", "a.jpg"), "INCOMPLETE");
-            File.WriteAllText(Path.Combine(target, "photos", "2026", "b.jpg"), "INCOMPLETE");
-            started.TrySetResult();
-            await finish.Task;
-            return false;
-        };
-        using var provider = new EngineBackedSnapshotTreeProvider(proxy, _backup, _backup.SourcePaths[0],
-            _destination, "default", 1, _cacheDir);
-        await using (var first = await provider.OpenAsync("readme.txt", CancellationToken.None)) { }
-        var second = provider.OpenAsync("photos/2026/a.jpg", CancellationToken.None);
-        Task<Stream>? concurrent = null;
-        try
-        {
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            concurrent = provider.OpenAsync("photos/2026/b.jpg", CancellationToken.None);
-            await Task.Delay(100);
-            Assert.False(second.IsCompleted);
-            Assert.False(concurrent.IsCompleted);
-        }
-        finally { finish.TrySetResult(); }
-        await using var a = await second.WaitAsync(TimeSpan.FromSeconds(5));
-        await using var b = await concurrent!.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal("beta", await new StreamReader(a).ReadToEndAsync());
-        Assert.Equal("gamma", await new StreamReader(b).ReadToEndAsync());
-    }
-
-    public class BulkEngineProxy : DispatchProxy
-    {
-        public IBackupEngine Inner { get; set; } = null!;
-        public Func<object?[], Task<bool>> Bulk { get; set; } = null!;
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) =>
-            targetMethod!.Name == nameof(IBackupEngine.RestoreSnapshotSubtreeAsync)
-                ? Bulk(args!) : targetMethod.Invoke(Inner, args);
     }
 
     [Fact]

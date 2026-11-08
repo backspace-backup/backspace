@@ -135,12 +135,18 @@ public sealed class MaintenanceCoordinator
     {
         lock (_sync) ThrowIfShuttingDown();
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        IDisposable? mounts = null;
         try
         {
             lock (_sync)
             {
                 ThrowIfShuttingDown();
                 if (_unsafeReason is not null) throw new InvalidOperationException(_unsafeReason);
+                // A mounted snapshot reads the storage for as long as it is
+                // mounted, between engine calls too: refuse rather than wait
+                // for an unmount that may never come (U159).
+                mounts = SnapshotReaders.TryBeginChangeAnywhere(out var mounted)
+                    ?? throw new InvalidOperationException(SnapshotReaders.Refusal(reason, mounted));
                 _active = true;
                 CurrentReason = reason;
             }
@@ -161,13 +167,20 @@ public sealed class MaintenanceCoordinator
                     {
                         var handle = TryOpenGate(exclusive: true);
                         if (handle is not null)
-                            return new Lease(() => { lock (_sync) ReleaseGate(handle); Release(reason); });
+                            return new Lease(() => { lock (_sync) ReleaseGate(handle); mounts?.Dispose(); Release(reason); });
                     }
                 }
                 await Task.Delay(100, ct).ConfigureAwait(false);
             }
         }
-        catch { Release(reason); throw; }
+        catch
+        {
+            mounts?.Dispose();
+            // Refused before anything started: nothing to undo but the lock.
+            if (mounts is null) { _writeLock.Release(); throw; }
+            Release(reason);
+            throw;
+        }
     }
 
     private static FileStream? TryOpenGate(bool exclusive)

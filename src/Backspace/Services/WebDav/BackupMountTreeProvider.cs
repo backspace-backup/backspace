@@ -354,21 +354,40 @@ public sealed class BackupMountTreeProvider : ISnapshotTreeProvider, IDisposable
                 _engine, _backup, sourcePath, _destination, _storageName, tuple.Rev, cacheDir, snapshot.SnapshotId);
         });
 
-        // First materialisation: fire-and-forget a background prefetch
-        // of the whole sub-tree. The lazy listing for the dir Explorer
-        // just asked about proceeds in parallel and returns its single
-        // RPC quickly; the prefetch warms _dirCache for everything
-        // else, so an Explorer "Calculating..." sweep on a revision
-        // folder doesn't have to do thousands of sequential round-trips.
+        // First use: start reading the snapshot's whole tree (one engine
+        // listing). Every listing inside it waits for that one read.
         if (wasCreated)
-        {
-            _ = Task.Run(async () =>
-            {
-                try { await sub.PrefetchAllAsync().ConfigureAwait(false); }
-                catch { /* prefetch is best-effort */ }
-            });
-        }
+            _ = sub.LoadTreeAsync(CancellationToken.None).ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
         return sub;
+    }
+
+    /// <summary>Before the drive appears (U158): lists each source's
+    /// snapshots and reads the latest snapshot's whole tree, so every folder
+    /// under "Latest revision" opens at once. <paramref name="progress"/> hears
+    /// how many files and folders have been read. Returns how many sources
+    /// have a snapshot. An older snapshot's tree is read when its folder is
+    /// first opened. The revisions listed here stay fixed for the mount: a
+    /// backup finishing meanwhile adds a snapshot the drive does not show,
+    /// and "Latest revision" keeps showing the one it opened.</summary>
+    public async Task<int> PrepareAsync(IProgress<int>? progress, CancellationToken ct)
+    {
+        var latest = new List<EngineBackedSnapshotTreeProvider>();
+        foreach (var folder in _sourceByFolder.Keys)
+        {
+            var revisions = await GetRevisionsAsync(folder, ct).ConfigureAwait(false);
+            if (revisions.Count == 0) continue;
+            if (await GetSubProviderAsync(folder, revisions[0].Number, ct).ConfigureAwait(false) is { } sub)
+                latest.Add(sub);
+        }
+        var reading = Task.WhenAll(latest.Select(sub => sub.LoadTreeAsync(ct)));
+        while (!reading.IsCompleted)
+        {
+            progress?.Report(latest.Sum(sub => sub.Tree is { } tree ? tree.FileCount + tree.DirectoryCount : sub.TreeEntriesRead));
+            await Task.WhenAny(reading, Task.Delay(250, ct)).ConfigureAwait(false);
+        }
+        await reading.ConfigureAwait(false);
+        progress?.Report(latest.Sum(sub => sub.Tree is { } tree ? tree.FileCount + tree.DirectoryCount : sub.TreeEntriesRead));
+        return latest.Count;
     }
 
     /// <summary>Parse-result struct. Fields cleanly nullable so a

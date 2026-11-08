@@ -364,7 +364,7 @@
               IsVisible="{Binding ShowActions}"
               Background="Transparent"
               Padding="20,6,20,10">
-        <Grid VerticalAlignment="Center">
+        <Grid VerticalAlignment="Center" RowDefinitions="Auto,Auto">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="16"/>
@@ -394,8 +394,8 @@
                     CommandParameter="{Binding}">
               <TextBlock Text="Stop" VerticalAlignment="Center"/>
             </Button>
-            <Button Classes="ghost"
-                    IsEnabled="{Binding CanUseSnapshots}"
+            <Button Classes="ghost" Name="MountButton"
+                    IsEnabled="{Binding CanMountOrUnmount}"
                     IsVisible="{Binding CanMountSnapshot}"
                     ToolTip.Tip="{Binding MountTooltip}"
                     ToolTip.ShowOnDisabled="True"
@@ -430,6 +430,35 @@
           <Button Grid.Column="2" Name="MoreActionsButton" Classes="ghost subtle" VerticalAlignment="Top" Margin="0,0,0,6"
                   Content="More" Click="OnMoreActions" AutomationProperties.Name="More backup actions"
                   ToolTip.Tip="Edit settings, browse snapshots, or remove this backup."/>
+
+          <!-- The mounted drive, from the click (U158): what the mount is
+               doing, then the drive and Open in Explorer, or why it failed. -->
+          <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Name="MountLine" Spacing="6" Margin="0,2,0,2"
+                      IsVisible="{Binding ShowMountLine}">
+            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsMounting}">
+              <StackPanel Spacing="5" VerticalAlignment="Center">
+                <TextBlock FontSize="12" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
+                           Text="{Binding MountProgress, StringFormat='Mounting · {0}…'}"/>
+                <ProgressBar IsIndeterminate="True" Height="4" MaxWidth="320" HorizontalAlignment="Left"
+                             Background="{DynamicResource BS.Brush.AccentTint}"
+                             Foreground="{DynamicResource BS.Brush.Accent}"/>
+              </StackPanel>
+              <Button Grid.Column="1" Classes="row-action" Margin="12,0,0,0" VerticalAlignment="Center"
+                      Content="Cancel" Command="{Binding CancelMountCommand}" ToolTip.Tip="Stop mounting this backup."/>
+            </Grid>
+            <WrapPanel IsVisible="{Binding MountedDrive, Converter={x:Static vm:NotEmpty.To}}">
+              <TextBlock FontSize="12" Foreground="{DynamicResource BS.Brush.FgSecondary}" VerticalAlignment="Center"
+                         Margin="0,0,12,0" TextWrapping="Wrap" Text="{Binding MountedLine}"/>
+              <Button Classes="row-action" Content="Open in Explorer" Command="{Binding OpenMountedDriveCommand}"
+                      ToolTip.Tip="Open the mounted drive in File Explorer."/>
+            </WrapPanel>
+            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding MountError, Converter={x:Static vm:NotEmpty.To}}">
+              <TextBlock FontSize="12" Foreground="{DynamicResource BS.Brush.Danger}" TextWrapping="Wrap"
+                         VerticalAlignment="Center" Text="{Binding MountError}"/>
+              <Button Grid.Column="1" Classes="row-action" Margin="12,0,0,0" VerticalAlignment="Center"
+                      Content="Dismiss" Command="{Binding DismissMountErrorCommand}"/>
+            </Grid>
+          </StackPanel>
         </Grid>
       </Border>
 

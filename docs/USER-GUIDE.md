@@ -472,7 +472,30 @@ WinFsp filesystem. Open files in your usual apps, compare them with your
 current copies, or drag files out. Mounting needs the WinFsp driver: Backspace
 checks for it and asks for administrator approval to install it when it's
 missing. Backspace itself stays portable, and normal restores don't need the
-driver. Backspace removes the drive when you unmount or close the app.
+driver.
+
+From the click, the card says **Mounting** and what it is doing. Backspace
+first reads the whole list of the latest snapshot's files and folders, which
+for a large backup in the cloud can take a while (the card counts them);
+after that, every folder of the drive opens at once, because a snapshot never
+changes. An older snapshot, under **All revisions**, is read the first time
+you open its folder. When the drive is ready, Explorer opens it and the card
+says **Mounted as Z:** with **Open in Explorer**. A file's contents are
+fetched the first time you open it; the other files of a small folder come
+with it, so the next one opens at once. Copying a large folder out of the
+drive fetches its files one folder at a time: **Restore files** is faster
+for that.
+
+While a snapshot is mounted, and while a restore or test restore runs,
+Backspace changes nothing in that backup's storage: cleanup after a backup
+waits ("Cleanup waits: a snapshot of this backup is mounted as a drive") and
+runs after a later backup, and removing snapshots, erasing the storage or
+changing its password say they have to wait. Backups keep running: they only
+add a new snapshot, and the drive keeps showing the one it opened.
+
+Backspace removes the drive when you unmount or quit; if Backspace stops any
+other way, Windows removes it with it. Closing the window to the tray keeps
+the drive, like backups keep running.
 
 ## The test-restore drill
 
