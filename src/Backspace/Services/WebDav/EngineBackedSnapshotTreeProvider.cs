@@ -105,6 +105,7 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
     {
         // Detached from any one caller: a cancelled Explorer request must not
         // waste a listing others are waiting for. Unmounting cancels it.
+        Volatile.Write(ref _treeFilesRead, 0);
         var nodes = await WithReadLeaseAsync(token => _engine.ListSnapshotTreeAsync(
             _backup, _sourcePath, _destination, _storageName, _revision, token, _snapshotId,
             new Progress<int>(count =>
@@ -119,7 +120,6 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         if (nodes is null)
         {
             lock (_treeGate) _treeUnavailable = true;
-        Volatile.Write(ref _treeFilesRead, 0);
             return null;
         }
         var clock = System.Diagnostics.Stopwatch.StartNew();
