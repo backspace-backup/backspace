@@ -351,11 +351,33 @@ internal static partial class VaultConversion
     /// <summary>The earlier secrets.bin files go only once a run has used the
     /// new vault successfully: the service's when there is one, else this
     /// app's own.</summary>
+    /// <summary>A backup succeeded after <paramref name="since"/>, in the run
+    /// history (this app's and the background service's). Runs after the
+    /// conversion can only have used the new vault.</summary>
+    private static bool SucceededSince(DateTime since)
+    {
+        if (!ServiceLocator.Initialized) return false;
+        try
+        {
+            return ServiceLocator.Config.Current.Backups.Any(b => ServiceLocator.Logs.LoadHistoryByBackupId(b.Id)
+                .Any(r => r.Kind == RunKind.Backup && r.Status == BackupRunStatus.Success && r.EndedUtc > since));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLogger.For(nameof(VaultConversion)).Warning(ex, "Run history unavailable; the earlier saved-password files are kept for now");
+            return false;
+        }
+    }
+
     private static void FinishAfterFirstRun(Record record, IVaultConversionHost host, string config)
     {
         var since = record.ConvertedUtc ?? DateTime.UtcNow;
+        // Any successful backup since the conversion counts, not only the
+        // service's very last run: on the owner's install local_c succeeded on
+        // the new vault, then local_dropbox was skipped (its drive wasn't
+        // attached), and the old files stayed (8 November 2026).
         var ran = host.HasService
-            ? record.VaultId is { } id && host.RanOnVault(id, since)
+            ? record.VaultId is { } id && host.RanOnVault(id, since) || SucceededSince(since)
             : ServiceLocator.Initialized && ServiceLocator.Config.Current.Backups.Any(b => b.LastSuccessUtc > since);
         if (!ran) return;
         foreach (var root in new[] { config, host.ServiceDataDirectory }.Where(r => r is not null))

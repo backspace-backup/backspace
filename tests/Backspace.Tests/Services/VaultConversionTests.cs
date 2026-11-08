@@ -94,6 +94,39 @@ public sealed class VaultConversionTests
         install.Workspace.Dispose();
     }
 
+    /// <summary>The owner's install, 8 November 2026: local_c succeeded on the
+    /// new vault, then the service's last run was local_dropbox, skipped
+    /// because its drive wasn't attached. The old files must still go.</summary>
+    [Fact]
+    public void The_old_files_go_after_any_successful_run_even_if_the_last_one_was_skipped()
+    {
+        var install = OldInstall();
+        try
+        {
+            var secrets = new SecretsStore();
+            Assert.Null(VaultConversion.Run(Password, secrets, install.Host, install.Settings));
+            Assert.Equal("awaiting-first-run", VaultConversion.Read(AppPaths.ConfigRoot)!.Stage);
+            install.Host.Ran = false; // the service's last run report: a skipped backup
+            var backup = new Backup { Name = "local_c" };
+            ServiceLocator.Config.Update(c => c.Backups.Add(backup));
+            Assert.Null(VaultConversion.Continue(secrets, install.Host));
+            Assert.True(File.Exists(Path.Combine(install.Service, "secrets.bin"))); // nothing succeeded yet
+
+            ServiceLocator.Logs.AppendRun(new RunRecord { BackupId = backup.Id, BackupName = backup.Name, Status = BackupRunStatus.Skipped,
+                StartedUtc = DateTime.UtcNow.AddMinutes(-1), EndedUtc = DateTime.UtcNow });
+            Assert.Null(VaultConversion.Continue(secrets, install.Host));
+            Assert.True(File.Exists(Path.Combine(install.Service, "secrets.bin"))); // a skipped run proves nothing
+
+            ServiceLocator.Logs.AppendRun(new RunRecord { BackupId = backup.Id, BackupName = backup.Name, Status = BackupRunStatus.Success,
+                StartedUtc = DateTime.UtcNow.AddMinutes(-1), EndedUtc = DateTime.UtcNow.AddSeconds(1) });
+            Assert.Null(VaultConversion.Continue(secrets, install.Host));
+            Assert.Empty(Directory.GetFiles(AppPaths.ConfigRoot, "secrets.bin*"));
+            Assert.Empty(Directory.GetFiles(install.Service, "secrets.bin*"));
+            Assert.Null(VaultConversion.Read(AppPaths.ConfigRoot));
+        }
+        finally { Cleanup(install); }
+    }
+
     [Fact]
     public void Converts_merges_takes_newer_tokens_moves_engine_folders_and_removes_old_files_after_the_first_run()
     {
