@@ -39,7 +39,7 @@ public static partial class LastRunLine
         // A summary in another shape (an older version's, a fixture's) is
         // shown as it is rather than guessed at.
         if (size is null && !counts.Success && took is null)
-            return ($"{ago} · {summary}", $"{summary} · finished " + endedUtc.ToLocalTime().ToString("ddd d MMM, HH:mm", CultureInfo.CurrentCulture) + ".");
+            return ($"{ago} · {summary}", $"{summary} · finished " + endedUtc.ToLocalTime().ToString("ddd d MMM, HH:mm", CultureInfo.CurrentCulture));
 
         var label = ago + " · " + (size is null ? "nothing new to upload" : size + " uploaded");
         if (problems is not null) label += " · " + problems;
@@ -53,7 +53,7 @@ public static partial class LastRunLine
             hover.Add($"{counts.Groups["new"].Value} new, {counts.Groups["mod"].Value} changed and {counts.Groups["rem"].Value} deleted files since the previous backup");
         hover.Add(size is null ? "nothing new to upload" : size + " of new data uploaded");
         if (problems is not null) hover.Add(problems + " (see Activity)");
-        return (label, string.Join(" · ", hover) + ".");
+        return (label, string.Join(" · ", hover));
     }
 
     private static string Ago(DateTime utc, DateTime now)

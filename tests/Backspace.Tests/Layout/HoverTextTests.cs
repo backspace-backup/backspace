@@ -12,12 +12,12 @@ namespace Backspace.Tests.Layout;
 /// TextTrimming from its card label.</summary>
 public class HoverTextTests
 {
-    private const string Hover = "Finished Sat 7 Nov, 20:11 · took 11m 29s · 150 new, 195 changed and 0 deleted files since the previous backup · 127.42 MB of new data uploaded.";
+    private const string Hover = "Finished Sat 7 Nov, 20:11 · took 11m 29s · 150 new, 195 changed and 0 deleted files since the previous backup · 127.42 MB of new data uploaded";
 
     [Fact]
     public void The_first_two_segments_share_the_first_line_and_each_other_has_its_own()
     {
-        Assert.Equal("Finished Sat 7 Nov, 20:11 · took 11m 29s\n150 new, 195 changed and 0 deleted files since the previous backup\n127.42 MB of new data uploaded.",
+        Assert.Equal("Finished Sat 7 Nov, 20:11 · took 11m 29s\n150 new, 195 changed and 0 deleted files since the previous backup\n127.42 MB of new data uploaded",
             HoverSegments.Layout(Hover));
         Assert.Equal("A plain sentence.", HoverSegments.Layout("A plain sentence."));
         Assert.Equal("one · two", HoverSegments.Layout("one · two"));
