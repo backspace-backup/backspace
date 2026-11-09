@@ -197,6 +197,20 @@ public sealed class ResticBackrestEngine : IBackupEngine
         {
             RaiseLineWritten(recap); lineSink?.Invoke(recap);
         }
+        // Backspace's restic skips online-only files quietly and does not
+        // count them (U168): this run's own listing of the source does. ARM64
+        // builds run official restic, which reports Dropbox's as errors.
+        long cloudOnlySkipped = 0;
+        if (backup.ExcludeCloudFiles && Platform.PlatformInfo.IsWindows
+            && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture != System.Runtime.InteropServices.Architecture.Arm64
+            && terminal.Status is BackrestStatus.Success or BackrestStatus.Warning
+            && await changes.CloudOnlySkippedAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false) is { } skippedCount
+            && CloudFileBehavior.SkippedPhrase(skippedCount) is { } skippedPhrase)
+        {
+            cloudOnlySkipped = skippedCount;
+            var line = $"[backspace] {skippedPhrase}: kept only in the cloud, not downloaded and not in this backup";
+            RaiseLineWritten(line); lineSink?.Invoke(line);
+        }
         if (IsValidBackrestGuid(terminal.SnapshotId))
         {
             // Backrest 1.14.1's automatic index task has no pending operation.
@@ -295,6 +309,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             StartedUtc = started, EndedUtc = DateTime.UtcNow, Status = status,
             FilesNew = stats?.New ?? 0, FilesModified = stats?.Changed ?? 0, BytesUploaded = stats?.Added ?? 0,
             SnapshotsRemoved = cleanup.SnapshotsRemoved, BytesFreed = cleanup.BytesFreed,
+            CloudOnlySkipped = cloudOnlySkipped,
             Summary = $"Backup result: {terminal.Status}. {details}".Trim(),
             Checks = checks,
             Errors = status == BackupRunStatus.Failed

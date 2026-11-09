@@ -1,0 +1,206 @@
+From 0060362c1fa787e58e3311550f2b48f918b92fca Mon Sep 17 00:00:00 2001
+From: Backspace <noreply@backspace.invalid>
+Date: Mon, 9 Nov 2026 00:44:26 -1000
+Subject: [PATCH] fs: treat offline and recall-on-open files as online-only on
+ Windows
+
+--exclude-cloud-files only checked FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS.
+Most processes see Cloud Files placeholders disguised: a Dropbox
+online-only file then reads 0x1620 (ARCHIVE | SPARSE_FILE | REPARSE_POINT
+| OFFLINE), Go reports it as an irregular file, and the backup ends with
+'unsupported file type "irregular"' for each such file and a partial
+backup (https://github.com/restic/restic/issues/4704, and the
+--exclude-cloud-files change https://github.com/restic/restic/pull/4990
+for https://github.com/restic/restic/issues/4155).
+
+A file (not a folder) marked FILE_ATTRIBUTE_OFFLINE or
+FILE_ATTRIBUTE_RECALL_ON_OPEN is now online-only too, so
+--exclude-cloud-files skips it quietly. Only the attributes Lstat has
+already read are used (Lstat opens a reparse point with
+FILE_FLAG_OPEN_REPARSE_POINT and no data access), and the check runs in
+the select step, before the archiver looks at the file's type. The
+reparse tag alone is not used: a downloaded placeholder keeps its tag.
+---
+ internal/archiver/exclude_windows_test.go | 40 ++++++++++++++++
+ internal/fs/stat_windows.go               | 33 ++++++++++---
+ internal/fs/stat_windows_test.go          | 56 ++++++++++++++++++++++-
+ 3 files changed, 121 insertions(+), 8 deletions(-)
+ create mode 100644 internal/archiver/exclude_windows_test.go
+
+diff --git a/internal/archiver/exclude_windows_test.go b/internal/archiver/exclude_windows_test.go
+new file mode 100644
+index 0000000..2a01af8
+--- /dev/null
++++ b/internal/archiver/exclude_windows_test.go
+@@ -0,0 +1,40 @@
++package archiver
++
++import (
++	iofs "io/fs"
++	"syscall"
++	"testing"
++	"time"
++
++	"github.com/restic/restic/internal/fs"
++	rtest "github.com/restic/restic/internal/test"
++)
++
++type cloudFileInfo struct {
++	attrs uint32
++	mode  iofs.FileMode
++}
++
++func (m cloudFileInfo) IsDir() bool         { return m.mode.IsDir() }
++func (m cloudFileInfo) ModTime() time.Time  { return time.Now() }
++func (m cloudFileInfo) Mode() iofs.FileMode { return m.mode }
++func (m cloudFileInfo) Name() string        { return "test" }
++func (m cloudFileInfo) Size() int64         { return 0 }
++func (m cloudFileInfo) Sys() any {
++	return &syscall.Win32FileAttributeData{FileAttributes: m.attrs}
++}
++
++// A Dropbox online-only file is an irregular file to Go. It is rejected
++// before the archiver looks at its type, so it is skipped without an error.
++func TestRejectCloudFilesDropboxPlaceholder(t *testing.T) {
++	warned := false
++	reject, err := RejectCloudFiles(func(string, ...interface{}) { warned = true })
++	rtest.OK(t, err)
++
++	placeholder := fs.ExtendedStat(cloudFileInfo{attrs: 0x1620, mode: iofs.ModeIrregular})
++	rtest.Assert(t, reject("online-only.txt", placeholder, nil), "online-only file should be rejected")
++
++	local := fs.ExtendedStat(cloudFileInfo{attrs: 0x20})
++	rtest.Assert(t, !reject("local.txt", local, nil), "local file should be kept")
++	rtest.Assert(t, !warned, "no warning expected")
++}
+diff --git a/internal/fs/stat_windows.go b/internal/fs/stat_windows.go
+index bc4092d..6463823 100644
+--- a/internal/fs/stat_windows.go
++++ b/internal/fs/stat_windows.go
+@@ -40,17 +40,38 @@ func extendedStat(fi os.FileInfo) *ExtendedFileInfo {
+ 
+ // RecallOnDataAccess checks if a file is available locally on the disk or if the file is
+ // just a placeholder which must be downloaded from a remote server. This is typically used
+-// in cloud syncing services (e.g. OneDrive) to prevent downloading files from cloud storage
+-// until they are accessed.
++// in cloud syncing services (e.g. OneDrive, Dropbox) to prevent downloading files from cloud
++// storage until they are accessed. Only the attributes Lstat has already read are used: the
++// file's data is never opened.
+ func (fi *ExtendedFileInfo) RecallOnDataAccess() (bool, error) {
+ 	attrs, ok := fi.sys.(*syscall.Win32FileAttributeData)
+ 	if !ok {
+ 		return false, fmt.Errorf("could not determine file attributes: %s", fi.Name)
+ 	}
+ 
+-	if attrs.FileAttributes&windows.FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS > 0 {
+-		return true, nil
+-	}
++	return IsCloudPlaceholder(attrs.FileAttributes, fi.Mode.IsDir()), nil
++}
+ 
+-	return false, nil
++// IsCloudPlaceholder reports whether file attributes describe an online-only
++// cloud file, whose data is not on this computer.
++//
++// FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS marks such files and folders for
++// processes that see Cloud Files placeholders as they are (OneDrive). Most
++// processes see them disguised: Dropbox's online-only files then carry
++// FILE_ATTRIBUTE_OFFLINE without RECALL_ON_DATA_ACCESS (0x1620: ARCHIVE |
++// SPARSE_FILE | REPARSE_POINT | OFFLINE), and Go reports them as irregular
++// files, which a backup cannot store. So a file (not a folder) marked OFFLINE
++// or FILE_ATTRIBUTE_RECALL_ON_OPEN is online-only as well. For folders only
++// RECALL_ON_DATA_ACCESS counts, as before.
++//
++// The reparse tag alone (IO_REPARSE_TAG_CLOUD_*) is not used: a placeholder
++// whose data has been downloaded keeps its tag, and its data is local.
++func IsCloudPlaceholder(attributes uint32, isDir bool) bool {
++	if attributes&windows.FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS != 0 {
++		return true
++	}
++	if isDir {
++		return false
++	}
++	return attributes&(windows.FILE_ATTRIBUTE_OFFLINE|windows.FILE_ATTRIBUTE_RECALL_ON_OPEN) != 0
+ }
+diff --git a/internal/fs/stat_windows_test.go b/internal/fs/stat_windows_test.go
+index 4f258d8..d53254b 100644
+--- a/internal/fs/stat_windows_test.go
++++ b/internal/fs/stat_windows_test.go
+@@ -34,16 +34,17 @@ func TestRecallOnDataAccessRealFile(t *testing.T) {
+ // mockFileInfo implements os.FileInfo for mocking file attributes
+ type mockFileInfo struct {
+ 	FileAttributes uint32
++	mode           iofs.FileMode
+ }
+ 
+ func (m mockFileInfo) IsDir() bool {
+-	return false
++	return m.mode.IsDir()
+ }
+ func (m mockFileInfo) ModTime() time.Time {
+ 	return time.Now()
+ }
+ func (m mockFileInfo) Mode() iofs.FileMode {
+-	return 0
++	return m.mode
+ }
+ func (m mockFileInfo) Name() string {
+ 	return "test"
+@@ -78,3 +79,54 @@ func TestRecallOnDataAccessMockRegularFile(t *testing.T) {
+ 	rtest.Assert(t, err == nil, "err should be nil", err)
+ 	rtest.Assert(t, recall == false, "RecallOnDataAccess should be false")
+ }
++
++func TestRecallOnDataAccessMockPlaceholders(t *testing.T) {
++	const pinned = 0x00080000 // FILE_ATTRIBUTE_PINNED
++	for _, test := range []struct {
++		name  string
++		attrs uint32
++		mode  iofs.FileMode
++		cloud bool
++	}{
++		// A Dropbox online-only file as an ordinary process sees it:
++		// ARCHIVE | SPARSE_FILE | REPARSE_POINT | OFFLINE, an irregular file.
++		{"dropbox online-only", 0x1620, iofs.ModeIrregular, true},
++		{"offline", windows.FILE_ATTRIBUTE_OFFLINE, 0, true},
++		{"recall on open", windows.FILE_ATTRIBUTE_RECALL_ON_OPEN, 0, true},
++		{"onedrive online-only", windows.FILE_ATTRIBUTE_ARCHIVE | windows.FILE_ATTRIBUTE_REPARSE_POINT |
++			windows.FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, iofs.ModeIrregular, true},
++		{"folder recall on data access", windows.FILE_ATTRIBUTE_DIRECTORY | windows.FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, iofs.ModeDir, true},
++		// Not online-only.
++		{"regular", windows.FILE_ATTRIBUTE_ARCHIVE, 0, false},
++		{"sparse", windows.FILE_ATTRIBUTE_ARCHIVE | windows.FILE_ATTRIBUTE_SPARSE_FILE, 0, false},
++		{"downloaded placeholder", windows.FILE_ATTRIBUTE_ARCHIVE | windows.FILE_ATTRIBUTE_REPARSE_POINT, iofs.ModeIrregular, false},
++		{"pinned", windows.FILE_ATTRIBUTE_ARCHIVE | pinned, 0, false},
++		{"symlink", windows.FILE_ATTRIBUTE_ARCHIVE | windows.FILE_ATTRIBUTE_REPARSE_POINT, iofs.ModeSymlink, false},
++		{"folder offline", windows.FILE_ATTRIBUTE_DIRECTORY | windows.FILE_ATTRIBUTE_OFFLINE, iofs.ModeDir, false},
++		{"folder recall on open", windows.FILE_ATTRIBUTE_DIRECTORY | windows.FILE_ATTRIBUTE_RECALL_ON_OPEN, iofs.ModeDir, false},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			xs := fs.ExtendedStat(mockFileInfo{FileAttributes: test.attrs, mode: test.mode})
++			recall, err := xs.RecallOnDataAccess()
++			rtest.OK(t, err)
++			rtest.Equals(t, test.cloud, recall)
++			rtest.Equals(t, test.cloud, fs.IsCloudPlaceholder(test.attrs, test.mode.IsDir()))
++		})
++	}
++}
++
++func TestRecallOnDataAccessOfflineRealFile(t *testing.T) {
++	// A local file marked offline is detected from what Lstat read.
++	tempdir := rtest.TempDir(t)
++	filename := filepath.Join(tempdir, "offline-file")
++	rtest.OK(t, os.WriteFile(filename, []byte("foobar"), 0640))
++	name, err := windows.UTF16PtrFromString(filename)
++	rtest.OK(t, err)
++	rtest.OK(t, windows.SetFileAttributes(name, windows.FILE_ATTRIBUTE_OFFLINE))
++
++	fi, err := os.Lstat(filename)
++	rtest.OK(t, err)
++	recall, err := fs.ExtendedStat(fi).RecallOnDataAccess()
++	rtest.OK(t, err)
++	rtest.Assert(t, recall, "a file marked offline should be online-only")
++}
+-- 
+2.50.1.windows.1
+

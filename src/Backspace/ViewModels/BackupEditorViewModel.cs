@@ -1117,6 +1117,15 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>Simulate's line about online-only files (U168), or null for none.</summary>
+    internal static string? SimulationCloudNote(long cloudOnly, bool skipped)
+    {
+        if (cloudOnly <= 0) return null;
+        if (skipped) return CloudFileBehavior.SkippedPhrase(cloudOnly) + ": kept only in the cloud, the backup leaves them out without downloading them.";
+        return (cloudOnly == 1 ? "1 online-only file" : $"{cloudOnly:N0} online-only files")
+            + ": \"Skip cloud-only placeholders\" is off, so the backup reads them, which can download them.";
+    }
+
     [RelayCommand]
     private async Task RunFilterSimulationAsync()
     {
@@ -1152,11 +1161,13 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         try
         {
             var result = await ServiceLocator.Filters.SimulateAsync(saved, OnEntry, CancellationToken.None);
-            if (result.Entries == 0)
+            if (result.Entries == 0 && result.CloudOnly == 0)
                 sb.Append("No files found under the configured sources.\n");
             else if (result.Truncated)
                 sb.Append("\n[note] Large tree: showing the first ")
                   .Append(result.Entries.ToString("N0")).Append(" entries only.\n");
+            if (SimulationCloudNote(result.CloudOnly, saved.ExcludeCloudFiles) is { } cloudNote)
+                sb.Append("\n[note] ").Append(cloudNote).Append('\n');
         }
         catch (Exception ex)
         {

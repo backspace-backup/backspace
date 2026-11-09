@@ -547,6 +547,39 @@ locked file as missing, empty or corrupt (U135, 4 November 2026).
 Known gap: `ConfigStore` saves while holding its in-memory gate, so a long
 lock during a save also delays code that reads the settings meanwhile.
 
+## Online-only files and `--exclude-cloud-files` (U168)
+
+Official restic's `--exclude-cloud-files` skips only files marked
+`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS` (0x400000). Most processes see Cloud
+Files placeholders disguised: a Dropbox online-only file reads 0x1620
+(ARCHIVE | SPARSE_FILE | REPARSE_POINT | OFFLINE), Go calls it an irregular
+file, and restic 0.19.1 reported `unsupported file type "irregular"` for each
+one and ended the run "Partial backup" (STATUS_WARNING). Measured 9 November
+2026: 58,335 such files in the owner's Dropbox; 8 errors for the 8 placeholders
+of one folder. Nothing was downloaded.
+
+Backspace's Windows restic (patch 0003, `engine/restic/README.md`) also treats
+a file marked OFFLINE or `FILE_ATTRIBUTE_RECALL_ON_OPEN` as online-only, from
+the attributes Lstat already read, in the select step before the file's type is
+looked at: such files are skipped without an error and without opening their
+data. `CloudFileBehavior.IsCloudOnly(FileAttributes)` is the same rule, used by
+Count, Simulate, the estimates and the run's own listing. Keep the two equal.
+
+- The reparse tag is not used. A placeholder whose data was downloaded keeps
+  its Cloud Files tag, and its data is local: skipping it would lose data.
+- Folders count only with RECALL_ON_DATA_ACCESS, as in official restic.
+- Restic does not count what it skips. The run's listing of the source
+  (`ChangePlanner`, U144) counts the online-only files its rules keep, and the
+  run summary ends "N online-only files skipped". When that listing does not
+  finish (three minutes), the run says nothing about them.
+- Placeholders are reparse points, so `TreeWalk` hands them to its link
+  callback, not the visitor: count them there too.
+- With the option off nothing changes: restic opens online-only files, which
+  can download them, and the Dropbox ones still end as irregular-file errors.
+- On Windows ARM64 Backspace uses official restic, which reports Dropbox
+  placeholders as errors whatever the option; the run does not count them as
+  skipped there.
+
 ## Filters are restic's exclude file (U151)
 
 A backup's Filters text goes to restic unchanged, as a file

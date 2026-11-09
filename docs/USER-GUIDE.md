@@ -7,6 +7,7 @@ of Backspace behaves, including its limits.
 - [Schedules, the tray icon and Quit](#schedules-the-tray-icon-and-quit)
 - [Administrator access and files in use](#administrator-access-and-files-in-use)
 - [Filters](#filters)
+- [Files kept only in the cloud](#files-kept-only-in-the-cloud)
 - [Sizes and logs](#sizes-and-logs)
 - [Restoring files](#restoring-files)
 - [Browsing and mounting snapshots](#browsing-and-mounting-snapshots)
@@ -320,13 +321,33 @@ registry files are not recommended: they can hold someone's own work or
 settings. On macOS and Linux the profile rules start at `/home/*/` or
 `/Users/*/`, and the Windows ones are not offered.
 
+## Files kept only in the cloud
+
+Dropbox, OneDrive and Google Drive can keep a file "online-only": it appears in
+the folder, but its content stays in the cloud until you open it. On Windows,
+**Skip cloud-only placeholders** (on by default, in the backup's Windows
+options) leaves those files out of the backup without opening them, so nothing
+is downloaded. Backspace recognises them by the marks Windows puts on such a
+file (offline, or downloaded when opened or read). They are not errors and do
+not turn the backup into a warning; the run's log and the **Last backup** hover
+say how many were left out ("8,335 online-only files skipped"), and **Simulate**
+and **Count** say so too. A file that is skipped this way cannot be restored
+from this backup. Make it available offline in the cloud app if you want it
+backed up.
+
+With the option off, Backspace reads online-only files as before: the cloud
+app may download them and keep them on this computer, and some placeholders
+cannot be read at all and are reported as errors.
+
 ## Sizes and logs
 
 Before a backup's first run, each source on its card shows the size of what
 that backup will hold ("~812 GB", "~" for an estimate): its exclusion rules are applied, and
 excluded folders aren't even read. Files kept only in the cloud (Dropbox,
 OneDrive or Google Drive placeholders) aren't counted: they aren't on the
-computer, and backups skip them. Hover the size for how it was measured.
+computer, and backups skip them (see
+[Files kept only in the cloud](#files-kept-only-in-the-cloud)). Hover the size
+for how it was measured.
 Backspace reads several folders at once, without opening each file. A
 source too big to read within three minutes shows what was read with "+"
 ("812+ GB");

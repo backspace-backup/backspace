@@ -22,6 +22,9 @@ public static partial class LastRunLine
     private static partial Regex Took();
     [GeneratedRegex(@"(?<n>\d+) (?<kind>warning|error)s?")]
     private static partial Regex Problems();
+    // "8,335 online-only files skipped" (U168), in any digit grouping.
+    [GeneratedRegex(@"(?:^|· )(?<phrase>\d[\d,.  ' ]* online-only files? skipped)")]
+    private static partial Regex CloudSkipped();
 
     /// <summary>The card text and its hover text for a run that ended.</summary>
     public static (string Label, string Hover) For(string summary, BackupRunStatus status, DateTime endedUtc, DateTime? nowUtc = null)
@@ -36,6 +39,7 @@ public static partial class LastRunLine
         var counts = Counts().Match(summary);
         var took = Took().Match(summary) is { Success: true } t ? t.Groups["dur"].Value.Trim() : null;
         var problems = Problems().Match(summary) is { Success: true } p ? p.Value : null;
+        var cloud = CloudSkipped().Match(summary) is { Success: true } c ? c.Groups["phrase"].Value : null;
         // A summary in another shape (an older version's, a fixture's) is
         // shown as it is rather than guessed at.
         if (size is null && !counts.Success && took is null)
@@ -52,6 +56,7 @@ public static partial class LastRunLine
         if (counts.Success)
             hover.Add($"{counts.Groups["new"].Value} new, {counts.Groups["mod"].Value} changed and {counts.Groups["rem"].Value} deleted files since the previous backup");
         hover.Add(size is null ? "nothing new to upload" : size + " of new data uploaded");
+        if (cloud is not null) hover.Add(cloud + ", kept only in the cloud");
         if (problems is not null) hover.Add(problems + " (see Activity)");
         return (label, string.Join(" · ", hover));
     }

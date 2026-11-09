@@ -83,6 +83,11 @@ public sealed class RunRecord
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public long BytesFreed { get; set; }
 
+    /// <summary>Online-only files the backup skipped (U168): restic skips
+    /// them quietly, so this run's listing of the sources counts them.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public long CloudOnlySkipped { get; set; }
+
     public List<string> Errors { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
 
@@ -150,4 +155,7 @@ public sealed class CellOutcome
     public int SnapshotsRemoved { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public long BytesFreed { get; set; }
+    /// <summary>Online-only files this cell's backup skipped (U168).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public long CloudOnlySkipped { get; set; }
 }

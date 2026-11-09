@@ -25,19 +25,43 @@ fix https://github.com/restic/restic/pull/22134 (U151, 7 November 2026).
 Backspace's Simulate, Count and estimates follow the fixed matching on Windows
 and the official one elsewhere.
 
+`0003-fs-treat-offline-and-recall-on-open-files-as-online-only.patch` makes
+`--exclude-cloud-files` skip Dropbox's online-only files quietly (U168,
+9 November 2026). Official restic skips only files marked
+FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS. Most processes see Cloud Files
+placeholders without it: a Dropbox online-only file reads 0x1620 (ARCHIVE |
+SPARSE_FILE | REPARSE_POINT | OFFLINE), and restic reported
+`unsupported file type "irregular"` for each one and ended the run as a partial
+backup (58,335 such files in the owner's Dropbox). With the patch, a file (not
+a folder) marked FILE_ATTRIBUTE_OFFLINE or FILE_ATTRIBUTE_RECALL_ON_OPEN is
+online-only too. Only the attributes Lstat already read are used (it opens a
+reparse point with FILE_FLAG_OPEN_REPARSE_POINT and no data access), and the
+check runs before restic looks at the file's type. The Cloud Files reparse tag
+alone is not used: a downloaded placeholder keeps it, and its data is local.
+Its tests cover the attribute values and a local file marked offline.
+Upstream: the irregular-file reports are
+https://github.com/restic/restic/issues/4704 (closed, Dropbox files among
+them); `--exclude-cloud-files` came from
+https://github.com/restic/restic/pull/4990 (for
+https://github.com/restic/restic/issues/4155) and checks RECALL_ON_DATA_ACCESS
+only. No upstream issue or pull request about OFFLINE placeholders was found
+on 9 November 2026; this change is not proposed upstream yet.
+
 ## When to remove it
 
-When a restic release contains both changes: set `restic` to that release,
+When a restic release contains all three changes: set `restic` to that release,
 delete `resticBackspace` and the patches, and Windows uses the official release
-again. Until then, a restic upgrade means rebasing the patch onto the new tag,
-running the filter tests, building a new `-backspace.<n>` and checking it as
-any engine upgrade (docs/GOTCHAS.md, "Engine upgrades require a compatibility
-check").
+again. Until then, a restic upgrade means rebasing the patches onto the new
+tag, running the filter, fs and archiver tests, building a new
+`-backspace.<n>` and checking it as any engine upgrade (docs/GOTCHAS.md,
+"Engine upgrades require a compatibility check"). A new build also needs
+`src/Backspace/Assets/restic.exe` deleted locally, so the next build fetches it.
 
 ## How it is built and fetched
 
 `build.ps1` clones the official tag from github.com/restic/restic, applies the
-patches, sets the version, runs restic's filter tests and builds with
+patches, sets the version, runs restic's filter, fs and archiver tests (they
+need an elevated runner: symbolic links, shadow copies) and builds with
 `go build -trimpath -ldflags '-s -w'` (CGO off). The workflow
 `.github/workflows/build-restic.yml` runs it and publishes
 `restic_<version>_windows_amd64.zip` (plus its SHA-256 and the patches) as the

@@ -86,7 +86,7 @@ public sealed class SourceSizeRulesTests
             var skipping = await new SourceSizeProbe().GetOrComputeAsync(root, CancellationToken.None, rules: new SourceSizeRules(null, true));
             Assert.Equal(300, skipping.Bytes);
             Assert.Equal(1, skipping.CloudOnlyFiles);
-            Assert.Equal("1 file kept only in the cloud isn't counted: it isn't on this computer.", skipping.CloudOnlyNote);
+            Assert.Equal("1 online-only file isn't counted: it is kept only in the cloud.", skipping.CloudOnlyNote);
             // A backup that reads them (downloading them) counts them.
             var reading = await new SourceSizeProbe().GetOrComputeAsync(root, CancellationToken.None, rules: new SourceSizeRules(null, false));
             Assert.Equal(9_300, reading.Bytes);

@@ -356,6 +356,8 @@ public sealed partial class BackupOrchestrator
         // the bare "in {dur}" suffix because the leading parts
         // already describe what happened.
         parts.Add(parts.Count == 0 ? $"Completed in {dur}" : $"in {dur}");
+        // Skipped quietly by the engine, so said here (U168).
+        if (CloudFileBehavior.SkippedPhrase(r.CloudOnlySkipped) is { } cloud) parts.Add(cloud);
         return string.Join(" · ", parts);
     }
 

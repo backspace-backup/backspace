@@ -122,20 +122,37 @@ internal sealed class ChangePlan
     /// files kept only in the cloud left out when it skips them. Null when
     /// listing took longer than <paramref name="limit"/>.</summary>
     internal static List<FileState>? List(string sourcePath, SourceSizeRules rules, TimeSpan limit, CancellationToken ct)
+        => List(sourcePath, rules, limit, ct, out _);
+
+    /// <param name="cloudOnly">When the backup skips them, the online-only
+    /// files its rules keep, which Backspace's restic skips quietly (U168);
+    /// otherwise 0.</param>
+    internal static List<FileState>? List(string sourcePath, SourceSizeRules rules, TimeSpan limit, CancellationToken ct, out long cloudOnly)
     {
         var root = TreeWalk.Root(sourcePath);
         var files = new System.Collections.Concurrent.ConcurrentBag<FileState>();
         var compiled = FilterTranslator.CompileRules(rules.Text);
+        long skipped = 0;
         bool Excluded(string fullPath, bool directory)
             => compiled.Count > 0 && FilterTranslator.Evaluate(compiled, FilterTranslator.ResticPath(fullPath) + (directory ? "/" : "")).Excluded;
         var finished = TreeWalk.Walk(root, (entry, _) =>
         {
             if (Excluded(entry.FullPath, entry.IsDirectory)) return null;
             if (entry.IsDirectory) return false;
-            if (rules.SkipCloudOnly && TreeWalk.IsCloudOnly(entry.Attributes)) return null;
+            if (rules.SkipCloudOnly && TreeWalk.IsCloudOnly(entry.Attributes))
+            {
+                Interlocked.Increment(ref skipped);
+                return null;
+            }
             files.Add(new FileState(TreeWalk.Relative(root, entry.FullPath), entry.Length, entry.LastWriteUtc.Ticks));
             return null;
-        }, DateTime.UtcNow + limit, ct);
+        }, DateTime.UtcNow + limit, ct, link: (entry, _) =>
+        {
+            // Placeholders are reparse points, listed as links.
+            if (rules.SkipCloudOnly && !entry.IsDirectory && TreeWalk.IsCloudOnly(entry.Attributes) && !Excluded(entry.FullPath, false))
+                Interlocked.Increment(ref skipped);
+        });
+        cloudOnly = Interlocked.Read(ref skipped);
         return finished ? files.ToList() : null;
     }
 }
@@ -226,7 +243,7 @@ internal sealed class ChangePlanner
 {
     private readonly ChangePlanStore _store;
     private readonly string _planId;
-    private readonly Task<(ChangePlanStore.Entry[]? Files, ChangePlan? Plan, ChangePlanStore.Saved? Before)> _work;
+    private readonly Task<(ChangePlanStore.Entry[]? Files, ChangePlan? Plan, ChangePlanStore.Saved? Before, long CloudOnly)> _work;
 
     private ChangePlanner(ChangePlanStore store, string planId, string sourcePath, SourceSizeRules rules, string? previousSnapshotId, CancellationToken ct)
     {
@@ -234,13 +251,13 @@ internal sealed class ChangePlanner
         _planId = planId;
         _work = Task.Run(() =>
         {
-            var files = ChangePlan.List(sourcePath, rules, TimeSpan.FromMinutes(3), ct);
-            if (files is null) return ((ChangePlanStore.Entry[]?)null, (ChangePlan?)null, (ChangePlanStore.Saved?)null);
+            var files = ChangePlan.List(sourcePath, rules, TimeSpan.FromMinutes(3), ct, out var cloudOnly);
+            if (files is null) return ((ChangePlanStore.Entry[]?)null, (ChangePlan?)null, (ChangePlanStore.Saved?)null, 0L);
             var before = previousSnapshotId is null ? null : store.Read(planId);
             // Only against the snapshot restic compares with.
             var plan = before is not null && string.Equals(before.SnapshotId, previousSnapshotId, StringComparison.OrdinalIgnoreCase)
                 ? new ChangePlan(TreeWalk.Root(sourcePath), files, before.Files) : null;
-            return (files.Select(f => new ChangePlanStore.Entry(ChangePlan.Hash(f.Path), f.Size, f.WrittenTicks)).ToArray(), plan, before);
+            return (files.Select(f => new ChangePlanStore.Entry(ChangePlan.Hash(f.Path), f.Size, f.WrittenTicks)).ToArray(), plan, before, cloudOnly);
         }, ct);
     }
 
@@ -251,6 +268,19 @@ internal sealed class ChangePlanner
     /// listed: restic counts nothing with --no-scan (U145).</summary>
     internal (long Files, long Bytes)? Listed => _work.IsCompletedSuccessfully && _work.Result.Files is { } f
         ? (f.LongLength, f.Sum(e => e.Size)) : null;
+
+    /// <summary>The online-only files this backup skips (U168), counted by
+    /// this run's listing: restic does not report them. Waits up to
+    /// <paramref name="wait"/> for the listing; null when it isn't finished.</summary>
+    internal async Task<long?> CloudOnlySkippedAsync(TimeSpan wait)
+    {
+        try
+        {
+            if (!_work.IsCompleted) await Task.WhenAny(_work, Task.Delay(wait)).ConfigureAwait(false);
+            return _work.IsCompletedSuccessfully && _work.Result.Files is not null ? _work.Result.CloudOnly : null;
+        }
+        catch (OperationCanceledException) { return null; }
+    }
 
     /// <summary>The plan once ready, or null (still listing, or nothing to compare with).</summary>
     internal ChangePlan? Plan => _work.IsCompletedSuccessfully ? _work.Result.Plan : null;
@@ -264,7 +294,7 @@ internal sealed class ChangePlanner
     {
         try
         {
-            var (files, _, before) = await _work.ConfigureAwait(false);
+            var (files, _, before, _) = await _work.ConfigureAwait(false);
             if (files is null) return;
             var keep = pace ?? (before is not null ? (before.FilesPerSecond, before.BytesPerSecond) : (0, 0));
             await Task.Run(() => _store.Write(_planId, snapshotId, keep.Item1, keep.Item2, files)).ConfigureAwait(false);

@@ -32,8 +32,10 @@ try {
         $marked = $text -replace ('const Version = "' + [regex]::Escape($tag.Substring(1)) + '"'), ('const Version = "' + $version + '"')
         if ($marked -eq $text) { throw "could not set the version in $global" }
         [IO.File]::WriteAllText($global, $marked)
-        go test ./internal/filter/
-        if ($LASTEXITCODE -ne 0) { throw 'restic filter tests failed' }
+        # The packages the patches change. The fs and archiver tests make
+        # symbolic links and shadow copies: they need an elevated runner.
+        go test ./internal/filter/ ./internal/fs/ ./internal/archiver/
+        if ($LASTEXITCODE -ne 0) { throw 'restic tests failed' }
         $env:CGO_ENABLED = '0'; $env:GOOS = 'windows'; $env:GOARCH = $Arch
         New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
         $name = "restic_${version}_windows_$Arch"

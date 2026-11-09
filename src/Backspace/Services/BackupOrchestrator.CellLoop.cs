@@ -722,6 +722,7 @@ public sealed partial class BackupOrchestrator
                 cell.Duration = DateTime.UtcNow - started;
                 (cell.FilesNew, cell.FilesModified, cell.BytesAdded) = (lastRun.FilesNew, lastRun.FilesModified, lastRun.BytesUploaded);
                 (cell.SnapshotsRemoved, cell.BytesFreed) = (lastRun.SnapshotsRemoved, lastRun.BytesFreed);
+                cell.CloudOnlySkipped = lastRun.CloudOnlySkipped;
                 // Carry the per-attempt log file path up so the
                 // LogsView's "Selected run" pane has something to
                 // render. Earlier this was only set on init failures,
@@ -839,6 +840,9 @@ public sealed partial class BackupOrchestrator
         run.BytesUploaded += cell.BytesAdded;
         run.SnapshotsRemoved += cell.SnapshotsRemoved;
         run.BytesFreed += cell.BytesFreed;
+        // Per source: each destination's backup of a source skips the same files.
+        run.CloudOnlySkipped = run.Cells.GroupBy(c => c.SourcePath, StringComparer.OrdinalIgnoreCase)
+            .Sum(g => g.Max(c => c.CloudOnlySkipped));
         // We don't have per-cell bytes/files in CellOutcome today —
         // they live on the RunRecord returned from the runner, which
         // RunCellWithRetryAsync currently discards. If we need per-cell

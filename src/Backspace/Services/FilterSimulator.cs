@@ -63,29 +63,32 @@ public sealed class FilterSimulator
 
         var emitted = 0;
         var truncated = false;
+        long cloudOnly = 0;
 
         foreach (var sourcePath in backup.SourcePaths)
         {
             if (ct.IsCancellationRequested || emitted >= MaxEntries) break;
             if (string.IsNullOrWhiteSpace(sourcePath) || !Directory.Exists(sourcePath)) continue;
 
-            var (count, hitCap) = await Task.Run(
-                () => WalkOne(sourcePath, rules, onEntry, MaxEntries - emitted, ct), ct);
+            var (count, hitCap, cloud) = await Task.Run(
+                () => WalkOne(sourcePath, rules, backup.ExcludeCloudFiles, onEntry, MaxEntries - emitted, ct), ct);
             emitted += count;
+            cloudOnly += cloud;
             if (hitCap) truncated = true;
         }
 
-        _log.Information("Filter simulation finished for {Backup}: entries={Entries} truncated={Truncated}",
-            backup.Name, emitted, truncated);
-        return new SimulateResult(emitted, truncated);
+        _log.Information("Filter simulation finished for {Backup}: entries={Entries} truncated={Truncated} cloudOnly={CloudOnly}",
+            backup.Name, emitted, truncated, cloudOnly);
+        return new SimulateResult(emitted, truncated, cloudOnly);
     }
 
-    private (int Emitted, bool Truncated) WalkOne(
-        string sourceRoot, IReadOnlyList<Rule> rules, Action<SimulatedEntry> onEntry,
+    private (int Emitted, bool Truncated, long CloudOnly) WalkOne(
+        string sourceRoot, IReadOnlyList<Rule> rules, bool skipCloudOnly, Action<SimulatedEntry> onEntry,
         int budget, CancellationToken ct)
     {
         var emitted = 0;
         var truncated = false;
+        long cloudOnly = 0;
         var deadline = DateTime.UtcNow + MaxScanDuration;
 
         var rootFull = TreeWalk.Root(sourceRoot);
@@ -109,9 +112,19 @@ public sealed class FilterSimulator
             foreach (var f in entries)
             {
                 if (truncated) break;
-                if (f.IsDirectory || f.IsLink) continue;
+                if (f.IsDirectory) continue;
+                // Online-only files (placeholders are links): counted, not
+                // listed one by one; the backup skips them quietly (U168).
+                var cloud = TreeWalk.IsCloudOnly(f.Attributes);
+                if (f.IsLink && !cloud) continue;
 
                 var (included, rule) = Evaluate(rules, FilterTranslator.ResticPath(f.FullPath));
+                if (cloud && included)
+                {
+                    cloudOnly++;
+                    if (skipCloudOnly || f.IsLink) continue;
+                }
+                if (f.IsLink) continue;
                 Emit(new SimulatedEntry(f.FullPath, included, rule));
             }
 
@@ -134,7 +147,7 @@ public sealed class FilterSimulator
             }
         }
 
-        return (emitted, truncated);
+        return (emitted, truncated, cloudOnly);
     }
 
     /// <summary>
@@ -176,4 +189,5 @@ public readonly record struct SimulatedEntry(string Path, bool Included, string?
 /// <param name="Entries">How many entries were fed to the callback.</param>
 /// <param name="Truncated">True if the walk hit <see cref="FilterSimulator.MaxEntries"/>
 /// or <see cref="FilterSimulator.MaxScanDuration"/> before finishing.</param>
-public readonly record struct SimulateResult(int Entries, bool Truncated);
+/// <param name="CloudOnly">Online-only files the rules keep, not listed (U168).</param>
+public readonly record struct SimulateResult(int Entries, bool Truncated, long CloudOnly = 0);

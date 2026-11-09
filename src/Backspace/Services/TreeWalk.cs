@@ -20,14 +20,11 @@ internal static class TreeWalk
 {
     public readonly record struct Entry(string FullPath, bool IsDirectory, long Length, bool IsLink, FileAttributes Attributes = 0, DateTime LastWriteUtc = default);
 
-    // Set by cloud providers on files kept only online (winnt.h).
-    private const FileAttributes RecallOnOpen = (FileAttributes)0x00040000, RecallOnDataAccess = (FileAttributes)0x00400000;
-
     /// <summary>True for a file kept only in the cloud (Dropbox, OneDrive,
     /// Google Drive placeholders): its size is not on this computer, and a
-    /// backup that skips such files never reads it (U123).</summary>
-    public static bool IsCloudOnly(FileAttributes attributes)
-        => (attributes & (RecallOnOpen | RecallOnDataAccess | FileAttributes.Offline)) != 0;
+    /// backup that skips such files never reads it (U123). The same rule as
+    /// Backspace's restic (<see cref="CloudFileBehavior.IsCloudOnly(FileAttributes)"/>, U168).</summary>
+    public static bool IsCloudOnly(FileAttributes attributes) => CloudFileBehavior.IsCloudOnly(attributes);
 
     // Hidden and system files are part of a backup, so nothing is
     // skipped by attribute (the default would skip both).

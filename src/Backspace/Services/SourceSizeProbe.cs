@@ -321,8 +321,8 @@ public readonly record struct SourceSizeResult(
     public string? CloudOnlyNote => CloudOnlyFiles switch
     {
         0 => null,
-        1 => "1 file kept only in the cloud isn't counted: it isn't on this computer.",
-        _ => $"{CloudOnlyFiles:N0} files kept only in the cloud aren't counted: they aren't on this computer.",
+        1 => "1 online-only file isn't counted: it is kept only in the cloud.",
+        _ => $"{CloudOnlyFiles:N0} online-only files aren't counted: they are kept only in the cloud.",
     };
 }
 
