@@ -26,12 +26,17 @@ public sealed class PlanSettingsTests
     public void RetentionCommandIsScopedAndEmptyPoliciesDoNothing()
     {
         var command = ResticBackrestEngine.BuildRetentionCommand("my-plan", "my-instance",
-            new() { PolicyTimeBucketed = new() { KeepLastN = 2, Daily = 7, Monthly = 12 } });
-        Assert.Equal("forget --tag 'plan:my-plan,created-by:my-instance' --group-by= --keep-last=2 --keep-daily=7 --keep-monthly=12", command);
-        Assert.Null(ResticBackrestEngine.BuildRetentionCommand("plan", "instance", new() { PolicyKeepAll = true }));
-        Assert.Null(ResticBackrestEngine.BuildRetentionCommand("plan", "instance", new()));
-        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.BuildRetentionCommand("plan", "", new() { PolicyKeepLastN = 1 }));
-        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.BuildRetentionCommand("plan,another-plan", "instance", new() { PolicyKeepLastN = 1 }));
+            KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse("0:365 30:180 7:90 1:14")));
+        Assert.Equal("forget --tag 'plan:my-plan,created-by:my-instance' --group-by= --keep-within=14d --keep-within-daily=90d --keep-within-weekly=180d --keep-within-monthly=365d", command);
+        Assert.Equal("forget --tag 'plan:p,created-by:i' --group-by= --keep-last=2",
+            ResticBackrestEngine.BuildRetentionCommand("p", "i", KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse("2"))));
+        Assert.Null(ResticBackrestEngine.BuildRetentionCommand("plan", "instance", KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse(""))));
+        Assert.Null(ResticBackrestEngine.BuildRetentionCommand("plan", "instance", KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse("0:30 7:90"))));
+        Assert.Null(ResticBackrestEngine.BuildRetentionCommand("plan", "instance", []));
+        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.BuildRetentionCommand("plan", "", ["--keep-last=1"]));
+        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.BuildRetentionCommand("plan,another-plan", "instance", ["--keep-last=1"]));
+        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.BuildRetentionCommand("plan", "instance", ["--keep-last=1 --prune"]));
+        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.BuildRetentionCommand("plan", "instance", ["unlock"]));
     }
 
     /// <summary>U131 (4 November 2026): a backup cut short leaves data restic
@@ -91,7 +96,9 @@ public sealed class PlanSettingsTests
         Assert.DoesNotContain("old.txt", plan.Excludes);
         Assert.DoesNotContain("old.txt", plan.IExcludes);
         Assert.Equal(wanted.BackupFlags, plan.BackupFlags);
-        Assert.Equal(3, plan.Retention!.PolicyTimeBucketed!.KeepLastN);
+        // Backrest's own after-backup forget must never delete: Backspace
+        // applies the KeepPolicy itself (U172).
+        Assert.True(plan.Retention!.PolicyKeepAll);
         Assert.Equal("preserved", plan.AdditionalFields["futureSetting"].GetString());
         Assert.False(ResticBackrestEngine.ApplyPlanSettings(plan, wanted));
     }
@@ -101,9 +108,10 @@ public sealed class PlanSettingsTests
     {
         var backup = new Backup { FiltersText = "old.txt", KeepPolicy = "1" };
         var plan = ResticBackrestEngine.BuildPlanFromBackup("plan", "repo", backup, "source");
+        // A plan saved by an older version carried a count-based policy.
+        plan.Retention = new() { PolicyTimeBucketed = new() { KeepLastN = 10, Daily = 7 } };
         backup.FiltersText = "";
         var wanted = ResticBackrestEngine.BuildPlanFromBackup("plan", "repo", backup, "source");
-        wanted.Retention = new() { PolicyKeepAll = true };
         Assert.True(ResticBackrestEngine.ApplyPlanSettings(plan, wanted));
         // Only the essential exclusions remain, which always apply (U106).
         Assert.DoesNotContain(plan.Excludes.Concat(plan.IExcludes), p => p.EndsWith("old.txt"));

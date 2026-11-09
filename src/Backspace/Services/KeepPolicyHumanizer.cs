@@ -1,27 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 
 namespace Backspace.Services;
 
 /// <summary>
-/// Parses a Duplicacy-flavoured keep-policy string (space-separated
-/// <c>n:m</c> pairs) and renders it in plain English for the Backup
-/// editor. We keep this syntax because (a) ConfigMigrator imports it
-/// directly from Duplicacy preferences, and (b) it expresses the
-/// "thin out older revisions" intent more compactly than restic's
-/// own <c>--keep-daily N --keep-weekly N --keep-monthly N --keep-yearly N</c>
-/// flag set — the engine layer translates it on the way to restic.
-///
-/// Policy syntax: each pair is <c>n:m</c>, meaning "keep one revision
-/// every n days for revisions older than m days." <c>n = 0</c> means
-/// "delete revisions older than m days." Rules are applied in
-/// descending <c>m</c> order — the oldest window wins.
-///
-/// This is purely cosmetic — the humanizer exists so a user can tell
-/// at a glance what <c>0:365 30:90 7:30 1:7</c> actually means without
-/// decoding it in their head.
+/// Explains a backup's retention policy in plain English for the Backup
+/// editor, as it actually runs (<see cref="KeepPolicyRules"/>, U172): the
+/// policy keeps Duplicacy's <c>n:m</c> syntax (ConfigMigrator imports it
+/// directly), and Backspace applies it with restic's keep-within options.
+/// Ages count back from the latest backup, so when backups stop nothing
+/// more is removed.
 /// </summary>
 public static class KeepPolicyHumanizer
 {
@@ -29,67 +18,45 @@ public static class KeepPolicyHumanizer
 
     public static KeepPolicyDescription Describe(string? policy)
     {
-        if (string.IsNullOrWhiteSpace(policy))
+        var parsed = KeepPolicyRules.Parse(policy);
+        if (!parsed.Valid)
+            return new KeepPolicyDescription(false, parsed.Error!, Array.Empty<string>(), parsed.Error);
+        if (parsed.KeepLast is { } last)
         {
-            return new KeepPolicyDescription(
-                Valid: true,
-                Summary: "No policy set: every revision is kept forever.",
-                Lines: Array.Empty<string>(),
-                Error: null);
+            var only = last == 1 ? "Only the latest backup is kept; older ones are deleted." : $"The latest {last} backups are kept; older ones are deleted.";
+            return new KeepPolicyDescription(true, only, new[] { "• " + only }, null);
         }
+        if (parsed.Rules.Count == 0)
+            return new KeepPolicyDescription(true, "No policy set: every backup is kept forever.", Array.Empty<string>(), null);
 
-        var rules = new List<(int Every, int OlderThan, string Raw)>();
-        foreach (var part in policy.Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var bits = part.Split(':');
-            if (bits.Length != 2
-                || !int.TryParse(bits[0], out var n)
-                || !int.TryParse(bits[1], out var m)
-                || n < 0 || m < 0)
-            {
-                return new KeepPolicyDescription(
-                    Valid: false,
-                    Summary: $"“{part}” isn't a valid rule. Use space-separated n:m pairs where n and m are whole numbers (n = keep one per N days, m = age in days).",
-                    Lines: Array.Empty<string>(),
-                    Error: $"invalid token: {part}");
-            }
-            rules.Add((n, m, part));
-        }
-
-        if (rules.Count == 0)
-        {
-            return new KeepPolicyDescription(
-                Valid: false,
-                Summary: "Policy is empty. Add at least one n:m rule.",
-                Lines: Array.Empty<string>(),
-                Error: "no rules");
-        }
-
-        // Render oldest-first so the bullet list reads like a timeline
-        // from the past back to now.
-        var ordered = rules.OrderByDescending(r => r.OlderThan).ToList();
         var lines = new List<string>();
-        foreach (var (every, olderThan, _) in ordered)
+        foreach (var band in KeepPolicyRules.Bands(parsed))
         {
-            var when = olderThan == 0
-                ? "From day 0 onward"
-                : $"Older than {olderThan} day{(olderThan == 1 ? "" : "s")}";
-            var what = every == 0
-                ? "delete all revisions"
-                : every switch
-                {
-                    1   => "keep one revision per day",
-                    7   => "keep one revision per week",
-                    30  => "keep one revision per month",
-                    365 => "keep one revision per year",
-                    _   => $"keep one revision every {every} days",
-                };
+            var when = band.To is { } to
+                ? band.From == 0 ? $"Up to {Days(to)} old" : $"{band.From} to {Days(to)} old"
+                : $"Older than {Days(band.From)}";
+            var what = band.Deleted ? "deleted"
+                : band.KeepOnePer is { } period ? "the last backup of each " + Name(period) + " is kept"
+                : "every backup is kept";
             lines.Add($"• {when}: {what}.");
         }
-
-        var summary = string.Join("\n", lines);
-        return new KeepPolicyDescription(Valid: true, Summary: summary, Lines: lines, Error: null);
+        var notes = new List<string>();
+        foreach (var rule in parsed.Rules.Where(r => r.Every > 0 && (int)KeepPolicyRules.PeriodFor(r.Every) != r.Every).Select(r => r.Every).Distinct())
+            notes.Add($"One every {rule} days is kept as one per {Name(KeepPolicyRules.PeriodFor(rule))}, so never fewer than the rule asks.");
+        notes.Add("Ages count back from the latest backup, so if backups stop, nothing more is deleted.");
+        var summary = string.Join("\n", lines) + "\n" + string.Join(" ", notes);
+        return new KeepPolicyDescription(true, summary, lines, null);
     }
+
+    private static string Days(int days) => days == 1 ? "1 day" : $"{days} days";
+
+    private static string Name(KeepPolicyRules.Period period) => period switch
+    {
+        KeepPolicyRules.Period.Day => "day",
+        KeepPolicyRules.Period.Week => "week",
+        KeepPolicyRules.Period.Month => "month",
+        _ => "year",
+    };
 }
 
 public readonly record struct KeepPolicyDescription(

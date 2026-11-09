@@ -121,6 +121,34 @@ operation.
 
 The log ends the cleanup with what it removed ("[cleanup] 2 old backups removed
 · 1.3 GB freed in the storage"), and the backup’s **History** adds "1.3 GB
+### Retention policy (which old backups are kept)
+
+The **Retention policy** box in the backup editor takes Duplicacy's `n:m`
+rules: for backups older than m days, keep one every n days; `0:m` deletes
+backups older than m days; everything younger than the smallest m is kept.
+`0:365 30:180 7:90 1:14` keeps every backup of the last 14 days, the last
+backup of each day up to 90 days, of each week up to 180 days, of each month
+up to 365 days, and nothing older. A single number N keeps the latest N
+backups; an empty box keeps everything. The editor explains the rule as it
+runs, under the box.
+
+Backspace applies it with restic's keep-within options
+(`--keep-within=14d --keep-within-daily=90d --keep-within-weekly=180d
+--keep-within-monthly=365d` for the example). Two differences from Duplicacy:
+
+- Ages count back from the **latest backup**, not from today. If backups
+  stop, for a holiday or an unplugged drive, nothing more is deleted.
+- Restic keeps the last backup of each calendar day, week, month or year;
+  Duplicacy keeps one every n days, starting from the oldest. Over a year
+  they keep about the same number (a month band can hold one more or one
+  fewer, as months have 28 to 31 days). An n other than 1, 7, 30 or 365
+  uses the next shorter period (one every 10 days is kept as one per week),
+  so it never keeps fewer than the rule asks; the editor says so.
+
+A policy the editor refuses (two rules with the same age, a `0:m` rule that
+is not the oldest, `0:0`) deletes nothing: the cleanup keeps every backup and
+says why in the log.
+
 freed" to its run when something was freed. With what each backup added, it
 shows why the storage doesn’t only grow.
 

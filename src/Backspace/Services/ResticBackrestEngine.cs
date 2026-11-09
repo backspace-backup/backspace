@@ -432,7 +432,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
     {
         var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
             "/v1.Backrest/GetConfig", new(), ct).ConfigureAwait(false);
-        var forget = BuildRetentionCommand(planId, config.Instance, ParseRetentionPolicy(backup.KeepPolicy));
+        var policy = KeepPolicyRules.Parse(backup.KeepPolicy);
+        if (!policy.Valid)
+        {
+            // Never guess at a policy the editor would refuse: keep everything.
+            var line = "[backspace] The retention policy could not be read, so no backup was removed: " + policy.Error;
+            RaiseLineWritten(line); lineSink?.Invoke(line);
+        }
+        var forget = BuildRetentionCommand(planId, config.Instance, KeepPolicyRules.ResticOptions(policy));
         BackrestOperation? result = null;
         CleanupResult cleanup = default;
         if (forget is not null)
@@ -546,26 +553,26 @@ public sealed class ResticBackrestEngine : IBackupEngine
         }
     }
 
-    internal static string? BuildRetentionCommand(string planId, string instance, BackrestRetentionPolicy policy)
+    /// <summary>The forget command that applies the backup's retention
+    /// policy (<see cref="KeepPolicyRules.ResticOptions"/>), or null when it
+    /// keeps everything. This is the only path that deletes snapshots: every
+    /// plan carries Backrest's keep-all retention, so Backrest's own
+    /// after-backup forget never removes anything (U172).</summary>
+    internal static string? BuildRetentionCommand(string planId, string instance, IReadOnlyList<string> keepOptions)
     {
-        if (policy.PolicyKeepAll == true) return null;
+        // An empty policy must never delete history: restic refuses a forget
+        // without keep options, and Backspace never sends one.
+        if (keepOptions.Count == 0) return null;
         // Match Backrest's own snapshot-list scope: AND the plan and instance
         // tags. Never change the shared plan temporarily while a browser may
         // also be reading it. RunCommand retains a terminal ownership record.
         if (string.IsNullOrWhiteSpace(planId) || string.IsNullOrWhiteSpace(instance) ||
             planId.Contains(',') || instance.Contains(',') || planId.Any(char.IsControl) || instance.Any(char.IsControl))
             throw new InvalidOperationException("The backup engine could not identify this backup's cleanup scope. Nothing was removed.");
-        var options = new List<string>();
-        void Add(string flag, int value) { if (value > 0) options.Add(flag + "=" + value.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
-        Add("--keep-last", policy.PolicyKeepLastN ?? policy.PolicyTimeBucketed?.KeepLastN ?? 0);
-        if (policy.PolicyTimeBucketed is { } counts)
-        {
-            Add("--keep-hourly", counts.Hourly); Add("--keep-daily", counts.Daily);
-            Add("--keep-weekly", counts.Weekly); Add("--keep-monthly", counts.Monthly); Add("--keep-yearly", counts.Yearly);
-        }
-        if (options.Count == 0) return null; // An empty policy must never delete history.
+        if (keepOptions.Any(o => !o.StartsWith("--keep-", StringComparison.Ordinal) || o.Any(c => char.IsWhiteSpace(c) || c is '\'' or '"')))
+            throw new InvalidOperationException("The retention policy produced an unexpected engine option. Nothing was removed.");
         return "forget --tag " + QuoteArg("plan:" + planId + ",created-by:" + instance)
-            + " --group-by= " + string.Join(' ', options);
+            + " --group-by= " + string.Join(' ', keepOptions);
     }
 
     /// <summary>The latest snapshot this plan made, from Backrest's own
@@ -3483,61 +3490,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
             Excludes = new(),
             IExcludes = new(),
             BackupFlags = backupFlags,
-            // Backrest 1.13's Forget RPC refuses to run without a
-            // retention policy on the plan ("forget called with nil
-            // retention policy"). Materialise the policy from the
-            // backup's KeepPolicy string so both the inline-after-each-
-            // backup path and the standalone PruneSchedule path have
-            // something restic-compatible to apply. Empty/unset →
-            // "keep everything" (KeepAll) so Forget no-ops safely.
-            Retention = ParseRetentionPolicy(backup.KeepPolicy),
+            // Backrest needs a retention policy on every plan, and runs its
+            // own forget with it after each backup. Keep-all makes that a
+            // no-op: Backspace applies the backup's KeepPolicy itself, with
+            // the exact restic options Backrest's policy can't express
+            // (keep-within-daily and friends; U172). See RunRetentionAsync.
+            Retention = new BackrestRetentionPolicy { PolicyKeepAll = true },
             SkipIfUnchanged = false,
         };
-    }
-
-    /// <summary>
-    /// Translate Backspace's legacy <see cref="Backup.KeepPolicy"/>
-    /// string into the Backrest-shaped retention policy a plan
-    /// carries. Supported inputs:
-    /// <list type="bullet">
-    /// <item>A bare integer "N" → keep last N snapshots (KeepLastN).</item>
-    /// <item>The Duplicacy-style "0:365 30:90 7:30 1:7" syntax —
-    ///       parsed as time-bucketed counts; conservatively
-    ///       interpreted because Duplicacy's semantics don't 1:1
-    ///       map onto restic's keep-X counts.</item>
-    /// <item>Null / empty → keep everything (Backrest skips Forget
-    ///       work but the RPC won't error).</item>
-    /// </list>
-    /// </summary>
-    internal static BackrestRetentionPolicy ParseRetentionPolicy(string? keepPolicy)
-    {
-        var s = (keepPolicy ?? "").Trim();
-        if (string.IsNullOrEmpty(s))
-            return new BackrestRetentionPolicy { PolicyKeepAll = true };
-
-        if (int.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var n) && n > 0)
-        {
-            return new BackrestRetentionPolicy
-            {
-                PolicyTimeBucketed = new BackrestTimeBucketedCounts { KeepLastN = n }
-            };
-        }
-
-        // Duplicacy-style "M:N" pairs — translate into a coarse time-
-        // bucketed counts. The exact mapping isn't a clean 1:1 (Duplicacy
-        // counts every-N-days, restic bucket-N), so we keep this
-        // generous: enough granularity for tests / smoke; users who
-        // care about exact semantics can re-edit via the keep-policy
-        // UI once Backspace exposes one.
-        var bucket = new BackrestTimeBucketedCounts
-        {
-            Daily = 7,
-            Weekly = 4,
-            Monthly = 12,
-            Yearly = 5,
-            KeepLastN = 10,
-        };
-        return new BackrestRetentionPolicy { PolicyTimeBucketed = bucket };
     }
 
     /// <summary>Restic-side <c>backup</c> command flags derived from

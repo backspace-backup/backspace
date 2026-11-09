@@ -734,3 +734,32 @@ such files after several interruptions). The cleanup after each backup therefore
 runs `forget … --prune`, and a full `prune` after a backup whose previous run did
 not finish, or when Backrest's history shows no successful prune for 7 days.
 Before 1.1.10, cleanup ran `forget` alone, so storage never shrank.
+
+## Retention: Duplicacy rules on restic (U172)
+
+The KeepPolicy keeps Duplicacy's `n:m` syntax, applied by Backspace's own
+`forget` after each backup (or on the cleanup schedule) with restic's
+keep-within options (`KeepPolicyRules.cs`). Before 9 November 2026 any `n:m` policy
+became a fixed `--keep-last=10 --keep-daily=7 --keep-weekly=4 --keep-monthly=12
+--keep-yearly=5`, whatever the rules said. Things to know before changing it:
+
+- Backrest's plan retention can't express keep-within, so every plan carries
+  keep-all. Backrest runs its own forget after each backup; with keep-all it
+  removes nothing. Never put the real policy on the plan as well: two
+  forgets with different rules would delete the union.
+- `--keep-within*` durations count back from the **latest snapshot** in the
+  group, not from now (restic's documented behaviour). Duplicacy counts from
+  now. So restic never deletes more for age reasons, and deletes nothing more
+  once backups stop.
+- Restic keeps the last snapshot of each calendar period; Duplicacy keeps a
+  snapshot when it is n days (less 10 minutes) after the previous kept one,
+  starting from the oldest. Different snapshots survive. On a synthetic year
+  of daily backups (throwaway repository, Backspace's restic), the owner's
+  three policies kept 116/117, 55/55 and 65/67 snapshots (Duplicacy/restic),
+  the same in every band up to 90 days; a 180–365 day band of monthly
+  thinning kept 7 with Duplicacy and 6 with restic, with at most 31 days
+  between kept snapshots instead of 30. An n that is not 1, 7, 30 or 365 uses
+  the next shorter calendar period, so it keeps more.
+- A policy that does not parse returns no options, and no options means no
+  forget at all: restic refuses a forget with nothing to keep, and Backspace
+  never sends one.

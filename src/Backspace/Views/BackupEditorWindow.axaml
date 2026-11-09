@@ -349,7 +349,7 @@
                 <StackPanel Spacing="6">
                   <TextBlock Classes="label-caps" Text="RETENTION POLICY"/>
                   <TextBlock Classes="helper" Margin="0,0,0,2"
-                             Text="Space-separated n:m pairs, where n = keep one revision per N days and m = apply this rule to revisions older than M days. n=0 means delete."/>
+                             Text="Space-separated n:m pairs: for backups older than m days, keep one every n days; n = 0 deletes them. Newer backups are all kept. A single number keeps that many latest backups."/>
                   <TextBox Text="{Binding KeepPolicy, UpdateSourceTrigger=PropertyChanged}"
                            FontFamily="{DynamicResource BS.Font.Mono}"
                            PlaceholderText="0:365 30:90 7:30 1:7"

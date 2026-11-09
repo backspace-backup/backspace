@@ -549,6 +549,11 @@ only those files has no vault, and the first save asks for a password.
    replacement conflicts reread and retry at most four times; unrelated failures
    and persistent permission errors remain failures.
    Backrest 1.14.1's automatic snapshot index has no pending operation record.
+   That forget command is the only thing that deletes snapshots. Its options
+   come from `KeepPolicyRules.cs`: Duplicacy `n:m` rules become `--keep-within`
+   for the newest window and `--keep-within-daily|weekly|monthly|yearly` up to
+   the next rule's age (U172); Backrest's retention policy has no keep-within
+   form, so it cannot carry them. A policy that does not parse deletes nothing.
    After a saved backup, Backspace waits for both the repository's finished-index
    counter and the exact snapshot's index record. This keeps subsequent reads
    from racing the invisible task. A failed index or unconfirmed cancellation
