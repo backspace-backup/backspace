@@ -456,6 +456,8 @@ public sealed partial class BackupOrchestrator
         var orchestratorReason = _runningRuns.TryGetValue(backup.Id, out var info)
             ? info.CancelReason
             : null;
+        // Time spent queued behind other backups is not working time (U173).
+        if (info is not null && ReferenceEquals(info.Record, final)) final.QueuedFor = info.QueuedFor;
         final.Summary = BuildSummary(final, orchestratorReason, backup, _config.Current);
         if (backup.CheckSchedule is null && backup.CheckRestoreFiles)
         {

@@ -182,7 +182,10 @@ together up to two limits, in **Settings › Backups at once**:
 A backup that has to wait says **Queued** on its card instead of **Running**.
 Hovering it shows why, for example "Queued: waiting for local_c (same
 destination)" or "Queued: 2 backups already running". It starts as soon as its turn comes; **Stop** ends the wait. The time
-running shown once it starts leaves out the time it waited. A backup can also
+running shown once it starts leaves out the time it waited, and so does the
+finished run's duration ("in 10m 02s"); a wait of a minute or more is listed
+apart ("waited 51m 46s"), and the card's hover says "waited 51m 46s for its
+turn before that". A backup can also
 wait briefly for "another backup's Windows snapshot": Windows makes one
 snapshot at a time, and each backup that uses Windows snapshots waits for its
 own rather than back up without one.

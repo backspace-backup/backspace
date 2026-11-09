@@ -355,6 +355,9 @@ internal sealed class SystemBackupService : ServiceBase
         catch (Exception ex) { AppLogger.For<SystemBackupService>().Warning(ex, "Stop will proceed although its saved reason could not be updated"); }
     }
 
+    /// <summary>A run the service's schedule started, not the owner (U173).</summary>
+    internal static bool IsAutomatic(ServiceHostRequest request) => request.Command == "scheduled";
+
     private WorkerRun StartWorker(ServiceHostRequest request, ServiceRunAuthorization.AuthorizedRun approved)
     {
         var run = new WorkerRun(Guid.NewGuid().ToString("N"))
@@ -365,6 +368,9 @@ internal sealed class SystemBackupService : ServiceBase
             WorkingDirectory = _binding.DataDirectory, RedirectStandardInput = true, RedirectStandardOutput = true };
         // stdout is the private framed worker feed, never a console log sink.
         start.Environment["BACKSPACE_DEBUG"] = "0";
+        // Only the service's own schedule starts a run automatically; Run
+        // now and the command line are the owner's (U173).
+        start.Environment[ServiceApprovedWorker.AutomaticRunVariable] = IsAutomatic(request) ? "1" : "0";
         // The run's identity is the worker's revision: its reason file is named after it.
         foreach (var argument in new[] { request.Command == "start-cli" ? "--service-worker-cli" : "--service-worker-owned",
             run.RunId, request.BackupId!, request.Operation! })
@@ -375,7 +381,7 @@ internal sealed class SystemBackupService : ServiceBase
         try
         {
             _recovery.Begin(new(1, run.RunId, approved.Backup.Id, approved.Backup.Name, approved.Kind,
-                run.StartedUtc!.Value, request.Command is "scheduled" or "start-cli", approved.Configuration.Notifications.OnFailure.Toast,
+                run.StartedUtc!.Value, IsAutomatic(request), approved.Configuration.Notifications.OnFailure.Toast,
                 approved.Configuration.Notifications.OnFailure.Sound));
             SaveStatus(run);
             if (!process.Start()) throw new IOException("The backup worker could not start.");

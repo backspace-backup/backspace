@@ -20,6 +20,9 @@ public static partial class LastRunLine
     private static partial Regex Counts();
     [GeneratedRegex(@"(?:^|· )(?:Completed )?in (?<dur>\d[^·]*?)\s*(?:·|$)")]
     private static partial Regex Took();
+    // "waited 51m 46s": time queued behind another backup (U173).
+    [GeneratedRegex(@"(?:^|· )waited (?<dur>\d[^·]*?)\s*(?:·|$)")]
+    private static partial Regex Waited();
     [GeneratedRegex(@"(?<n>\d+) (?<kind>warning|error)s?")]
     private static partial Regex Problems();
     // "8,335 online-only files skipped" (U168), in any digit grouping.
@@ -53,6 +56,7 @@ public static partial class LastRunLine
             "Finished " + endedUtc.ToLocalTime().ToString("ddd d MMM, HH:mm", CultureInfo.CurrentCulture),
         };
         if (took is not null) hover.Add("took " + took);
+        if (Waited().Match(summary) is { Success: true } w) hover.Add("waited " + w.Groups["dur"].Value.Trim() + " for its turn before that");
         if (counts.Success)
             hover.Add($"{counts.Groups["new"].Value} new, {counts.Groups["mod"].Value} changed and {counts.Groups["rem"].Value} deleted files since the previous backup");
         hover.Add(size is null ? "nothing new to upload" : size + " of new data uploaded");

@@ -88,6 +88,20 @@ public sealed class RunRecord
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public long CloudOnlySkipped { get; set; }
 
+    /// <summary>How long the run waited for its turn ("Queued: waiting for
+    /// local_c", U156) before and between its parts (U173). Its duration
+    /// leaves this out; the hover shows it separately.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public TimeSpan QueuedFor { get; set; }
+
+    /// <summary>The time the run spent working: from start to end, less
+    /// the time it waited for its turn.</summary>
+    public TimeSpan WorkingTime(DateTime nowUtc)
+    {
+        var total = (EndedUtc ?? nowUtc) - StartedUtc - QueuedFor;
+        return total < TimeSpan.Zero ? TimeSpan.Zero : total;
+    }
+
     public List<string> Errors { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
 

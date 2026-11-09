@@ -144,7 +144,7 @@ internal static class DesktopSchedule
             {
                 ScheduledTaskKind.Prune => await ServiceLocator.Orchestrator.RunPruneAsync(backup, run.Token).ConfigureAwait(false),
                 ScheduledTaskKind.Check => await ServiceLocator.Orchestrator.RunCheckAsync(backup, run.Token).ConfigureAwait(false),
-                _ => await ServiceLocator.Orchestrator.RunBackupAsync(backup, run.Token).ConfigureAwait(false),
+                _ => await ServiceLocator.Orchestrator.RunBackupAsync(backup, run.Token, automatic: true).ConfigureAwait(false),
             };
             AppLogger.For(nameof(DesktopSchedule)).Information("Scheduled {Kind} for {Name}: {Status}", plan.Kind, backup.Name, record.Status);
         }

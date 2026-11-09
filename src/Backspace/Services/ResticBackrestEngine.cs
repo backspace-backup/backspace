@@ -575,11 +575,28 @@ public sealed class ResticBackrestEngine : IBackupEngine
             + " --group-by= " + string.Join(' ', keepOptions);
     }
 
-    /// <summary>The latest snapshot this plan made, from Backrest's own
-    /// operation history (local, no storage access), or null for a first
-    /// backup. Only used for the log, so a failure just leaves it out.</summary>
+    /// <summary>The latest snapshot this plan made, or null for a first
+    /// backup: from the repository's own snapshot list, the one Backrest
+    /// reads to pass restic its --parent. Backrest's operation history only
+    /// covers what this engine instance ran: the service's engine had none of
+    /// the app's backups, so the log said "No earlier backup" above a backup
+    /// that used one as its parent (U173). The history is the fallback when
+    /// the list can't be read. Used for the log, the change plan and the
+    /// changed-files list; a failure just leaves it out.</summary>
     private async Task<(string Id, DateTime When)?> PreviousSnapshotAsync(BackrestClient client, string repoId, string planId, CancellationToken ct)
     {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromMinutes(2));
+            var listed = await client.CallAsync<ListSnapshotsRequest, ResticSnapshotList>("/v1.Backrest/ListSnapshots",
+                new ListSnapshotsRequest { RepoId = repoId, PlanId = planId }, timeout.Token).ConfigureAwait(false);
+            return LatestSnapshot(listed.Snapshots);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _log.Debug(ex, "Could not list the repository's snapshots; using the engine history for the previous backup");
+        }
         try
         {
             var repoGuid = await ResolveRepoGuidAsync(client, repoId, ct).ConfigureAwait(false);
@@ -593,6 +610,14 @@ public sealed class ResticBackrestEngine : IBackupEngine
             _log.Debug(ex, "Could not read the previous snapshot for the log");
             return null;
         }
+    }
+
+    /// <summary>The newest valid snapshot of a plan's list, or null when it
+    /// has none.</summary>
+    internal static (string Id, DateTime When)? LatestSnapshot(IEnumerable<ResticSnapshotDto>? snapshots)
+    {
+        var latest = (snapshots ?? []).Where(s => IsValidBackrestGuid(s.Id)).MaxBy(s => s.UnixTimeMs);
+        return latest is null ? null : (latest.Id, DateTimeOffset.FromUnixTimeMilliseconds(latest.UnixTimeMs).UtcDateTime);
     }
 
     /// <summary>The size a backup of <paramref name="sourcePath"/> is

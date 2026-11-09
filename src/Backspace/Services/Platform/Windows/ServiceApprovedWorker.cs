@@ -18,6 +18,14 @@ internal static class ServiceApprovedWorker
 {
     internal static bool HasVerifiedVssIdentity { get; private set; }
 
+    /// <summary>Set by the service on the worker it starts: "1" when its own
+    /// schedule started the run (U173).</summary>
+    internal const string AutomaticRunVariable = "BACKSPACE_RUN_AUTOMATIC";
+
+    /// <summary>Whether this worker's run was started by the service's
+    /// schedule: never for the owner's command (Run now, command line).</summary>
+    internal static bool StartedBySchedule(bool ownerCommand, string? variable) => !ownerCommand && variable == "1";
+
     internal static async Task<int> RunOwnedAsync(string revision, string backupId, string operation, bool ownerCommand = false)
     {
         var binding = ServiceWorkerBinding.Load(ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\')));
@@ -100,7 +108,8 @@ internal static class ServiceApprovedWorker
                 ? new ServiceWorkerActivity(activityOutput, backupId, ServiceLocator.Progress, ServiceLocator.Orchestrator, ServiceLocator.Engine) : null;
             var result = run.Kind switch
             {
-                RunKind.Backup => await ServiceLocator.Orchestrator.RunBackupAsync(backup, stop).ConfigureAwait(false),
+                RunKind.Backup => await ServiceLocator.Orchestrator.RunBackupAsync(backup, stop,
+                    automatic: StartedBySchedule(ownerCommand, Environment.GetEnvironmentVariable(AutomaticRunVariable))).ConfigureAwait(false),
                 RunKind.Check => await ServiceLocator.Orchestrator.RunCheckAsync(backup, stop).ConfigureAwait(false),
                 RunKind.Prune => await ServiceLocator.Orchestrator.RunPruneAsync(backup, stop).ConfigureAwait(false),
                 _ => throw new SecurityException("Unapproved operation."),

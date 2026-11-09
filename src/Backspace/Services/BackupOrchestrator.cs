@@ -421,6 +421,8 @@ public sealed partial class BackupOrchestrator
                 : $"{live.Summary} · {reason}",
             LogPath = live.LogPath,
             RevisionNumber = live.RevisionNumber,
+            TriggeredAutomatically = live.TriggeredAutomatically,
+            QueuedFor = info.QueuedFor,
             BytesUploaded = live.BytesUploaded,
             FilesNew = live.FilesNew,
             FilesModified = live.FilesModified,
@@ -520,7 +522,17 @@ public sealed partial class BackupOrchestrator
         foreach (var id in late) ForceFinaliseRun(id, reason);
     }
 
-    public async Task<RunRecord> RunBackupAsync(Backup backup, CancellationToken ct)
+    /// <param name="automatic">True for a run its schedule started (the
+    /// service's or the app's own), false for Run now and the command line.
+    /// The run's history says which (U173).</param>
+    public async Task<RunRecord> RunBackupAsync(Backup backup, CancellationToken ct, bool automatic = false)
+    {
+        var record = await RunBackupOnceAsync(backup, ct, automatic).ConfigureAwait(false);
+        record.TriggeredAutomatically = automatic;
+        return record;
+    }
+
+    private async Task<RunRecord> RunBackupOnceAsync(Backup backup, CancellationToken ct, bool automatic)
     {
         using var scope = Serilog.Context.LogContext.PushProperty("Backup", backup.Name);
         var wasConfigured = _config.Current.Backups.Any(b => b.Id == backup.Id);
@@ -618,6 +630,7 @@ public sealed partial class BackupOrchestrator
                 EndedUtc = null,
                 Status = BackupRunStatus.Running,
                 Summary = "Running…",
+                TriggeredAutomatically = automatic,
             };
             var runningInfo = new RunningInfo(localCts, result.StartedUtc, result);
             if (!_runningRuns.TryAdd(backup.Id, runningInfo))

@@ -355,7 +355,12 @@ public sealed partial class BackupOrchestrator
         // symmetrically. Runs that DID upload or change files keep
         // the bare "in {dur}" suffix because the leading parts
         // already describe what happened.
-        parts.Add(parts.Count == 0 ? $"Completed in {dur}" : $"in {dur}");
+        // The time it worked, not the time it waited for another backup to
+        // finish (U173: local_d read "in 1h 01m" for 10 minutes of work
+        // after 51 minutes queued). The wait is said apart, for the hover.
+        var worked = HumanFormat.Duration(r.WorkingTime(DateTime.UtcNow));
+        parts.Add(parts.Count == 0 ? $"Completed in {worked}" : $"in {worked}");
+        if (r.QueuedFor >= TimeSpan.FromMinutes(1)) parts.Add($"waited {HumanFormat.Duration(r.QueuedFor)}");
         // Skipped quietly by the engine, so said here (U168).
         if (CloudFileBehavior.SkippedPhrase(r.CloudOnlySkipped) is { } cloud) parts.Add(cloud);
         return string.Join(" · ", parts);

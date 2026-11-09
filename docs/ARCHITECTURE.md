@@ -554,6 +554,13 @@ only those files has no vault, and the first save asks for a password.
    for the newest window and `--keep-within-daily|weekly|monthly|yearly` up to
    the next rule's age (U172); Backrest's retention policy has no keep-within
    form, so it cannot carry them. A policy that does not parse deletes nothing.
+   A backup's previous snapshot (its "[setup]" log line, the change plan, the
+   changed-files list) comes from the repository's snapshot list, the one
+   Backrest reads to give restic its `--parent`; Backrest's operation history
+   is the fallback, as it only knows what its own engine instance ran (U173).
+   A worker the service's schedule starts gets `BACKSPACE_RUN_AUTOMATIC=1`, so
+   its history says automatic; an owner request (`start-cli`) never does. A
+   run's `QueuedFor` is left out of its duration.
    It never temporarily changes a shared plan's retention. This prevents Backrest's automatic cleanup
    from running ahead of Backspace's schedule or duplicating its inline request.
    Healthy tasks do not run an unconditional unlock first. A confirmed lock

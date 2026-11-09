@@ -334,6 +334,52 @@ public class BackupOrchestratorDestinationQueueTests
         Assert.Equal("", bEvents[^1].Reason); // last event clears the queued state
     }
 
+    /// <summary>U173 (9 November 2026): a scheduled run is saved as
+    /// automatic, Run now is not; and the time a run waited for another
+    /// backup is kept apart from the time it took (local_d read "in 1h 01m"
+    /// for 10 minutes of work after 51 minutes queued).</summary>
+    [Fact]
+    public async Task A_queued_scheduled_run_is_saved_as_automatic_and_its_wait_is_not_its_duration()
+    {
+        ResetConfig();
+        using var ws = new TempWorkspace("destqueue-wait");
+        var src = ws.Sub("src");
+        SyntheticFileTree.Generate(src, seed: 11, targetBytes: 50_000);
+        var dest = new Destination { Name = "Wait-Local", Kind = DestinationKind.LocalFolder, PathOrSubpath = ws.Sub("storage"), Encrypted = false };
+        var backup = NewBackup("WaitTest", src, dest);
+        ServiceLocator.Config.Update(cfg => { cfg.Destinations.Add(dest); cfg.Backups.Add(backup); });
+
+        var gateName = BackupOrchestrator.MutexNameForDestination(dest.Id, "default");
+        RunRecord scheduled;
+        using (var holder = new System.Threading.Semaphore(1, 1, gateName))
+        {
+            Assert.True(holder.WaitOne(0), "Setup expected the gate to be free before the test took it.");
+            var run = ServiceLocator.Orchestrator.RunBackupAsync(backup, CancellationToken.None, automatic: true);
+            await Task.Delay(2500);
+            Assert.False(run.IsCompleted, "The run should still be queued behind the held destination.");
+            holder.Release();
+            scheduled = await run;
+        }
+        Assert.Equal(BackupRunStatus.Success, scheduled.Status);
+        Assert.True(scheduled.TriggeredAutomatically);
+        Assert.True(scheduled.QueuedFor >= TimeSpan.FromSeconds(2), $"Queued for {scheduled.QueuedFor}");
+        var total = scheduled.EndedUtc!.Value - scheduled.StartedUtc;
+        Assert.Equal(total - scheduled.QueuedFor, scheduled.WorkingTime(DateTime.UtcNow));
+        Assert.Contains("in " + HumanFormat.Duration(scheduled.WorkingTime(DateTime.UtcNow)), scheduled.Summary);
+        // Under a minute of waiting is not worth a mention.
+        Assert.DoesNotContain("waited", scheduled.Summary);
+
+        var manual = await ServiceLocator.Orchestrator.RunBackupAsync(backup, CancellationToken.None);
+        Assert.False(manual.TriggeredAutomatically);
+        Assert.Equal(TimeSpan.Zero, manual.QueuedFor);
+
+        // As saved in the backup's history.
+        var saved = new LogStore().LoadHistory(backup.Name);
+        Assert.True(saved.Single(r => r.Id == scheduled.Id).TriggeredAutomatically);
+        Assert.True(saved.Single(r => r.Id == scheduled.Id).QueuedFor >= TimeSpan.FromSeconds(2));
+        Assert.False(saved.Single(r => r.Id == manual.Id).TriggeredAutomatically);
+    }
+
     private static Backup NewBackup(string name, string sourceDir, Destination dest)
     {
         var b = new Backup

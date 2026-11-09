@@ -205,7 +205,7 @@ public sealed class LogStore
                         LogPath = r.LogPath,
                         // What it added and freed stays after its log expires (U142).
                         FilesNew = r.FilesNew, FilesModified = r.FilesModified, BytesUploaded = r.BytesUploaded,
-                        SnapshotsRemoved = r.SnapshotsRemoved, BytesFreed = r.BytesFreed,
+                        SnapshotsRemoved = r.SnapshotsRemoved, BytesFreed = r.BytesFreed, QueuedFor = r.QueuedFor,
                     }).ToList();
                 WriteTimeline(timelinePath, timeline);
                 timelineSaved = true;
