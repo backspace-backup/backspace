@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:platform="using:Backspace.Services.Platform"
              xmlns:vm="using:Backspace.ViewModels"
+             xmlns:views="using:Backspace.Views"
              xmlns:m="using:Backspace.Models"
              xmlns:conv="using:Avalonia.Data.Converters"
              x:Class="Backspace.Views.SettingsView"
@@ -834,7 +835,8 @@
           <StackPanel IsVisible="{Binding HasUpdate}" Spacing="12">
             <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding AvailableVersion}"/>
             <Expander Header="What changed" IsExpanded="False">
-              <TextBlock Classes="body" Text="{Binding Notes}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+              <!-- GitHub release notes, rendered from Markdown (U169). -->
+              <views:MarkdownView x:Name="ReleaseNotes" Markdown="{Binding Notes}" Margin="0,12,0,0"/>
             </Expander>
             <TextBlock Classes="helper" Text="{Binding InstallExplanation}" TextWrapping="Wrap"/>
             <WrapPanel Orientation="Horizontal">

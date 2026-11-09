@@ -1,0 +1,31 @@
+## Backups with automatic backups off
+
+- **Run now goes through the background service** when it is installed, so manual-only backups get a Windows snapshot like scheduled ones. The service still never starts them on its own.
+- Backups with extra engine arguments, or a network share whose sign-in the service cannot use, still run in the window without a snapshot.
+- `--run <name>` also runs a named backup with automatic backups off.
+
+## Online-only cloud files
+
+- **Dropbox's online-only files are now skipped cleanly** when "Skip cloud-only placeholders" is on. Before, each one ended the run with an `unsupported file type "irregular"` error and a partial-backup warning. They are still never opened or downloaded.
+- Run summaries and the Last backup hover say how many were skipped ("8 online-only files skipped"); Simulate and Count say the same.
+- Bundled restic is now 0.19.1-backspace.4, which adds this change.
+
+## Saved passwords
+
+- The one-time conversion from the old saved-password files to the password vault has been removed. Installs updated through 1.1.15 or later have already converted. An old `secrets.bin` is now ignored.
+
+## Other
+
+- The Mounting line no longer repeats the percentage shown beside the bar.
+- The Queued hover says only why the backup is waiting.
+
+## Known limits
+
+- A manual-only backup run through an installed service was tested in simulation only; an interrupted manual run is not resumed.
+
+- An online-only file chosen directly as a backup's source (rather than a folder containing it) is still reported as an error.
+- Google Drive's streamed files have not been checked; the skipped count is missing on Windows ARM64 and when listing the source takes over 3 minutes.
+- The background-service test before Windows sign-in was last run on 1.1.15; this release only removes old-format branches from that code.
+- Several backups at once in an installed background service were tested in simulation only.
+- Windows 10, macOS and Linux are untested; the executable is not code-signed.
+
