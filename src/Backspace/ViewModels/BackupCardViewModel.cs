@@ -761,7 +761,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// <summary>The status line's hover text: for a queued run, why it waits
     /// and that it starts by itself; otherwise the line itself.</summary>
     public string LastRunDetail => IsQueued && QueuedReason.Length > 0
-        ? $"Queued: {QueuedReason}. It starts by itself when its turn comes."
+        ? $"Queued: {QueuedReason}"
         : LastRunLabel == _lastRunAgeLabel && _lastRunHover is { } hover ? hover
         : LastRunLabel;
 

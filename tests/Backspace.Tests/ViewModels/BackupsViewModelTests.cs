@@ -120,7 +120,7 @@ public class BackupsViewModelTests
         card.SetQueuedReason("waiting for another backup");
         ServiceLocator.Config.Update(cfg => cfg.Backups[0].LastRunSummary = "Older saved result");
         Assert.True(card.IsQueued);
-        Assert.Equal("Queued", card.LastRunLabel); Assert.StartsWith("Queued: waiting for another backup.", card.LastRunDetail);
+        Assert.Equal("Queued", card.LastRunLabel); Assert.Equal("Queued: waiting for another backup", card.LastRunDetail);
         Assert.Equal("running", card.StatusClass);
 
         // A terminal result must still replace the live state. Once idle,

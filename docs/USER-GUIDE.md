@@ -150,8 +150,7 @@ together up to two limits, in **Settings › Backups at once**:
 
 A backup that has to wait says **Queued** on its card instead of **Running**.
 Hovering it shows why, for example "Queued: waiting for local_c (same
-destination). It starts by itself when its turn comes." or "Queued: 2 backups
-already running". It starts as soon as its turn comes; **Stop** ends the wait. The time
+destination)" or "Queued: 2 backups already running". It starts as soon as its turn comes; **Stop** ends the wait. The time
 running shown once it starts leaves out the time it waited. A backup can also
 wait briefly for "another backup's Windows snapshot": Windows makes one
 snapshot at a time, and each backup that uses Windows snapshots waits for its

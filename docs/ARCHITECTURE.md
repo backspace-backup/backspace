@@ -928,7 +928,7 @@ snapshot's size.
   (`CloudDestinationPreflight.TrustRecentSuccessFor`), so consecutive reads do
   not each start with a sign-in round trip.
 - **Feedback.** `GetMountProgress` says what a mount is doing ("Reading the
-  backup's folders: 41%, 120,000 files so far", with several revisions "…,
+  backup's folders: 120,000 files so far"; the percentage is beside the bar only, with several revisions "…,
   revision 2 of 3 (5 Nov 2026 09:12): …"); the card shows it once the picker
   closes, then "Mounted as Z: (5 Nov 2026 09:12)" (`GetMountedDescription`)
   with Open in Explorer, or the failure inline.

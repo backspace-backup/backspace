@@ -57,7 +57,7 @@ public sealed class S68_BackgroundBackupResults : ScenarioBase
         vm.Refresh(); await ctx.Driver.PumpAsync(100);
         Assert.True(card.IsRunning); Assert.True(card.IsQueued); Assert.Equal("running", card.StatusClass);
         Assert.Equal("Queued", card.LastRunLabel);
-        Assert.StartsWith("Queued: waiting for the backup drive.", card.LastRunDetail);
+        Assert.Equal("Queued: waiting for the backup drive", card.LastRunDetail);
         ctx.Snapshot(window, "live-run-preserved", "Refreshing saved service history leaves the current queued run in place. An earlier completed result cannot replace a live operation.");
         card.Apply(failed);
         await ctx.Driver.PumpAsync(100);

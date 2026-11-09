@@ -54,13 +54,13 @@ public sealed class S92_MountFeedback : ScenarioBase
         // U166: the summary's 415,256 files make it a percentage.
         registry.Report(backup.Id, new MountReading(170_000, Percent: 40)); ctx.Driver.Pump();
         registry.Report(backup.Id, new MountReading(312_000, Percent: 75)); ctx.Driver.Pump();
-        Assert.True(Visible(host, "Mounting · Reading the backup's folders: 75%, 312,000 files so far…"));
+        Assert.True(Visible(host, "Mounting · Reading the backup's folders: 312,000 files so far…"));
         Assert.True(Visible(host, "75%"));
         Assert.False(Bar(host).IsIndeterminate);
         Assert.Equal(75, Bar(host).Value);
         host.MouseMove(new Point(990, 510)); // away from Mounting…, whose tooltip would cover the line
         Settle(ctx, host);
-        ctx.Snapshot(host, "mounting-reading-folders", "While the snapshot's folder list is read, the bar fills to 75% with \"75%\" beside it, and the text says 75%, 312,000 files so far (of the 415,256 the backup's summary counts).");
+        ctx.Snapshot(host, "mounting-reading-folders", "While the snapshot's folder list is read, the bar fills to 75% with \"75%\" beside it, and the text says 312,000 files so far (of the 415,256 the backup's summary counts).");
 
         registry.Finish(backup.Id, MountResult.Ok("Z:")); ctx.Driver.Pump();
         await WaitAsync(ctx, () => card.MountedDrive == "Z:" && !card.IsMounting);

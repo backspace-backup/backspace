@@ -232,10 +232,10 @@ public class BackupMountTreeProviderTests : IDisposable
         Assert.Equal(2, heard.Last().Files);
         Assert.Equal("Reading the backup's folders, revision 2 of 3 (6 Nov 2026 x): 1,200 files so far".Replace("6 Nov 2026 x", MountSelection.When(R2)),
             MountedSnapshotRegistry.ReadingText(new MountReading(1200, 2, 3, MountSelection.When(R2))));
-        Assert.Equal("Reading the backup's folders, revision 2 of 3 (6 Nov 2026 x): 41%, 1,200 files so far".Replace("6 Nov 2026 x", MountSelection.When(R2)),
+        Assert.Equal("Reading the backup's folders, revision 2 of 3 (6 Nov 2026 x): 1,200 files so far".Replace("6 Nov 2026 x", MountSelection.When(R2)),
             MountedSnapshotRegistry.ReadingText(new MountReading(1200, 2, 3, MountSelection.When(R2), 41)));
         Assert.Equal("Reading the backup's folders: 1,200 files so far", MountedSnapshotRegistry.ReadingText(1200));
-        Assert.Equal("Reading the backup's folders: 0%", MountedSnapshotRegistry.ReadingText(new MountReading(0, Percent: 0)));
+        Assert.Equal("Reading the backup's folders", MountedSnapshotRegistry.ReadingText(new MountReading(0, Percent: 0)));
         Assert.Equal("Reading the backup's folders", MountedSnapshotRegistry.ReadingText(0));
     }
 

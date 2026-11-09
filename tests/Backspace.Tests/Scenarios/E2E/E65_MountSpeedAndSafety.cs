@@ -85,7 +85,7 @@ public sealed class E65_MountSpeedAndSafety : BackupE2EBase
         // U166: restic's summary counts the 6,000 files, the listing counts the
         // same files (not the 331 folders), so the read ends at 100%; any
         // percentage before that only rises and stays at 99% at most.
-        Assert.Contains("Reading the backup's folders: 100%, 6,000 files so far", said);
+        Assert.Contains("Reading the backup's folders: 6,000 files so far", said);
         var percents = said.Select(s => System.Text.RegularExpressions.Regex.Match(s, @": (\d+)%")).Where(m => m.Success)
             .Select(m => int.Parse(m.Groups[1].Value)).ToList();
         Assert.Equal(percents.OrderBy(p => p), percents);

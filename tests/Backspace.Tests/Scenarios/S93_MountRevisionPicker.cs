@@ -122,7 +122,7 @@ public sealed class S93_MountRevisionPicker : ScenarioBase
         Assert.Equal(67, percent);
         registry.Report(backup.Id, new MountReading(212_000, 2, 2, MountSelection.When(revisions[3].CreatedUtc), percent));
         ctx.Driver.Pump();
-        Assert.True(Visible(host, $"Mounting · Reading the backup's folders, revision 2 of 2 ({MountSelection.When(revisions[3].CreatedUtc)}): 67%, 212,000 files so far…"));
+        Assert.True(Visible(host, $"Mounting · Reading the backup's folders, revision 2 of 2 ({MountSelection.When(revisions[3].CreatedUtc)}): 212,000 files so far…"));
         Assert.True(Visible(host, "67%"));
         Assert.Equal(67, card.MountPercent);
         Settle(ctx, host);

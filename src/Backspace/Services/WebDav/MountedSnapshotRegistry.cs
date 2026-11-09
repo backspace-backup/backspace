@@ -151,19 +151,17 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
     /// <summary>"Reading the backup's folders: 120,000 files so far".</summary>
     internal static string ReadingText(int files) => ReadingText(new MountReading(files));
 
-    /// <summary>"Reading the backup's folders: 41%, 120,000 files so far" for
-    /// one revision; with several, which one: "Reading the backup's folders,
-    /// revision 2 of 3 (5 Nov 2026 09:12): 41%, 120,000 files so far". The
-    /// percentage is the whole mount's (U166), left out when unknown.</summary>
+    /// <summary>"Reading the backup's folders: 120,000 files so far" for one
+    /// revision; with several, which one: "Reading the backup's folders,
+    /// revision 2 of 3 (5 Nov 2026 09:12): 120,000 files so far". The
+    /// percentage is shown beside the bar only, not repeated here (the owner,
+    /// 9 November 2026).</summary>
     internal static string ReadingText(MountReading reading)
     {
         var which = reading.Count > 1
             ? $", revision {reading.Index} of {reading.Count}" + (reading.Revision is { } r ? $" ({r})" : "")
             : "";
-        var parts = new System.Collections.Generic.List<string>(2);
-        if (reading.Percent is { } percent) parts.Add($"{percent}%");
-        if (reading.Files > 0) parts.Add($"{reading.Files:N0} files so far");
-        return "Reading the backup's folders" + which + (parts.Count > 0 ? ": " + string.Join(", ", parts) : "");
+        return "Reading the backup's folders" + which + (reading.Files > 0 ? $": {reading.Files:N0} files so far" : "");
     }
 
     private async Task<MountResult> MountCoreAsync(Backup backup, MountSelection? selection, CancellationToken ct)

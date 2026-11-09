@@ -25,7 +25,7 @@ public sealed class ServiceQueuedCardTests
         Assert.True(card.IsRunning);
         Assert.True(card.IsQueued);
         Assert.False(card.IsActuallyRunning);
-        Assert.Equal("Queued", card.LastRunLabel); Assert.StartsWith("Queued: waiting for the background service to start it.", card.LastRunDetail);
+        Assert.Equal("Queued", card.LastRunLabel); Assert.Equal("Queued: waiting for the background service to start it", card.LastRunDetail);
 
         vm.ShowServiceQueued(card.Id, ""); // accepted: the service's activity takes over
         Assert.False(card.IsQueued);

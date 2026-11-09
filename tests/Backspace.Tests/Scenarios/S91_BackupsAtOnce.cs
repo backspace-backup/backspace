@@ -72,7 +72,7 @@ public sealed class S91_BackupsAtOnce : ScenarioBase
             var runD = listVm.RunNowCommand.ExecuteAsync(Card(localD));
             await Until(() => Card(localD).IsQueued, "local_d is queued");
             Assert.Equal("Queued", Card(localD).LastRunLabel);
-            Assert.StartsWith("Queued: waiting for local_c (same destination).", Card(localD).LastRunDetail);
+            Assert.Equal("Queued: waiting for local_c (same destination)", Card(localD).LastRunDetail);
             var runP = listVm.RunNowCommand.ExecuteAsync(Card(photos));
             await Until(() => engine.Calls.Any(c => c.Contains("(photos,")), "photos runs alongside local_c");
             Assert.False(Card(photos).IsQueued);
@@ -110,7 +110,7 @@ public sealed class S91_BackupsAtOnce : ScenarioBase
             Assert.Equal("Running · 16 min", Card(localC).RunningLabel);
             Assert.True(Card(localD).IsQueued);
             Assert.Equal("Queued", Card(localD).LastRunLabel);
-            Assert.StartsWith("Queued: waiting for local_c (same destination).", Card(localD).LastRunDetail);
+            Assert.Equal("Queued: waiting for local_c (same destination)", Card(localD).LastRunDetail);
             ctx.Snapshot(host, "background service queued same destination",
                 "The background service's activity (simulated) with both runs: local_c is backing up, 16 min in; local_d's worker waits for it and its card says “Queued: waiting for local_c (same destination)”, not Running. Before U156 the service reported only local_c, and local_d's card said Running…");
 
