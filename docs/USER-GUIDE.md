@@ -185,7 +185,8 @@ the cleanup after the next backup deletes the first copy. Its history says "Inte
 notification, since there is nothing to do. This applies to scheduled
 backups, and with administrator access to `Backspace --run` from the
 command line as well; a backup started with **Run now** in the window
-waits for its next scheduled time. A resume stopped by Windows or an update
+waits for its next scheduled time, and one with automatic backups off waits
+for you to run it again. A resume stopped by Windows or an update
 resumes again; one ended by a crash or a power loss doesn't, so a backup
 that brings the computer down doesn't start at every launch: the next
 scheduled time is the next try, and you are notified. **Stop** ends a backup
@@ -219,8 +220,12 @@ GitHub's own checksum and a secure connection: `Backspace.exe` is not
 code-signed, so someone who took over the project's GitHub releases could
 publish an update the service would then run.
 
-With access on, **Run now** goes through the same service and includes files
-in use without another prompt. Adding, editing or removing a backup asks
+With access on, **Run now** (and saving with "run after save") goes through the
+same service and includes files in use without another prompt. This includes
+backups with automatic backups off: they get the same snapshot, but still run
+only when you ask. A backup with custom engine arguments, or one saving to a
+network share without a saved user name and password, runs in the window
+instead, without a snapshot. Adding, editing or removing a backup asks
 nothing either: the service reads your saved settings within a minute. Updating
 Backspace asks nothing too: the service stops while `Backspace.exe` is
 replaced and starts again. **Settings → Administrator access** keeps **Remove

@@ -200,12 +200,46 @@ public sealed class SystemServiceTests
     }
 
     [Fact]
+    public void Run_now_of_a_manual_only_backup_goes_through_the_service_but_it_never_runs_on_its_own()
+    {
+        // U171: automatic backups off. The owner's Run now / Save and run /
+        // named command goes to the service, so it gets a Windows snapshot.
+        var manual = Config(b => b.Enabled = false);
+        Assert.True(SystemServiceRuns.CanRun(manual.Backups[0], manual));
+        Assert.True(ServiceCommandLineRun.RunsInService(manual, "b1"));
+        Assert.Equal(RunKind.Backup, SystemServiceRuns.Authorize(manual, "b1", "backup", ownerCommand: true).Kind);
+        Assert.Equal(RunKind.Check, SystemServiceRuns.Authorize(manual, "b1", "check", ownerCommand: true).Kind);
+        Assert.Equal(RunKind.Prune, SystemServiceRuns.Authorize(manual, "b1", "prune", ownerCommand: true).Kind);
+
+        // The service's schedule never plans it, and an automatic start is refused,
+        // even with a check or clean-up schedule saved.
+        manual.Backups[0].CheckSchedule = new BackupSchedule();
+        manual.Backups[0].PruneSchedule = new BackupSchedule();
+        Assert.False(SystemServiceRuns.RunsOnItsOwn(manual.Backups[0], manual));
+        Assert.Empty(SchedulePlan.From(manual).Where(p => SystemServiceRuns.RunsOnItsOwn(p.Backup, manual)));
+        foreach (var operation in new[] { "backup", "check", "prune" })
+            Assert.Throws<System.Security.SecurityException>(() => SystemServiceRuns.Authorize(manual, "b1", operation, ownerCommand: false));
+
+        // The same backup with automatic backups on is planned and started by the schedule.
+        var automatic = Config(b => { b.CheckSchedule = new BackupSchedule(); b.PruneSchedule = new BackupSchedule(); });
+        Assert.True(SystemServiceRuns.RunsOnItsOwn(automatic.Backups[0], automatic));
+        Assert.Equal(3, SchedulePlan.From(automatic).Count(p => SystemServiceRuns.RunsOnItsOwn(p.Backup, automatic)));
+        Assert.Equal(RunKind.Backup, SystemServiceRuns.Authorize(automatic, "b1", "backup", ownerCommand: false).Kind);
+    }
+
+    [Fact]
     public void Backups_the_service_cannot_run_stay_with_the_window()
     {
-        Assert.False(SystemServiceRuns.CanRun(Config(b => b.Enabled = false).Backups[0], Config(b => b.Enabled = false)));
         var custom = Config(b => b.ExtraBackupArgs = "--one-file-system");
         Assert.False(SystemServiceRuns.CanRun(custom.Backups[0], custom));
+        Assert.False(ServiceCommandLineRun.RunsInService(custom, "b1"));
         Assert.Throws<NotSupportedException>(() => SystemServiceRuns.Authorize(custom, "b1", "backup", ownerCommand: true));
+        // Custom arguments stay in the window with automatic backups off too.
+        var customManual = Config(b => { b.ExtraBackupArgs = "--one-file-system"; b.Enabled = false; });
+        Assert.False(ServiceCommandLineRun.RunsInService(customManual, "b1"));
+        Assert.Throws<NotSupportedException>(() => SystemServiceRuns.Authorize(customManual, "b1", "backup", ownerCommand: true));
+        // Not saved yet: the window runs it.
+        Assert.False(ServiceCommandLineRun.RunsInService(Config(), "unsaved"));
         var noSources = Config(b => b.SourcePaths = []);
         Assert.False(SystemServiceRuns.CanRun(noSources.Backups[0], noSources));
         Assert.Throws<InvalidDataException>(() => SystemServiceRuns.Authorize(Config(), "missing", "backup", ownerCommand: true));

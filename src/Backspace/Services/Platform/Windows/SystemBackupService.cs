@@ -550,7 +550,7 @@ internal sealed class SystemBackupService : ServiceBase
             return null;
         }
         _scheduleDestinations = config.Destinations;
-        return SchedulePlan.From(config).Where(p => SystemServiceRuns.CanRun(p.Backup, config)).ToList();
+        return SchedulePlan.From(config).Where(p => SystemServiceRuns.RunsOnItsOwn(p.Backup, config)).ToList();
     }
 
     private async Task<bool> RunScheduledAsync(SchedulePlan plan, CancellationToken ct)

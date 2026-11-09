@@ -27,9 +27,10 @@ internal static class ServiceCommandLineRun
     }
 
     /// <summary>Run now from the desktop through the service, so files in use
-    /// are included without a Windows prompt (U026, 29 October 2026). False,
-    /// with nothing started, when the service is not active, the saved
-    /// settings still need approval or this backup is not approved; the
+    /// are included without a Windows prompt (U026, 29 October 2026). This
+    /// includes backups with automatic backups off (U171): the owner asked
+    /// for this run. False, with nothing started, when the service is not
+    /// active or <see cref="RunsInService"/> says no; the
     /// caller then runs it itself. Once the start request is sent the result
     /// belongs to the service: a lost reply must not cause a second run, so
     /// failures after that point are thrown, never reported as false. The
@@ -46,7 +47,7 @@ internal static class ServiceCommandLineRun
             if (FindBinding(root, AppPaths.ConfigRoot) is not { } found) return false;
             // The saved settings are what the service runs (U100).
             var saved = ServiceConfigurationComparison.ReadDesktop(root);
-            if (saved.Backups.SingleOrDefault(b => b.Id == backup.Id) is not { } current || !SystemServiceRuns.CanRun(current, saved)) return false;
+            if (!RunsInService(saved, backup.Id)) return false;
             (binding, revision) = (found, Guid.NewGuid().ToString("N"));
         }
         catch (Exception ex) when (ex is IOException or System.Security.SecurityException or InvalidDataException or UnauthorizedAccessException)
@@ -59,13 +60,21 @@ internal static class ServiceCommandLineRun
         return true;
     }
 
+    /// <summary>Whether Run now or Save and run hands this saved backup to the
+    /// active service: whenever the service can run it, automatic backups
+    /// on or off (U171). Not yet saved, custom engine arguments or a share
+    /// the service can't sign in to: it runs in the window.</summary>
+    internal static bool RunsInService(AppConfig saved, string backupId)
+        => saved.Backups.SingleOrDefault(b => b.Id == backupId) is { } current && SystemServiceRuns.CanRun(current, saved);
+
+    /// <summary>The backups a command runs. Without a name, those with
+    /// automatic backups on; a backup named explicitly runs even with
+    /// automatic backups off, as Run now does in the window (U171).</summary>
     internal static IReadOnlyList<Backup> SelectBackups(AppConfig config, string? name)
     {
         if (name is null) return config.Backups.Where(b => b.Enabled).ToArray();
         var matches = config.Backups.Where(b => string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase)).ToArray();
         if (matches.Length > 1) throw new IOException("More than one backup has this name. Give them distinct names before running this command.");
-        if (matches.Length == 1 && !matches[0].Enabled)
-            throw new IOException("This backup is disabled. Enable it and apply the change to automatic backups first.");
         return matches;
     }
 

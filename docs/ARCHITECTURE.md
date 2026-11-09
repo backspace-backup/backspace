@@ -85,7 +85,13 @@ and before each run (`SystemServiceRuns`): there is no approval record and no
 settings task. Whoever can change those settings can already replace
 `Backspace.exe`, which the service runs as Windows; the user guide says so.
 Backups with custom engine arguments, or network shares without saved
-credentials, stay with the tray app. The service enables the backup and
+credentials, stay with the tray app. Two questions are kept apart (U171):
+`SystemServiceRuns.CanRun` says whether the service is able to run a backup,
+`RunsOnItsOwn` whether its schedule starts it (automatic backups on). An
+owner request (`start-cli`: Run now, Save and run, a named command) runs any
+backup the service can run, automatic backups on or off, so every run gets
+the same snapshot; the schedule plans, and `Authorize` without an owner
+request accepts, only backups with automatic backups on. The service enables the backup and
 restore rights of its token before starting workers, so restic reads every
 selected file whatever its permissions; workers inherit the enabled rights.
 It sets `BACKSPACE_ENGINE_ROOT` to the owner's `%LOCALAPPDATA%\Backspace\bin`
@@ -127,7 +133,8 @@ verb and older versions' tasks, optionally uninstalls WinFsp, and a helper
 deletes `%LOCALAPPDATA%\Backspace` after the app exits.
 
 `DesktopBackupRun` sends Run now and Save and run to the service through the
-owner's `start-cli` request when the service runs the backup; the card follows
+owner's `start-cli` request whenever the service can run the backup
+(`ServiceCommandLineRun.RunsInService`), automatic backups on or off; the card follows
 the run through the service's activity. Otherwise the desktop runs the backup
 itself. A network share runs in the service when its destination has a
 network path and a saved user name and password
@@ -966,7 +973,7 @@ A mount that starts while a change holds the destination waits and says so.
 
 - `Backspace`                              — launch GUI
 - `Backspace --background`                — start in the tray only (the sign-in start entry)
-- `Backspace --run <backup-name>`          — run one backup now, without the GUI
+- `Backspace --run <backup-name>`          — run one backup now, without the GUI (automatic backups on or off)
 - `Backspace --run-all`                    — run all enabled backups now, without the GUI
 - `Backspace --prune <backup-name>`        — standalone retention and repository cleanup
 - `Backspace --check <backup-name>`        — standalone repository integrity check

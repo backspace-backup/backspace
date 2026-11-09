@@ -182,7 +182,8 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
 
     private void UpdateNeedsAdministratorAccess()
     {
-        var wanted = ServiceLocator.Config.Current.Backups.Any(b => b.Enabled && b.UseVss);
+        // Any backup with VSS, automatic or not: Run now goes through the service too (U171).
+        var wanted = ServiceLocator.Config.Current.Backups.Any(b => b.UseVss);
         NeedsAdministratorAccess = OperatingSystem.IsWindows() && !AdministratorAccess.IsBusy
             && AdministratorAccess.HasAction && AdministratorAccess.StatusClass == "warn"
             && (wanted || !AdministratorAccess.CanOffer);

@@ -12,13 +12,15 @@ namespace Backspace.Tests.Services;
 public sealed class ServiceCommandLineRunTests
 {
     [Fact]
-    public void NamesResolveCaseInsensitivelyButDuplicatesAndDisabledBackupsNeverStart()
+    public void NamesResolveCaseInsensitivelyAndManualBackupsRunOnlyWhenNamed()
     {
         var config = new AppConfig { Backups = { new() { Id = "one", Name = "Documents" }, new() { Id = "two", Name = "Archive", Enabled = false } } };
         Assert.Equal("one", Assert.Single(ServiceCommandLineRun.SelectBackups(config, "DOCUMENTS")).Id);
+        // "Run all" takes only backups with automatic backups on.
         Assert.Equal("one", Assert.Single(ServiceCommandLineRun.SelectBackups(config, null)).Id);
         Assert.Empty(ServiceCommandLineRun.SelectBackups(config, "missing"));
-        Assert.Throws<IOException>(() => ServiceCommandLineRun.SelectBackups(config, "archive"));
+        // Named explicitly, a backup with automatic backups off runs, as Run now does (U171).
+        Assert.Equal("two", Assert.Single(ServiceCommandLineRun.SelectBackups(config, "archive")).Id);
         config.Backups.Add(new() { Id = "three", Name = "documents" });
         Assert.Throws<IOException>(() => ServiceCommandLineRun.SelectBackups(config, "Documents"));
     }

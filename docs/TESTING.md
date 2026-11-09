@@ -72,8 +72,8 @@ Missing settings or engine configuration with a retained `.bak` must not
 initialize defaults. The visible file-wait path must reject, rather than
 replay, an uncertain partial rename.
 
-`ServiceCommandLineRunTests` checks name matching, ambiguous/disabled backup
-rejection, strict request parsing, lost-reply handling and explicit paused results.
+`ServiceCommandLineRunTests` checks name matching, ambiguous-name rejection,
+named runs of backups with automatic backups off (U171), strict request parsing, lost-reply handling and explicit paused results.
 VM acceptance must invoke the packaged public commands as an ordinary owner and
 verify the actual worker identity and saved result; protocol tests alone do not
 establish that the CLI entry point or engine ran.

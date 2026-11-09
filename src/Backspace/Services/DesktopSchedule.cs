@@ -93,7 +93,7 @@ internal static class DesktopSchedule
     {
 #if WINDOWS
         if (OperatingSystem.IsWindows() && Platform.Windows.SystemService.ForCopy(AppContext.BaseDirectory.TrimEnd('\\')) is not null)
-            return Platform.Windows.SystemServiceRuns.CanRun(backup, config);
+            return Platform.Windows.SystemServiceRuns.RunsOnItsOwn(backup, config);
 #endif
         return SchedulePlan.ServiceCanRun(backup, config.Destinations);
     }
