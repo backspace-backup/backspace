@@ -37,8 +37,8 @@ public sealed class VaultServiceAndPathsTests
         var (installation, data, machine, app) = Install(ws);
         var (id, _) = app.ExportKey();
         var wrong = new byte[VaultFile.KeyBytes];
-        Assert.Equal("vault-key-rejected", ServiceVaultUnlock.Accept(installation, data, machine, id, wrong, verifyLegacy: false));
-        Assert.Equal("vault-key-rejected", ServiceVaultUnlock.Accept(installation, data, machine, VaultFile.NewId(), app.ExportKey().Key, verifyLegacy: false));
+        Assert.Equal("vault-key-rejected", ServiceVaultUnlock.Accept(installation, machine, id, wrong));
+        Assert.Equal("vault-key-rejected", ServiceVaultUnlock.Accept(installation, machine, VaultFile.NewId(), app.ExportKey().Key));
         Assert.False(Directory.Exists(Path.Combine(machine, "keys")) && Directory.EnumerateFiles(Path.Combine(machine, "keys")).Any());
         Assert.Equal(VaultState.Locked, ServiceVaultUnlock.ServiceVault(installation, machine).Refresh());
     }
@@ -49,7 +49,7 @@ public sealed class VaultServiceAndPathsTests
         using var ws = new TempWorkspace();
         var (installation, data, machine, app) = Install(ws);
         var (id, key) = app.ExportKey();
-        Assert.Null(ServiceVaultUnlock.Accept(installation, data, machine, id, key, verifyLegacy: false));
+        Assert.Null(ServiceVaultUnlock.Accept(installation, machine, id, key));
         Assert.True(File.Exists(Path.Combine(machine, "keys", id + ".service.bin")));
         var service = ServiceVaultUnlock.ServiceVault(installation, machine);
         Assert.Equal("repo-secret", service.Get("dest:1:storagepw"));
@@ -58,28 +58,14 @@ public sealed class VaultServiceAndPathsTests
     }
 
     [Fact]
-    public void Without_a_vault_the_service_is_set_up_unless_its_earlier_vault_still_holds_credentials()
+    public void Without_a_vault_the_service_is_set_up_but_a_vault_needs_its_key()
     {
         using var ws = new TempWorkspace();
         var installation = ws.Sub("empty");
-        var data = Path.Combine(installation, AppPaths.AppFolderName, "service");
-        Directory.CreateDirectory(data);
-        Assert.Null(ServiceVaultUnlock.Accept(installation, data, ws.Sub("m"), null, null, false));
-        new LegacySecretsVault(new DpapiSecretsEncryption(), ServiceVaultUnlock.LegacyVaultPath(data)).Set("k", "v");
-        Assert.Equal("conversion-needed", ServiceVaultUnlock.Accept(installation, data, ws.Sub("m"), null, null, false));
-    }
-
-    [Fact]
-    public void The_conversion_unlock_requires_every_earlier_service_credential()
-    {
-        using var ws = new TempWorkspace();
-        var (installation, data, machine, app) = Install(ws);
-        new LegacySecretsVault(new DpapiSecretsEncryption(), ServiceVaultUnlock.LegacyVaultPath(data)).Set("only-in-service", "x");
-        var (id, key) = app.ExportKey();
-        Assert.Equal("vault-key-or-contents-rejected", ServiceVaultUnlock.Accept(installation, data, machine, id, key, verifyLegacy: true));
-        Assert.False(File.Exists(Path.Combine(machine, "keys", id + ".service.bin")));
-        app.Set("only-in-service", "x");
-        Assert.Null(ServiceVaultUnlock.Accept(installation, data, machine, id, key, verifyLegacy: true));
+        Directory.CreateDirectory(Path.Combine(installation, AppPaths.AppFolderName, "service"));
+        Assert.Null(ServiceVaultUnlock.Accept(installation, ws.Sub("m"), null, null));
+        var (withVault, _, machine, _) = Install(ws);
+        Assert.Equal("vault-key-missing", ServiceVaultUnlock.Accept(withVault, machine, null, null));
     }
 
     [Theory]
@@ -89,6 +75,9 @@ public sealed class VaultServiceAndPathsTests
     [InlineData("{\"version\":1,\"command\":\"unlock\",\"vaultId\":\"0123456789abcdef0123456789abcdef\",\"key\":\"AAAA\"}")]
     [InlineData("{\"version\":1,\"command\":\"activity\",\"key\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}")]
     [InlineData("{\"version\":1,\"command\":\"unlock\",\"backupId\":\"b\"}")]
+    // The pre-vault conversion's commands are gone (U153).
+    [InlineData("{\"version\":1,\"command\":\"freeze\"}")]
+    [InlineData("{\"version\":1,\"command\":\"thaw\"}")]
     public void Malformed_unlock_requests_are_refused(string json)
         => Assert.ThrowsAny<Exception>(() => ServiceHostRequest.Parse(Encoding.UTF8.GetBytes(json)));
 
@@ -98,11 +87,10 @@ public sealed class VaultServiceAndPathsTests
         var request = ServiceHostRequest.Parse(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             version = 1, command = "unlock", vaultId = "0123456789abcdef0123456789abcdef",
-            key = Convert.ToBase64String(new byte[32]), verifyLegacy = true,
+            key = Convert.ToBase64String(new byte[32]),
         })));
         Assert.Equal("unlock", request.Command);
-        Assert.True(request.VerifyLegacy);
-        Assert.Equal("unlock", ServiceHostRequest.Parse(Encoding.UTF8.GetBytes("{\"version\":1,\"command\":\"unlock\",\"vaultId\":null,\"key\":null,\"verifyLegacy\":false}")).Command);
+        Assert.Equal("unlock", ServiceHostRequest.Parse(Encoding.UTF8.GetBytes("{\"version\":1,\"command\":\"unlock\",\"vaultId\":null,\"key\":null}")).Command);
     }
 
     [Fact]

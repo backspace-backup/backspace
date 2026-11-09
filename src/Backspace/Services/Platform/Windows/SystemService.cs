@@ -142,15 +142,15 @@ internal static class SystemService
             parameters.SetValue("Version", Version, RegistryValueKind.DWord);
             parameters.SetValue("OwnerSid", ownerSid);
             parameters.SetValue("EngineRoot", engineRoot);
-            // A moved copy brought its Backspace.config, sign-ins included.
-            // Any other copy hands its sign-ins over again; whatever an
-            // unfinished handoff left in its folder is not a vault anyone uses.
+            // A moved copy brought its Backspace.config. Any other copy is set
+            // up again: the service waits for this computer's vault key, and
+            // an earlier Quit record in its folder no longer applies.
             var sameCopy = existing is not null && (moved || SamePath(existing.Installation, root)) && existing.Activated;
             if (!sameCopy)
             {
                 parameters.SetValue("MigrationId", Guid.NewGuid().ToString("N"));
                 parameters.SetValue("Activated", 0, RegistryValueKind.DWord);
-                SystemServiceClient.ForgetVault(DataDirectoryFor(root));
+                SystemServiceClient.ForgetQuitRecord(DataDirectoryFor(root));
             }
         }
         Directory.CreateDirectory(DataDirectoryFor(root));

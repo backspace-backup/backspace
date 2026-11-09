@@ -82,9 +82,6 @@ public static class AppPaths
     public static string ConfigFile  => Path.Combine(ConfigRoot, "config.json");
     /// <summary>The saved credentials, encrypted with the person's password (U153).</summary>
     public static string VaultFile => Path.Combine(ConfigRoot, Services.VaultFile.FileName);
-    /// <summary>The credential file used before <see cref="VaultFile"/>, bound to
-    /// one Windows account on one computer. Read only by the one-time conversion.</summary>
-    public static string LegacySecretsFile => Path.Combine(ConfigRoot, "secrets.bin");
 
     /// <summary>
     /// Paths to the engine binaries: beside Backspace.exe in development

@@ -141,13 +141,11 @@ internal static class ServiceApprovedWorker
         {
             VaultState.Locked => VaultLockedException.LockedMessage,
             VaultState.Unreadable => vault.LoadErrorMessage ?? "Backspace can't open its saved passwords. Open Backspace on this computer to see why.",
-            VaultState.NoVault when File.Exists(ServiceVaultUnlock.LegacyVaultPath(binding.DataDirectory))
-                => "Open Backspace on this computer to finish moving your saved passwords; background backups wait until then.",
             _ => null,
         };
         if (reason is null) return vault;
         FileAccessRetry.Run(() => File.WriteAllText(reasonPath, reason), reasonPath);
-        throw new VaultLockedException(vault.State == VaultState.NoVault ? VaultState.Locked : vault.State, reason);
+        throw new VaultLockedException(vault.State, reason);
     }
 
     /// <summary>Why a worker that ended without a result could not run, when

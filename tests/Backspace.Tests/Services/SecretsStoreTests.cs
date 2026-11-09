@@ -257,18 +257,6 @@ public sealed class SecretsStoreTests
     }
 
     [Fact]
-    public void Earlier_files_without_a_vault_block_reads_until_they_are_moved()
-    {
-        using var ws = new TempWorkspace(vault: false);
-        File.WriteAllBytes(AppPaths.LegacySecretsFile, new byte[] { 1, 2, 3 });
-        var store = new SecretsStore();
-        Assert.Equal(VaultState.NoVault, store.Refresh());
-        Assert.True(store.ConversionPending);
-        var ex = Assert.Throws<VaultLockedException>(() => store.Get("k"));
-        Assert.Contains("choose a password", ex.Message);
-    }
-
-    [Fact]
     public void Two_instances_keep_both_writers_keys()
     {
         using var ws = new TempWorkspace();

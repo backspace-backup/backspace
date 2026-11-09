@@ -8,9 +8,9 @@ namespace Backspace.Services.Platform.Unix;
 
 /// <summary>
 /// macOS / Linux secrets encryption — AES-GCM with a 256-bit key
-/// stored in a chmod-600 keyfile next to the vault. Equivalent
+/// stored in a chmod-600 keyfile beside the key copies. Equivalent
 /// security posture to a private SSH key on the same disk: an
-/// offline attacker who only sees <c>secrets.bin</c> finds opaque
+/// offline attacker who only sees a key copy finds opaque
 /// AES-GCM ciphertext; one who can read your home directory at
 /// rest already has trivially worse access (they can read your SSH
 /// keys, browser cookies, etc).

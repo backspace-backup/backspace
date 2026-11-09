@@ -32,9 +32,6 @@ public sealed class VaultLockedException(VaultState state, string? detail = null
     internal const string LockedMessage =
         "Your saved passwords are locked on this computer. Open Backspace on this computer and enter your password once.";
 
-    internal const string ConversionMessage =
-        "Your saved passwords need one more step on this computer: open Backspace and choose a password for them. Nothing was changed.";
-
     private static string MessageFor(VaultState state, string? detail) => detail ?? state switch
     {
         VaultState.NoVault => "Backspace has no saved passwords yet. Choose a password for them first; nothing was saved.",
@@ -69,8 +66,7 @@ public sealed class SecretsStore
     private static ILogger _log => AppLogger.For<SecretsStore>();
     private readonly object _gate = new();
     private readonly string _path;
-    private readonly VaultKeyCache? _keys;
-    private readonly ISecretsBackend? _backend;
+    private readonly VaultKeyCache _keys;
     private byte[]? _key;
     private string? _keyId;
 
@@ -88,14 +84,6 @@ public sealed class SecretsStore
         _keys = keys;
     }
 
-    /// <summary>Services set up by Backspace 1.0 (versions 1 and 2) keep their
-    /// own earlier vault until their upgrade.</summary>
-    internal SecretsStore(ISecretsBackend backend)
-    {
-        _backend = backend ?? throw new ArgumentNullException(nameof(backend));
-        _path = "";
-    }
-
     internal string FilePath => _path;
 
     /// <summary>The state found by the last operation.</summary>
@@ -111,11 +99,6 @@ public sealed class SecretsStore
     public string? PreservedCorruptPath { get; private set; }
     /// <summary>The unreadable vault was made by a newer Backspace.</summary>
     public bool MadeByNewerVersion { get; private set; }
-    /// <summary>No vault yet, but the earlier per-computer credential file
-    /// (secrets.bin) is beside it: the one-time conversion has not run.
-    /// Reading and saving refuse until it has, so a run reports that instead
-    /// of a missing password (U153).</summary>
-    public bool ConversionPending { get; private set; }
 
     private sealed record Opened(VaultState State, VaultFile.Parsed? Parsed, Dictionary<string, string>? Map, byte[]? Key);
 
@@ -123,7 +106,6 @@ public sealed class SecretsStore
     /// or exposing a credential. An empty-password vault opens by itself.</summary>
     public VaultState Refresh()
     {
-        if (_backend is not null) { _backend.ValidateReadable(); return State = VaultState.Unlocked; }
         lock (_gate)
         {
             using var transaction = StateFileLock.Acquire(_path);
@@ -142,7 +124,6 @@ public sealed class SecretsStore
     /// while locked or unreadable, so callers report that instead of "missing".</summary>
     public bool TryGet(string key, out string value)
     {
-        if (_backend is not null) return _backend.TryGet(key, out value);
         lock (_gate)
         {
             using var transaction = StateFileLock.Acquire(_path);
@@ -150,7 +131,6 @@ public sealed class SecretsStore
             value = "";
             switch (opened.State)
             {
-                case VaultState.NoVault when ConversionPending: throw new VaultLockedException(VaultState.Locked, VaultLockedException.ConversionMessage);
                 case VaultState.NoVault: return false;
                 case VaultState.Unlocked:
                     if (!opened.Map!.TryGetValue(key, out var found)) return false;
@@ -165,7 +145,6 @@ public sealed class SecretsStore
     {
         ArgumentException.ThrowIfNullOrEmpty(key);
         ArgumentNullException.ThrowIfNull(value);
-        if (_backend is not null) { _backend.Set(key, value); return; }
         Mutate(map =>
         {
             var existed = map.ContainsKey(key);
@@ -178,7 +157,6 @@ public sealed class SecretsStore
 
     public void Remove(string key)
     {
-        if (_backend is not null) { _backend.Remove(key); return; }
         Mutate(map =>
         {
             if (!map.Remove(key)) return false;
@@ -203,13 +181,6 @@ public sealed class SecretsStore
     public bool SetIfNewer(string key, string candidate, Func<string, string, bool> isNewer)
     {
         ArgumentNullException.ThrowIfNull(isNewer);
-        if (_backend is not null)
-        {
-            var current = _backend.TryGet(key, out var found) ? found : "";
-            if (!isNewer(candidate, current)) return false;
-            _backend.Set(key, candidate);
-            return true;
-        }
         return Mutate(map =>
         {
             var current = map.TryGetValue(key, out var found) ? found : "";
@@ -223,57 +194,8 @@ public sealed class SecretsStore
     /// <summary>Throws unless the vault can be saved to right now.</summary>
     public void RequireWritable()
     {
-        if (_backend is not null) return;
         var state = Refresh();
-        if (state != VaultState.Unlocked) throw new VaultLockedException(state, ConversionPending ? VaultLockedException.ConversionMessage : LoadErrorMessage);
-    }
-
-    /// <summary>The conversion's vault (U153): written to <c>vault.bin.tmp</c>,
-    /// opened again with <paramref name="password"/> and compared (count and
-    /// digest) with <paramref name="map"/>, then published without replacing
-    /// anything (a vault that appeared meanwhile wins and this throws).
-    /// Returns the new vault's identity.</summary>
-    internal string CreateVerified(string password, IReadOnlyDictionary<string, string> map)
-    {
-        RequireLocal();
-        string id;
-        lock (_gate)
-        {
-            using var transaction = StateFileLock.Acquire(_path);
-            if (File.Exists(_path) || File.Exists(_path + ".bak"))
-                throw new IOException("Saved passwords already exist here; nothing was replaced.");
-            id = VaultFile.NewId();
-            var key = RandomNumberGenerator.GetBytes(VaultFile.KeyBytes);
-            var bytes = VaultFile.Compose(VaultFile.NewHeader(id, key, password ?? ""), VaultFile.SealBody(id, key, map));
-            var temporary = _path + ".tmp";
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            FileAccessRetry.DeleteIfExists(temporary);
-            try
-            {
-                var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
-                if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-                using (var file = new FileStream(temporary, options)) { file.Write(bytes); file.Flush(true); }
-                // Read back what is on disk, open it the way a new computer
-                // would, and compare before anything else relies on it.
-                var parsed = VaultFile.Parse(FileAccessRetry.Get(() => File.ReadAllBytes(temporary), temporary));
-                var reopenedKey = VaultFile.Unwrap(parsed, password ?? "")
-                    ?? throw new CryptographicException("The new saved-passwords file did not open with its password. Nothing was changed.");
-                var reopened = VaultFile.OpenBody(parsed, reopenedKey);
-                CryptographicOperations.ZeroMemory(reopenedKey);
-                if (reopened is null || reopened.Count != map.Count || VaultFile.Digest(reopened) != VaultFile.Digest(map))
-                    throw new CryptographicException("The new saved-passwords file did not match what was moved. Nothing was changed.");
-                FileAccessRetry.Run(() => File.Move(temporary, _path, overwrite: false), _path);
-            }
-            finally
-            {
-                try { if (File.Exists(temporary)) File.Delete(temporary); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-            }
-            Remember(id, key);
-            Open();
-        }
-        StateChanged?.Invoke(_path);
-        return id;
+        if (state != VaultState.Unlocked) throw new VaultLockedException(state, LoadErrorMessage);
     }
 
     private bool Mutate(Func<Dictionary<string, string>, bool> change)
@@ -284,7 +206,7 @@ public sealed class SecretsStore
             // Reload inside the shared lock: another process may have saved.
             var opened = Open();
             if (opened.State != VaultState.Unlocked)
-                throw new VaultLockedException(opened.State, ConversionPending ? VaultLockedException.ConversionMessage : LoadErrorMessage);
+                throw new VaultLockedException(opened.State, LoadErrorMessage);
             var map = new Dictionary<string, string>(opened.Map!);
             if (!change(map)) return false;
             var body = VaultFile.SealBody(opened.Parsed!.Id, opened.Key!, map);
@@ -299,7 +221,6 @@ public sealed class SecretsStore
 
     internal void Create(string password, IReadOnlyDictionary<string, string> initial)
     {
-        RequireLocal();
         lock (_gate)
         {
             using var transaction = StateFileLock.Acquire(_path);
@@ -323,7 +244,6 @@ public sealed class SecretsStore
     /// <see cref="VaultState.Unreadable"/>; the file is preserved).</summary>
     public bool TryUnlock(string password)
     {
-        RequireLocal();
         bool unlocked;
         lock (_gate)
         {
@@ -363,7 +283,6 @@ public sealed class SecretsStore
     /// rewritten, so other computers' key copies keep working.</summary>
     public void ChangePassword(string newPassword)
     {
-        RequireLocal();
         lock (_gate)
         {
             using var transaction = StateFileLock.Acquire(_path);
@@ -384,7 +303,6 @@ public sealed class SecretsStore
     /// vault takes its place.</summary>
     public void StartOver(string password)
     {
-        RequireLocal();
         lock (_gate)
         {
             using var transaction = StateFileLock.Acquire(_path);
@@ -408,7 +326,6 @@ public sealed class SecretsStore
     /// service (sent over its authenticated pipe). Requires an open vault.</summary>
     internal (string VaultId, byte[] Key) ExportKey()
     {
-        RequireLocal();
         lock (_gate)
         {
             using var transaction = StateFileLock.Acquire(_path);
@@ -421,9 +338,8 @@ public sealed class SecretsStore
     /// <summary>Opens the vault with a key received from the app, without a
     /// password, and keeps it for this account when it opens the vault. False
     /// (nothing written) when the key or vault identity does not match.</summary>
-    internal bool TryUnlockWithKey(string vaultId, byte[] key, Func<IReadOnlyDictionary<string, string>, bool>? accept = null)
+    internal bool TryUnlockWithKey(string vaultId, byte[] key)
     {
-        RequireLocal();
         lock (_gate)
         {
             using var transaction = StateFileLock.Acquire(_path);
@@ -435,33 +351,10 @@ public sealed class SecretsStore
             try { map = VaultFile.OpenBody(parsed, key); }
             catch (VaultFile.DamagedException) { return false; }
             if (map is null) return false;
-            if (accept is not null && !accept(map)) return false;
             Remember(parsed.Id, (byte[])key.Clone());
             Open();
             return true;
         }
-    }
-
-    /// <summary>All credentials, for the one-time conversion's checks.</summary>
-    internal Dictionary<string, string> Snapshot()
-    {
-        RequireLocal();
-        lock (_gate)
-        {
-            using var transaction = StateFileLock.Acquire(_path);
-            var opened = Open();
-            return opened.State switch
-            {
-                VaultState.Unlocked => new Dictionary<string, string>(opened.Map!),
-                VaultState.NoVault => new Dictionary<string, string>(),
-                _ => throw new VaultLockedException(opened.State, LoadErrorMessage),
-            };
-        }
-    }
-
-    private void RequireLocal()
-    {
-        if (_backend is not null) throw new InvalidOperationException("This vault belongs to an earlier background service.");
     }
 
     private void Remember(string id, byte[] key)
@@ -469,7 +362,7 @@ public sealed class SecretsStore
         if (_key is not null && !ReferenceEquals(_key, key)) CryptographicOperations.ZeroMemory(_key);
         _key = key;
         _keyId = id;
-        try { _keys!.Write(id, key); }
+        try { _keys.Write(id, key); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException)
         {
             // This process still has the key; another start asks again.
@@ -514,11 +407,8 @@ public sealed class SecretsStore
             }
             state = VaultState.NoVault;
             VaultId = null; NoPassword = false; LoadErrorMessage = null; MadeByNewerVersion = false;
-            var legacy = Path.Combine(Path.GetDirectoryName(_path)!, "secrets.bin");
-            ConversionPending = File.Exists(legacy) || File.Exists(legacy + ".bak");
             return null;
         }
-        ConversionPending = false;
         try
         {
             var parsed = VaultFile.Parse(bytes);
@@ -542,7 +432,7 @@ public sealed class SecretsStore
         var parsed = ReadParsed(out var state);
         if (parsed is null) { State = state; return new Opened(state, null, null, null); }
         var fromMemory = _keyId == parsed.Id && _key is not null;
-        var key = fromMemory ? _key : _keys!.TryRead(parsed.Id);
+        var key = fromMemory ? _key : _keys.TryRead(parsed.Id);
         if (key is null && parsed.Header.NoPassword)
         {
             // No password was chosen: open it here as well, without asking.
@@ -567,7 +457,7 @@ public sealed class SecretsStore
             // replaced. Forget the key; the password opens the new one.
             _log.Information("This computer's key for the saved passwords is out of date; it was removed");
             if (fromMemory) Forget(); else CryptographicOperations.ZeroMemory(key);
-            _keys!.Delete(parsed.Id);
+            _keys.Delete(parsed.Id);
             State = VaultState.Locked; LoadErrorMessage = null;
             return new Opened(VaultState.Locked, parsed, null, null);
         }

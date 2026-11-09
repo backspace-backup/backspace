@@ -7,31 +7,16 @@ using System.Threading.Tasks;
 namespace Backspace.Services.Platform.Windows;
 
 /// <summary>The owner's requests to the version-3 service that are not runs
-/// (U100): preparing to take the saved sign-ins back, or cancelling that.</summary>
+/// (U100): size estimates with the service's rights.</summary>
 internal static class SystemServiceClient
 {
-    internal sealed record FreezeReply(int Version, string? ReturnId = null, string? State = null, string? Error = null);
-
-    internal static string Freeze(SystemService.Registration system)
+    /// <summary>After removal the service's Quit record is of no further use;
+    /// its history stays.</summary>
+    internal static void ForgetQuitRecord(string dataDirectory)
     {
-        var reply = JsonSerializer.Deserialize<FreezeReply>(Send(system, "freeze"), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-            ?? throw new IOException("The background service did not answer.");
-        if (reply.Error == "busy") throw new IOException("A backup is running in the background. Turn administrator access off after it finishes.");
-        if (reply.Error is not null || !Guid.TryParseExact(reply.ReturnId, "N", out _))
-            throw new IOException("The background service could not prepare to return your saved sign-ins. Nothing was changed.");
-        return reply.ReturnId!;
-    }
-
-    internal static void Thaw(SystemService.Registration system) => Send(system, "thaw");
-
-    /// <summary>After removal the service's copy of the sign-ins is useless
-    /// (only that service could read it); its history stays.</summary>
-    internal static void ForgetVault(string dataDirectory)
-    {
-        if (!Directory.Exists(dataDirectory)) return;
-        foreach (var pattern in new[] { "secrets.bin*", "migration-*", "return-*", SystemServiceLifetime.FileName })
-            foreach (var file in Directory.EnumerateFiles(dataDirectory, pattern))
-                try { File.Delete(file); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        var path = Path.Combine(dataDirectory, SystemServiceLifetime.FileName);
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>The size of a folder measured by the service, with the same
@@ -59,9 +44,6 @@ internal static class SystemServiceClient
         }
         return null;
     }
-
-    private static byte[] Send(SystemService.Registration system, string command)
-        => SendAsync(system, new { version = 1, command }, CancellationToken.None).GetAwaiter().GetResult();
 
     private static async Task<byte[]> SendAsync(SystemService.Registration system, object request, CancellationToken ct)
     {

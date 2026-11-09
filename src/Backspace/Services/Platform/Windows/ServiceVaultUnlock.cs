@@ -18,83 +18,43 @@ namespace Backspace.Services.Platform.Windows;
 /// pipe ("unlock") when it sets the service up, after the vault is created or
 /// unlocked, and at start. The service accepts it only when it opens the
 /// vault; a wrong key writes nothing.
-///
-/// <para>This replaces the earlier hand-over of every credential into a
-/// separate service vault (<c>service\secrets.bin</c>) and the credential
-/// pipe the app used afterwards.</para>
 /// </summary>
 internal static class ServiceVaultUnlock
 {
     internal sealed record Reply(int Version, string? State = null, string? Error = null);
 
     internal static string VaultPath(string installation) => Path.Combine(ServicePortableLayout.Config(installation), VaultFile.FileName);
-    internal static string LegacyVaultPath(string dataDirectory) => Path.Combine(dataDirectory, "secrets.bin");
 
     /// <summary>The service's own view of the portable vault.</summary>
     internal static SecretsStore ServiceVault(string installation, string machineRoot)
         => new(VaultPath(installation), VaultKeyCache.ForService(machineRoot));
 
     /// <summary>Run by the service. Returns null when accepted, else an error
-    /// code. <paramref name="verifyLegacy"/>: during the conversion, the
-    /// vault must hold every credential of the service's earlier vault (or a
-    /// newer sign-in for it) before the service switches to it.</summary>
-    internal static string? Accept(string installation, string dataDirectory, string machineRoot,
-        string? vaultId, byte[]? key, bool verifyLegacy)
+    /// code.</summary>
+    internal static string? Accept(string installation, string machineRoot, string? vaultId, byte[]? key)
     {
         var vaultPath = VaultPath(installation);
         if (vaultId is null || key is null)
         {
-            // No credentials saved yet: nothing to unlock. Refused while the
-            // earlier service vault still holds credentials (not converted).
+            // No credentials saved yet: nothing to unlock.
             if (File.Exists(vaultPath) || File.Exists(vaultPath + ".bak")) return "vault-key-missing";
-            if (File.Exists(LegacyVaultPath(dataDirectory)) && LegacyMap(dataDirectory) is { Count: > 0 }) return "conversion-needed";
             return null;
         }
         var vault = ServiceVault(installation, machineRoot);
-        var accepted = vault.TryUnlockWithKey(vaultId, key, map => !verifyLegacy || HoldsLegacy(map, dataDirectory));
-        if (accepted) return null;
+        if (vault.TryUnlockWithKey(vaultId, key)) return null;
         return vault.State switch
         {
             VaultState.NoVault => "vault-missing",
             VaultState.Unreadable => "vault-unreadable",
-            _ => verifyLegacy ? "vault-key-or-contents-rejected" : "vault-key-rejected",
+            _ => "vault-key-rejected",
         };
-    }
-
-    private static Dictionary<string, string>? LegacyMap(string dataDirectory)
-    {
-        var path = LegacyVaultPath(dataDirectory);
-        if (!File.Exists(path)) return null;
-        return new LegacySecretsVault(new DpapiSecretsEncryption(), path).ExportForMigration();
-    }
-
-    /// <summary>Every credential of the earlier service vault is in the new
-    /// vault, unchanged or replaced by a newer cloud sign-in.</summary>
-    internal static bool HoldsLegacy(IReadOnlyDictionary<string, string> vault, string dataDirectory)
-    {
-        Dictionary<string, string>? legacy;
-        try { legacy = LegacyMap(dataDirectory); }
-        catch (Exception ex) when (ex is IOException or CryptographicException or UnauthorizedAccessException)
-        {
-            AppLogger.For(nameof(ServiceVaultUnlock)).Warning(ex, "The earlier service vault could not be read to check the conversion");
-            return false;
-        }
-        return legacy is null || Covers(vault, legacy);
-    }
-
-    internal static bool Covers(IReadOnlyDictionary<string, string> vault, IReadOnlyDictionary<string, string> legacy)
-    {
-        var missing = legacy.Count(pair => !vault.TryGetValue(pair.Key, out var value)
-            || (value != pair.Value && !RcloneConfigBuilder.IsNewerToken(value, pair.Value)));
-        if (missing > 0) AppLogger.For(nameof(ServiceVaultUnlock)).Warning("The new vault lacks {Count} of the earlier service vault's {Total} credentials", missing, legacy.Count);
-        return missing == 0;
     }
 
     // ---- desktop side ----
 
     /// <summary>Sends this computer's vault key to the copy's service. Returns
     /// the service's error code, or null when it accepted.</summary>
-    internal static string? Push(SystemService.Registration system, SecretsStore secrets, bool verifyLegacy = false)
+    internal static string? Push(SystemService.Registration system, SecretsStore secrets)
     {
         string? id = null;
         byte[]? key = null;
@@ -106,7 +66,7 @@ internal static class ServiceVaultUnlock
             payload = JsonSerializer.SerializeToUtf8Bytes(new
             {
                 version = 1, command = "unlock", vaultId = id,
-                key = key is null ? null : Convert.ToBase64String(key), verifyLegacy,
+                key = key is null ? null : Convert.ToBase64String(key),
             });
             var bytes = SendAsync(system, payload).GetAwaiter().GetResult();
             var reply = JsonSerializer.Deserialize<Reply>(bytes, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
@@ -131,8 +91,6 @@ internal static class ServiceVaultUnlock
             if (!ServicePortableLayout.IsPortableConfig(root, AppPaths.ConfigRoot)) return;
             if (SystemService.ForCopy(root) is not { Activated: true } system) return;
             if (secrets.Refresh() != VaultState.Unlocked) return;
-            // A conversion still in progress sends its own, checked unlock.
-            if (File.Exists(Path.Combine(AppPaths.ConfigRoot, VaultConversion.RecordFileName))) return;
             if (SystemService.Status(system.ServiceName) != System.ServiceProcess.ServiceControllerStatus.Running) return;
             var error = Push(system, secrets);
             if (error is not null) AppLogger.For(nameof(ServiceVaultUnlock)).Warning("The background service did not take the vault key: {Error}", error);

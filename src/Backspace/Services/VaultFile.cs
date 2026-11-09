@@ -225,21 +225,4 @@ internal static class VaultFile
     }
 
     internal static string NewId() => Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
-
-    /// <summary>Order-independent digest of a credential map, used to compare
-    /// two copies without revealing a value (counts and digests only).</summary>
-    internal static string Digest(IReadOnlyDictionary<string, string> map)
-    {
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var pair in map.OrderBy(p => p.Key, StringComparer.Ordinal))
-        {
-            var k = Encoding.UTF8.GetBytes(pair.Key);
-            var v = Encoding.UTF8.GetBytes(pair.Value ?? "");
-            Span<byte> len = stackalloc byte[4];
-            BinaryPrimitives.WriteInt32LittleEndian(len, k.Length); hash.AppendData(len); hash.AppendData(k);
-            BinaryPrimitives.WriteInt32LittleEndian(len, v.Length); hash.AppendData(len); hash.AppendData(v);
-            CryptographicOperations.ZeroMemory(v);
-        }
-        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
-    }
 }

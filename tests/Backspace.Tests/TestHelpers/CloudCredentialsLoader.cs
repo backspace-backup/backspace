@@ -189,7 +189,7 @@ public static class CloudCredentialsLoader
             foreach (var template in saved?.Destinations ?? new())
             {
                 if (!kinds.Contains(template.Kind) || string.IsNullOrEmpty(template.OAuthTokenRef)) continue;
-                var store = new SecretsStore(new LegacySecretsVault(new Backspace.Services.Platform.Windows.DpapiSecretsEncryption(), vault));
+                var store = new ReviewSignInFile(vault);
                 if (!store.TryGet(template.OAuthTokenRef, out var token) || string.IsNullOrWhiteSpace(token)) continue;
                 // A fresh subfolder beside the saved review repository, inside Backspace's app folder.
                 var folder = $"backspace-review/e2e/{DateTime.UtcNow:yyyyMMdd}/{Guid.NewGuid():N}";
@@ -205,7 +205,7 @@ public static class CloudCredentialsLoader
     {
         if (!OperatingSystem.IsWindows() || cred.VaultPath is null || cred.TokenRef is null || dest.OAuthTokenRef is null) return;
         if (!testSecrets.TryGet(dest.OAuthTokenRef, out var latest) || string.IsNullOrWhiteSpace(latest) || latest == cred.TokenJson) return;
-        new SecretsStore(new LegacySecretsVault(new Backspace.Services.Platform.Windows.DpapiSecretsEncryption(), cred.VaultPath)).Set(cred.TokenRef, latest);
+        new ReviewSignInFile(cred.VaultPath).Set(cred.TokenRef, latest);
     }
 
     /// <summary>Human-readable reason a test should log when it

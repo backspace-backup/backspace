@@ -5,11 +5,11 @@ namespace Backspace.Services.Platform.Windows;
 
 /// <summary>
 /// DPAPI-backed encryption (CurrentUser scope). Bound to the Windows
-/// user + machine pair: copying <c>secrets.bin</c> to another account
+/// user + machine pair: copying a vault key copy to another account
 /// or another machine produces a <see cref="CryptographicException"/>
-/// from <see cref="ProtectedData.Unprotect"/> — exactly the trip-wire
-/// the SecretsStore expects so it can preserve the unreadable blob
-/// and prompt the user to re-enter their tokens.
+/// from <see cref="ProtectedData.Unprotect"/>, which
+/// <see cref="VaultKeyCache"/> treats as no key here: the vault is
+/// locked and the password is asked once.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class DpapiSecretsEncryption : ISecretsEncryption

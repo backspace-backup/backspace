@@ -1,9 +1,9 @@
 namespace Backspace.Services.Platform;
 
 /// <summary>
-/// Encrypt / decrypt the secrets vault blob. The whole vault is a
-/// single JSON-serialised dictionary, wrapped by this transform, then
-/// written to <c>secrets.bin</c> atomically.
+/// Protects this computer's copy of a vault key (<see cref="VaultKeyCache"/>,
+/// U153). The vault itself is encrypted with the person's password and
+/// travels; only the key copy is bound to this computer.
 ///
 /// <para>
 /// Per-platform implementations:
@@ -14,8 +14,8 @@ namespace Backspace.Services.Platform;
 ///         the logon context; the account name alone does not establish
 ///         that an unattended session can decrypt.</item>
 ///   <item><b>macOS / Linux</b> — AES-GCM with a 256-bit key kept in
-///         a chmod-600 file at <c>secrets-key.bin</c> in the config
-///         dir. Not bound to the OS keychain (a follow-up can wire
+///         a chmod-600 file at <c>keys/key-file.bin</c> on this
+///         computer. Not bound to the OS keychain (a follow-up can wire
 ///         macOS Keychain / libsecret) but a meaningful obstacle to
 ///         offline-only attackers — without the key the ciphertext
 ///         is opaque.</item>
@@ -24,9 +24,8 @@ namespace Backspace.Services.Platform;
 ///
 /// <para>
 /// <see cref="Unprotect"/> throws on tamper / wrong key / corrupt
-/// blob. <see cref="SecretsStore"/> catches that and surfaces a
-/// user-facing "your saved tokens couldn't be decrypted" error path,
-/// preserving the original ciphertext for forensic recovery.
+/// blob. <see cref="VaultKeyCache"/> treats that as no usable key copy:
+/// the vault counts as locked and the password is asked once.
 /// </para>
 /// </summary>
 public interface ISecretsEncryption

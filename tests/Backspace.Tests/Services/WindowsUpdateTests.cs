@@ -87,7 +87,7 @@ public sealed class WindowsUpdateTests
 
     [Theory]
     [InlineData("../Backspace.exe")]
-    [InlineData("Backspace.config/secrets.bin")]
+    [InlineData("Backspace.config/vault.bin")]
     [InlineData("C:/Backspace.exe")]
     [InlineData("Backspace.exe:secret")]
     [InlineData("unrelated.exe")]
@@ -106,7 +106,7 @@ public sealed class WindowsUpdateTests
     private static WindowsUpdatePackage.Plan Prepare(string root, string extra = "new-library.dll")
     {
         var config = Path.Combine(root, "Backspace.config"); Directory.CreateDirectory(config);
-        File.WriteAllText(Path.Combine(config, "secrets.bin"), "credentials must remain byte-for-byte unchanged");
+        File.WriteAllText(Path.Combine(config, "vault.bin"), "credentials must remain byte-for-byte unchanged");
         File.WriteAllText(Path.Combine(root, "personal-notes.txt"), "unrelated");
         var work = WindowsUpdatePackage.CreateWorkDirectory(root);
         var archive = Path.Combine(work, "download.zip");
@@ -130,7 +130,7 @@ public sealed class WindowsUpdateTests
         Assert.Equal(Path.Combine(root, "Backspace.exe"), launched);
         foreach (var f in plan.Files) Assert.Equal("MZnew " + f.Name, File.ReadAllText(Path.Combine(root, f.Name)));
         Assert.Equal("old Backspace.exe", File.ReadAllText(Path.Combine(plan.Work, "previous", "Backspace.exe")));
-        Assert.Equal("credentials must remain byte-for-byte unchanged", File.ReadAllText(Path.Combine(root, "Backspace.config", "secrets.bin")));
+        Assert.Equal("credentials must remain byte-for-byte unchanged", File.ReadAllText(Path.Combine(root, "Backspace.config", "vault.bin")));
         Assert.Equal("unrelated", File.ReadAllText(Path.Combine(root, "personal-notes.txt")));
         Assert.Equal("Installed", WindowsUpdateRuntime.ReadPlan(Path.Combine(plan.Work, "plan.json")).State);
     }
@@ -237,7 +237,7 @@ public sealed class WindowsUpdateTests
         WindowsUpdatePackage.RollBack(recovered);
         Assert.Equal("old Backspace.exe", File.ReadAllText(Path.Combine(root, "Backspace.exe")));
         Assert.Equal("old backrest.exe", File.ReadAllText(Path.Combine(root, "backrest.exe")));
-        Assert.Equal("credentials must remain byte-for-byte unchanged", File.ReadAllText(Path.Combine(root, "Backspace.config", "secrets.bin")));
+        Assert.Equal("credentials must remain byte-for-byte unchanged", File.ReadAllText(Path.Combine(root, "Backspace.config", "vault.bin")));
     }
 
     [Fact]

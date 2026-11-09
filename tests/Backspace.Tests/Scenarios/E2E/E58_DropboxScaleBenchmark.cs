@@ -119,6 +119,18 @@ public sealed class E58_DropboxScaleBenchmark
         }
     }
 
+    /// <summary>The benchmark's own vault, without a password, kept between
+    /// invocations so the repository password survives.</summary>
+    private static SecretsStore BenchmarkVault(string dir)
+    {
+        var folder = Path.Combine(dir, "vault");
+        Directory.CreateDirectory(folder);
+        var secrets = new SecretsStore(Path.Combine(folder, VaultFile.FileName),
+            new VaultKeyCache(Path.Combine(folder, "keys"), "user", new Backspace.Services.Platform.Windows.DpapiSecretsEncryption()));
+        if (secrets.Refresh() == VaultState.NoVault) secrets.Create("");
+        return secrets;
+    }
+
     private static (SecretsStore Secrets, Destination Destination, CloudCredentialsLoader.Credential? Credential) BenchmarkDestination(string dir)
     {
         // BACKSPACE_BENCHMARK_PROVIDER=Local: a repository on this computer's
@@ -128,8 +140,7 @@ public sealed class E58_DropboxScaleBenchmark
         {
             var folder = Environment.GetEnvironmentVariable("BACKSPACE_BENCHMARK_REMOTE");
             Assert.False(string.IsNullOrWhiteSpace(folder), "Set BACKSPACE_BENCHMARK_REMOTE to a local folder.");
-            var localSecrets = new SecretsStore(new LegacySecretsVault(new Backspace.Services.Platform.Windows.DpapiSecretsEncryption(), Path.Combine(dir, "vault", "secrets.bin")));
-            Directory.CreateDirectory(Path.Combine(dir, "vault"));
+            var localSecrets = BenchmarkVault(dir);
             const string localRef = "benchmark-repository-password";
             if (!localSecrets.TryGet(localRef, out _)) localSecrets.Set(localRef, "benchmark-" + Guid.NewGuid().ToString("N"));
             return (localSecrets, new Destination { Id = "benchmark-local", Name = "Local SSD", Kind = DestinationKind.LocalFolder, PathOrSubpath = folder!, StoragePasswordRef = localRef }, null);
@@ -142,8 +153,7 @@ public sealed class E58_DropboxScaleBenchmark
 
         // One vault and engine folder per benchmark so the repository password
         // and engine state survive between invocations.
-        var secrets = new SecretsStore(new LegacySecretsVault(new Backspace.Services.Platform.Windows.DpapiSecretsEncryption(), Path.Combine(dir, "vault", "secrets.bin")));
-        Directory.CreateDirectory(Path.Combine(dir, "vault"));
+        var secrets = BenchmarkVault(dir);
         const string passwordRef = "benchmark-repository-password";
         if (!secrets.TryGet(passwordRef, out _)) secrets.Set(passwordRef, "benchmark-" + Guid.NewGuid().ToString("N"));
         var destination = CloudCredentialsLoader.BuildDestination(provider, cred! with { Folder = remote! }, secrets);

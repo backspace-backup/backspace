@@ -79,7 +79,7 @@ public sealed class E2E_WindowsUpdateBundle
         if (!string.IsNullOrWhiteSpace(previous))
             Assert.NotEqual(original["Backspace.exe"], WindowsUpdatePackage.Hash(Path.Combine(candidate!, "Backspace.exe")));
         var config = Path.Combine(root, "Backspace.config"); Directory.CreateDirectory(config);
-        File.WriteAllText(Path.Combine(config, "secrets.bin"), "untouched encrypted fixture");
+        File.WriteAllText(Path.Combine(config, "vault.bin"), "untouched encrypted fixture");
         // The release offers Backspace.exe alone (U102).
         var archive = Path.Combine(candidate!, "Backspace.exe");
         using var http = new HttpClient(new FileHandler(archive));
@@ -107,10 +107,10 @@ public sealed class E2E_WindowsUpdateBundle
         });
         Assert.Equal("Installed", plan.State);
         Assert.Equal(WindowsUpdatePackage.Hash(Path.Combine(candidate!, "Backspace.exe")), WindowsUpdatePackage.Hash(Path.Combine(root, "Backspace.exe")));
-        Assert.Equal("untouched encrypted fixture", File.ReadAllText(Path.Combine(config, "secrets.bin")));
+        Assert.Equal("untouched encrypted fixture", File.ReadAllText(Path.Combine(config, "vault.bin")));
         WindowsUpdatePackage.RollBack(plan);
         foreach (var item in original) Assert.Equal(item.Value, WindowsUpdatePackage.Hash(Path.Combine(root, item.Key!)));
-        Assert.Equal("untouched encrypted fixture", File.ReadAllText(Path.Combine(config, "secrets.bin")));
+        Assert.Equal("untouched encrypted fixture", File.ReadAllText(Path.Combine(config, "vault.bin")));
     }
 
     private sealed class FileHandler(string path) : HttpMessageHandler

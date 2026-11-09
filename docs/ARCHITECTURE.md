@@ -103,9 +103,7 @@ nothing is copied (see "Saved passwords" under Storage locations). Pipes are
 owned by `S-1-5-18` and open only to the owner; clients verify the owner of
 the pipe object. Removal needs one approval (`--system-service-remove`) and
 deletes the service's key copies; the history stays readable from
-`Backspace.config\service`. A service not yet converted to the vault still
-holds the sign-ins in its earlier vault: removal then freezes it and takes
-them back first (`ServiceVaultReturn`).
+`Backspace.config\service`.
 
 Quit stops the service without a prompt (`SystemServiceLifetime`): the desktop
 records its sign-in session and boot in `service\quit.json`, then stops it.
@@ -411,8 +409,6 @@ service (administrator access), the sign-in start entry, and the WinFsp driver.
 
 - `<exe-dir>/Backspace.config/config.json` — app settings, backups, destinations
 - `<exe-dir>/Backspace.config/vault.bin` — the saved credentials (storage passwords, cloud sign-ins, API keys), one file for the app and the background service. See "Saved passwords (the vault)" below.
-- `<exe-dir>/Backspace.config/vault-conversion.json` — only while the one-time move from the earlier files is unfinished: its stage, vault id, count and digest, never a value.
-- `<exe-dir>/Backspace.config/secrets.bin` — the earlier credential file (Windows-protected for one account on one computer). Read only by the one-time move, and deleted after the first successful run on `vault.bin`.
 - `<exe-dir>/Backspace.config/pending-removals.json` — removed backups whose stored copies are still to be erased; absent when nothing is waiting
 - `%LOCALAPPDATA%/Backspace/engine/<16 hex of SHA-256 of the upper-case configuration folder>/` — this computer's engine working files (`EngineWorkPaths`): `backrest/` (the GUI-owned Backrest data directory: its config.json holds every repository password in readable form, plus its sign-in files, operation database, operation logs and mount cache), `rclone-remotes/` (one generated remote per cloud destination, with its token), `rclone.conf`, `engine-runs/` (isolated directories for scheduled runs and elevated VSS helpers, so one process cannot shut down another's daemon), `filters/<plan id>.txt` (each plan's exclude file: the backup's Filters text, written unchanged before every use of the plan, U151) and, for the background service, `scratch/`. Never in the synced folder; rebuilt at start from the settings and the vault (seed configuration, sign-in, plans and repositories through `EnsurePlanAndRepo`, rclone remotes). Backrest's operation database starts empty on a new computer; run history is unaffected (below). The service's folder is named after `Backspace.config\service`. `BACKSPACE_MACHINE_ROOT` overrides `%LOCALAPPDATA%\Backspace` (tests; the service sets it to the owner's folder); a test configuration outside an executable's folder without it uses `<config>\engine`.
 - `<exe-dir>/Backspace.config/test-restores/` — saved test-restore plans, completed batch results and sample history. Temporary recovered files live separately under `verify/`.
@@ -504,23 +500,9 @@ then counts as set up (`SystemService.MarkActivated`). While it has no key,
 its runs fail before any engine starts with "Open Backspace on this computer
 and enter your password once."
 
-**The one-time move** (`VaultConversion`, `WindowsVaultConversionHost`) of an
-install from before the vault: at start, with the earlier `secrets.bin` and no
-`vault.bin`, the app asks once to choose a password. It freezes the service
-and takes its earlier vault (`service\secrets.bin`) back over the return pipe
-(`ServiceVaultReturnProtocol`); the service's copy wins and the desktop's
-fills the gaps; newer tokens from every old rclone file are taken
-(`IsNewerToken`). It writes `vault.bin.tmp`, reopens it with the password,
-compares count and digest, publishes it without replacing anything and saves
-the key copy. The service then checks that `vault.bin` holds every entry of
-its earlier vault before keeping its key; it is thawed. The old engine folders
-move to this computer under each sidecar owner lock; the old rclone files,
-engine runs and service scratch are deleted. The earlier `secrets.bin` files
-go after the first successful run on `vault.bin`. Each stage is recorded in
-`vault-conversion.json` and resumes at the next start; nothing old is deleted
-before `vault.bin` and the service's confirmation. This code exists only for
-installs made before the vault and can be removed once the owner's install
-is converted.
+Backspace does not read the per-computer credential files used before the
+vault (`secrets.bin`, and the service's copy in `service\`): an install with
+only those files has no vault, and the first save asks for a password.
 
 ## Design principles (stick to these)
 
@@ -693,10 +675,8 @@ is converted.
    pipe name ends with a random part the service picks every time it starts,
    kept in `Backspace.config\service\pipe-names`; clients read it before each
    connection (U152). The runs pipe accepts a fixed vocabulary
-   (`ServiceHostRequest`): activity, start, cancel, heartbeat, measure, freeze,
-   thaw and `unlock` (the vault key, U153). The return pipe, created only while
-   an unconverted service's earlier vault goes back to the owner, also carries
-   that return's random ID, which only the owner receives.
+   (`ServiceHostRequest`): activity, start, cancel, heartbeat, measure and
+   `unlock` (the vault key, U153).
 
    The version-3 service (Windows' own account) writes its history and logs in
    `Backspace.config\service\logs\engine`, where they inherit the portable
@@ -816,8 +796,8 @@ is converted.
    only if its real path is the one named: the service does this as SYSTEM
    on a drive other accounts may change (U152).
 6. **No surprises in the config dir.** One `config.json`; a user can
-   delete it to start over. Secrets in a separate machine-bound file so
-   the JSON is shareable / diffable.
+   delete it to start over. Secrets in a separate file (`vault.bin`,
+   encrypted with the person's password) so the JSON is shareable / diffable.
 7. **Portable layout.** Everything under `Backspace.config/` next to the
    exe — see Storage locations above. Don't reach into `%APPDATA%` or
    `~/.config`.

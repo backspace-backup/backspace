@@ -9,9 +9,8 @@ namespace Backspace.ViewModels;
 
 /// <summary>
 /// The saved-passwords banner on the Backups page (U153). Shown, instead of a
-/// dialog at start, while the vault is locked on this computer, can't be
-/// opened, or still waits for the one-time move from the earlier files. Its
-/// button asks for the password (or starts the move).
+/// dialog at start, while the vault is locked on this computer or can't be
+/// opened. Its button asks for the password.
 /// </summary>
 public sealed partial class VaultBannerViewModel : ViewModelBase, IDisposable
 {
@@ -40,11 +39,9 @@ public sealed partial class VaultBannerViewModel : ViewModelBase, IDisposable
     public async Task RefreshAsync()
     {
         VaultState state;
-        bool pending;
         try
         {
             state = await Task.Run(_secrets.Refresh).ConfigureAwait(false);
-            pending = _secrets.ConversionPending;
         }
         catch (Exception ex)
         {
@@ -52,10 +49,10 @@ public sealed partial class VaultBannerViewModel : ViewModelBase, IDisposable
             return;
         }
         var message = _secrets.LoadErrorMessage;
-        await Dispatcher.UIThread.InvokeAsync(() => Apply(state, pending, message));
+        await Dispatcher.UIThread.InvokeAsync(() => Apply(state, message));
     }
 
-    internal void Apply(VaultState state, bool conversionPending, string? loadError)
+    internal void Apply(VaultState state, string? loadError)
     {
         switch (state)
         {
@@ -63,11 +60,6 @@ public sealed partial class VaultBannerViewModel : ViewModelBase, IDisposable
                 Show("warn", "Your saved passwords are locked on this computer",
                     "Backups that need a storage password or cloud sign-in won't run until you enter your saved-passwords password once.",
                     "Enter password");
-                break;
-            case VaultState.NoVault when conversionPending:
-                Show("warn", "Your saved passwords need one more step",
-                    "Choose a password so they can travel with Backspace. Backups that need them wait until then.",
-                    "Choose a password");
                 break;
             case VaultState.Unreadable:
                 Show("fail", "Backspace can't open your saved passwords",
@@ -92,9 +84,7 @@ public sealed partial class VaultBannerViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private async Task ActAsync()
     {
-        var state = await Task.Run(_secrets.Refresh);
-        if (state == VaultState.NoVault && _secrets.ConversionPending) await VaultGate.ConvertAsync();
-        else await VaultGate.EnsureReadableAsync("", _secrets);
+        await VaultGate.EnsureReadableAsync("", _secrets);
         await RefreshAsync();
     }
 

@@ -687,13 +687,6 @@ when missing, and each computer's key in `%LOCALAPPDATA%\Backspace\keys`. On a
 new computer the engine's own list of past operations starts empty; your run
 history, which lives in `Backspace.config`, is unaffected.
 
-An install from before saved passwords travelled kept them in a file only that
-Windows account on that computer could open (`secrets.bin`). At the first start
-after updating, Backspace asks once to choose a password and moves them,
-including the ones the background service held; it checks every one before
-removing the old files, and removes the old file only after the next backup
-succeeds.
-
 Settings outside that folder are ones Backspace can recreate: the sign-in start
 entry, the optional background service, the WinFsp driver for mounting, and
 `%LOCALAPPDATA%\Backspace`, which holds the engines (downloaded from the same

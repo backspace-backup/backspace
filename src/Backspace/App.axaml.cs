@@ -287,10 +287,8 @@ public partial class App : Application
                             desktop.MainWindow!,
                             title: warning.Title, subtitle: warning.Message);
                     // Saved passwords (U153): a locked vault shows a banner,
-                    // never a dialog; the earlier per-computer files are moved
-                    // once, after asking for a password.
-                    await VaultStartup.RunAsync(startupSecrets, askToConvert: !startedInBackground && !QuitRequested
-                        && desktop.MainWindow?.IsVisible == true);
+                    // never a dialog.
+                    await VaultStartup.RunAsync(startupSecrets);
                 }
                 catch (Exception ex)
                 {

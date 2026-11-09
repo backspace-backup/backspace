@@ -48,8 +48,6 @@ internal sealed class SystemBackupService : ServiceBase
     private readonly Dictionary<string, WorkerRun> _runs = new(StringComparer.Ordinal);
     private WorkerRun? _latest;
     private IReadOnlyList<Destination> _scheduleDestinations = [];
-    private string? _returnId;
-    private CancellationTokenSource? _returnStop;
     private bool _unreadableSettingsLogged;
 
     /// <summary>One worker's run, as the activity and the run pipe report it.</summary>
@@ -190,10 +188,6 @@ internal sealed class SystemBackupService : ServiceBase
         { AppLogger.For<SystemBackupService>().Warning(ex, "The previous runs' status could not be read"); }
     }
 
-    /// <summary>The service's earlier vault, from before the portable vault
-    /// (U153). Read only to return it to the owner during the conversion.</summary>
-    private LegacySecretsVault Vault() => new(new DpapiSecretsEncryption(), ServiceVaultUnlock.LegacyVaultPath(_binding.DataDirectory));
-
     private async Task ServeAsync()
     {
         // New pipe names for this start, before any pipe exists (U152).
@@ -239,8 +233,7 @@ internal sealed class SystemBackupService : ServiceBase
         byte[]? key = request.Key is null ? null : Convert.FromBase64String(request.Key);
         try
         {
-            var error = ServiceVaultUnlock.Accept(_installation, _binding.DataDirectory, EngineWorkPaths.MachineRoot,
-                request.VaultId, key, request.VerifyLegacy);
+            var error = ServiceVaultUnlock.Accept(_installation, EngineWorkPaths.MachineRoot, request.VaultId, key);
             if (error is not null)
             {
                 AppLogger.For<SystemBackupService>().Information("The vault key was not accepted: {Reason}", error);
@@ -311,7 +304,6 @@ internal sealed class SystemBackupService : ServiceBase
                 case "start" or "start-cli":
                     if (!_registration.Activated && SystemService.Read(_binding.ServiceName, _binding.OwnerSid)?.Activated != true)
                         return Reply("setup-incomplete");
-                    if (_returnId is not null) return Reply("removal-pending");
                     if (Busy(request.BackupId!)) return Reply("busy");
                     var approved = SystemServiceRuns.Authorize(_installation, request.BackupId!, request.Operation!, ownerCommand: request.Command == "start-cli");
                     return Reply(null, StartWorker(request, approved));
@@ -326,22 +318,10 @@ internal sealed class SystemBackupService : ServiceBase
                         return new ServiceRunJournal(_binding.DataDirectory).ReadFinished(request.RunId!) ?? Reply("not-running");
                     if (!beating.Lease.Renew(request.RunId!)) return Reply("lease-expired", beating);
                     return Reply(null, beating);
-                case "freeze":
-                    // Turning administrator access off: the saved sign-ins go
-                    // back to the owner, so nothing may change them meanwhile.
-                    if (AnyActive) return Reply("busy");
-                    _returnId ??= Guid.NewGuid().ToString("N");
-                    _returnStop = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
-                    _ = new ServiceVaultReturnProtocol(_returnId, Path.Combine(_binding.DataDirectory, "return-" + _returnId + ".receipt"), Vault())
-                        .ServeAsync(_binding, _returnStop.Token);
-                    return JsonSerializer.SerializeToUtf8Bytes(new { version = 1, returnId = _returnId, state = _latest?.State ?? "idle" });
                 case "measure":
                     return _measurements.Start(request.Path!, new SourceSizeRules(request.Filters, request.SkipCloudOnly));
                 case "measure-result":
                     return _measurements.Result(request.RunId!);
-                case "thaw":
-                    _returnStop?.Cancel(); _returnStop = null; _returnId = null;
-                    break;
                 case "unlock":
                     return Unlock(request);
             }
@@ -560,7 +540,6 @@ internal sealed class SystemBackupService : ServiceBase
     /// setup or removal is unfinished or the settings cannot be read.</summary>
     private IReadOnlyList<SchedulePlan>? SchedulePlans()
     {
-        if (_returnId is not null) return null;
         if (!_registration.Activated && SystemService.Read(_binding.ServiceName, _binding.OwnerSid)?.Activated != true) return null;
         AppConfig config;
         try { config = ServiceConfigurationComparison.ReadDesktop(_installation); _unreadableSettingsLogged = false; }
@@ -580,7 +559,7 @@ internal sealed class SystemBackupService : ServiceBase
         WorkerRun run;
         lock (_gate)
         {
-            if (Busy(plan.Backup.Id) || _returnId is not null) return false;
+            if (Busy(plan.Backup.Id)) return false;
             var operation = plan.Kind.ToString().ToLowerInvariant();
             var approved = SystemServiceRuns.Authorize(_installation, plan.Backup.Id, operation, ownerCommand: false);
             run = StartWorker(new ServiceHostRequest(1, "scheduled", null, plan.Backup.Id, operation), approved);

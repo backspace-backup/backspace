@@ -200,10 +200,7 @@ configuration. Use the production candidate's encrypted vault and an encrypted
 repository for before-sign-in acceptance; password-free local backups do not
 cover vault access. See the required checks in [RELEASING.md](RELEASING.md).
 
-`ServiceVaultReturnTests` checks latest-token return, re-encryption and reread,
-the held returned file, preserved source copies, strict receipt validation and
-refusal to remove anything after a lost acceptance reply. Frozen credentials
-remain readable but cannot be changed. `S70_AutomaticBackupRemoval` clicks the
+`S70_AutomaticBackupRemoval` clicks the
 actual Settings buttons with controlled replies: duplicate clicks, declined
 approval, unfinished removal and retry. These tests do not prove Windows
 registration removal or native UAC behavior. VM qualification must recover a
@@ -244,28 +241,18 @@ computer's key working, key copies bound to their vault id, a stale key copy
 removed, reads and saves while locked (nothing written, "locked" not
 "missing"), two instances keeping both writers' keys, `SetIfNewer` inside one
 transaction, starting over, and a byte scan for any value or key in clear.
-`VaultConversionTests` runs the one-time move against a fake service host and
-real DPAPI files: merging (the service wins), newer rclone tokens, engine
-folders moved, old files kept until the first run, interruption at each stage
-and resumption, a wrong password on resume, and captured logs with no value.
 `VaultServiceAndPathsTests` covers the service's `unlock` (a wrong key or vault
-id refused and nothing kept, the key surviving a password change, the
-conversion check of every earlier entry, malformed requests) and
-`EngineWorkPaths`. `VaultGateViewModelTests` checks that cancelling the
-password question saves nothing (destination save, cloud Connect, the
-change-password dialog) and that a test email keeps typed keys in memory.
-E63-E65 run the real engine: first credential, then a byte scan of the whole
-configuration folder with a positive control; a second computer with the
-banner, a refused and an accepted password and the earlier history; a vault
-without a password on a second computer; and the conversion of an earlier
-install. None of them registers a service: the service side of `unlock` is
+id refused and nothing kept, the key surviving a password change, an existing
+vault refused without a key, malformed requests and the removed `freeze` and
+`thaw` commands) and `EngineWorkPaths`. `VaultGateViewModelTests` checks that
+cancelling the password question saves nothing (destination save, cloud
+Connect, the change-password dialog) and that a test email keeps typed keys in
+memory. E63 and E64 run the real engine: first credential, then a byte scan of
+the whole configuration folder with a positive control; a second computer with
+the banner, a refused and an accepted password, the earlier history and
+Settings → Saved passwords; and a vault without a password on a second
+computer. Neither registers a service: the service side of `unlock` is
 exercised in-process, not by a running Windows service.
-
-`SecretsMigrationTests` uses synthetic encryption providers to verify that
-the earlier (pre-U153) vault survives export/import, an unreadable source cannot become
-an empty migration, existing or concurrently created target files survive,
-and the source transaction stays locked through the activation callback.
-Those deterministic checks are not native cross-account DPAPI acceptance.
 
 `ServiceHistoryFilesTests` reads the background service's history and logs from
 the portable folder: a moved folder, another backup's runs in the same folder,
@@ -903,7 +890,7 @@ older scenario comments that describe broader coverage.
 | Configure Healthchecks.io | `CloudNotificationRepairTests` fake HTTP exercises custom PingUrl, terminal pings and retries; live service remains | 🟡 |
 | Configure Resend / Mailgun email | `CloudNotificationRepairTests` fake HTTP exercises API requests, retry and visible nonfatal failure; live delivery remains | 🟡 |
 | Toggle notification gating per event | `S45_SettingsTogglePersistence` | ✅ |
-| Saved passwords: first-credential password, new-computer banner and unlock, no-password vault, one-time move, Settings section (U153) | `E63_SavedPasswordsVault`, `E64_NoPasswordNewComputer`, `E65_ConversionFromEarlierFiles` (real engine, real password window; the background service's side is in-process only), `VaultGateViewModelTests` | ✅ desktop; 🟡 service on a real Windows service |
+| Saved passwords: first-credential password, new-computer banner and unlock, no-password vault, Settings section (U153) | `E63_SavedPasswordsVault`, `E64_NoPasswordNewComputer` (real engine, real password window; the background service's side is in-process only), `VaultGateViewModelTests` | ✅ desktop; 🟡 service on a real Windows service |
 | Legacy restore-delay configuration | `S45` directly writes the old `RetryDelaysSeconds` list and checks that its order remains in the current configuration. This is a compatibility check, not an active Settings control or engine retry feature. | ✅ configuration compatibility |
 | Section-header hover wash (no Fluent band leak) | `S55_SettingsHoverAnimation` sends real headless pointer movement and advances the production transition with a controlled per-control clock. It checks intermediate alpha/RGB values, rejects a white hue, and checks left extension/corners and return to transparent in both themes. This does not measure native frame timing or display-scale rendering. | ✅ controlled-clock animation |
 

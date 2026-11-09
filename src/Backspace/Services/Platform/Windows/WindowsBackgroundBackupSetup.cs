@@ -109,14 +109,10 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
         var secrets = new SecretsStore();
         var state = secrets.Refresh();
         if (state is VaultState.Locked or VaultState.Unreadable) throw new VaultLockedException(state, secrets.LoadErrorMessage);
-        if (state == VaultState.NoVault && File.Exists(Path.Combine(_configuration, "secrets.bin")))
-            throw new InvalidOperationException("Your saved passwords are still in their earlier form. Restart Backspace and finish moving them, then try again.");
         SystemService.Start(system.ServiceName, TimeSpan.FromSeconds(60));
         var error = ServiceVaultUnlock.Push(system, secrets);
         if (error is not null)
-            throw new IOException(error == "conversion-needed"
-                ? "The background service still holds your earlier saved passwords. Restart Backspace and finish moving them, then try again."
-                : "The background service could not open your saved passwords. Try again; your settings are unchanged.");
+            throw new IOException("The background service could not open your saved passwords. Try again; your settings are unchanged.");
         var deadline = DateTime.UtcNow.AddSeconds(30);
         while (SystemService.ForCopy(_root) is not { Activated: true })
         {
@@ -126,39 +122,14 @@ internal sealed class WindowsBackgroundBackupSetup : IBackgroundBackupSetup
     }
 
     /// <summary>Turning administrator access off. With the portable vault
-    /// (U153) there is nothing to hand back: the service's key copy is deleted
-    /// and one Windows approval removes it. A service not yet converted still
-    /// holds the authoritative sign-ins in its earlier vault: it returns them
-    /// first, as before. Its history stays in Backspace.config.</summary>
+    /// (U153) there is nothing to hand back: one Windows approval removes the
+    /// service and its key copies are deleted. Its history stays in
+    /// Backspace.config.</summary>
     private void RemoveSystem(SystemService.Registration system)
     {
         var owner = SystemService.CurrentOwnerSid();
-        var ownerPath = Path.Combine(_configuration, "secrets.bin");
-        var unconverted = system.Activated && !File.Exists(Path.Combine(_configuration, VaultFile.FileName))
-            && File.Exists(ServiceVaultUnlock.LegacyVaultPath(system.DataDirectory));
-        if (unconverted)
-        {
-            var vault = new LegacySecretsVault(new DpapiSecretsEncryption(), ownerPath);
-            SystemService.Start(system.ServiceName, TimeSpan.FromSeconds(60));
-            var returnId = SystemServiceClient.Freeze(system);
-            try
-            {
-                vault.WithMigrationSnapshot(_ =>
-                {
-                    ServiceVaultReturn.Transfer(vault, ownerPath, returnId,
-                        request => ServiceVaultReturnProtocol.Exchange(system.Binding, request),
-                        () => Elevated("--system-service-remove", owner));
-                    return true;
-                }, requireExisting: true);
-            }
-            catch
-            {
-                try { SystemServiceClient.Thaw(system); } catch (Exception) { }
-                throw;
-            }
-        }
-        else Elevated("--system-service-remove", owner);
-        SystemServiceClient.ForgetVault(system.DataDirectory);
+        Elevated("--system-service-remove", owner);
+        SystemServiceClient.ForgetQuitRecord(system.DataDirectory);
         ForgetServiceKeys();
         TaskSchedulerService.NotifyChanged();
     }

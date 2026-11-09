@@ -108,24 +108,22 @@ internal static class DesktopSchedule
 
     private static int _vaultAlertSent;
 
-    /// <summary>While the saved passwords are locked on this computer (or not
-    /// yet moved), scheduled runs wait instead of failing, and one alert asks
+    /// <summary>While the saved passwords are locked on this computer (or
+    /// can't be opened), scheduled runs wait instead of failing, and one alert asks
     /// to unlock them (U153). The password is never asked by a background run.</summary>
     internal static string? VaultBlocked()
     {
         VaultState state;
-        bool pending;
-        try { state = ServiceLocator.Secrets.Refresh(); pending = ServiceLocator.Secrets.ConversionPending; }
+        try { state = ServiceLocator.Secrets.Refresh(); }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException) { return null; }
-        if (state is VaultState.Unlocked || (state == VaultState.NoVault && !pending))
+        if (state is VaultState.Unlocked or VaultState.NoVault)
         {
             Interlocked.Exchange(ref _vaultAlertSent, 0);
             return null;
         }
         if (Interlocked.Exchange(ref _vaultAlertSent, 1) == 0)
             _ = ServiceLocator.Notifier.NotifyAsync("Scheduled backups are waiting",
-                pending ? "Open Backspace and choose a password for your saved passwords. Scheduled backups run once that is done."
-                : state == VaultState.Unreadable ? "Backspace can't open your saved passwords. Open Backspace to see what to do."
+                state == VaultState.Unreadable ? "Backspace can't open your saved passwords. Open Backspace to see what to do."
                 : "Your saved passwords are locked on this computer. Open Backspace and enter their password once; scheduled backups then run.",
                 NotificationSeverity.Warning);
         return "the saved passwords are locked on this computer";

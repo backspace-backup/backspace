@@ -12,8 +12,6 @@ public enum VaultPromptMode
     Unlock,
     /// <summary>Settings → Saved passwords: a new password.</summary>
     Change,
-    /// <summary>The one-time move from the earlier per-computer files.</summary>
-    Convert,
     /// <summary>The vault can't be opened; start a new, empty one.</summary>
     StartOver,
 }
@@ -59,18 +57,12 @@ public static class VaultGate
         switch (state)
         {
             case VaultState.Unlocked: return true;
-            case VaultState.NoVault when secrets.ConversionPending: return await ConvertAsync(reason, secrets).ConfigureAwait(false);
             case VaultState.NoVault when !write: return true;
             case VaultState.NoVault: return await AskAsync(VaultPromptMode.Create, reason, secrets).ConfigureAwait(false);
             case VaultState.Locked: return await AskAsync(VaultPromptMode.Unlock, reason, secrets).ConfigureAwait(false);
             default: return await AskAsync(VaultPromptMode.StartOver, reason, secrets).ConfigureAwait(false);
         }
     }
-
-    /// <summary>The one-time move of the earlier per-computer files (asked once
-    /// at start, then from the banner or any action needing a password).</summary>
-    public static Task<bool> ConvertAsync(string reason = "", SecretsStore? secrets = null)
-        => AskAsync(VaultPromptMode.Convert, reason, secrets ?? ServiceLocator.Secrets);
 
     /// <summary>Settings → Saved passwords → Forgot the password? Only for a
     /// vault locked on this computer: the old file is kept and a new, empty
@@ -123,19 +115,6 @@ public static class VaultGate
                 case VaultPromptMode.Change:
                     secrets.ChangePassword(password);
                     return null;
-                case VaultPromptMode.Convert:
-                {
-                    var error = VaultConversion.Run(password, secrets, VaultConversion.Host(), ServiceLocator.Config.Current);
-                    // Once vault.bin is written and open, the rest (the
-                    // service's confirmation, moving engine folders) resumes
-                    // at the next start by itself; the window can close.
-                    if (error is not null && secrets.Refresh() == VaultState.Unlocked)
-                    {
-                        AppLogger.For(nameof(VaultGate)).Warning("The conversion continues at the next start: {Reason}", error);
-                        return null;
-                    }
-                    return error;
-                }
                 case VaultPromptMode.StartOver:
                     secrets.StartOver(password);
                     return null;

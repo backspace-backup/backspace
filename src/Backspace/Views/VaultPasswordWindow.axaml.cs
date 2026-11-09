@@ -12,9 +12,8 @@ namespace Backspace.Views;
 
 /// <summary>
 /// The saved-passwords window (U153): choose a password when the first
-/// credential is saved, enter it once on a new computer, change it, move the
-/// earlier per-computer files into the portable vault, or start over when
-/// the vault can't be opened. The action runs inside the window, so a wrong
+/// credential is saved, enter it once on a new computer, change it, or start
+/// over when the vault can't be opened. The action runs inside the window, so a wrong
 /// password is explained without closing it. Closing without finishing
 /// saves nothing.
 /// </summary>
@@ -51,7 +50,7 @@ public partial class VaultPasswordWindow : Window
         "the Backspace folder (for example from your Dropbox) can read them, along with access to your backups.";
 
     private bool AllowsEmpty => _request.Mode is VaultPromptMode.Create or VaultPromptMode.Change
-        or VaultPromptMode.Convert or VaultPromptMode.StartOver;
+        or VaultPromptMode.StartOver;
     private bool Confirms => AllowsEmpty;
 
     private void Apply(VaultPromptMode mode)
@@ -70,11 +69,6 @@ public partial class VaultPasswordWindow : Window
                 "Your saved passwords stay as they are; only the password that locks them changes. Other computers that already "
                 + "use this Backspace folder keep working without it.",
                 "Change password", "Cancel"),
-            VaultPromptMode.Convert => ("Your saved passwords can now travel with Backspace",
-                "Until now, your storage passwords and cloud sign-ins could only be opened on this computer, by this Windows account. "
-                + "Backspace now keeps them in one file beside the app, locked with a password you choose. " + travels
-                + " Nothing is lost: Backspace moves them and checks every one before removing the old files.",
-                "Move my saved passwords", "Not now"),
             _ => ("Your saved passwords can't be opened",
                 (_request.Detail ?? "The file holding them is damaged.")
                 + "\n\nYou can start over: Backspace keeps the old file beside a new, empty one. You'll then enter "
@@ -98,8 +92,7 @@ public partial class VaultPasswordWindow : Window
             ConfirmButton.Content = empty ? "Continue without a password" : _request.Mode switch
             {
                 VaultPromptMode.Create => "Save password",
-                VaultPromptMode.Change => "Change password",
-                _ => "Move my saved passwords",
+                _ => "Change password",
             };
     }
 
@@ -145,7 +138,7 @@ public partial class VaultPasswordWindow : Window
     {
         _busy = busy;
         StatusRow.IsVisible = busy;
-        StatusInfo.Text = _request.Mode == VaultPromptMode.Convert ? "Moving and checking your saved passwords…" : "Working…";
+        StatusInfo.Text = "Working…";
         ConfirmButton.IsEnabled = !busy;
         CancelButton.IsEnabled = !busy;
         PasswordBox.IsEnabled = !busy;

@@ -94,6 +94,13 @@ example by starting over elsewhere) is deleted as stale. A wrong password is
 never written anywhere, and a damaged body, a newer format or a missing file
 with a `.bak` beside it are kept as they are.
 
+A `secrets.bin` left in `Backspace.config` or `service\` by a version from
+before the vault is ignored: nothing reads it, and its presence does not make
+the vault count as locked. The one-time move from it has been removed (the
+owner is the only user). The saved cloud review sign-ins under
+`audit-dashboard/private/temp/BackspaceReviewTests` are still in that format;
+only the test helper `ReviewSignInFile` reads them.
+
 ## OAuth first-run flow (Dropbox / OneDrive / Google Drive)
 
 Backrest can return a completed failed operation instead of throwing an RPC

@@ -593,8 +593,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
 
     private void OnVaultStateChanged(string path)
     {
-        // Only this window's vault: other stores (tests, conversion
-        // checks) must not wake every Settings page in the process.
+        // Only this window's vault: other stores (tests, the service's
+        // view) must not wake every Settings page in the process.
         if (!string.Equals(path, ServiceLocator.Secrets.FilePath, StringComparison.OrdinalIgnoreCase)) return;
         OnUiThread(() =>
         {
@@ -625,7 +625,6 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         CanStartOverVault = state == VaultState.Locked;
         (VaultStatus, ChangeVaultPasswordLabel) = state switch
         {
-            VaultState.NoVault when secrets.ConversionPending => ("Your saved passwords still need to be moved into their new file. Choose a password to do it.", "Choose a password"),
             VaultState.NoVault => ("Nothing is saved yet. Backspace asks you to choose a password the first time it saves one.", "Choose a password"),
             VaultState.Locked => ("Locked on this computer. Enter the password once to unlock them here.", "Enter password"),
             VaultState.Unreadable => ("They can't be opened. " + (secrets.LoadErrorMessage ?? ""), "See what to do"),
@@ -639,8 +638,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         var secrets = ServiceLocator.Secrets;
         var state = await System.Threading.Tasks.Task.Run(secrets.Refresh);
-        if (state == VaultState.NoVault && secrets.ConversionPending) await VaultGate.ConvertAsync();
-        else if (state == VaultState.NoVault) await VaultGate.EnsureWritableAsync("");
+        if (state == VaultState.NoVault) await VaultGate.EnsureWritableAsync("");
         else if (state == VaultState.Unlocked) await VaultGate.ChangePasswordAsync();
         else await VaultGate.EnsureReadableAsync("");
         RefreshVaultStatus();

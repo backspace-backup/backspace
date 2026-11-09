@@ -68,8 +68,6 @@ internal sealed class VaultScenario : IAsyncDisposable
         ServiceLocator.RebuildEngineDependents();
         foreach (var file in Directory.GetFiles(AppPaths.ConfigRoot, "vault.bin*").Where(f => !f.Contains(".held-")))
             File.Delete(file);
-        foreach (var file in Directory.GetFiles(AppPaths.ConfigRoot, "secrets.bin*")) File.Delete(file);
-        File.Delete(VaultConversion.RecordPath(AppPaths.ConfigRoot));
         File.Move(_held, AppPaths.VaultFile);
         if (File.Exists(_held + ".bak")) File.Move(_held + ".bak", AppPaths.VaultFile + ".bak");
         _suiteSecrets.Refresh();
@@ -116,7 +114,6 @@ internal sealed class VaultScenario : IAsyncDisposable
         {
             VaultPromptMode.Create => "First credential: Backspace asks to choose a password for the saved passwords (none was asked before). With both boxes empty, the window warns that saved passwords would only be obscured.",
             VaultPromptMode.Unlock => "A computer without the key: the password is asked once, only because an action needs a saved password.",
-            VaultPromptMode.Convert => "The one-time move of the earlier per-computer files: choose a password; everything is moved and checked before any old file goes.",
             _ => mode.ToString(),
         };
     }
@@ -186,7 +183,8 @@ internal sealed class VaultScenario : IAsyncDisposable
 /// byte by byte, with a positive control on this computer's engine files).
 /// Then a second computer: the banner says the passwords are locked, Run now
 /// asks once, a wrong password is refused, the right one runs against the
-/// same repository and the earlier run is in the history.
+/// same repository, the earlier run is in the history, and Settings → Saved
+/// passwords says they are open and protected.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E63_SavedPasswordsVault : BackupE2EBase
@@ -267,6 +265,15 @@ public sealed class E63_SavedPasswordsVault : BackupE2EBase
         historyWindow.Close();
         hostB.Close();
         Assert.Equal(VaultState.Unlocked, scenario.UseComputer("computer-b").Refresh());
+
+        var settings = new SettingsView { DataContext = new SettingsViewModel() };
+        var settingsHost = ctx.Driver.Show(new Window { Width = 1000, Height = 900, Content = settings });
+        settings.FindControl<Expander>("SavedPasswordsSection")!.IsExpanded = true;
+        ctx.Driver.Pump();
+        Assert.Equal("Open on this computer, protected by your password.", ((SettingsViewModel)settings.DataContext!).VaultStatus);
+        ctx.Snapshot(settingsHost, "settings - saved passwords section",
+            "Settings → Saved passwords on computer B: open on this computer, protected by the password, with Change password.");
+        settingsHost.Close();
     }
 }
 
@@ -312,93 +319,5 @@ public sealed class E64_NoPasswordNewComputer : BackupE2EBase
         ctx.Snapshot(hostB, "computer B - ran without any question",
             "Saved without a password on computer A: on computer B the backup ran at once, with no banner and no password window.");
         hostB.Close();
-    }
-}
-
-/// <summary>U153: an existing install (a Windows-protected secrets.bin and the
-/// engine's folder inside Backspace.config) is moved once: the banner, the
-/// password window, then a backup against the existing repository; the old
-/// engine folder is on this computer and the old file goes after that run.</summary>
-[Collection(ScenarioCollection.Name)]
-public sealed class E65_ConversionFromEarlierFiles : BackupE2EBase
-{
-    public E65_ConversionFromEarlierFiles(ITestOutputHelper output) : base(output) { }
-    protected override string ScenarioName => "E65-conversion-from-earlier-files";
-
-    [AvaloniaFact]
-    public Task Run_E65() => Run();
-
-    protected override async Task RunE2EAsync(ScenarioContext ctx, RealEngineFixture fixture)
-    {
-        await using var scenario = new VaultScenario(ctx, fixture);
-        var storagePassword = "E65-storage-" + Guid.NewGuid().ToString("N");
-        var sources = FixtureFactory.Generate(ctx.SourcesDir, FixtureSize.Smoke, seed: 65);
-        var folder = ctx.MakeLocalDestination("converted-repo");
-
-        // The earlier version's files: a DPAPI secrets.bin beside config.json
-        // and Backrest's folder inside Backspace.config.
-        var destination = new Destination
-        {
-            Name = "Earlier folder", Kind = DestinationKind.LocalFolder, PathOrSubpath = folder, Encrypted = true,
-            StoragePasswordRef = "dest:e65:storagepw",
-        };
-        new LegacySecretsVault(new DpapiSecretsEncryption(), AppPaths.LegacySecretsFile).Set(destination.StoragePasswordRef, storagePassword);
-        var oldBackrest = Path.Combine(AppPaths.ConfigRoot, "backrest");
-        Directory.CreateDirectory(oldBackrest);
-        File.WriteAllText(Path.Combine(oldBackrest, "config.json"), "{\"modno\":1,\"repos\":[{\"id\":\"e65\",\"password\":\"" + storagePassword + "\"}]}");
-        var backup = VaultScenario.NewBackup(sources, destination);
-        ServiceLocator.Config.Update(cfg => { cfg.Destinations.Add(destination); cfg.Backups.Add(backup); });
-        var machine = scenario.MachineRoot("this-computer");
-        Environment.SetEnvironmentVariable(EngineWorkPaths.MachineRootVariable, machine);
-        try
-        {
-            var secrets = scenario.UseComputer("this-computer");
-            Assert.Equal(VaultState.NoVault, secrets.Refresh());
-            Assert.True(secrets.ConversionPending);
-            var convert = new VaultScenario.WindowPrompt(ctx, "earlier install", "moved once");
-            VaultGate.Prompt = convert;
-
-            var view = new BackupsView { DataContext = new BackupsViewModel() };
-            var host = ctx.Driver.Show(new Window { Width = 1100, Height = 760, Content = view });
-            Assert.True(ctx.Driver.WaitFor(() => ((BackupsViewModel)view.DataContext!).Vault.IsVisible, 15000),
-                $"banner: '{((BackupsViewModel)view.DataContext!).Vault.Headline}' state={secrets.Refresh()} pending={secrets.ConversionPending}");
-            ctx.Snapshot(host, "earlier install - banner before the move",
-                "An install from before the portable vault: the banner asks to choose a password so the saved passwords can travel. Backups wait meanwhile.");
-
-            // What the app does at start: ask once.
-            await VaultStartup.RunAsync(secrets, askToConvert: true);
-            Assert.Equal(new[] { VaultPromptMode.Convert }, convert.Asked);
-            Assert.True(File.Exists(AppPaths.VaultFile));
-            Assert.Equal(storagePassword, secrets.Get(destination.StoragePasswordRef));
-            Assert.Equal("awaiting-first-run", VaultConversion.Read(AppPaths.ConfigRoot)!.Stage);
-            Assert.False(Directory.Exists(oldBackrest));
-            Assert.True(File.Exists(Path.Combine(EngineWorkPaths.RootFor(AppPaths.ConfigRoot), "backrest", "config.json")));
-            Assert.True(File.Exists(AppPaths.LegacySecretsFile), "The earlier file stays until a run used the new vault.");
-
-            var run = await VaultScenario.RunNowAsync(ctx, view, backup);
-            Assert.NotNull(run);
-            Assert.True(run!.Status is BackupRunStatus.Success or BackupRunStatus.Warning, run.Summary);
-            Assert.True(ctx.Driver.WaitFor(() => !((BackupsViewModel)view.DataContext!).Vault.IsVisible));
-            ctx.Snapshot(host, "earlier install - backup after the move",
-                "After the move the backup ran with the moved storage password, against the repository it already had.");
-
-            // The next start finishes: the earlier file goes after that successful run.
-            await VaultStartup.RunAsync(secrets, askToConvert: true);
-            Assert.False(File.Exists(AppPaths.LegacySecretsFile));
-            Assert.Null(VaultConversion.Read(AppPaths.ConfigRoot));
-            Assert.Single(convert.Asked);
-            var leftovers = VaultScenario.FilesContaining(AppPaths.ConfigRoot, storagePassword);
-            Assert.True(leftovers.Count == 0, "Found the storage password in: " + string.Join(", ", leftovers));
-            host.Close();
-
-            var settings = new SettingsView { DataContext = new SettingsViewModel() };
-            var settingsHost = ctx.Driver.Show(new Window { Width = 1000, Height = 900, Content = settings });
-            settings.FindControl<Expander>("SavedPasswordsSection")!.IsExpanded = true;
-            ctx.Driver.Pump();
-            ctx.Snapshot(settingsHost, "settings - saved passwords section",
-                "Settings → Saved passwords after the move: open on this computer, protected by the password, with Change password.");
-            settingsHost.Close();
-        }
-        finally { Environment.SetEnvironmentVariable(EngineWorkPaths.MachineRootVariable, null); }
     }
 }
