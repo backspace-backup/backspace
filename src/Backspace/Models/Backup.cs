@@ -143,6 +143,16 @@ public sealed class Backup
     /// when Backspace's lists changed (U057). Not suggested again.</summary>
     public List<string> IgnoredRecommendationChanges { get; set; } = new();
 
+    /// <summary>Whether changes to Backspace's recommended lists reach this
+    /// backup's ticked groups by themselves (U165): applied when settings
+    /// load, by the app and by the background service, hidden suggestions
+    /// excepted. On for a backup set up only through Easy mode; opening
+    /// Advanced mode from Easy turns it off, and Advanced > Filters >
+    /// Recommended can turn it on again. Off: the card offers the changes
+    /// as "New filter suggestions" and nothing changes until the person
+    /// accepts them.</summary>
+    public bool AutoApplyRecommendations { get; set; }
+
     // ---- common options (surfaced up front in the UI) ----
 
     /// <summary>

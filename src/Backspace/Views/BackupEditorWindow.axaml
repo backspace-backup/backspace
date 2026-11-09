@@ -93,7 +93,7 @@
       </StackPanel>
     </Grid>
 
-    <TabControl Grid.Row="1" Classes="editor-tabs" Background="Transparent" BorderThickness="0" Padding="0">
+    <TabControl Grid.Row="1" Classes="editor-tabs" Background="Transparent" BorderThickness="0" Padding="0" Name="EditorTabs">
 
       <!-- =========== TAB: Overview =========== -->
       <TabItem Header="Overview" FontFamily="{DynamicResource BS.Font.Body}">
@@ -772,33 +772,39 @@
                combined layout left the editor a sliver too short
                to read multi-page filter files comfortably).
            -->
-      <TabItem Header="Filters">
-        <TabControl Classes="sub" Margin="0,4,0,0" Padding="0">
+      <TabItem Header="Filters" Name="FiltersTab">
+        <TabControl Classes="sub" Margin="0,4,0,0" Padding="0" Name="FiltersSubTabs">
           <!-- Recommended sub-tab. -->
-          <TabItem Header="Recommended">
+          <TabItem Header="Recommended" Name="RecommendedFiltersTab">
             <ScrollViewer VerticalScrollBarVisibility="Visible" Padding="0,8,0,8">
               <StackPanel Spacing="12">
                 <TextBlock Classes="dim" FontSize="13"
                            Text="Tick the recommended exclusions you want, then Apply. Your own rules, on the Advanced tab, stay above the recommended block."
                            TextWrapping="Wrap"/>
 
-                <!-- Backspace's recommended lists changed since this backup was
-                     set up (U057). Shown only when editing; the saved rules
-                     never change by themselves. -->
-                <Border Classes="surface" IsVisible="{Binding HasRecommendationUpdate}">
+                <!-- Backspace's recommended lists changed since this backup's
+                     rules were written (U057, U165). The card's "New filter
+                     suggestions: Review" opens the editor here. Nothing changes
+                     until the person accepts; unticked rows are hidden. -->
+                <Border Classes="surface" Name="FilterSuggestions" IsVisible="{Binding HasRecommendationUpdate}">
                   <StackPanel Spacing="10">
-                    <TextBlock Classes="section-title" Text="Updated recommendations" Margin="0"/>
+                    <TextBlock Classes="section-title" Text="New filter suggestions" Margin="0"/>
                     <TextBlock Classes="helper" Margin="0" TextWrapping="Wrap"
-                               Text="Backspace's recommended exclusions changed since this backup was set up, some are missing from its block, or some no longer apply to its folders. Your backup keeps its current rules unless you update them. Untick any change you don't want; it won't be suggested again for this backup."/>
+                               Text="Backspace's recommended exclusions changed since this backup's rules were written, or no longer fit its folders. Nothing changes until you choose. Ticked suggestions are made when you click Apply ticked changes; unticked ones are hidden for this backup, and Apply recommended exclusions doesn't bring them back."/>
                     <StackPanel IsVisible="{Binding HasRecommendedAdditions}" Spacing="2">
-                      <TextBlock Classes="label-caps" Text="{Binding RecommendedAdditions.Count, StringFormat='NOW RECOMMENDED: ADD ({0})'}"/>
-                      <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
+                      <TextBlock Classes="label-caps" Text="{Binding RecommendedAdditions.Count, StringFormat='TO ADD ({0})'}"/>
+                      <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding RecommendedAdditions}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="vm:RecommendationChangeChoice">
-                              <CheckBox IsChecked="{Binding IsSelected}" Margin="0,1"
+                              <CheckBox IsChecked="{Binding IsSelected}" Margin="0,2"
                                         Foreground="{DynamicResource BS.Brush.FgPrimary}">
-                                <TextBlock Classes="mono" FontSize="12" Text="{Binding Pattern}"/>
+                                <StackPanel Spacing="1">
+                                  <TextBlock Classes="mono" FontSize="12" Text="{Binding Pattern}"/>
+                                  <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}">
+                                    <Run Text="{Binding GroupLabel}"/><Run Text=" · "/><Run Text="{Binding EffectLabel}"/>
+                                  </TextBlock>
+                                </StackPanel>
                               </CheckBox>
                             </DataTemplate>
                           </ItemsControl.ItemTemplate>
@@ -806,14 +812,19 @@
                       </ScrollViewer>
                     </StackPanel>
                     <StackPanel IsVisible="{Binding HasRecommendedRemovals}" Spacing="2">
-                      <TextBlock Classes="label-caps" Text="{Binding RecommendedRemovals.Count, StringFormat='TO REMOVE: NO LONGER RECOMMENDED, OR OUTSIDE THIS BACKUP’S FOLDERS ({0})'}"/>
-                      <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
+                      <TextBlock Classes="label-caps" Text="{Binding RecommendedRemovals.Count, StringFormat='TO REMOVE ({0})'}"/>
+                      <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding RecommendedRemovals}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="vm:RecommendationChangeChoice">
-                              <CheckBox IsChecked="{Binding IsSelected}" Margin="0,1"
+                              <CheckBox IsChecked="{Binding IsSelected}" Margin="0,2"
                                         Foreground="{DynamicResource BS.Brush.FgPrimary}">
-                                <TextBlock Classes="mono" FontSize="12" Text="{Binding Pattern}"/>
+                                <StackPanel Spacing="1">
+                                  <TextBlock Classes="mono" FontSize="12" Text="{Binding Pattern}"/>
+                                  <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}">
+                                    <Run Text="{Binding GroupLabel}"/><Run Text=" · "/><Run Text="{Binding EffectLabel}"/>
+                                  </TextBlock>
+                                </StackPanel>
                               </CheckBox>
                             </DataTemplate>
                           </ItemsControl.ItemTemplate>
@@ -822,7 +833,8 @@
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="10">
                       <Button Classes="primary" Content="Apply ticked changes" Command="{Binding ApplyRecommendationUpdateCommand}"/>
-                      <Button Content="Don't suggest these again" Command="{Binding IgnoreRecommendationUpdateCommand}"/>
+                      <Button Classes="ghost" Content="Hide all" Command="{Binding IgnoreRecommendationUpdateCommand}"
+                              ToolTip.Tip="Hide every suggestion for this backup. Its rules stay as they are."/>
                     </StackPanel>
                   </StackPanel>
                 </Border>
@@ -850,12 +862,35 @@
                                Foreground="{DynamicResource BS.Brush.FgSecondary}"
                                Text="{Binding RecommendedStatus}" IsVisible="{Binding !RecommendedApplied}"/>
 
-                    <CheckBox IsChecked="{Binding RecExcludeWindowsSystem}"
-                              Content="Windows system files (pagefile, hiberfil, $Recycle.Bin, System Volume Information, Windows.old, the Windows folder, etc.)"
-                              Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                    <CheckBox IsChecked="{Binding RecExcludeCachesAndJunk}"
-                              Content="App caches and junk (browser caches, GPU/shader caches, Windows temp folders, *.tmp, node__modules, .DS_Store, …)"
-                              Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                    <!-- Three groups, each with the rules it writes for this
+                         backup collapsed below it (U165). -->
+                    <StackPanel Spacing="0">
+                      <CheckBox IsChecked="{Binding RecExcludeEssentials}" Name="EssentialsGroup"
+                                Content="Essentials: files no one needs in a backup (page and hibernation files, System Volume Information, the Recycle Bin, Windows setup and upgrade leftovers, Windows.old, boot files, Windows app shortcuts a backup can't store)"
+                                Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                      <Expander Classes="advanced" Margin="28,0,0,0" Header="{Binding EssentialsRulesHeader}">
+                        <SelectableTextBlock FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12" LineHeight="18" Text="{Binding EssentialsRulesText}"
+                                             Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"/>
+                      </Expander>
+                    </StackPanel>
+                    <StackPanel Spacing="0">
+                      <CheckBox IsChecked="{Binding RecExcludeWindowsSystem}" Name="WindowsSystemGroup"
+                                Content="Windows system files (the Windows folder, the search index, installer and update caches, driver setup folders)"
+                                Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                      <Expander Classes="advanced" Margin="28,0,0,0" Header="{Binding WindowsSystemRulesHeader}">
+                        <SelectableTextBlock FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12" LineHeight="18" Text="{Binding WindowsSystemRulesText}"
+                                             Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"/>
+                      </Expander>
+                    </StackPanel>
+                    <StackPanel Spacing="0">
+                      <CheckBox IsChecked="{Binding RecExcludeCachesAndJunk}" Name="CachesGroup"
+                                Content="App caches and temporary files (browser caches, GPU/shader caches, Windows temp folders, *.tmp, node__modules, .DS__Store, …)"
+                                Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                      <Expander Classes="advanced" Margin="28,0,0,0" Header="{Binding CachesRulesHeader}">
+                        <SelectableTextBlock FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12" LineHeight="18" Text="{Binding CachesRulesText}"
+                                             Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"/>
+                      </Expander>
+                    </StackPanel>
 
                     <StackPanel IsVisible="{Binding HasDetectedCloudFolders}" Spacing="4" Margin="0,4,0,0">
                       <TextBlock Classes="label-caps" Text="CLOUD-SYNCED FOLDERS DETECTED"/>
@@ -906,6 +941,20 @@
                                  Text="{Binding RecEstimatedSavingsLabel}"
                                  IsVisible="{Binding RecEstimatedSavingsLabel, Converter={x:Static vm:NotEmpty.To}}"/>
                     </Grid>
+                  </StackPanel>
+                </Border>
+
+                <!-- Whether Backspace's updated lists reach this backup by
+                     themselves (U165). Set up only in Easy mode: on; opening
+                     Advanced from Easy turns it off. -->
+                <Border Classes="surface" Name="AutoApplyCard">
+                  <StackPanel Spacing="6">
+                    <TextBlock Classes="section-title" Text="When Backspace updates these lists" Margin="0"/>
+                    <CheckBox IsChecked="{Binding AutoApplyRecommendations}" Name="AutoApplyRecommendations"
+                              Content="Apply Backspace's updated recommendations automatically"
+                              Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                    <TextBlock Classes="helper" Margin="28,0,0,0" TextWrapping="Wrap"
+                               Text="On: a new or changed rule for a ticked group is added to this backup's rules without asking, and a rule Backspace no longer recommends is removed. Suggestions you hid are never added back. Off: the backup's card shows New filter suggestions, and nothing changes until you review them here."/>
                   </StackPanel>
                 </Border>
 

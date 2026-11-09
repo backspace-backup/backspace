@@ -344,8 +344,8 @@
                           Content="Skip junk for me (page file, temp folders, app caches, recycle bin, cloud-sync folders)"
                           FontWeight="SemiBold"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
-                           Text="A curated list of things you almost certainly don't want to back up. We'll insert them as filter rules so you can review and tweak in the editor later."/>
+                <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap" Name="RecommendedExclusionsNote"
+                           Text="{Binding RecommendedExclusionsNote}"/>
 
                 <CheckBox IsChecked="{Binding InstallShellExtension}"
                           IsVisible="{Binding IsShellExtensionAvailable}"

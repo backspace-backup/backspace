@@ -54,6 +54,10 @@ public sealed class BackupCreationWindow
     /// destinations step (U147); the advanced editor shows them on its first tab.</summary>
     public bool StartAtDestinations { get; init; }
 
+    /// <summary>Opens the advanced editor at Filters > Recommended, where
+    /// the new filter suggestions are (U165), whatever mode was used last.</summary>
+    public bool StartAtFilterSuggestions { get; init; }
+
     /// <summary>True iff the user clicked "Save and run" in either mode.
     /// Parent reads this on close to decide whether to fire the
     /// orchestrator after persisting.</summary>
@@ -76,8 +80,10 @@ public sealed class BackupCreationWindow
     /// </summary>
     public async Task<Backup?> ShowDialog<T>(Window owner)
     {
-        var mode = _initialMode;
+        var mode = StartAtFilterSuggestions ? BackupEditMode.Advanced : _initialMode;
         Backup? snapshot = _seed;
+        var fromEasy = false;
+        var atSuggestions = StartAtFilterSuggestions;
 
         // Loop forever — toggling Easy↔Advanced is user-driven and can
         // happen any number of times. The earlier 8-iteration cap was
@@ -98,6 +104,8 @@ public sealed class BackupCreationWindow
                 {
                     snapshot = w.SwitchSnapshot ?? snapshot;
                     mode = BackupEditMode.Advanced;
+                    // Clicking Advanced stops automatic recommendation updates (U165).
+                    fromEasy = true;
                     continue;
                 }
                 if (!w.DidFinish && !((OnboardingViewModel)w.DataContext!).SavedNoRun)
@@ -119,7 +127,8 @@ public sealed class BackupCreationWindow
                 // mode) or a fresh new() (new mode). The window returns
                 // the saved backup directly.
                 var working = snapshot ?? new Backup();
-                var ed = new BackupEditorWindow(working, isNew: !_isEdit, isFirstBackup: _isFirstBackup);
+                var ed = new BackupEditorWindow(working, isNew: !_isEdit, isFirstBackup: _isFirstBackup, openedFromEasy: fromEasy);
+                if (atSuggestions) { ed.ShowFilterSuggestions(); atSuggestions = false; }
                 var saved = await ed.ShowDialog<Backup?>(owner);
                 if (ed.SwitchToEasy)
                 {

@@ -142,26 +142,28 @@ public sealed class UnreadableFolderSizeTests
         Assert.Throws<InvalidDataException>(() => Parse(new { version = 1, command = "measure-result", runId = "not-an-id" }));
     }
 
-    /// <summary>U106 follow-up, U151: System Volume Information, the page and
-    /// hibernation files and the other files useless in any restore are in
-    /// the essential block every backup's text carries, last, and a folder
-    /// counted before there is a backup leaves them out too.</summary>
+    /// <summary>U106 follow-up, U151, U165: System Volume Information, the page
+    /// and hibernation files and the other files useless in any restore are
+    /// the Essentials, ticked by default, and a folder counted before there
+    /// is a backup leaves them out too.</summary>
     [Fact]
-    public async Task Useless_system_files_are_excluded_by_the_essential_block_and_not_counted()
+    public async Task Useless_system_files_are_excluded_by_the_essentials_and_not_counted()
     {
         if (!OperatingSystem.IsWindows()) return;
-        var all = RecommendedFilters.AlwaysBlockText();
+        var all = RecommendedFilters.EssentialsText();
         var rules = FilterTranslator.CompileRules(all);
         foreach (var path in new[] { "C:/System Volume Information/tracking.log", "C:/pagefile.sys", "D:/hiberfil.sys", "C:/swapfile.sys", "C:/OneDriveTemp/x" })
             Assert.True(FilterTranslator.Evaluate(rules, path).Excluded, path);
         // OneDrive's scratch only at the top of the drive, never a folder of that name anywhere.
         Assert.False(FilterTranslator.Evaluate(rules, "C:/Users/me/OneDriveTemp/x").Excluded);
         Assert.False(FilterTranslator.Evaluate(rules, "C:/Users/me/pagefile.sys").Excluded);
-        // Things someone may want back are only recommended, never in this block.
-        foreach (var name in new[] { "Windows.old", "RECYCLE.BIN", "Recovery", "ntuser.dat", "UsrClass.dat", "?:/Windows/" })
-            Assert.DoesNotContain(name, all);
-        // The block ends a new backup's text, so no earlier rule brings them back.
-        var text = RecommendedFilters.WithAlwaysBlock("!?:/hiberfil.sys\n");
+        // Things someone may want back are never in the Essentials.
+        foreach (var name in new[] { "Recovery", "ntuser.dat", "UsrClass.dat", "?:/Windows/" })
+            Assert.DoesNotContain(name, all.Split('\n'));
+        // A new backup's recommended block comes after the person's own rules,
+        // so an earlier exception doesn't bring them back.
+        var text = RecommendedFilters.MergeIntoFilters("!?:/hiberfil.sys\n",
+            RecommendedFilters.RenderBlock(false, false, Array.Empty<RecommendedFilters.CloudSyncFolder>()));
         Assert.True(FilterTranslator.Evaluate(FilterTranslator.CompileRules(text), "C:/hiberfil.sys").Excluded);
 
         using var workspace = new TempWorkspace("essential-size", vault: false);

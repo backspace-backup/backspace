@@ -18,9 +18,9 @@ public partial class BackupEditorWindow : Window
     public BackupEditorWindow(Backup working, bool isNew)
         : this(working, isNew, isFirstBackup: false) { }
 
-    public BackupEditorWindow(Backup working, bool isNew, bool isFirstBackup)
+    public BackupEditorWindow(Backup working, bool isNew, bool isFirstBackup, bool openedFromEasy = false)
     {
-        _vm = new BackupEditorViewModel(working, isNew);
+        _vm = new BackupEditorViewModel(working, isNew, openedFromEasy);
         // Header copy mirrors the Easy mode wizard so a mid-flow toggle
         // lands the user on a familiar phrasing rather than "Backup
         // settings".
@@ -62,6 +62,16 @@ public partial class BackupEditorWindow : Window
     public Backup? SwitchSnapshot { get; private set; }
 
     private void OnCancel(object? sender, RoutedEventArgs e) => Close(null);
+
+    /// <summary>Opens Filters > Recommended at the new filter suggestions:
+    /// the card's "New filter suggestions: Review" (U165).</summary>
+    public void ShowFilterSuggestions()
+    {
+        EditorTabs.SelectedItem = FiltersTab;
+        FiltersSubTabs.SelectedItem = RecommendedFiltersTab;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => FilterSuggestions.BringIntoView(),
+            Avalonia.Threading.DispatcherPriority.Loaded);
+    }
 
     private async void OnSave(object? sender, RoutedEventArgs e)
     {

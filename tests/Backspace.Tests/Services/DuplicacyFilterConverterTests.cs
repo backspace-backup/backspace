@@ -25,7 +25,9 @@ public sealed class DuplicacyFilterConverterTests
     public void The_owners_backups_convert_to_the_approved_text_byte_for_byte(string backup, string source)
     {
         var converted = DuplicacyFilterConverter.Convert(Fixture(backup + ".txt"), new[] { source });
-        Assert.Equal(Fixture(backup + "-after.txt"), converted);
+        // Since U165 the Essentials are the recommended block's first group
+        // instead of a block of their own: the approved text in that form.
+        Assert.Equal(RecommendedFilters.UpgradeEssentials(Fixture(backup + "-after.txt"), new[] { source }), converted);
     }
 
     [Theory]
@@ -59,7 +61,8 @@ public sealed class DuplicacyFilterConverterTests
         // The next start converts it, as the app does when it opens.
         var store = new ConfigStore();
         store.Load();
-        Assert.Equal(Fixture("local_dropbox-after.txt"), store.Current.Backups.Single(b => b.Name == "local_dropbox").FiltersText);
+        var expected = RecommendedFilters.UpgradeEssentials(Fixture("local_dropbox-after.txt"), new[] { @"C:\Users\Erwin\Dropbox\" });
+        Assert.Equal(expected, store.Current.Backups.Single(b => b.Name == "local_dropbox").FiltersText);
         // A text without Duplicacy lines is restic's already: left alone.
         Assert.Equal("*.bak\n/odd\n", store.Current.Backups.Single(b => b.Name == "plain").FiltersText);
 
@@ -68,7 +71,7 @@ public sealed class DuplicacyFilterConverterTests
         Assert.DoesNotContain("\\ne:(?i)", File.ReadAllText(AppPaths.ConfigFile));
         var again = new ConfigStore();
         again.Load();
-        Assert.Equal(Fixture("local_dropbox-after.txt"), again.Current.Backups.Single(b => b.Name == "local_dropbox").FiltersText);
+        Assert.Equal(expected, again.Current.Backups.Single(b => b.Name == "local_dropbox").FiltersText);
     }
 
     [Fact]
@@ -119,7 +122,7 @@ public sealed class DuplicacyFilterConverterTests
     }
 
     [Fact]
-    public void Importing_from_Duplicacy_writes_restic_rules_with_the_essential_block()
+    public void Importing_from_Duplicacy_writes_restic_rules_with_the_essentials_ticked()
     {
         var text = ConfigMigrator.ImportFilters("e:(?i)^Windows/\ne:(?i)^Users/[^/]+/Dropbox/\n", new[] { @"C:\" });
         Assert.False(DuplicacyFilterConverter.NeedsConversion(text));
@@ -127,6 +130,8 @@ public sealed class DuplicacyFilterConverterTests
         Assert.Contains("?:/Windows/", lines); // recognised as Backspace's recommended rule
         Assert.Contains("?:/Users/*/Dropbox/*", lines);
         Assert.Contains("# was: e:(?i)^Users/[^/]+/Dropbox/", lines);
-        Assert.Contains(RecommendedFilters.AlwaysBlockHeader, lines);
+        Assert.Contains(RecommendedFilters.EssentialsHeading, lines);
+        Assert.Contains("?:/pagefile.sys", lines);
+        Assert.True(RecommendedFilters.ReadChoice(text)!.Essentials);
     }
 }

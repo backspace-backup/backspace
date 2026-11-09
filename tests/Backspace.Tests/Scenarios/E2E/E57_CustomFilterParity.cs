@@ -98,7 +98,7 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         Assert.StartsWith(DuplicacyFilterConverter.RunHeader1, converted.FiltersText);
         Assert.Contains("# was: e:(?i)^Applications/Duplicacy/", converted.FiltersText);
         Assert.Contains(top.Replace("/restic-syntax", "/Dropbox") + "/Applications/Duplicacy/*", converted.FiltersText);
-        Assert.Contains(RecommendedFilters.AlwaysBlockHeader, converted.FiltersText);
+        Assert.Contains(RecommendedFilters.EssentialsHeading, converted.FiltersText);
         Assert.DoesNotContain("\\ne:(?i)", File.ReadAllText(AppPaths.ConfigFile));
         ctx.Driver.Pump();
         await Check(ctx, view, destination, null, dropbox, converted.FiltersText, kept3, omitted3, converted);
@@ -122,7 +122,7 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         Assert.Null(vm.FilterInvalidWarning);
         ctx.Snapshot(editor, "converted-duplicacy-rules-and-simulate",
             "Filters > Advanced for a backup whose stored Duplicacy rules were converted when the settings loaded: each rule under its # was: line, " +
-            "the essential block at the end, and Simulate listing ✓ kept files and ✗ excluded folders with the rule that decided.");
+            "the recommended block with its Essentials group at the end, and Simulate listing ✓ kept files and ✗ excluded folders with the rule that decided.");
         // The test folder's path is long: scroll both panes to the ends of the lines.
         foreach (var box in editor.GetVisualDescendants().OfType<TextBox>().Where(t => t.Text == vm.FiltersText || t.Text == vm.FilterSimulationLog))
             if (box.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault() is { } scroller)

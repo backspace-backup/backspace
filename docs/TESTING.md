@@ -55,8 +55,10 @@ syntax (`?:/` for the top of the drive, `$$`, `$USERNAME`, `**`, a trailing
 settings load. The assertions require both the included files and the
 excluded files to agree across every path. `DuplicacyFilterConverterTests`
 converts the owner's three approved backups byte for byte
-(`Services/Fixtures/U151`, kept exact by `.gitattributes`); S90 shows the
-converted local_c in the editor after a settings load.
+(`Services/Fixtures/U151`, kept exact by `.gitattributes`), then in their U165
+form (the always-applied block moved into the Essentials group);
+`RecommendationUpdatesTests` checks that form excludes the same paths. S90
+shows the converted local_c in the editor after a settings load.
 
 `RunHistoryFileTests` exercises actual Windows replacement locks, bounded
 retry exhaustion, recovery after an interrupted rename, an undeletable old
@@ -788,6 +790,7 @@ older scenario comments that describe broader coverage.
 | Apply recommended exclusions (full effect on file count) | `E31_FilterExcludesEverything` | ✅ |
 | Estimated-savings indicator label states | `S34_SavingsLabelStates` scans real files and asserts view-model labels; `S50` renders the zero-match label | ✅ |
 | Savings message wraps beside Apply button (no crop) | `S50_RecommendedRowTextWraps` | ✅ |
+| Recommended groups, automatic updates and filter suggestions (U165) | `S94_RecommendationUpdates` (Easy save with automatic updates on and a later load adding a new rule; clicking Advanced turns them off and the box turns them on; three groups with the caches' rule list opened; card line only on the backup with a ticked changed group; Review with each suggestion's measured effect; a hidden one not brought back by Apply). `RecommendationUpdatesTests` (the owner's U151 texts and an always-block-only text convert to the same excluded set, checked with restic's matching on probes and falsified by a broken conversion; automatic updates skip hidden rules; card-line conditions; Easy saves; one-walk measurement). The background service's own settings load is not run | ✅ |
 | Grace controls available before and during skips | `S28_GraceBlockVisibility` | ✅ |
 | Reset grace period (Easy + Advanced) | `S28_GraceBlockVisibility` (Easy Save/reopen and Advanced reset) | ✅ |
 | Remove backup | `S41_DestinationAndBackupCrud`; `BackupRemovalTests` (stored copies erased, sibling kept, unplugged drive finished later, removed destination dropped); `S10` (confirmation wording) | ✅ |
@@ -880,7 +883,7 @@ older scenario comments that describe broader coverage.
 | Custom-block markers placed above generated | `S30_CustomExclusionMarkerPlacement` asserts merged strings, legacy-rule preservation and idempotence; no rendered editor in S30 | ✅ |
 | Filter simulation pane (Simulate button) | `S40_FilterSimulationPane` | ✅ |
 | Simulate, estimate and real restic agree | `E57_CustomFilterParity` (restic `--dry-run` with the same exclude file, real backup and recovery) | ✅ |
-| Duplicacy rules converted once at load | `DuplicacyFilterConverterTests` (byte-for-byte against the approved texts), `S90_DuplicacyRulesConvertedOnce`, E57 part 3 | ✅ |
+| Duplicacy rules converted once at load | `DuplicacyFilterConverterTests` (byte-for-byte against the approved texts, in their U165 form), `S90_DuplicacyRulesConvertedOnce`, E57 part 3 | ✅ |
 
 ### Settings
 

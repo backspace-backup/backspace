@@ -215,6 +215,10 @@ public sealed partial class OnboardingViewModel : ViewModelBase
             // every backup, which is correct for small repos but
             // surprises the user once their repo grows.
             BackupMaintenanceDefaults.ApplyTo(Working);
+            // Set up only through Easy mode: Backspace keeps its recommended
+            // exclusions up to date without asking (U165). Opening Advanced
+            // turns this off.
+            Working.AutoApplyRecommendations = true;
         }
         else
         {
@@ -248,6 +252,10 @@ public sealed partial class OnboardingViewModel : ViewModelBase
             // tweak it.
             SkipNotificationGraceDays = seed.SkipNotificationGraceDays;
             SkipNotificationGraceResetUtc = seed.SkipNotificationGraceResetUtc;
+
+            // Ticked while the rules have a recommended block (or none yet).
+            ApplyRecommendedExclusions = string.IsNullOrWhiteSpace(seed.FiltersText)
+                || RecommendedFilters.ReadChoice(seed.FiltersText) is not null;
         }
 
         // Whenever the SelectedDestinations changes, the "add" ComboBox
@@ -312,6 +320,43 @@ public sealed partial class OnboardingViewModel : ViewModelBase
         Working.SkipNotificationGraceResetUtc = SkipNotificationGraceResetUtc;
         return Working;
     }
+
+    /// <summary>
+    /// The rules an Easy-mode save writes (U165). "Skip junk for me" ticked:
+    /// rules without a recommended block get one (Essentials, the caches,
+    /// Windows' own files for a whole drive, the cloud folders inside the
+    /// backup), below the person's own rules; a block already there stays as
+    /// it is, brought up to date when the backup takes Backspace's updated
+    /// recommendations automatically. Unticked: the block is removed, the
+    /// person's own rules stay. Hidden suggestions are never written.
+    /// </summary>
+    internal static string EasyFilters(Backup backup, bool skipJunk)
+    {
+        var text = backup.FiltersText ?? "";
+        var sources = backup.SourcePaths;
+        if (RecommendedFilters.ReadChoice(text) is null)
+        {
+            if (!skipJunk) return text;
+            var defaults = RecommendedFilters.SuggestForSources(sources);
+            // Only cloud folders and rules that apply to these folders (U148).
+            var cloud = RecommendedFilters.DetectCloudSyncFolders()
+                .Where(c => BackupEditorViewModel.InsideSources(c.Path, sources)).ToList();
+            var block = RecommendedFilters.RenderBlock(defaults.ExcludeWindowsSystem, defaults.ExcludeCachesAndJunk,
+                cloud, sources, hidden: backup.IgnoredRecommendationChanges).Replace("\r\n", "\n");
+            return string.IsNullOrWhiteSpace(text) ? block : RecommendedFilters.MergeIntoFilters(text, block);
+        }
+        if (!skipJunk) return RecommendedFilters.WithoutBlock(text);
+        if (backup.AutoApplyRecommendations
+            && RecommendedFilters.CheckForUpdates(text, backup.IgnoredRecommendationChanges, sources) is { IsEmpty: false } update)
+            return RecommendedFilters.ApplyUpdates(text, update);
+        return text;
+    }
+
+    /// <summary>What Easy mode says under "Skip junk for me": whether
+    /// Backspace keeps the list up to date by itself (U165).</summary>
+    public string RecommendedExclusionsNote => Working.AutoApplyRecommendations
+        ? "A list of things you almost certainly don't want in a backup, such as the page file, app caches and the recycle bin. Backspace keeps this list up to date for you."
+        : "A list of things you almost certainly don't want in a backup, such as the page file, app caches and the recycle bin. When Backspace suggests changes to it, the backup's card offers them for you to review.";
 
     /// <summary>Generate a stable, traceable Duplicacy storage name
     /// from a destination's Id. Format: <c>target-{Id[..8]}</c>. The
@@ -627,23 +672,7 @@ public sealed partial class OnboardingViewModel : ViewModelBase
             if (string.IsNullOrEmpty(Working.SnapshotIdSeed))
                 Working.SnapshotIdSeed = Working.Name;
 
-            // Apply recommended exclusions if the user kept the box
-            // ticked. Defaults are derived from the source mix (drive
-            // root → Windows-system block on, otherwise just caches).
-            if (ApplyRecommendedExclusions)
-            {
-                var defaults = RecommendedFilters.SuggestForSources(sourcePaths);
-                // Only cloud folders and rules that apply to these folders (U148).
-                var cloud = RecommendedFilters.DetectCloudSyncFolders()
-                    .Where(c => BackupEditorViewModel.InsideSources(c.Path, sourcePaths)).ToList();
-                Working.FiltersText = RecommendedFilters.RenderBlock(
-                    defaults.ExcludeWindowsSystem,
-                    defaults.ExcludeCachesAndJunk,
-                    cloud,
-                    sourcePaths);
-            }
-            // The essential exclusions, written into the rules (U151).
-            Working.FiltersText = RecommendedFilters.WithAlwaysBlock(Working.FiltersText);
+            Working.FiltersText = EasyFilters(Working, ApplyRecommendedExclusions);
 
             // Persist + register schedule.
             // Stamp the mode the user committed in so a future Edit

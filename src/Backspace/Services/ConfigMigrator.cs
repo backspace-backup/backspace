@@ -265,16 +265,17 @@ public sealed class ConfigMigrator
     /// one of Backspace's recommended exclusions go into the recommended
     /// block, so later list changes can be offered for them (U056); the
     /// others are converted in Duplicacy's order of precedence
-    /// (<see cref="DuplicacyFilterConverter"/>). The essential exclusions
-    /// end the text.
+    /// (<see cref="DuplicacyFilterConverter"/>). The block's Essentials group
+    /// (pagefile.sys…) is ticked, as for a new backup (U165).
     /// </summary>
     internal static string ImportFilters(string duplicacyFilters, IReadOnlyCollection<string>? sources = null)
     {
-        if (string.IsNullOrWhiteSpace(duplicacyFilters)) return RecommendedFilters.WithAlwaysBlock("");
+        if (string.IsNullOrWhiteSpace(duplicacyFilters)) return RecommendedFilters.UpgradeEssentials("", sources, formerlyAlways: true);
         var (custom, recommended) = RecommendedFilters.RecognizeImported(duplicacyFilters, sources);
         var converted = DuplicacyFilterConverter.Convert(custom, sources, wildcardLines: true);
         if (recommended.Count == 0) return converted;
-        return RecommendedFilters.MergeIntoFilters(converted, RecommendedFilters.RenderBlock(recommended));
+        return RecommendedFilters.UpgradeEssentials(
+            RecommendedFilters.MergeIntoFilters(converted, RecommendedFilters.RenderBlock(recommended)), sources, formerlyAlways: true);
     }
 
     private Destination UpsertDestinationFromPreference(AppConfig cfg, string backupName, LegacyPreferences p, string scriptDir)

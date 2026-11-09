@@ -76,6 +76,65 @@ public sealed class SavingsEstimator
         return new SavingsEstimate(excluded, included, truncated, scanned);
     }
 
+    /// <summary>
+    /// What each change to <paramref name="filtersText"/> would change in a
+    /// backup of <paramref name="sourcePaths"/>, in one walk (U165): for a rule
+    /// added, the files it leaves out that today's rules keep; for a rule
+    /// removed, the files backed up again. Each change is measured on its own
+    /// against today's rules. Folders every variant leaves out are not read.
+    /// </summary>
+    public async Task<SuggestionEffects> MeasureChangesAsync(IReadOnlyList<string> sourcePaths, string filtersText,
+        IReadOnlyList<(string Rule, bool Add)> changes, CancellationToken ct)
+    {
+        var baseRules = ParseRules(filtersText);
+        var lines = filtersText.Replace("\r\n", "\n").Split('\n');
+        // An added rule is written last, so where it matches it decides: the
+        // variant only needs the rule itself. A removed rule needs the rest.
+        var variants = changes.Select(c => c.Add
+            ? FilterTranslator.CompileRules(c.Rule)
+            : FilterTranslator.CompileRules(string.Join("\n", lines.Where(l => !string.Equals(l.Trim(), c.Rule, StringComparison.OrdinalIgnoreCase)))))
+            .ToList();
+        var files = new long[changes.Count];
+        var bytes = new long[changes.Count];
+        var truncated = false;
+        foreach (var src in sourcePaths)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(src) || !Directory.Exists(src)) continue;
+            var root = TreeWalk.Root(src);
+            // Per folder: excluded by today's rules, then by each variant.
+            var states = new System.Collections.Concurrent.ConcurrentDictionary<string, bool[]>(StringComparer.OrdinalIgnoreCase);
+            var none = new bool[changes.Count + 1];
+            var finished = await Task.Run(() => TreeWalk.Walk(root, (entry, _) =>
+            {
+                var parent = states.TryGetValue(Path.GetDirectoryName(entry.FullPath) ?? "", out var p) ? p : none;
+                var path = FilterTranslator.ResticPath(entry.FullPath) + (entry.IsDirectory ? "/" : "");
+                var own = FilterTranslator.Evaluate(baseRules, path).Excluded;
+                var state = new bool[changes.Count + 1];
+                state[0] = parent[0] || own;
+                for (var i = 0; i < changes.Count; i++)
+                    state[i + 1] = parent[i + 1] || (changes[i].Add
+                        ? own || FilterTranslator.Evaluate(variants[i], path).Excluded
+                        : FilterTranslator.Evaluate(variants[i], path).Excluded);
+                if (entry.IsDirectory)
+                {
+                    if (state.All(s => s)) return null;
+                    states[entry.FullPath] = state;
+                    return false;
+                }
+                for (var i = 0; i < changes.Count; i++)
+                    if (state[i + 1] != state[0])
+                    {
+                        Interlocked.Increment(ref files[i]);
+                        Interlocked.Add(ref bytes[i], entry.Length);
+                    }
+                return null;
+            }, DateTime.UtcNow + MaxScanDuration, ct), ct);
+            if (!finished) truncated = true;
+        }
+        return new SuggestionEffects(changes.Select((_, i) => new SuggestionEffect(files[i], bytes[i])).ToList(), truncated);
+    }
+
     // -----------------------------------------------------------------
     // Per-source walker
     // -----------------------------------------------------------------
@@ -123,6 +182,14 @@ public sealed class SavingsEstimator
 /// <param name="IncludedBytes">Total file bytes the rules would keep.</param>
 /// <param name="Truncated">True if any source's walk hit the time cap.</param>
 /// <param name="SourcesScanned">Number of source paths actually walked.</param>
+/// <summary>What one suggested change does to a backup: files and bytes it
+/// leaves out (added rule) or backs up again (removed rule).</summary>
+public readonly record struct SuggestionEffect(long Files, long Bytes);
+
+/// <param name="Changes">One per change, in order.</param>
+/// <param name="Truncated">True if a walk hit the time cap: the counts are lower bounds.</param>
+public sealed record SuggestionEffects(IReadOnlyList<SuggestionEffect> Changes, bool Truncated);
+
 public readonly record struct SavingsEstimate(
     long ExcludedBytes,
     long IncludedBytes,

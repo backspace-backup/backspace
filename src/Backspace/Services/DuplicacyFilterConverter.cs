@@ -30,7 +30,8 @@ namespace Backspace.Services;
 /// match at any depth.</item>
 /// <item>A literal <c>$</c> is written <c>$$</c>: restic expands <c>$NAME</c> in
 /// an exclude file.</item>
-/// <item>The essential exclusions are written as a visible block at the end.</item>
+/// <item>The recommended block gets the Essentials group (pagefile.sys…), or
+/// a block holding only that group is added (U165).</item>
 /// <item>Comments outside the recommended block are dropped: they described
 /// the Duplicacy lines.</item>
 /// </list>
@@ -86,7 +87,6 @@ internal static class DuplicacyFilterConverter
         var recStart = lines.FindIndex(l => l == RecommendedFilters.AutoBlockHeader);
         var recEnd = recStart < 0 ? -1 : lines.FindIndex(recStart + 1, l => l == RecommendedFilters.AutoBlockFooter);
         if (recEnd < 0) recStart = -1;
-        var always = RecommendedFilters.FindAlwaysBlock(lines);
 
         var file = new List<string>();
         var recommended = new List<string>();
@@ -103,7 +103,6 @@ internal static class DuplicacyFilterConverter
         for (var k = 0; k < lines.Count; k++)
         {
             var line = lines[k];
-            if (always is { } a && k >= a.Start && k <= a.End) continue;
             var inRecommended = recStart >= 0 && k >= recStart && k <= recEnd;
             if (line.Length == 0 || line[0] == '#')
             {
@@ -120,12 +119,8 @@ internal static class DuplicacyFilterConverter
 
         var output = new List<string>(file);
         output.AddRange(recommended);
-        if (RecommendedFilters.AlwaysExcludedPatterns.Count > 0)
-        {
-            if (output.Count > 0) output.Add("");
-            output.AddRange(RecommendedFilters.AlwaysBlockLines());
-        }
-        return string.Join("\n", output) + "\n";
+        // The Essentials U151 wrote into every converted text (U165).
+        return RecommendedFilters.UpgradeEssentials(string.Join("\n", output) + "\n", sources, formerlyAlways: true);
     }
 
     /// <summary>One group of Duplicacy lines in restic's order, each rule

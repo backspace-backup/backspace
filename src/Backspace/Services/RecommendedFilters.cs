@@ -12,13 +12,15 @@ namespace Backspace.Services;
 /// exclude file restic reads (<see cref="FilterTranslator"/>), so every rule
 /// here is written exactly as restic gets it (U151, 6 November 2026).
 ///
-///   • <see cref="EssentialPatterns"/> and <see cref="WindowsSystemPatterns"/>
-///     — files and folders Windows keeps at the top of a drive (live page and
-///     hibernation files, setup and update leftovers, the Windows folder).
+/// Three groups, each ticked or not per backup (U165, 9 November 2026):
+///   • <see cref="EssentialPatterns"/> — files no one needs in a backup: the
+///     page, swap and hibernation files, System Volume Information, the
+///     Recycle Bin, Windows setup and upgrade leftovers, boot files, and the
+///     app execution aliases restic can't store. Ticked by default.
+///   • <see cref="WindowsSystemPatterns"/> — the Windows folder and the data
+///     Windows rebuilds (search index, installer caches, driver unpack folders).
 ///   • <see cref="CachesAndJunkPatterns"/> — caches, temp folders and
 ///     regenerable app data. Safe for the vast majority of people.
-///   • <see cref="AlwaysExcludedPatterns"/> — written into every backup's text
-///     as a visible block (<see cref="AlwaysBlockHeader"/>).
 ///   • <see cref="DetectCloudSyncFolders"/> — Dropbox, OneDrive and Google
 ///     Drive folders, offered one by one.
 ///
@@ -52,28 +54,33 @@ public static class RecommendedFilters
     public const string CustomBlockHeader = "# === Backspace custom exclusions — start ===";
     public const string CustomBlockFooter = "# === Backspace custom exclusions — end ===";
 
-    /// <summary>Heads the block of <see cref="AlwaysExcludedPatterns"/> at the
-    /// end of each backup's text. The block runs to the next blank line.</summary>
-    public const string AlwaysBlockHeader = "# === Backspace essential exclusions (always applied) ===";
-
     // ---------------------------------------------------------------
     // Pattern groups (Windows forms; see ForThisPlatform)
     // ---------------------------------------------------------------
 
+    /// <summary>
+    /// Only what no restore can use (U165, 9 November 2026), ticked by
+    /// default and offered for every backup like the other groups. Every
+    /// rule is tied to the top of a drive, so a folder a person made deeper
+    /// down with the same name is never matched.
+    /// </summary>
     private static readonly string[] WindowsEssentials =
     {
-        // Live OS memory snapshots: huge, locked, and useless restored.
+        // Rebuilt by Windows at every start: huge, locked, useless restored.
+        // DumpStack.log.tmp is the crash-dump driver's live log.
         "?:/pagefile.sys",
         "?:/hiberfil.sys",
         "?:/swapfile.sys",
         "?:/DumpStack.log.tmp",
 
-        // Per-drive system metadata and Windows-setup folders, at the top of
-        // a drive only: elsewhere, "Recovery/" was a person's own folder
-        // (U055, 31 October 2026). Recovery itself is no longer recommended
-        // (U106): it can hold a manufacturer's recovery files.
+        // Shadow copies and restore points, and deleted files.
         "?:/System Volume Information/",
         "?:/$$RECYCLE.BIN/",
+
+        // Temporary files of Windows Update, upgrades, resets and installers,
+        // and the previous installation an upgrade leaves for ten days: its
+        // files can't roll Windows back from a file backup. Recovery itself
+        // is not listed (U106): it can hold a manufacturer's recovery files.
         "?:/Config.Msi/",
         "?:/$$WinREAgent/",
         "?:/$$GetCurrent/",
@@ -82,46 +89,21 @@ public static class RecommendedFilters
         "?:/$$Windows.~WS/",
         "?:/Windows10Upgrade/",
         "?:/Windows.old/",
+        "?:/PerfLogs/",
 
-        // Boot files: restoring them would clobber a fresh install's loader.
+        // Boot files: a file backup can't make a disk bootable, and restoring
+        // them would clobber a fresh install's loader.
         "?:/bootmgr",
         "?:/BOOTNXT",
         "?:/BOOTSECT.BAK",
 
         // OneDrive's download scratch, which it creates at the top of a drive.
         "?:/OneDriveTemp/",
-        "?:/PerfLogs/",
-    };
 
-    /// <summary>
-    /// Written into every backup's text, as a visible block at its end
-    /// (U106, U151): only what is useless in any restore. The page, swap and
-    /// hibernation files are rebuilt by Windows at every start; System Volume
-    /// Information holds shadow copies and the search index; the other
-    /// folders are temporary files of Windows Update, upgrades, resets and
-    /// installers; the boot files can't make a disk bootable from a file
-    /// backup. Windows' app execution aliases (wt.exe, winget.exe…) are links
-    /// the engine can't store ("unsupported file type": local_c's runs ended
-    /// with 92 errors from them, 4 November 2026).
-    /// </summary>
-    private static readonly string[] WindowsAlwaysExcluded =
-    {
-        "?:/pagefile.sys",
-        "?:/hiberfil.sys",
-        "?:/swapfile.sys",
-        "?:/DumpStack.log.tmp",
-        "?:/System Volume Information/",
-        "?:/Config.Msi/",
-        "?:/$$WinREAgent/",
-        "?:/$$GetCurrent/",
-        "?:/$$SysReset/",
-        "?:/$$Windows.~BT/",
-        "?:/$$Windows.~WS/",
-        "?:/Windows10Upgrade/",
-        "?:/bootmgr",
-        "?:/BOOTNXT",
-        "?:/BOOTSECT.BAK",
-        "?:/OneDriveTemp/",
+        // Windows' app execution aliases (wt.exe, winget.exe…): links restic
+        // can't store. Without this rule each one is an "unsupported file
+        // type" error and the run ends as a partial backup (local_c: 92
+        // errors, 4 November 2026).
         "?:/Users/*/AppData/Local/Microsoft/WindowsApps/",
     };
 
@@ -233,13 +215,9 @@ public static class RecommendedFilters
         "?:/Users/*/AppData/*/Microsoft/Windows/Notifications/",
     };
 
-    /// <summary>Recommended for any Windows source; part of the recommended
-    /// block's first group.</summary>
-    public static readonly IReadOnlyList<string> EssentialPatterns = ForThisPlatform(WindowsEssentials);
-
-    /// <summary>See <see cref="WindowsAlwaysExcluded"/>. Empty on Linux and
+    /// <summary>The "Essentials" group, first in the block. Empty on Linux and
     /// macOS, which have none of these files.</summary>
-    public static readonly IReadOnlyList<string> AlwaysExcludedPatterns = ForThisPlatform(WindowsAlwaysExcluded);
+    public static readonly IReadOnlyList<string> EssentialPatterns = ForThisPlatform(WindowsEssentials);
 
     /// <summary>The "Windows system files" recommendations.</summary>
     public static readonly IReadOnlyList<string> WindowsSystemPatterns = ForThisPlatform(WindowsSystem);
@@ -263,38 +241,138 @@ public static class RecommendedFilters
         return null;
     }
 
-    // ---------------------------------------------------------------
-    // The always-applied block
-    // ---------------------------------------------------------------
+    /// <summary>The three tickable groups, in the block's order.</summary>
+    public enum Group { Essentials, WindowsSystem, CachesAndJunk }
 
-    /// <summary>The block's lines: its header, then each rule.</summary>
-    internal static IReadOnlyList<string> AlwaysBlockLines()
-        => AlwaysExcludedPatterns.Count == 0 ? Array.Empty<string>() : AlwaysExcludedPatterns.Prepend(AlwaysBlockHeader).ToArray();
-
-    /// <summary>The block as text; empty where there is nothing to exclude.</summary>
-    internal static string AlwaysBlockText() => string.Join("\n", AlwaysBlockLines());
-
-    /// <summary>The first and last line of the always-applied block in
-    /// <paramref name="lines"/>: its header and the lines up to the next blank
-    /// one. Null when the text has no such block.</summary>
-    internal static (int Start, int End)? FindAlwaysBlock(IReadOnlyList<string> lines)
+    /// <summary>The rules of <paramref name="group"/>.</summary>
+    public static IReadOnlyList<string> PatternsOf(Group group) => group switch
     {
-        var start = -1;
-        for (var i = 0; i < lines.Count; i++) if (lines[i].Trim() == AlwaysBlockHeader) { start = i; break; }
-        if (start < 0) return null;
-        var end = start;
-        while (end + 1 < lines.Count && lines[end + 1].Trim().Length > 0) end++;
-        return (start, end);
+        Group.Essentials => EssentialPatterns,
+        Group.WindowsSystem => WindowsSystemPatterns,
+        _ => CachesAndJunkPatterns,
+    };
+
+    /// <summary>The group's name as the editor shows it.</summary>
+    public static string NameOf(Group group) => group switch
+    {
+        Group.Essentials => "Essentials",
+        Group.WindowsSystem => "Windows system files",
+        _ => "App caches and temporary files",
+    };
+
+    /// <summary>The group a recommended rule belongs to, or null for a rule
+    /// in no current list.</summary>
+    public static Group? GroupOf(string pattern)
+    {
+        foreach (var g in Enum.GetValues<Group>())
+            if (PatternsOf(g).Contains(pattern, StringComparer.OrdinalIgnoreCase)) return g;
+        return null;
     }
 
-    /// <summary><paramref name="filtersText"/> with the always-applied block
-    /// at its end, when it doesn't have one yet: a new backup's text.</summary>
-    public static string WithAlwaysBlock(string? filtersText)
+    /// <summary>The rules Apply writes for <paramref name="group"/> in this
+    /// backup, in the block's order: those that can match in its folders,
+    /// without the ones the person hid. Shown under each group in the editor.</summary>
+    public static IReadOnlyList<string> RulesFor(Group group, IReadOnlyCollection<string>? sources, IReadOnlyCollection<string>? hidden = null)
     {
-        var text = filtersText ?? "";
-        if (AlwaysExcludedPatterns.Count == 0 || FindAlwaysBlock(text.Replace("\r\n", "\n").Split('\n')) is not null) return text;
-        var body = text.TrimEnd('\r', '\n', ' ', '\t');
-        return (body.Length == 0 ? "" : body + "\n\n") + AlwaysBlockText() + "\n";
+        var skip = new HashSet<string>(hidden ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        return InBlockOrder(PatternsOf(group).Where(p => !skip.Contains(p) && AppliesTo(p, sources))).ToList();
+    }
+
+    /// <summary>The rules of a backup without its own text (a folder's size
+    /// before any backup exists): the Essentials, ticked by default.</summary>
+    internal static string EssentialsText() => string.Join("\n", EssentialPatterns);
+
+    // ---------------------------------------------------------------
+    // Texts written before U165 (9 November 2026)
+    // ---------------------------------------------------------------
+
+    /// <summary>Until U165 every text ended with this block, which ran to the
+    /// next blank line, and the recommended block's first group had
+    /// <see cref="LegacyEssentialsHeading"/>.</summary>
+    internal const string LegacyAlwaysBlockHeader = "# === Backspace essential exclusions (always applied) ===";
+    internal const string LegacyEssentialsHeading = "# Essentials: always excluded; safe for any source.";
+
+    /// <summary>What the always-applied block held, for Duplicacy filters
+    /// converted now: they were given that block (U151).</summary>
+    private static readonly IReadOnlyList<string> LegacyAlwaysRules = ForThisPlatform(new[]
+    {
+        "?:/pagefile.sys", "?:/hiberfil.sys", "?:/swapfile.sys", "?:/DumpStack.log.tmp",
+        "?:/System Volume Information/", "?:/Config.Msi/", "?:/$$WinREAgent/", "?:/$$GetCurrent/",
+        "?:/$$SysReset/", "?:/$$Windows.~BT/", "?:/$$Windows.~WS/", "?:/Windows10Upgrade/",
+        "?:/bootmgr", "?:/BOOTNXT", "?:/BOOTSECT.BAK", "?:/OneDriveTemp/",
+        "?:/Users/*/AppData/Local/Microsoft/WindowsApps/",
+    });
+
+    /// <summary>True when <paramref name="text"/> was written before U165.</summary>
+    internal static bool HasLegacyEssentials(string? text)
+        => (text ?? "").Split('\n').Any(l => l.Trim() is LegacyAlwaysBlockHeader or LegacyEssentialsHeading);
+
+    /// <summary>
+    /// A text written before U165 in today's form, excluding the same files:
+    /// the always-applied block is removed and its rules join the Essentials
+    /// group of the recommended block, which gets today's heading. A text
+    /// without a recommended block gets one holding only that group. Rules
+    /// that can match nothing in <paramref name="sources"/> are left out
+    /// (the old block was the same for every backup), so the group offers no
+    /// removals. Any other text is returned unchanged.
+    /// </summary>
+    /// <param name="formerlyAlways">For Duplicacy filters converted now: they
+    /// get the Essentials the always-applied block would have given them.</param>
+    internal static string UpgradeEssentials(string text, IReadOnlyCollection<string>? sources, bool formerlyAlways = false)
+    {
+        if (!formerlyAlways && !HasLegacyEssentials(text)) return text;
+        var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
+        var essentials = new List<string>(formerlyAlways ? LegacyAlwaysRules : Array.Empty<string>());
+
+        var always = lines.FindIndex(l => l.Trim() == LegacyAlwaysBlockHeader);
+        if (always >= 0)
+        {
+            var end = always;
+            while (end + 1 < lines.Count && lines[end + 1].Trim().Length > 0) end++;
+            essentials.AddRange(lines.Skip(always + 1).Take(end - always).Select(l => l.Trim()).Where(l => !l.StartsWith('#')));
+            var start = always > 0 && lines[always - 1].Trim().Length == 0 ? always - 1 : always;
+            lines.RemoveRange(start, end - start + 1);
+        }
+
+        List<string> EssentialsGroup()
+        {
+            var kept = InBlockOrder(essentials.Distinct(StringComparer.OrdinalIgnoreCase).Where(p => CanMatch(p, sources))).ToList();
+            return kept.Count == 0 ? new List<string> { EssentialsHeading, NoneApplyNote } : kept.Prepend(EssentialsHeading).ToList();
+        }
+
+        var header = lines.FindIndex(l => l.Trim() == AutoBlockHeader);
+        var footer = header < 0 ? -1 : lines.FindIndex(header + 1, l => l.Trim() == AutoBlockFooter);
+        if (footer < 0)
+        {
+            if (essentials.Count == 0) return string.Join("\n", lines);
+            var body = string.Join("\n", lines).TrimEnd('\n', ' ', '\t');
+            var block = BlockIntro.Prepend(AutoBlockHeader).Append("").Concat(EssentialsGroup()).Append("").Append(AutoBlockFooter);
+            return (body.Length == 0 ? "" : body + "\n\n") + string.Join("\n", block) + "\n";
+        }
+
+        // The old Essentials group: its heading, then rules up to a blank line.
+        var heading = lines.FindIndex(header, footer - header, l => l.Trim() is LegacyEssentialsHeading or EssentialsHeading);
+        int groupStart, groupEnd;
+        if (heading >= 0)
+        {
+            groupStart = heading;
+            groupEnd = heading;
+            while (groupEnd + 1 < footer && lines[groupEnd + 1].Trim().Length > 0) groupEnd++;
+            essentials.AddRange(lines.Skip(heading + 1).Take(groupEnd - heading).Select(l => l.Trim())
+                .Where(l => !l.StartsWith('#')));
+        }
+        else
+        {
+            // No Essentials group yet (an imported block): it goes first.
+            groupStart = lines.FindIndex(header + 1, footer - header - 1, l => IsHeading(l.Trim()));
+            if (groupStart < 0) groupStart = footer;
+            groupEnd = groupStart - 1;
+        }
+        var group = EssentialsGroup();
+        if (heading < 0) group.Add("");
+        lines.RemoveRange(groupStart, groupEnd - groupStart + 1);
+        lines.InsertRange(groupStart, group);
+        return string.Join("\n", lines);
     }
 
     // ---------------------------------------------------------------
@@ -526,36 +604,66 @@ public static class RecommendedFilters
     // Filter-text manipulation
     // ---------------------------------------------------------------
 
+    /// <summary>The comment lines under <see cref="AutoBlockHeader"/>.</summary>
+    private static readonly string[] BlockIntro =
+    {
+        "# Generated by Backspace. Edit if you like: this whole block",
+        "# will be replaced (preserving your edits outside the markers)",
+        "# the next time you click \"Apply recommended exclusions\".",
+    };
+
     /// <summary>
     /// Renders the chosen recommendation groups into a single text block
     /// bracketed by <see cref="AutoBlockHeader"/> / <see cref="AutoBlockFooter"/>.
     /// Cloud folders are written from the top of the drive (<see cref="CloudLine"/>).
     /// </summary>
+    /// <param name="hidden">Suggestions the person hid for this backup (U165):
+    /// never written, so Apply doesn't bring them back.</param>
+    /// <param name="kept">Rules of the saved block the person chose to keep
+    /// when Backspace suggested removing them: written again.</param>
     public static string RenderBlock(
         bool includeWindowsSystem,
         bool includeCachesAndJunk,
         IReadOnlyCollection<CloudSyncFolder> cloudExcludes,
-        IReadOnlyCollection<string>? sources = null)
+        IReadOnlyCollection<string>? sources = null,
+        bool includeEssentials = true,
+        IReadOnlyCollection<string>? hidden = null,
+        IReadOnlyCollection<string>? kept = null)
     {
+        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // Only rules that can match something in this backup's folders (U148).
-        void Group(StringBuilder sb, string heading, IEnumerable<string> patterns)
+        void WriteGroup(StringBuilder sb, Group group)
         {
-            sb.AppendLine(heading);
-            var kept = patterns.Where(p => AppliesTo(p, sources)).ToList();
-            if (kept.Count == 0) sb.AppendLine(NoneApplyNote);
-            foreach (var p in kept) sb.AppendLine(p);
+            sb.AppendLine(HeadingOf(group));
+            var rules = RulesFor(group, sources, hidden);
+            if (rules.Count == 0) sb.AppendLine(NoneApplyNote);
+            foreach (var p in rules) { sb.AppendLine(p); written.Add(p); }
             sb.AppendLine();
         }
         var sb = new StringBuilder();
         sb.AppendLine(AutoBlockHeader);
-        sb.AppendLine("# Generated by Backspace. Edit if you like: this whole block");
-        sb.AppendLine("# will be replaced (preserving your edits outside the markers)");
-        sb.AppendLine("# the next time you click \"Apply recommended exclusions\".");
+        foreach (var line in BlockIntro) sb.AppendLine(line);
         sb.AppendLine();
 
-        Group(sb, EssentialsHeading, EssentialPatterns);
-        if (includeWindowsSystem) Group(sb, WindowsHeading, WindowsSystemPatterns);
-        if (includeCachesAndJunk) Group(sb, CachesHeading, CachesAndJunkPatterns);
+        if (includeEssentials) WriteGroup(sb, Group.Essentials);
+        if (includeWindowsSystem) WriteGroup(sb, Group.WindowsSystem);
+        if (includeCachesAndJunk) WriteGroup(sb, Group.CachesAndJunk);
+
+        // A kept rule stays only while its group is ticked, or when no list has it.
+        var keep = (kept ?? Array.Empty<string>())
+            .Where(p => !written.Contains(p) && GroupOf(p) switch
+            {
+                Group.Essentials => includeEssentials,
+                Group.WindowsSystem => includeWindowsSystem,
+                Group.CachesAndJunk => includeCachesAndJunk,
+                _ => true,
+            }).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (keep.Count > 0)
+        {
+            sb.AppendLine(OwnHeading);
+            foreach (var p in keep) sb.AppendLine(p);
+            sb.AppendLine();
+        }
 
         if (cloudExcludes.Count > 0)
         {
@@ -577,14 +685,45 @@ public static class RecommendedFilters
     // Imported filters and later list changes (U056, U057)
     // ---------------------------------------------------------------
 
-    private const string EssentialsHeading = "# Essentials: always excluded; safe for any source.";
+    // The saved block is read back by these headings: changing one needs a
+    // conversion of saved texts (as U165 did for the Essentials).
+    internal const string EssentialsHeading = "# Essentials: files no one needs in a backup.";
     private const string WindowsHeading = "# Windows system files: locked, regenerable, or restore-unsafe.";
     private const string CachesHeading = "# App caches, temp files, dev junk: universally safe to skip.";
     private const string CloudHeading = "# Cloud-synced folders: already replicated in their providers' clouds.";
+    /// <summary>Heads rules of the block that are in no ticked list: kept by
+    /// the person when a removal was suggested, or written into the block.</summary>
+    internal const string OwnHeading = "# Your own rules kept from this block.";
+
+    private static string HeadingOf(Group group) => group switch
+    {
+        Group.Essentials => EssentialsHeading,
+        Group.WindowsSystem => WindowsHeading,
+        _ => CachesHeading,
+    };
+
+    private static bool IsHeading(string line)
+        => line is EssentialsHeading or WindowsHeading or CachesHeading or CloudHeading or OwnHeading;
 
     /// <summary>Written under a group none of whose rules can match in this
     /// backup's folders, so the group stays chosen.</summary>
     internal const string NoneApplyNote = "# None of these apply to this backup's folders.";
+
+    /// <summary>A group's rules in the order the block lists them (U165):
+    /// rules from the top of the drive (or of the file system) first, then
+    /// rules that match at any depth, each sorted by path ignoring case, so
+    /// related rules sit together. Every recommended rule leaves something
+    /// out, so their order changes nothing in what is backed up.</summary>
+    internal static IEnumerable<string> InBlockOrder(IEnumerable<string> patterns)
+        => patterns.OrderBy(SortKey, StringComparer.Ordinal);
+
+    private static string SortKey(string pattern)
+    {
+        var p = pattern.Trim().TrimStart('!').Replace("$$", "$");
+        var anchored = p.StartsWith("?:/", StringComparison.Ordinal) || p.StartsWith('/');
+        if (p.StartsWith("?:", StringComparison.Ordinal)) p = p[2..];
+        return (anchored ? "0" : "1") + p.ToLowerInvariant();
+    }
 
     /// <summary>Whether a rule can match anything in these sources (U148, U151).
     /// A rule from the top of the drive (<c>?:/Windows/</c>) or of the file
@@ -595,6 +734,15 @@ public static class RecommendedFilters
     /// match at any depth, so it always applies. No sources: every rule
     /// applies.</summary>
     internal static bool AppliesTo(string pattern, IReadOnlyCollection<string>? sources)
+        => Fits(pattern, sources, wholeSourceCounts: false);
+
+    /// <summary>Like <see cref="AppliesTo"/>, but a rule that leaves out a
+    /// whole backed-up folder counts too: false only when the rule can match
+    /// nothing in these sources, so leaving it out changes nothing.</summary>
+    internal static bool CanMatch(string pattern, IReadOnlyCollection<string>? sources)
+        => Fits(pattern, sources, wholeSourceCounts: true);
+
+    private static bool Fits(string pattern, IReadOnlyCollection<string>? sources, bool wholeSourceCounts)
     {
         var real = sources?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
         if (real is null || real.Count == 0) return true;
@@ -622,7 +770,7 @@ public static class RecommendedFilters
             // A rule that would leave out the whole folder (a backup of a
             // folder inside a profile's Temp, say) is not offered for it.
             var wholeSource = fits && !deep && ruleParts.Length <= sourceParts.Length;
-            if (fits && !wholeSource) return true;
+            if (fits && (wholeSourceCounts || !wholeSource)) return true;
         }
         return false;
     }
@@ -647,22 +795,33 @@ public static class RecommendedFilters
 
     /// <summary>The recommended block holding exactly these patterns, under
     /// their group headings. Used for imported filters, which keep only the
-    /// recommended rules the person already had.</summary>
-    internal static string RenderBlock(IReadOnlyCollection<string> patterns, IReadOnlyList<string>? cloudLines = null)
+    /// recommended rules the person already had, and to rewrite a saved block.</summary>
+    /// <param name="ticked">Headings of groups written even with none of
+    /// their rules present, under <see cref="NoneApplyNote"/>, so they stay ticked.</param>
+    internal static string RenderBlock(IReadOnlyCollection<string> patterns, IReadOnlyList<string>? cloudLines = null,
+        IReadOnlyCollection<string>? ticked = null)
     {
         var chosen = new HashSet<string>(patterns, StringComparer.OrdinalIgnoreCase);
         var sb = new StringBuilder();
         sb.AppendLine(AutoBlockHeader);
-        sb.AppendLine("# Generated by Backspace. Edit if you like: this whole block");
-        sb.AppendLine("# will be replaced (preserving your edits outside the markers)");
-        sb.AppendLine("# the next time you click \"Apply recommended exclusions\".");
+        foreach (var line in BlockIntro) sb.AppendLine(line);
         sb.AppendLine();
         foreach (var (heading, list) in Groups)
         {
-            var present = list.Where(chosen.Contains).ToList();
-            if (present.Count == 0) continue;
+            var present = InBlockOrder(list.Where(chosen.Contains)).ToList();
+            if (present.Count == 0 && ticked?.Contains(heading) != true) continue;
             sb.AppendLine(heading);
+            if (present.Count == 0) sb.AppendLine(NoneApplyNote);
             foreach (var p in present) sb.AppendLine(p);
+            sb.AppendLine();
+        }
+        // Rules the block holds that are in no list stay too.
+        var known = new HashSet<string>(Groups.SelectMany(g => g.Patterns), StringComparer.OrdinalIgnoreCase);
+        var own = patterns.Where(p => !known.Contains(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (own.Count > 0)
+        {
+            sb.AppendLine(OwnHeading);
+            foreach (var p in own) sb.AppendLine(p);
             sb.AppendLine();
         }
         if (cloudLines is { Count: > 0 })
@@ -699,7 +858,7 @@ public static class RecommendedFilters
             if (line.Length == 0) continue;
             if (line.StartsWith('#'))
             {
-                if (Groups.Any(g => g.Heading == line) || line == CloudHeading) heading = line;
+                if (IsHeading(line)) heading = line;
                 parsed.Add((heading, line));
                 continue;
             }
@@ -722,8 +881,7 @@ public static class RecommendedFilters
         var patterns = block.Lines.Where(l => !l.Line.StartsWith('#') && l.Heading != CloudHeading).Select(l => l.Line).ToList();
         var present = new HashSet<string>(patterns, StringComparer.OrdinalIgnoreCase);
         var retired = new HashSet<string>(RetiredPatterns, StringComparer.OrdinalIgnoreCase);
-        var used = Groups.Where(g => g.Heading == EssentialsHeading
-            || block.Lines.Any(l => l.Heading == g.Heading)).ToList();
+        var used = Groups.Where(g => block.Lines.Any(l => l.Heading == g.Heading)).ToList();
         var known = new HashSet<string>(Groups.SelectMany(g => g.Patterns), StringComparer.OrdinalIgnoreCase);
         var add = used.SelectMany(g => g.Patterns).Where(p => !present.Contains(p) && !skip.Contains(p) && AppliesTo(p, sources)).Distinct().ToList();
         var remove = patterns.Where(p => (retired.Contains(p) || known.Contains(p) && !AppliesTo(p, sources)) && !skip.Contains(p))
@@ -733,14 +891,23 @@ public static class RecommendedFilters
 
     /// <summary>The editor's ticks as the saved recommended block has them, or
     /// null when the filters hold no recommended block.</summary>
-    public sealed record SavedChoice(bool WindowsSystem, bool CachesAndJunk, IReadOnlyCollection<string> CloudLines);
+    public sealed record SavedChoice(bool Essentials, bool WindowsSystem, bool CachesAndJunk, IReadOnlyCollection<string> CloudLines);
 
     public static SavedChoice? ReadChoice(string? filters)
     {
         var block = FindBlock((filters ?? "").Replace("\r\n", "\n").Split('\n'));
         if (block is null) return null;
         var cloud = block.Lines.Where(l => l.Heading == CloudHeading && !l.Line.StartsWith('#')).Select(l => l.Line).ToList();
-        return new(block.Lines.Any(l => l.Heading == WindowsHeading), block.Lines.Any(l => l.Heading == CachesHeading), cloud);
+        return new(block.Lines.Any(l => l.Heading == EssentialsHeading), block.Lines.Any(l => l.Heading == WindowsHeading),
+            block.Lines.Any(l => l.Heading == CachesHeading), cloud);
+    }
+
+    /// <summary>The rules of the saved block, without its cloud folders.</summary>
+    public static IReadOnlyList<string> BlockRules(string? filters)
+    {
+        var block = FindBlock((filters ?? "").Replace("\r\n", "\n").Split('\n'));
+        return block is null ? Array.Empty<string>()
+            : block.Lines.Where(l => !l.Line.StartsWith('#') && l.Heading != CloudHeading).Select(l => l.Line).ToList();
     }
 
     /// <summary>The rule that excludes <paramref name="folder"/>: its full
@@ -758,27 +925,34 @@ public static class RecommendedFilters
 
     /// <summary>True when applying these ticks would add or remove no rule:
     /// every ticked group is complete in the saved block, no unticked group
-    /// has rules there, and the cloud folders match (U105).</summary>
+    /// has rules there, and the cloud folders match (U105). Hidden
+    /// suggestions count as done: Apply neither adds nor removes them.</summary>
     public static bool IsApplied(string? filters, bool includeWindowsSystem, bool includeCachesAndJunk,
-        IReadOnlyCollection<CloudSyncFolder> cloudExcludes, IReadOnlyCollection<string>? sources = null)
+        IReadOnlyCollection<CloudSyncFolder> cloudExcludes, IReadOnlyCollection<string>? sources = null,
+        bool includeEssentials = true, IReadOnlyCollection<string>? hidden = null)
     {
         var block = FindBlock((filters ?? "").Replace("\r\n", "\n").Split('\n'));
         if (block is null) return false;
+        if (block.Lines.Any(l => l.Heading == EssentialsHeading) != includeEssentials
+            || block.Lines.Any(l => l.Heading == WindowsHeading) != includeWindowsSystem
+            || block.Lines.Any(l => l.Heading == CachesHeading) != includeCachesAndJunk) return false;
+        var skip = new HashSet<string>(hidden ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         var present = new HashSet<string>(block.Lines
             .Where(l => !l.Line.StartsWith('#') && l.Heading != CloudHeading).Select(l => l.Line), StringComparer.OrdinalIgnoreCase);
-        var wanted = new HashSet<string>(EssentialPatterns
-            .Concat(includeWindowsSystem ? WindowsSystemPatterns : Array.Empty<string>())
-            .Concat(includeCachesAndJunk ? CachesAndJunkPatterns : Array.Empty<string>())
-            .Where(p => AppliesTo(p, sources)), StringComparer.OrdinalIgnoreCase);
+        var wanted = new HashSet<string>(
+            (includeEssentials ? RulesFor(Group.Essentials, sources, skip) : Array.Empty<string>())
+            .Concat(includeWindowsSystem ? RulesFor(Group.WindowsSystem, sources, skip) : Array.Empty<string>())
+            .Concat(includeCachesAndJunk ? RulesFor(Group.CachesAndJunk, sources, skip) : Array.Empty<string>()),
+            StringComparer.OrdinalIgnoreCase);
         var known = Groups.SelectMany(g => g.Patterns);
-        if (!wanted.All(present.Contains) || known.Any(p => present.Contains(p) && !wanted.Contains(p))) return false;
+        if (!wanted.All(present.Contains) || known.Any(p => present.Contains(p) && !wanted.Contains(p) && !skip.Contains(p))) return false;
         var cloud = block.Lines.Where(l => l.Heading == CloudHeading && !l.Line.StartsWith('#')).Select(l => l.Line);
         return new HashSet<string>(cloud, StringComparer.OrdinalIgnoreCase)
             .SetEquals(cloudExcludes.Select(CloudLine).OfType<string>());
     }
 
     /// <summary>Applies <see cref="CheckForUpdates"/> to the saved block,
-    /// keeping its cloud-folder lines and every rule outside it.</summary>
+    /// keeping its groups, its cloud-folder lines and every rule outside it.</summary>
     public static string ApplyUpdates(string filters, ListUpdate update)
     {
         var lines = filters.Replace("\r\n", "\n").Split('\n');
@@ -787,15 +961,48 @@ public static class RecommendedFilters
         var removed = new HashSet<string>(update.Remove, StringComparer.OrdinalIgnoreCase);
         var kept = block.Lines.Where(l => !l.Line.StartsWith('#') && l.Heading != CloudHeading && !removed.Contains(l.Line)).Select(l => l.Line);
         var cloud = block.Lines.Where(l => l.Heading == CloudHeading && l.Line != CloudHeading).Select(l => l.Line).ToList();
-        var patterns = kept.Concat(update.Add).ToList();
-        // Rules the person added inside the block that are in no list stay too.
-        var known = new HashSet<string>(Groups.SelectMany(g => g.Patterns), StringComparer.OrdinalIgnoreCase);
-        var own = patterns.Where(p => !known.Contains(p)).ToList();
-        var rendered = RenderBlock(patterns, cloud)
-            .TrimEnd('\r', '\n').Replace("\r\n", "\n").Split('\n').ToList();
-        if (own.Count > 0) rendered.InsertRange(rendered.Count - 1, new[] { "# Your own rules kept from this block." }.Concat(own).Append(""));
+        var ticked = block.Lines.Select(l => l.Heading).OfType<string>().ToHashSet();
+        var rendered = RenderBlock(kept.Concat(update.Add).ToList(), cloud, ticked)
+            .TrimEnd('\r', '\n').Replace("\r\n", "\n").Split('\n');
         var result = lines.Take(block.Start).Concat(rendered).Concat(lines.Skip(block.End + 1));
         return string.Join("\n", result);
+    }
+
+    // ---------------------------------------------------------------
+    // Updated recommendations: applied automatically, or offered (U165)
+    // ---------------------------------------------------------------
+
+    /// <summary>The changes today's lists bring to this backup's ticked groups,
+    /// minus the ones the person hid: the card's "New filter suggestions".</summary>
+    public static ListUpdate PendingFor(Models.Backup backup)
+        => CheckForUpdates(backup.FiltersText, backup.IgnoredRecommendationChanges, backup.SourcePaths);
+
+    /// <summary>True when the backup's card offers a review: it doesn't take
+    /// updated recommendations automatically, and some are pending.</summary>
+    public static bool HasSuggestions(Models.Backup backup)
+        => !backup.AutoApplyRecommendations && !PendingFor(backup).IsEmpty;
+
+    /// <summary>
+    /// Brings saved texts up to date when settings load (in the app and in the
+    /// background service, which runs the saved settings): texts written before
+    /// U165 get today's Essentials group (<see cref="UpgradeEssentials"/>), and
+    /// a backup that takes Backspace's updated recommendations automatically
+    /// gets the pending changes of its ticked groups, hidden ones excepted.
+    /// Returns the names of the backups changed.
+    /// </summary>
+    internal static IReadOnlyList<string> UpdateStored(Models.AppConfig config)
+    {
+        var changed = new List<string>();
+        foreach (var backup in config.Backups)
+        {
+            var text = UpgradeEssentials(backup.FiltersText ?? "", backup.SourcePaths);
+            if (backup.AutoApplyRecommendations && CheckForUpdates(text, backup.IgnoredRecommendationChanges, backup.SourcePaths) is { IsEmpty: false } update)
+                text = ApplyUpdates(text, update);
+            if (text == (backup.FiltersText ?? "")) continue;
+            backup.FiltersText = text;
+            changed.Add(backup.Name);
+        }
+        return changed;
     }
 
     /// <summary>
@@ -843,7 +1050,7 @@ public static class RecommendedFilters
     /// <summary>
     /// Reshapes <paramref name="existingFilters"/> so that the user's
     /// hand-edit zone sits ABOVE the Backspace-generated recommended
-    /// block, and the always-applied block stays last:
+    /// block:
     ///
     ///   * A pair of <see cref="CustomBlockHeader"/> /
     ///     <see cref="CustomBlockFooter"/> marker lines is emitted at the
@@ -853,25 +1060,15 @@ public static class RecommendedFilters
     ///   * The recommended block (passed in via
     ///     <paramref name="newBlock"/>) follows, replacing any previous
     ///     recommended-block content.
-    ///   * The always-applied block comes last, as it was, or freshly
-    ///     written when the text had none.
     ///
     /// The merge is idempotent: re-applying the same arguments leaves
     /// the result unchanged.
     /// </summary>
     public static string MergeIntoFilters(string? existingFilters, string newBlock)
     {
-        var lines = (existingFilters ?? "").Replace("\r\n", "\n").Split('\n').ToList();
-        var alwaysLines = new List<string>(AlwaysBlockLines());
-        if (FindAlwaysBlock(lines) is { } always)
-        {
-            alwaysLines = lines.GetRange(always.Start, always.End - always.Start + 1);
-            lines.RemoveRange(always.Start, always.End - always.Start + 1);
-        }
-
         // 1. Extract any existing recommended-block content so we can
         //    drop it (newBlock supersedes it).
-        var withoutRecommended = StripBlock(string.Join("\n", lines), AutoBlockHeader, AutoBlockFooter);
+        var withoutRecommended = StripBlock(existingFilters ?? "", AutoBlockHeader, AutoBlockFooter);
 
         // Strip only standalone custom marker comments. Keep all rules in
         // their original order, including copied, nested or incomplete blocks.
@@ -888,14 +1085,13 @@ public static class RecommendedFilters
         sb.AppendLine(CustomBlockFooter);
         sb.AppendLine();
         sb.Append(newBlock);
-        if (alwaysLines.Count > 0)
-        {
-            if (!newBlock.EndsWith('\n')) sb.AppendLine();
-            sb.AppendLine();
-            foreach (var line in alwaysLines) sb.AppendLine(line);
-        }
         return sb.ToString();
     }
+
+    /// <summary><paramref name="text"/> without its recommended block: the
+    /// person's own rules only.</summary>
+    internal static string WithoutBlock(string text)
+        => StripBlock(text, AutoBlockHeader, AutoBlockFooter).TrimEnd('\r', '\n', ' ', '\t') + "\n";
 
     private static string StripBlock(string text, string header, string footer)
     {

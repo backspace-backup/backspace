@@ -210,7 +210,7 @@ public sealed class SourceSizeProbe
     /// Counts what a backup of <paramref name="root"/> holds: files its
     /// exclusion rules leave out (a Dropbox folder, caches) are not counted,
     /// nor are files kept only in the cloud. Without a backup's rules, the
-    /// essential exclusions a new backup gets apply (pagefile.sys…).
+    /// Essentials a new backup gets apply (pagefile.sys…).
     /// Excluded folders are not even read (U123, 4 November 2026: C:\ showed
     /// 791 GB because its own rules were ignored). Shared by the app and the
     /// background service.
@@ -259,8 +259,8 @@ public sealed class SourceSizeProbe
 /// the cloud.</summary>
 public sealed record SourceSizeRules(string? FiltersText, bool SkipCloudOnly)
 {
-    /// <summary>No backup yet: a new backup's essential exclusions
-    /// (pagefile.sys…) apply, and cloud placeholders are not counted.</summary>
+    /// <summary>No backup yet: a new backup's Essentials (pagefile.sys…)
+    /// apply, and cloud placeholders are not counted.</summary>
     public static SourceSizeRules None { get; } = new(null, false);
 
     public static SourceSizeRules For(Models.Backup backup) => new(backup.FiltersText ?? "", backup.ExcludeCloudFiles);
@@ -268,8 +268,8 @@ public sealed record SourceSizeRules(string? FiltersText, bool SkipCloudOnly)
     internal bool HasRules => !string.IsNullOrWhiteSpace(FiltersText);
 
     /// <summary>The rules that apply: the backup's Filters text, as restic
-    /// reads it, or the essential block without a backup.</summary>
-    internal string Text => FiltersText ?? RecommendedFilters.AlwaysBlockText();
+    /// reads it, or the Essentials without a backup.</summary>
+    internal string Text => FiltersText ?? RecommendedFilters.EssentialsText();
 
     // Identifies the rules in the cache without keeping long rule texts as keys.
     internal string Key { get; } = (SkipCloudOnly ? "c" : "a") + (FiltersText is null ? ""

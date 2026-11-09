@@ -617,6 +617,19 @@ Traps, each checked with restic 0.19.1:
   named Cache. Restic cannot tell files from folders.
 - **An invalid rule** (an unclosed `[`) makes restic refuse the whole file and
   the backup fails. The editor names such rules (`FilterTranslator.InvalidRules`).
+- **Group headings are data.** The recommended block is read back by its
+  comment headings (`RecommendedFilters.ReadChoice`, `CheckForUpdates`): a
+  group's heading present means the group is ticked, even when only
+  `# None of these apply to this backup's folders.` follows it. Changing a
+  heading's text needs a conversion of saved texts, as U165 did for the
+  Essentials (`UpgradeEssentials`, old headings kept only there). A rendered
+  group lists only rules that can match in the backup's folders; a block
+  rendered without sources (every rule) for a folder backup offers the
+  drive-top ones for removal.
+- **The Essentials can be unticked.** Windows' app execution aliases
+  (`?:/Users/*/AppData/Local/Microsoft/WindowsApps/`) are in that group; with
+  it unticked, restic reports each alias as an unsupported file type and a
+  backup of a profile ends as a partial backup (STATUS_WARNING).
 
 Count, Simulate, the size estimates, the change listing and test-restore
 completeness read the text with `FilterTranslator` on full paths, restic's

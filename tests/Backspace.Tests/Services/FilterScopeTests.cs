@@ -54,7 +54,7 @@ public sealed class FilterScopeTests
     public void Rules_that_can_catch_a_persons_own_work_are_not_recommended()
     {
         var recommended = RecommendedFilters.EssentialPatterns.Concat(RecommendedFilters.WindowsSystemPatterns)
-            .Concat(RecommendedFilters.CachesAndJunkPatterns).Concat(RecommendedFilters.AlwaysExcludedPatterns).ToList();
+            .Concat(RecommendedFilters.CachesAndJunkPatterns).ToList();
         foreach (var risky in new[] { "temp/", "tmp/", "*.dmp", "*.dump", "Users/*/AppData/*/Log/",
                      "Users/*/AppData/*/Logs/", "Users/*/AppData/Local/Packages/*/LocalCache/", "Users/*/MicrosoftEdgeBackups/",
                      "ntuser.dat*", "UsrClass.dat*", "/Recovery/", "Recovery/", "OneDriveTemp/",

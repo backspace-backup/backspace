@@ -853,8 +853,27 @@ only those files has no vault, and the first save asks for a password.
   `restic backup --dry-run`. Duplicacy lines are converted once
   (`DuplicacyFilterConverter`: when settings load and at import) and saved; no
   code path reads them at run time. Recommended rules
-  (`RecommendedFilters`) are written in the same syntax, `$` as `$$`, and the
-  essential rules are a visible block at the end of each new backup's text.
+  (`RecommendedFilters`) are written in the same syntax, `$` as `$$`, in one
+  marked block below the person's own rules, read back by its group headings.
+- Recommended exclusions (U165): three tickable groups (`RecommendedFilters.Group`:
+  Essentials, Windows system files, caches) plus cloud folders. Essentials
+  replaced the always-applied block that ended every text before U165;
+  `RecommendedFilters.UpgradeEssentials` converts such texts when settings
+  load (`ConfigStore.Load` → `UpdateStored`), and drops only rules that can
+  match nothing in the backup's folders (`CanMatch`), so the excluded set is
+  unchanged. The same call applies pending list changes
+  (`CheckForUpdates` → `ApplyUpdates`, hidden ones excepted) to backups with
+  `Backup.AutoApplyRecommendations`: on for a backup set up only in Easy mode,
+  off once Advanced opens from Easy (`BackupEditorViewModel(openedFromEasy)`).
+  The background service loads settings through the same `ConfigStore`, so a
+  run it starts after an update reads the updated text. Other backups show
+  "New filter suggestions" on their card (`RecommendedFilters.HasSuggestions`);
+  Review opens the editor at them (`BackupCreationWindow.StartAtFilterSuggestions`),
+  where `SavingsEstimator.MeasureChangesAsync` measures each one against
+  today's rules in one walk. Hidden suggestions live in
+  `Backup.IgnoredRecommendationChanges`: `RenderBlock(hidden, kept)` leaves a
+  hidden addition out and writes a kept rule again, so Apply never undoes a
+  choice.
 - A destination missing its sign-in, S3 keys or storage password
   (`DestinationReadiness`, typically imported from Duplicacy) never reaches
   restic: Run now opens it for setup, and a run's cell fails at once with the

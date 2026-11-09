@@ -181,50 +181,123 @@ public class RecommendedFiltersTests
     {
         var block = "AUTO";
         var merged = RecommendedFilters.MergeIntoFilters("", block);
-        // Custom block (empty placeholder) comes first; recommended
-        // block follows, then the essential exclusions (U151).
+        // Custom block (empty placeholder) comes first; recommended block
+        // last: nothing follows it since U165.
         Assert.StartsWith(RecommendedFilters.CustomBlockHeader, merged);
         Assert.Contains(RecommendedFilters.CustomBlockFooter, merged);
         var lines = merged.Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
-        if (RecommendedFilters.AlwaysExcludedPatterns.Count == 0) { Assert.Equal("AUTO", lines[^1]); return; }
-        Assert.Equal(RecommendedFilters.AlwaysBlockLines(), lines[^RecommendedFilters.AlwaysBlockLines().Count..]);
-        Assert.Equal("AUTO", lines[^(RecommendedFilters.AlwaysBlockLines().Count + 2)]);
+        Assert.Equal("AUTO", lines[^1]);
     }
 
-    /// <summary>U151: the essential exclusions are a visible block at the end
-    /// of the text; Apply keeps it last, with any edit the person made in it.</summary>
+    /// <summary>U165: the Essentials are the first recommended group, ticked by
+    /// default; they hold only what no restore can use.</summary>
     [Fact]
-    public void The_essential_block_stays_last_and_keeps_the_persons_edits()
-    {
-        if (RecommendedFilters.AlwaysExcludedPatterns.Count == 0) return;
-        var edited = string.Join("\n", RecommendedFilters.AlwaysBlockLines()
-            .Where(l => l != "?:/OneDriveTemp/").Append("my-extra-in-block/"));
-        var text = "own/\n\n" + edited + "\n\nafter/\n";
-        var merged = RecommendedFilters.MergeIntoFilters(text, RecommendedFilters.RenderBlock(false, false, Array.Empty<RecommendedFilters.CloudSyncFolder>()))
-            .Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
-        Assert.Equal(edited.Split('\n'), merged[^edited.Split('\n').Length..]);
-        Assert.Contains("own/", merged);
-        Assert.Contains("after/", merged);
-        Assert.Equal(1, merged.Count(l => l == RecommendedFilters.AlwaysBlockHeader));
-
-        // A new backup's text gets the block once.
-        var fresh = RecommendedFilters.WithAlwaysBlock("x/\n");
-        Assert.Equal("x/\n\n" + RecommendedFilters.AlwaysBlockText() + "\n", fresh);
-        Assert.Equal(fresh, RecommendedFilters.WithAlwaysBlock(fresh));
-        Assert.Equal(RecommendedFilters.AlwaysBlockText() + "\n", RecommendedFilters.WithAlwaysBlock(""));
-    }
-
-    [Fact]
-    public void The_always_block_is_the_approved_list()
+    public void The_essentials_are_the_approved_list()
     {
         if (!OperatingSystem.IsWindows()) return;
         Assert.Equal(new[]
         {
             "?:/pagefile.sys", "?:/hiberfil.sys", "?:/swapfile.sys", "?:/DumpStack.log.tmp", "?:/System Volume Information/",
-            "?:/Config.Msi/", "?:/$$WinREAgent/", "?:/$$GetCurrent/", "?:/$$SysReset/", "?:/$$Windows.~BT/", "?:/$$Windows.~WS/",
-            "?:/Windows10Upgrade/", "?:/bootmgr", "?:/BOOTNXT", "?:/BOOTSECT.BAK", "?:/OneDriveTemp/",
-            "?:/Users/*/AppData/Local/Microsoft/WindowsApps/",
-        }, RecommendedFilters.AlwaysExcludedPatterns);
+            "?:/$$RECYCLE.BIN/", "?:/Config.Msi/", "?:/$$WinREAgent/", "?:/$$GetCurrent/", "?:/$$SysReset/", "?:/$$Windows.~BT/",
+            "?:/$$Windows.~WS/", "?:/Windows10Upgrade/", "?:/Windows.old/", "?:/PerfLogs/", "?:/bootmgr", "?:/BOOTNXT",
+            "?:/BOOTSECT.BAK", "?:/OneDriveTemp/", "?:/Users/*/AppData/Local/Microsoft/WindowsApps/",
+        }, RecommendedFilters.EssentialPatterns);
+        // No rule is in two groups.
+        var all = RecommendedFilters.EssentialPatterns.Concat(RecommendedFilters.WindowsSystemPatterns).Concat(RecommendedFilters.CachesAndJunkPatterns).ToList();
+        Assert.Equal(all.Count, all.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
+    public void Unticking_the_essentials_removes_their_rules()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var none = Array.Empty<RecommendedFilters.CloudSyncFolder>();
+        var with = RecommendedFilters.MergeIntoFilters("own/", RecommendedFilters.RenderBlock(true, true, none, new[] { @"C:\" }));
+        Assert.True(RecommendedFilters.ReadChoice(with)!.Essentials);
+        Assert.True(FilterTranslator.Evaluate(FilterTranslator.CompileRules(with), "C:/pagefile.sys").Excluded);
+
+        var without = RecommendedFilters.MergeIntoFilters(with, RecommendedFilters.RenderBlock(true, true, none, new[] { @"C:\" }, includeEssentials: false));
+        var lines = without.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).ToList();
+        Assert.Empty(lines.Intersect(RecommendedFilters.EssentialPatterns));
+        Assert.DoesNotContain(RecommendedFilters.EssentialsHeading, lines);
+        Assert.False(RecommendedFilters.ReadChoice(without)!.Essentials);
+        var rules = FilterTranslator.CompileRules(without);
+        Assert.False(FilterTranslator.Evaluate(rules, "C:/pagefile.sys").Excluded);
+        Assert.False(FilterTranslator.Evaluate(rules, "C:/$RECYCLE.BIN/S-1-5/x.txt").Excluded);
+        // The other groups and the person's own rule stay.
+        Assert.True(FilterTranslator.Evaluate(rules, "C:/Windows/notepad.exe").Excluded);
+        Assert.Contains("own/", lines);
+        Assert.True(RecommendedFilters.IsApplied(without, true, true, none, new[] { @"C:\" }, includeEssentials: false));
+        Assert.False(RecommendedFilters.IsApplied(without, true, true, none, new[] { @"C:\" }));
+        // An unticked group offers no suggestions.
+        Assert.True(RecommendedFilters.CheckForUpdates(without, sources: new[] { @"C:\" }).IsEmpty);
+    }
+
+    /// <summary>U165: each group sorted, rules from the top of the drive first,
+    /// then by path ignoring case, $$ read as $.</summary>
+    [Fact]
+    public void Each_group_lists_rules_from_the_top_of_the_drive_first_then_by_path()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var block = RecommendedFilters.RenderBlock(true, true, Array.Empty<RecommendedFilters.CloudSyncFolder>());
+        var groups = block.Replace("\r\n", "\n").Split("\n\n")
+            .Select(g => g.Split('\n').Where(l => l.Length > 0 && !l.StartsWith('#')).ToList())
+            .Where(g => g.Count > 1).ToList();
+        Assert.Equal(3, groups.Count);
+        foreach (var rules in groups)
+        {
+            var anchored = rules.TakeWhile(r => r.StartsWith("?:/", StringComparison.Ordinal)).ToList();
+            Assert.DoesNotContain(rules.Skip(anchored.Count), r => r.StartsWith("?:/", StringComparison.Ordinal));
+            var key = (string r) => r.Replace("?:", "").Replace("$$", "$").ToLowerInvariant();
+            Assert.Equal(anchored.OrderBy(key, StringComparer.Ordinal), anchored);
+            Assert.Equal(rules.Skip(anchored.Count).OrderBy(key, StringComparer.Ordinal), rules.Skip(anchored.Count));
+        }
+        // $RECYCLE.BIN sorts as "$recycle.bin", before "bootmgr".
+        Assert.Equal("?:/$$GetCurrent/", groups[0][0]);
+        Assert.True(groups[0].IndexOf("?:/$$RECYCLE.BIN/") < groups[0].IndexOf("?:/bootmgr"));
+        var caches = groups[2];
+        Assert.Equal(caches.IndexOf("?:/Users/*/AppData/**/Cache/") + 1, caches.IndexOf("?:/Users/*/AppData/**/Caches/"));
+        Assert.Equal("*.crdownload", caches[caches.FindIndex(r => !r.StartsWith("?:/", StringComparison.Ordinal))]);
+    }
+
+    /// <summary>U165: a hidden suggestion stays hidden when Apply rebuilds the
+    /// block: a hidden addition isn't written, a kept rule is written again.</summary>
+    [Fact]
+    public void Apply_never_brings_back_a_hidden_suggestion()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var none = Array.Empty<RecommendedFilters.CloudSyncFolder>();
+        var sources = new[] { @"C:\" };
+        const string hiddenAdd = "node_modules/";
+        const string keptRetired = "Users/*/AppData/Local/Packages/";
+        var block = RecommendedFilters.RenderBlock(true, true, none, sources, hidden: new[] { hiddenAdd, keptRetired }, kept: new[] { keptRetired });
+        var lines = block.Replace("\r\n", "\n").Split('\n').ToList();
+        Assert.DoesNotContain(hiddenAdd, lines);
+        Assert.Contains(keptRetired, lines);
+        Assert.Contains(RecommendedFilters.OwnHeading, lines);
+        // Without the hidden list, Apply writes it (the falsifiable side).
+        Assert.Contains(hiddenAdd, RecommendedFilters.RenderBlock(true, true, none, sources).Replace("\r\n", "\n").Split('\n'));
+        // The hidden ones count as done: nothing left to apply, nothing suggested.
+        var text = RecommendedFilters.MergeIntoFilters("", block);
+        Assert.True(RecommendedFilters.IsApplied(text, true, true, none, sources, hidden: new[] { hiddenAdd, keptRetired }));
+        Assert.True(RecommendedFilters.CheckForUpdates(text, new[] { hiddenAdd, keptRetired }, sources).IsEmpty);
+        // Unhidden, both are suggested again.
+        var update = RecommendedFilters.CheckForUpdates(text, sources: sources);
+        Assert.Contains(hiddenAdd, update.Add);
+        Assert.Contains(keptRetired, update.Remove);
+    }
+
+    [Fact]
+    public void The_rules_shown_under_a_group_are_those_Apply_writes_here()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var folder = new[] { @"C:\Users\me\Documents" };
+        Assert.Empty(RecommendedFilters.RulesFor(RecommendedFilters.Group.Essentials, folder));
+        Assert.Equal(RecommendedFilters.EssentialPatterns.Count, RecommendedFilters.RulesFor(RecommendedFilters.Group.Essentials, new[] { @"C:\" }).Count);
+        Assert.Equal(new[] { "?:/Users/*/AppData/Local/Microsoft/WindowsApps/" },
+            RecommendedFilters.RulesFor(RecommendedFilters.Group.Essentials, new[] { @"C:\Users\me" }));
+        Assert.DoesNotContain("node_modules/", RecommendedFilters.RulesFor(RecommendedFilters.Group.CachesAndJunk, folder, new[] { "node_modules/" }));
+        Assert.Contains("node_modules/", RecommendedFilters.RulesFor(RecommendedFilters.Group.CachesAndJunk, folder));
     }
 
     [Theory]
@@ -355,7 +428,7 @@ public class RecommendedFiltersTests
     private static string SavedBlock() => string.Join("\n",
         RecommendedFilters.CustomBlockHeader, "mine/", RecommendedFilters.CustomBlockFooter, "",
         RecommendedFilters.AutoBlockHeader,
-        "# Essentials: always excluded; safe for any source.", "/pagefile.sys", "Config.Msi/", "/Recovery/", "System Volume Information/", "",
+        RecommendedFilters.EssentialsHeading, "/pagefile.sys", "Config.Msi/", "/Recovery/", "System Volume Information/", "",
         "# App caches, temp files, dev junk: universally safe to skip.", "temp/", "Users/*/AppData/Local/Packages/", "my-extra/", "",
         "# Cloud-synced folders: already replicated in their providers' clouds.", @"# Dropbox at C:\Users\me\Dropbox", "/Users/me/Dropbox/", "",
         RecommendedFilters.AutoBlockFooter);

@@ -315,24 +315,29 @@ instead (`cache/*` then `!cache/keep/`). **Filters → Advanced** warns about
 such an exception and shows the fix, and about a rule restic can't read (such
 as an unclosed `[`): restic refuses the whole list, so the backup would stop.
 
-The essential exclusions (below, under Sizes and logs) are written into each
-backup's text as their own block at the end, headed
-`# === Backspace essential exclusions (always applied) ===`. New backups get
-it, and **Apply recommended exclusions** keeps it last.
-
 The engine checks every rule against every file and folder it looks at. With
 hundreds of rules that used to take most of a large backup's time; on Windows,
 Backspace's build of the engine skips a rule at once when a path can't match it,
 which makes this about 5 times faster.
 
-**Filters → Recommended** groups the suggested exclusions (Windows system
-files, app caches, cloud-synced folders). A green **✓ Applied** line means
-the ticked groups are already in the backup's filters and there is nothing
-left to do; **Apply recommended exclusions** is enabled again only when you
-change a tick. **Estimate savings** reads the backup's folders and says how
-much the ticked recommendations leave out of them. On **Filters → Advanced**,
-**Count** says how much all the rules leave out, your own included, and
-**Simulate** lists what each rule keeps or leaves out.
+**Filters → Recommended** groups the suggested exclusions in three groups you
+tick or untick: **Essentials** (first, ticked for every new backup), **Windows
+system files** and **App caches and temporary files**, then the cloud-synced
+folders. Under each group, **Show the N rules it adds** opens the exact lines
+it writes for this backup's folders. A green **✓ Applied** line means the
+ticked groups are already in the backup's filters and there is nothing left to
+do; **Apply recommended exclusions** is enabled again only when you change a
+tick. Apply rewrites the recommended block, below your own rules, with each
+group's rules from the top of the drive first, then those that match at any
+depth, each sorted by path. **Estimate savings** reads the backup's folders and
+says how much the ticked recommendations leave out of them. On **Filters →
+Advanced**, **Count** says how much all the rules leave out, your own
+included, and **Simulate** lists what each rule keeps or leaves out.
+
+In Easy mode the same lists are one box, **Skip junk for me**: ticked, the
+backup gets the Essentials, the app caches and, for a whole drive, Windows'
+own files, plus the cloud-synced folders inside it; unticked, the
+recommended block is removed and only your own rules stay.
 
 Recommended rules start at the top of the drive (`?:/Windows/`,
 `?:/Users/*/AppData/**/Cache/`), so a folder you made deeper down, such as an
@@ -396,18 +401,23 @@ profile. With administrator access on, backups include them and the size
 counts them. Without it, backups leave them out, and so does the size; the
 settings window then says how many folders won't be backed up, naming one.
 
-A few Windows files are left out by the essential block each backup's filters
-end with (see Filters), and never counted, because no restore can use them:
-the page, swap and
+The **Essentials** group holds only what no restore can use, and a folder
+counted before its backup exists leaves it out too: the page, swap and
 hibernation files (pagefile.sys, swapfile.sys, hiberfil.sys, DumpStack.log.tmp),
-System Volume Information (shadow copies and the search index), the temporary
-folders of Windows Update, upgrades, resets and installers (Config.Msi,
-$WinREAgent, $GetCurrent, $SysReset, $Windows.~BT, $Windows.~WS,
-Windows10Upgrade, OneDriveTemp) and the boot files at the top of the drive
-(bootmgr, BOOTNXT, BOOTSECT.BAK), and in every profile Windows' app shortcuts
-(AppData\Local\Microsoft\WindowsApps), links the engine can't store. Windows, Windows.old, the Recycle Bin and the registry hives are only
-recommended exclusions: a backup can include them. The Recovery folder is
-never excluded: a manufacturer may keep recovery files there.
+System Volume Information (shadow copies and restore points), the Recycle Bin,
+the temporary folders of Windows Update, upgrades, resets and installers
+(Config.Msi, $WinREAgent, $GetCurrent, $SysReset, $Windows.~BT, $Windows.~WS,
+Windows10Upgrade, OneDriveTemp), the previous installation an upgrade leaves
+(Windows.old), PerfLogs, the boot files at the top of the drive (bootmgr,
+BOOTNXT, BOOTSECT.BAK), and in every profile Windows' app shortcuts
+(AppData\Local\Microsoft\WindowsApps). Those shortcuts are links the engine
+can't store: with the Essentials unticked, each one is an error and a backup
+of a profile ends as a warning. The Windows folder and the registry hives are
+in other groups or not recommended at all, and the Recovery folder is never
+excluded: a manufacturer may keep recovery files there. Before 9 November
+2026 these files were a separate block at the end of every backup's rules
+that couldn't be unticked; Backspace moved its rules into the Essentials
+group of each saved backup when it first started, leaving out the same files.
 
 After a backup, its card's **Last backup** says when and how much was
 uploaded, for example **15m ago · 27.4 MB uploaded** (with the number of
@@ -782,15 +792,31 @@ reach a subfolder are kept. One list ignores case or doesn't, so on Windows a
 line without `(?i)` ignores case too. Email and Healthchecks settings are not
 imported; set them up in Settings.
 
-When Backspace's recommended exclusions change, your saved backups keep their
-rules. Editing a backup lists the additions and removals for the groups it
-uses, each with a checkbox: rules added to the lists, rules missing from the
-backup's block (one you deleted is offered again), and rules that can't match
-in the backup's folders (offered again if you add a whole drive). **Apply ticked changes** applies the ticked ones;
-the unticked ones are not suggested again for that backup, and
-**Don't suggest these again** declines them all. Declined suggestions are
-counted below the list; **Show hidden suggestions** lists them again, unticked. A declined suggestion
-that Backspace no longer recommends is dropped, so it never comes back.
+When a Backspace update changes the recommended lists, what happens depends
+on the backup's **Apply Backspace's updated recommendations automatically**
+box (Filters → Recommended, under the groups):
+
+- **On** (every backup set up only in Easy mode): when Backspace starts, and
+  when its background service starts, each new or changed rule of a group the
+  backup ticked is added to its rules, and a rule no longer recommended is
+  removed, without asking. Clicking **Advanced** turns the box off; you can
+  tick it again there.
+- **Off** (backups set up or edited in Advanced mode): the backup keeps its
+  rules, and its card says **New filter suggestions: Review** when changes
+  concern a group it ticked. **Review** opens Filters → Recommended at **New
+  filter suggestions**: each rule with its group and what it changes in this
+  backup, measured on its folders ("Leaves out 2 files (41.0 KB) of this
+  backup", "Matches nothing here today", or for a removal "Removing it backs up
+  …"). Suggestions also cover rules missing from the backup's block (one you
+  deleted is offered again) and rules that can't match in the backup's folders
+  (offered again if you add a whole drive).
+
+**Apply ticked changes** makes the ticked suggestions; the unticked ones are
+hidden for that backup, and **Hide all** hides them all. A hidden suggestion
+stays hidden: neither automatic updates nor **Apply recommended exclusions**
+bring it back. Hidden suggestions are counted below the list; **Show hidden
+suggestions** lists them again, unticked. A hidden suggestion that Backspace
+no longer recommends is dropped, so it never comes back.
 
 ## Command line
 

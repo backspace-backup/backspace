@@ -362,7 +362,7 @@
               IsVisible="{Binding ShowActions}"
               Background="Transparent"
               Padding="20,6,20,10">
-        <Grid VerticalAlignment="Center" RowDefinitions="Auto,Auto">
+        <Grid VerticalAlignment="Center" RowDefinitions="Auto,Auto,Auto">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="16"/>
@@ -465,6 +465,18 @@
                       Content="Dismiss" Command="{Binding DismissMountErrorCommand}"/>
             </Grid>
           </StackPanel>
+
+          <!-- Backspace's updated recommendations for a group this backup
+               ticked, not applied automatically (U165). -->
+          <WrapPanel Grid.Row="2" Grid.ColumnSpan="3" Name="FilterSuggestionsLine" Margin="0,2,0,2"
+                     IsVisible="{Binding HasFilterSuggestions}">
+            <TextBlock FontSize="12" Foreground="{DynamicResource BS.Brush.FgSecondary}" VerticalAlignment="Center"
+                       Margin="0,0,10,0" Text="New filter suggestions:"/>
+            <Button Classes="row-action" Content="Review"
+                    ToolTip.Tip="See what Backspace now suggests leaving out of this backup, and what each suggestion changes, before you accept or hide it."
+                    Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).ReviewFilterSuggestionsCommand}"
+                    CommandParameter="{Binding}"/>
+          </WrapPanel>
         </Grid>
       </Border>
 

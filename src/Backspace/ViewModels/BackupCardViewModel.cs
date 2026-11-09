@@ -496,10 +496,16 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>"New filter suggestions: Review" (U165): Backspace's updated
+    /// recommendations bring changes to a group this backup ticked, and the
+    /// backup doesn't take them automatically.</summary>
+    [ObservableProperty] private bool _hasFilterSuggestions;
+
     public void Apply(Backup b)
     {
         Snapshot = b;
         Name = b.Name;
+        HasFilterSuggestions = Services.RecommendedFilters.HasSuggestions(b);
 
         // Sources column. Preserve existing entries by path so the
         // progress-bar binding doesn't flicker on each parent refresh.

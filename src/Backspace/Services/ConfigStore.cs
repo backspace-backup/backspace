@@ -135,7 +135,13 @@ public sealed class ConfigStore
                     var converted = DuplicacyFilterConverter.ConvertStored(_current);
                     if (converted.Count > 0)
                         _log.Information("Converted the Duplicacy filters of {Backups} to restic rules", string.Join(", ", converted));
-                    if (migrated || converted.Count > 0)
+                    // Texts written before U165 get the Essentials group, and
+                    // backups that take updated recommendations automatically
+                    // get them, before any run reads the rules.
+                    var updated = RecommendedFilters.UpdateStored(_current);
+                    if (updated.Count > 0)
+                        _log.Information("Updated the recommended exclusions of {Backups}", string.Join(", ", updated));
+                    if (migrated || converted.Count > 0 || updated.Count > 0)
                     {
                         try { Save_NoLock(); }
                         catch (Exception ex) { _log.Warning(ex, "Persisting a settings conversion failed (will retry next save)"); }

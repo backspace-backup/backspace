@@ -717,7 +717,13 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private Task Edit(BackupCardViewModel card) => EditBackupAsync(card, atDestinations: false);
 
-    private async Task EditBackupAsync(BackupCardViewModel card, bool atDestinations)
+    /// <summary>The card's "New filter suggestions: Review" (U165): the
+    /// editor opens at Filters > Recommended, where each suggestion shows
+    /// what it changes in this backup.</summary>
+    [RelayCommand]
+    private Task ReviewFilterSuggestions(BackupCardViewModel card) => EditBackupAsync(card, atDestinations: false, atFilterSuggestions: true);
+
+    private async Task EditBackupAsync(BackupCardViewModel card, bool atDestinations, bool atFilterSuggestions = false)
     {
         if (card is null) return;
         var owner = TestRestoreOwner?.Invoke() ?? Owner();
@@ -728,7 +734,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         // detects "edit" mode by being constructed with a non-null
         // existing backup and opens in the mode the user last used for
         // that backup (Backup.LastEditMode).
-        var dlg = new BackupCreationWindow(b) { StartAtDestinations = atDestinations };
+        var dlg = new BackupCreationWindow(b) { StartAtDestinations = atDestinations, StartAtFilterSuggestions = atFilterSuggestions };
         var result = await dlg.ShowDialog<Backup?>(owner);
         if (result is not null)
         {

@@ -31,7 +31,7 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
     private static string SavedByEarlierVersion() => string.Join("\n",
         RecommendedFilters.CustomBlockHeader, "Projects/build/", RecommendedFilters.CustomBlockFooter, "",
         RecommendedFilters.AutoBlockHeader,
-        "# Essentials: always excluded; safe for any source.", "/pagefile.sys", "Config.Msi/", "",
+        RecommendedFilters.EssentialsHeading, "/pagefile.sys", "Config.Msi/", "",
         "# App caches, temp files, dev junk: universally safe to skip.", "temp/", DeclinedRemoval, "",
         RecommendedFilters.AutoBlockFooter);
 
@@ -157,5 +157,5 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         win.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => b.Content as string == text);
 
     private static CheckBox CheckBoxFor(Window win, string pattern) =>
-        win.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content is TextBlock { Text: var t } && t == pattern);
+        win.GetVisualDescendants().OfType<CheckBox>().Single(c => c.DataContext is RecommendationChangeChoice { Pattern: var t } && t == pattern);
 }

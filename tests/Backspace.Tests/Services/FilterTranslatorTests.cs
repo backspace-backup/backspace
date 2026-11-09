@@ -115,14 +115,14 @@ public class FilterTranslatorTests
     {
         Assert.Equal(new[] { "bad[abc" }, FilterTranslator.InvalidRules("ok\nbad[abc\n# [comment"));
         Assert.Empty(FilterTranslator.InvalidRules(string.Join("\n", RecommendedFilters.EssentialPatterns
-            .Concat(RecommendedFilters.WindowsSystemPatterns).Concat(RecommendedFilters.CachesAndJunkPatterns).Concat(RecommendedFilters.AlwaysExcludedPatterns))));
+            .Concat(RecommendedFilters.WindowsSystemPatterns).Concat(RecommendedFilters.CachesAndJunkPatterns))));
     }
 
     [Fact]
     public void Recommended_rules_are_plain_restic_rules_with_every_dollar_doubled()
     {
         foreach (var p in RecommendedFilters.EssentialPatterns.Concat(RecommendedFilters.WindowsSystemPatterns)
-                     .Concat(RecommendedFilters.CachesAndJunkPatterns).Concat(RecommendedFilters.AlwaysExcludedPatterns))
+                     .Concat(RecommendedFilters.CachesAndJunkPatterns))
         {
             Assert.False(p.StartsWith("e:") || p.StartsWith("i:") || p.StartsWith('-') || p.StartsWith('+') || p.StartsWith('^'), p);
             // "$" only ever as "$$": restic would read "$Name" as a variable.
