@@ -88,14 +88,15 @@ internal static class DesktopSchedule
         return ServiceOwnsSchedules ? plans.Where(p => !ServiceRuns(p.Backup, config)).ToList() : plans;
     }
 
-    /// <summary>A backup the background service runs, so the tray app does not.</summary>
+    /// <summary>A backup the background service runs, so the tray app does
+    /// not: every complete backup, network shares included (U171).</summary>
     private static bool ServiceRuns(Backup backup, AppConfig config)
     {
 #if WINDOWS
         if (OperatingSystem.IsWindows() && Platform.Windows.SystemService.ForCopy(AppContext.BaseDirectory.TrimEnd('\\')) is not null)
             return Platform.Windows.SystemServiceRuns.RunsOnItsOwn(backup, config);
 #endif
-        return SchedulePlan.ServiceCanRun(backup, config.Destinations);
+        return true;
     }
 
     private static string? Blocked(SchedulePlan plan)

@@ -87,11 +87,13 @@ off in **Settings → Startup and tray**.
   schedule. It starts with Windows, so backups also run before anyone signs
   in. The tray icon appears when you sign in. Backups to an external drive
   run in the service too, whenever the drive is plugged in, and are skipped
-  while it is not. Backups to a network share run in the service when the
-  share's user name and password are saved with the destination: the service
+  while it is not. Backups to a network share run in the service too: it
   runs as Windows itself, so it cannot use your mapped drive letters or the
-  password Windows remembers for you. Without them, those backups stay with
-  the tray app, which runs them while you are signed in.
+  password Windows remembers for you, and signs in to the share with the user
+  name and password saved with the destination. With access on, the
+  destination editor requires them, **Run now** opens the destination to enter
+  them when they are missing, and Settings → Administrator access names any
+  share still without them; a run without them fails saying what to enter.
 
 The tray icon's check mark means the backups ran successfully; a backup that
 failed shows an exclamation mark, and one that hasn't completed a run yet a
@@ -251,9 +253,9 @@ publish an update the service would then run.
 With access on, **Run now** (and saving with "run after save") goes through the
 same service and includes files in use without another prompt. This includes
 backups with automatic backups off: they get the same snapshot, but still run
-only when you ask. A backup with custom engine arguments, or one saving to a
-network share without a saved user name and password, runs in the window
-instead, without a snapshot. Adding, editing or removing a backup asks
+only when you ask. With access on, no backup runs in the window: one the
+service can't run fails with the reason instead of running without a
+snapshot (a network share without its user name and password, for example). Adding, editing or removing a backup asks
 nothing either: the service reads your saved settings within a minute. Updating
 Backspace asks nothing too: the service stops while `Backspace.exe` is
 replaced and starts again. **Settings → Administrator access** keeps **Remove

@@ -250,8 +250,12 @@ public sealed class Backup
     /// <summary>Bandwidth cap in KB/s (0 = unlimited). Surfaces as -limit-rate.</summary>
     public int BandwidthLimitKBps { get; set; } = 0;
 
-    /// <summary>Extra CLI args appended verbatim. Escape hatch for power users.</summary>
-    public string ExtraBackupArgs { get; set; } = "";
+    /// <summary>Removed (U171): free-text engine arguments, never passed to
+    /// the engine since 1.0. Settings that still hold the field are read and
+    /// it is discarded: the background service refuses unknown fields, and
+    /// it never runs arbitrary engine arguments as Windows. Never written.</summary>
+    [JsonPropertyName("extraBackupArgs")]
+    public string? RemovedExtraBackupArgs { set { } }
 
     // ---- schedule ----
 

@@ -21,14 +21,23 @@ namespace Backspace.Services.Platform.Windows;
 /// ever started by its schedule.</para></summary>
 internal static class SystemServiceRuns
 {
-    /// <summary>A backup the service is able to run: complete, with no
-    /// custom engine arguments, and only network shares it can sign in to.
-    /// Says nothing about whether it runs automatically.</summary>
-    internal static bool CanRun(Backup backup, AppConfig config)
-        => backup.SourcePaths is { Count: > 0 } && backup.SourcePaths.All(p => !string.IsNullOrWhiteSpace(p))
-            && backup.Targets is { Count: > 0 } && backup.Targets.All(t => config.Destinations.Any(d => d.Id == t.DestinationId))
-            && string.IsNullOrWhiteSpace(backup.ExtraBackupArgs)
-            && SchedulePlan.ServiceCanRun(backup, config.Destinations);
+    /// <summary>A backup the service is able to run: one with folders to back
+    /// up and destinations that exist. Says nothing about whether it runs
+    /// automatically. With the service set up it runs every backup (U171):
+    /// a network share without its saved user name and password fails at the
+    /// run with a message saying so (ServiceNetworkShares), never in the window.</summary>
+    internal static bool CanRun(Backup backup, AppConfig config) => Refusal(backup, config) is null;
+
+    /// <summary>Why the service can't run this backup, for the person; null
+    /// when it can.</summary>
+    internal static string? Refusal(Backup backup, AppConfig config)
+    {
+        if (backup.SourcePaths is not { Count: > 0 } || backup.SourcePaths.Any(string.IsNullOrWhiteSpace))
+            return "This backup has no folders to back up. Edit it and choose them.";
+        if (backup.Targets is not { Count: > 0 } || !backup.Targets.All(t => config.Destinations.Any(d => d.Id == t.DestinationId)))
+            return "This backup has no destination to save to. Edit it and choose one.";
+        return null;
+    }
 
     /// <summary>A backup the service's schedule starts without being asked:
     /// one it can run, with automatic backups on.</summary>
@@ -46,8 +55,8 @@ internal static class SystemServiceRuns
     {
         var backup = config.Backups.SingleOrDefault(b => b.Id == backupId)
             ?? throw new InvalidDataException("This backup no longer exists.");
-        if (!CanRun(backup, config))
-            throw new NotSupportedException("This backup runs from the Backspace window, not the background service.");
+        if (Refusal(backup, config) is { } refusal)
+            throw new NotSupportedException(refusal);
         if (!ownerCommand && !RunsOnItsOwn(backup, config))
             throw new SecurityException("Automatic backups are off for this backup: it runs only when asked.");
         var kind = operation switch

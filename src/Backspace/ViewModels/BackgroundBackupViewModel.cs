@@ -21,7 +21,10 @@ public sealed partial class BackgroundBackupViewModel : ViewModelBase
     /// <summary>Settings opens its Administrator access section only while
     /// something needs doing or is in progress; once access is on it stays
     /// collapsed, with Remove access inside (U027, 29 October 2026).</summary>
-    public bool NeedsAttention => StatusClass != "ok" || IsBusy || !string.IsNullOrEmpty(Error);
+    public bool NeedsAttention => StatusClass != "ok" || IsBusy || !string.IsNullOrEmpty(Error) || !string.IsNullOrEmpty(ShareSignInNotice);
+    /// <summary>With access on, the network shares the service can't sign in
+    /// to (U171). Empty hides it.</summary>
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(NeedsAttention))] private string _shareSignInNotice = "";
     [ObservableProperty] private string _actionText = RunAllTheTime;
     /// <summary>One line under the action button, for example that Windows
     /// will ask for approval. Empty hides it.</summary>
@@ -98,6 +101,7 @@ public sealed partial class BackgroundBackupViewModel : ViewModelBase
                 : state.State == BackgroundBackupState.ChangesPending ? _applyFailure! : state.Detail;
             if (state.State == BackgroundBackupState.Ready) Error = "";
             CanRemove = state.CanRemove;
+            ShareSignInNotice = IsOn && ServiceLocator.Config.IsLoaded ? NetworkSharePath.ServiceSignInNotice(ServiceLocator.Config.Current) : "";
             HasAction = state.State is BackgroundBackupState.Off or BackgroundBackupState.SetupPending
                 || (state.State == BackgroundBackupState.ChangesPending && !applying);
             ActionText = state.State switch

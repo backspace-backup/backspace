@@ -84,8 +84,10 @@ its copy of the vault key are in the owner's `%LOCALAPPDATA%\Backspace`
 and before each run (`SystemServiceRuns`): there is no approval record and no
 settings task. Whoever can change those settings can already replace
 `Backspace.exe`, which the service runs as Windows; the user guide says so.
-Backups with custom engine arguments, or network shares without saved
-credentials, stay with the tray app. Two questions are kept apart (U171):
+With the service set up it runs every backup; nothing is left to the tray
+app or the window (U171). Settings carry no engine arguments: the old
+free-text field, never passed to restic, was removed rather than handed to a
+service running as Windows. Two questions are kept apart (U171):
 `SystemServiceRuns.CanRun` says whether the service is able to run a backup,
 `RunsOnItsOwn` whether its schedule starts it (automatic backups on). An
 owner request (`start-cli`: Run now, Save and run, a named command) runs any
@@ -133,14 +135,20 @@ verb and older versions' tasks, optionally uninstalls WinFsp, and a helper
 deletes `%LOCALAPPDATA%\Backspace` after the app exits.
 
 `DesktopBackupRun` sends Run now and Save and run to the service through the
-owner's `start-cli` request whenever the service can run the backup
-(`ServiceCommandLineRun.RunsInService`), automatic backups on or off; the card follows
-the run through the service's activity. Otherwise the desktop runs the backup
-itself. A network share runs in the service when its destination has a
-network path and a saved user name and password
-(`NetworkSharePath.ServiceCanReach`): before the run the worker connects to
-the share with them (`ServiceNetworkShares`, WNetAddConnection2) and
-disconnects after. External drives run in the service; an unplugged drive is
+owner's `start-cli` request, automatic backups on or off; the card follows
+the run through the service's activity. The desktop runs a backup itself only
+when no service is set up. With one, a backup the service can't run (not
+saved yet, no folders, a missing destination) or settings it can't read fail
+the run with the reason (`ServiceCommandLineRun.Refusal`), never a run in
+the window. Network shares run in the service: before the run the worker
+connects to the share's network path with the destination's saved user name
+and password (`ServiceNetworkShares`, WNetAddConnection2) and disconnects
+after. A share saved as a drive letter or without them fails the run saying
+what to enter; with the service set up, the destination editor requires
+them, Run now opens the destination when they are missing
+(`DestinationReadiness` with `serviceRuns`), and Settings → Administrator
+access names such shares (`NetworkSharePath.ServiceSignInNotice`).
+External drives run in the service; an unplugged drive is
 left out of the run. `VssElevationPolicy.PromptAllowed` is off, so no run asks
 Windows for approval: a run that cannot use VSS backs up without it and
 records a warning naming the fix.

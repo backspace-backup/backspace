@@ -16,6 +16,8 @@ locked drives and EFS encryption still matter; mapped network drives from
 an interactive desktop are not a dependable unattended destination. The
 background service reaches a share only by its network path with the user
 name and password saved for the destination (ServiceNetworkShares, U071).
+With the service set up it runs every backup (U171), so a share without them
+fails its run with what to enter; it is not handed back to the window.
 
 Microsoft documents that S4U tasks have no access to the network or encrypted
 files. In particular, do not promise access to a Windows-authenticated network

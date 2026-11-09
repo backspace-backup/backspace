@@ -825,12 +825,15 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to run this backup.")) return;
         // A destination without its sign-in or storage password (an imported
         // Duplicacy one, for example) opens for setup instead of failing (U082).
+        // With the background service set up, it runs this backup: a network
+        // share also needs the sign-in the service uses (U171).
+        var serviceRuns = DestinationEditorViewModel.BackgroundServiceActive();
         foreach (var target in card.Snapshot.Targets)
         {
             if (ServiceLocator.Config.Current.Destinations.FirstOrDefault(d => d.Id == target.DestinationId) is not { } destination
-                || DestinationReadiness.Problem(destination, ServiceLocator.Secrets) is not { } notReady) continue;
+                || DestinationReadiness.Problem(destination, ServiceLocator.Secrets, serviceRuns) is not { } notReady) continue;
             card.LastRunLabel = notReady;
-            await EditDestinationByIdAsync(destination.Id, $"To back up to «{destination.Name}», first {DestinationReadiness.Steps(destination, ServiceLocator.Secrets)}, then save and run the backup again.");
+            await EditDestinationByIdAsync(destination.Id, $"To back up to «{destination.Name}», first {DestinationReadiness.Steps(destination, ServiceLocator.Secrets, serviceRuns)}, then save and run the backup again.");
             return;
         }
         if (!await DriveConfirmation.ConfirmAsync(card.Snapshot, Owner())) return;

@@ -10,23 +10,33 @@ namespace Backspace.Services;
 /// password. Imported Duplicacy destinations have none of these yet
 /// (sign-ins and passwords are not imported). Run now opens the destination
 /// to finish them, and a scheduled run stops with this reason instead of
-/// retrying restic four times (U082, 2 November 2026).
+/// retrying restic four times (U082, 2 November 2026). With the background
+/// service set up, a network share also needs its network path and its own
+/// user name and password: the service signs in with them (U171).
 /// </summary>
 public static class DestinationReadiness
 {
-    public static string? Problem(Destination destination, SecretsStore secrets)
-        => Steps(destination, secrets) is { } steps ? $"«{destination.Name}» isn't set up yet: {steps}. Open it from Destinations to finish." : null;
+    public static string? Problem(Destination destination, SecretsStore secrets, bool serviceRuns = false)
+        => Steps(destination, secrets, serviceRuns) is { } steps ? $"«{destination.Name}» isn't set up yet: {steps}. Open it from Destinations to finish." : null;
 
     /// <summary>What is left to do, as one phrase, or null when nothing is.</summary>
-    public static string? Steps(Destination destination, SecretsStore secrets)
+    public static string? Steps(Destination destination, SecretsStore secrets, bool serviceRuns = false)
     {
-        var missing = Missing(destination, secrets).ToList();
+        var missing = Missing(destination, secrets, serviceRuns).ToList();
         if (missing.Count == 0) return null;
         return missing.Count == 1 ? missing[0] : string.Join(", ", missing.Take(missing.Count - 1)) + " and " + missing[^1];
     }
 
-    public static IEnumerable<string> Missing(Destination destination, SecretsStore secrets)
+    /// <param name="serviceRuns">The background service runs the backup.</param>
+    public static IEnumerable<string> Missing(Destination destination, SecretsStore secrets, bool serviceRuns = false)
     {
+        if (serviceRuns && destination.Kind == DestinationKind.NetworkShare)
+        {
+            if (NetworkSharePath.ShareRoot(destination.PathOrSubpath) is null)
+                yield return @"enter its network path, like \\server\share\folder";
+            if (string.IsNullOrWhiteSpace(destination.NetworkUsername) || !Has(secrets, destination.NetworkPasswordRef))
+                yield return "enter the share's user name and password";
+        }
         if (destination.NeedsOAuth && !Has(secrets, destination.OAuthTokenRef))
             yield return $"connect your {ProviderName(destination.Kind)} account";
         if (destination.Kind == DestinationKind.S3Compatible

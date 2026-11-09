@@ -55,6 +55,9 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     [ObservableProperty] private string? _nameError;
     [ObservableProperty] private string? _pathError;
     [ObservableProperty] private string? _bucketError;
+    /// <summary>A network share without its user name and password while the
+    /// background service runs the backups (U171).</summary>
+    [ObservableProperty] private string? _networkSignInError;
     [ObservableProperty] private string? _summaryError;
     public bool HasAnyError => !string.IsNullOrEmpty(SummaryError);
     /// <summary>
@@ -275,6 +278,23 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     public bool ShowLocalPath => Kind is DestinationKind.LocalFolder or DestinationKind.ExternalDrive;
     public bool ShowNetworkPath => Kind == DestinationKind.NetworkShare;
     public bool ShowNetworkCreds => Kind == DestinationKind.NetworkShare;
+
+    public string NetworkUsernameLabel => BackgroundServiceActive() ? "USERNAME" : "USERNAME (OPTIONAL)";
+
+    /// <summary>Test seam for whether this copy's background service is set up.</summary>
+    internal static Func<bool>? BackgroundServiceActiveOverride { get; set; }
+
+    /// <summary>Whether this copy's background service is set up, so it runs
+    /// every backup (U171).</summary>
+    internal static bool BackgroundServiceActive()
+    {
+        if (BackgroundServiceActiveOverride is { } active) return active();
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+            return Services.Platform.Windows.ServiceCommandLineRun.IsActive(AppContext.BaseDirectory.TrimEnd('\\'));
+#endif
+        return false;
+    }
     /// <summary>Says a password is already saved; leaving the box empty keeps it.</summary>
     public string NetworkPasswordWatermark => string.IsNullOrEmpty(Working.NetworkPasswordRef) ? "" : "Saved; type to replace";
     /// <summary>
@@ -1129,6 +1149,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         NameError = null;
         PathError = null;
         BucketError = null;
+        NetworkSignInError = null;
         SummaryError = null;
 
         var errors = new List<string>();
@@ -1168,6 +1189,16 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
             {
                 PathError = "Enter a UNC path like \\\\server\\share\\folder.";
                 errors.Add("UNC path is required.");
+            }
+            // With administrator access on, the background service runs every
+            // backup, and its account reaches a share only with the share's own
+            // user name and password (U171): ask for them here, not at the run.
+            if (BackgroundServiceActive()
+                && (string.IsNullOrWhiteSpace(NetworkUsername)
+                    || string.IsNullOrEmpty(NetworkPasswordInput) && string.IsNullOrEmpty(Working.NetworkPasswordRef)))
+            {
+                NetworkSignInError = "Enter the share's user name and password. With administrator access on, backups run in the background service, which signs in to the share with them.";
+                errors.Add("The share's user name and password are required.");
             }
         }
         else if (Kind == DestinationKind.S3Compatible)

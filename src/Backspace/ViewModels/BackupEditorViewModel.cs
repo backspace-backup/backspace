@@ -203,7 +203,6 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
 
     // ---- advanced ----
     [ObservableProperty] private int _bandwidthLimitKBps;
-    [ObservableProperty] private string _extraBackupArgs;
 
     /// <summary>
     /// Toggled by the "Show advanced options" button. VM-backed (not an
@@ -740,7 +739,6 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         _checkRestoreFiles = working.CheckRestoreFiles;
         RestoreCheckOptions = new(working.RestoreCheckOptions);
         _bandwidthLimitKBps = working.BandwidthLimitKBps;
-        _extraBackupArgs = working.ExtraBackupArgs;
 
         _filtersText = working.FiltersText;
         RefreshFilterExceptionWarning();
@@ -1659,7 +1657,6 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         Working.KeepPolicy = KeepPolicy?.Trim() ?? "";
         Working.AbortOnMeteredNetwork = AbortOnMeteredNetwork;
         Working.BandwidthLimitKBps = Math.Max(0, BandwidthLimitKBps);
-        Working.ExtraBackupArgs = ExtraBackupArgs ?? "";
         Working.Enabled = Enabled;
         Working.FiltersText = FiltersText ?? "";
         Working.IgnoredRecommendationChanges = _ignoredRecommendationChanges.ToList();

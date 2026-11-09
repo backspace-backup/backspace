@@ -29,9 +29,11 @@ internal static class ServiceCommandLineRun
     /// <summary>Run now from the desktop through the service, so files in use
     /// are included without a Windows prompt (U026, 29 October 2026). This
     /// includes backups with automatic backups off (U171): the owner asked
-    /// for this run. False, with nothing started, when the service is not
-    /// active or <see cref="RunsInService"/> says no; the
-    /// caller then runs it itself. Once the start request is sent the result
+    /// for this run. False, with nothing started, only when the service is
+    /// not set up; the caller then runs it itself. With the service set up,
+    /// every backup goes through it: one it can't run, or settings it can't
+    /// read, throw with the reason, so nothing falls back to the window
+    /// without a snapshot. Once the start request is sent the result
     /// belongs to the service: a lost reply must not cause a second run, so
     /// failures after that point are thrown, never reported as false. The
     /// card follows progress and the result through the service's activity,
@@ -41,20 +43,21 @@ internal static class ServiceCommandLineRun
         Action<string>? queued = null)
     {
         ServiceWorkerBinding binding;
-        string revision;
         try
         {
             if (FindBinding(root, AppPaths.ConfigRoot) is not { } found) return false;
-            // The saved settings are what the service runs (U100).
-            var saved = ServiceConfigurationComparison.ReadDesktop(root);
-            if (!RunsInService(saved, backup.Id)) return false;
-            (binding, revision) = (found, Guid.NewGuid().ToString("N"));
+            binding = found;
         }
         catch (Exception ex) when (ex is IOException or System.Security.SecurityException or InvalidDataException or UnauthorizedAccessException)
         {
-            AppLogger.For<SystemBackupService>().Information(ex, "Run now stays in the desktop for {Backup}", backup.Name);
+            AppLogger.For<SystemBackupService>().Information(ex, "Run now stays in the desktop for {Backup}: the background service could not be found", backup.Name);
             return false;
         }
+        // The saved settings are what the service runs (U100). A read failure
+        // is thrown, never a reason to run in the window (U171).
+        if (Refusal(ServiceConfigurationComparison.ReadDesktop(root), backup.Id) is { } refusal)
+            throw new InvalidOperationException(refusal);
+        var revision = Guid.NewGuid().ToString("N");
         await ServiceScheduledRun.RunApprovedAsync(root, binding, revision, backup.Id, "backup", cancellation,
             status => { if (status.Contains("Nothing was started", StringComparison.Ordinal)) notStarted?.Invoke(status); }, queued).ConfigureAwait(false);
         return true;
@@ -62,10 +65,16 @@ internal static class ServiceCommandLineRun
 
     /// <summary>Whether Run now or Save and run hands this saved backup to the
     /// active service: whenever the service can run it, automatic backups
-    /// on or off (U171). Not yet saved, custom engine arguments or a share
-    /// the service can't sign in to: it runs in the window.</summary>
-    internal static bool RunsInService(AppConfig saved, string backupId)
-        => saved.Backups.SingleOrDefault(b => b.Id == backupId) is { } current && SystemServiceRuns.CanRun(current, saved);
+    /// on or off (U171).</summary>
+    internal static bool RunsInService(AppConfig saved, string backupId) => Refusal(saved, backupId) is null;
+
+    /// <summary>Why the active service can't run this backup, for the person;
+    /// null when it can. The run then fails with this reason: it never runs
+    /// in the window instead (U171).</summary>
+    internal static string? Refusal(AppConfig saved, string backupId)
+        => saved.Backups.SingleOrDefault(b => b.Id == backupId) is { } current
+            ? SystemServiceRuns.Refusal(current, saved)
+            : "This backup isn't saved yet. Save it, then run it.";
 
     /// <summary>The backups a command runs. Without a name, those with
     /// automatic backups on; a backup named explicitly runs even with

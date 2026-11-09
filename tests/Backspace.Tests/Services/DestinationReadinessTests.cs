@@ -71,4 +71,28 @@ public sealed class DestinationReadinessTests
         }
         finally { ServiceLocator.Config.Update(cfg => { cfg.Backups.Clear(); cfg.Destinations.Clear(); }); }
     }
+
+    /// <summary>U171: when the background service runs the backup, Run now
+    /// opens a network share that lacks the sign-in the service uses, instead
+    /// of starting a run that can only fail. Without the service the window
+    /// runs it with the person's own Windows sign-in, so nothing is asked.</summary>
+    [Fact]
+    public void A_network_share_needs_its_sign_in_only_when_the_service_runs_the_backup()
+    {
+        using var ws = new TempWorkspace();
+        var vault = Vault(ws);
+        var share = new Destination { Name = "NAS", Kind = DestinationKind.NetworkShare, PathOrSubpath = @"\\nas\backups" };
+        Assert.Null(DestinationReadiness.Problem(share, vault));
+        Assert.Equal("«NAS» isn't set up yet: enter the share's user name and password. Open it from Destinations to finish.",
+            DestinationReadiness.Problem(share, vault, serviceRuns: true));
+
+        share.NetworkUsername = "backup"; share.NetworkPasswordRef = "dest:nas:netpw";
+        Assert.NotNull(DestinationReadiness.Problem(share, vault, serviceRuns: true)); // the password itself is missing
+        vault.Set("dest:nas:netpw", "s3cret");
+        Assert.Null(DestinationReadiness.Problem(share, vault, serviceRuns: true));
+
+        share.PathOrSubpath = @"Z:\backups";
+        Assert.Equal(@"enter its network path, like \\server\share\folder", DestinationReadiness.Steps(share, vault, serviceRuns: true));
+        Assert.Null(DestinationReadiness.Problem(share, vault));
+    }
 }

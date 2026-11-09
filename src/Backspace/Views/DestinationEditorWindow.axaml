@@ -178,7 +178,7 @@
             </StackPanel>
             <Grid ColumnDefinitions="*,22,*">
               <StackPanel Grid.Column="0" Spacing="6">
-                <TextBlock Classes="label-caps" Text="USERNAME (OPTIONAL)"/>
+                <TextBlock Classes="label-caps" Text="{Binding NetworkUsernameLabel}"/>
                 <TextBox Text="{Binding NetworkUsername}"/>
               </StackPanel>
               <StackPanel Grid.Column="2" Spacing="6">
@@ -187,11 +187,13 @@
                          Watermark="{Binding NetworkPasswordWatermark}"/>
               </StackPanel>
             </Grid>
+            <TextBlock Classes="field-error" Text="{Binding NetworkSignInError}" TextWrapping="Wrap"
+                       IsVisible="{Binding NetworkSignInError, Converter={x:Static vm:NotEmpty.To}}"/>
             <TextBlock Classes="helper" TextWrapping="Wrap"
                        Text="The first backup to this folder starts when you start it. After that, a share that doesn't have the backup (a replaced or erased network drive at the same address) is never used without asking you."/>
-            <!-- U071: the background service reaches the share only with these. -->
+            <!-- U071, U171: the background service reaches the share only with these. -->
             <TextBlock Classes="helper" TextWrapping="Wrap"
-                       Text="With administrator access on, these let backups to this share run in the background, with snapshots and before you sign in. Without them, they run from the tray app while you're signed in."/>
+                       Text="With administrator access on, every backup runs in the background service, with snapshots and before you sign in. It signs in to the share with this user name and password, so they are required then."/>
           </StackPanel>
         </Border>
 

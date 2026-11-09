@@ -444,28 +444,10 @@ public sealed class BackupSchedulerTests : IDisposable
         Assert.True(SignInStart.StartsThisCopy(new RecordingSignInStart { Executable = exe }, exe));
     }
 
-    /// <summary>U058: the service cannot reach external drives or network
-    /// shares, so those backups stay with the tray app; every other backup
-    /// runs in the service. One backup to a USB drive used to block turning
-    /// administrator access on, and every later settings change, for all.</summary>
-    [Theory]
-    [InlineData(DestinationKind.LocalFolder, true)]
-    [InlineData(DestinationKind.DropboxAppScoped, true)]
-    [InlineData(DestinationKind.S3Compatible, true)]
-    [InlineData(DestinationKind.ExternalDrive, true)]
-    [InlineData(DestinationKind.NetworkShare, false)]
-    public void Only_backups_the_service_can_reach_run_in_the_service(DestinationKind kind, bool inService)
-    {
-        var cloud = new Destination { Kind = DestinationKind.DropboxAppScoped };
-        var other = new Destination { Kind = kind };
-        var backup = new Backup { Name = "b" };
-        backup.Targets.Add(new BackupTarget { DestinationId = cloud.Id });
-        backup.Targets.Add(new BackupTarget { DestinationId = other.Id });
-        Assert.Equal(inService, SchedulePlan.ServiceCanRun(backup, new[] { cloud, other }));
-    }
-
-    /// <summary>U071: a network share runs in the service only by its network
-    /// path with a saved user name and password; otherwise the tray app keeps it.</summary>
+    /// <summary>U071, U171: the service reaches a share only by its network
+    /// path with a saved user name and password. It runs every backup, so a
+    /// share without them is no longer left to the tray app: Settings names it,
+    /// and Run now opens the destination to enter them.</summary>
     [Theory]
     [InlineData(@"\\nas\backups\pc", "backup", "dest:x:netpw", true)]
     [InlineData(@"\\nas\backups", "backup", "dest:x:netpw", true)]
@@ -473,11 +455,18 @@ public sealed class BackupSchedulerTests : IDisposable
     [InlineData(@"\\nas\backups\pc", "backup", null, false)]
     [InlineData(@"Z:\pc", "backup", "dest:x:netpw", false)]
     [InlineData(@"\\nas", "backup", "dest:x:netpw", false)]
-    public void A_network_share_runs_in_the_service_only_with_saved_credentials(string path, string? user, string? passwordRef, bool inService)
+    public void A_network_share_the_service_cannot_sign_in_to_is_named_up_front(string path, string? user, string? passwordRef, bool reachable)
     {
-        var share = new Destination { Kind = DestinationKind.NetworkShare, PathOrSubpath = path, NetworkUsername = user, NetworkPasswordRef = passwordRef };
+        var share = new Destination { Name = "NAS", Kind = DestinationKind.NetworkShare, PathOrSubpath = path, NetworkUsername = user, NetworkPasswordRef = passwordRef };
+        Assert.Equal(reachable, NetworkSharePath.ServiceCanReach(share));
         var backup = new Backup { Name = "b" };
         backup.Targets.Add(new BackupTarget { DestinationId = share.Id });
-        Assert.Equal(inService, SchedulePlan.ServiceCanRun(backup, new[] { share }));
+        var config = new AppConfig { Backups = [backup], Destinations = [share] };
+        var notice = NetworkSharePath.ServiceSignInNotice(config);
+        if (reachable) Assert.Equal("", notice);
+        else Assert.Equal("The background service runs every backup and signs in to network shares with their own user name and password. Edit «NAS» in Destinations and enter them, or backups to it fail.", notice);
+        // A share no backup uses is not mentioned.
+        backup.Targets.Clear();
+        Assert.Equal("", NetworkSharePath.ServiceSignInNotice(config));
     }
 }

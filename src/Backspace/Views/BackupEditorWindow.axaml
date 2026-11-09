@@ -336,9 +336,8 @@
             <!-- Card: Options. Retention policy goes first per user
                  feedback — it's the most decision-heavy knob; everything
                  else is optional tuning. Prune/Check are close kin of
-                 retention. Name override, threads, bandwidth, VSS,
-                 healthchecks and extra args all live in a toggle-able
-                 Advanced group below. -->
+                 retention. Threads, bandwidth, VSS and healthchecks
+                 live in a toggle-able Advanced group below. -->
             <Border Classes="surface">
               <StackPanel Spacing="16">
                 <TextBlock Classes="section-title" Text="Options" Margin="0"/>
@@ -396,7 +395,7 @@
                            VerticalAlignment="Center"
                            Foreground="{DynamicResource BS.Brush.Accent}"
                            FontWeight="SemiBold"/>
-                <TextBlock Text="(threads, bandwidth, VSS, healthchecks, extra args)"
+                <TextBlock Text="(threads, bandwidth, VSS, healthchecks)"
                            Classes="dim" FontSize="12" VerticalAlignment="Center"/>
               </StackPanel>
             </Button>
@@ -408,8 +407,8 @@
               <StackPanel Spacing="16">
 
                 <!-- Friendly name now lives in the top-of-form card,
-                     before Sources. Threads / bandwidth / VSS / extra
-                     args remain Advanced-only. -->
+                     before Sources. Threads / bandwidth / VSS remain
+                     Advanced-only. -->
 
                 <Grid ColumnDefinitions="*,22,*,22,*">
                   <StackPanel Grid.Column="0" Spacing="6">
@@ -520,16 +519,10 @@
                 </StackPanel>
 
                 <!--
-                  EXTRA BACKUP ARGS was a Duplicacy-era escape hatch
-                  that passed raw flags to `duplicacy backup`. The
-                  backrest + restic engine pair doesn't accept ad-hoc
-                  CLI flags through its RPC surface, so the field is
-                  hidden but the model property stays for backwards
-                  compatibility with existing config files. If
-                  per-backup tuning is ever needed, Backrest's plan
-                  model exposes specific knobs (excludes, hooks,
-                  retention) that should be surfaced as their own
-                  controls — not a free-text args box.
+                  No free-text engine arguments box: per-backup tuning is
+                  surfaced as its own controls. The background service
+                  runs every backup as Windows itself, so settings never
+                  carry arbitrary engine arguments (U171).
                 -->
 
               </StackPanel>

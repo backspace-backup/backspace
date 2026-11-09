@@ -125,7 +125,37 @@ public sealed class ServiceNetworkSharesTests
         vault.Remove(share.NetworkPasswordRef!);
         var fake = new FakeConnector();
         var ex = Assert.Throws<ShareConnectionException>(() => ServiceNetworkShares.Connect(backup, config, vault, fake));
-        Assert.Contains("No password is saved", ex.Message);
+        Assert.Equal("The background service signs in to the network share «Home NAS» with its own user name and password, and none are saved. Edit the destination and enter them.", ex.Message);
+        Assert.Empty(fake.Calls);
+    }
+
+    /// <summary>U171: with the service set up it runs every backup, so a share
+    /// saved without its user name (it used to stay with the window) fails the
+    /// run with what to enter, before any connection or engine start.</summary>
+    [Fact]
+    public void A_share_saved_without_a_user_name_fails_saying_what_to_enter()
+    {
+        var (config, backup, share, vault, ws) = Setup();
+        using var _ = ws;
+        share.NetworkUsername = null;
+        var fake = new FakeConnector();
+        var ex = Assert.Throws<ShareConnectionException>(() => ServiceNetworkShares.Connect(backup, config, vault, fake));
+        Assert.Contains("«Home NAS»", ex.Message);
+        Assert.Contains("enter them", ex.Message);
+        Assert.Empty(fake.Calls);
+    }
+
+    /// <summary>U171: a drive letter exists only in the owner's sign-in. It
+    /// used to be skipped here, leaving the engine to fail on a missing Z:.</summary>
+    [Fact]
+    public void A_share_saved_as_a_drive_letter_fails_asking_for_its_network_path()
+    {
+        var (config, backup, _, vault, ws) = Setup(@"Z:\backups\pc");
+        using var _ = ws;
+        var fake = new FakeConnector();
+        var ex = Assert.Throws<ShareConnectionException>(() => ServiceNetworkShares.Connect(backup, config, vault, fake));
+        Assert.Contains(@"Z:\backups\pc", ex.Message);
+        Assert.Contains(@"enter its network path, like \\server\share\folder", ex.Message);
         Assert.Empty(fake.Calls);
     }
 

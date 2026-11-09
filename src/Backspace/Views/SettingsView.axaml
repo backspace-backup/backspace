@@ -57,6 +57,9 @@
           <Border Classes="notice warn" IsVisible="{Binding Error, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}">
             <TextBlock x:Name="ScheduledBackupsError" Classes="body" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.WarnLightFg}" Text="{Binding Error}"/>
           </Border>
+          <Border Classes="notice warn" IsVisible="{Binding ShareSignInNotice, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}">
+            <TextBlock x:Name="ShareSignInNotice" Classes="body" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.WarnLightFg}" Text="{Binding ShareSignInNotice}"/>
+          </Border>
           <ProgressBar IsIndeterminate="True" Height="4" IsVisible="{Binding IsBusy}"/>
           <StackPanel Orientation="Horizontal" Spacing="12" Margin="30,0,0,0" IsVisible="{Binding HasAction}">
             <Button x:Name="ApplyAutomaticBackups" Classes="primary" Content="{Binding ActionText}" Command="{Binding ApplyCommand}" IsVisible="{Binding HasAction}"/>

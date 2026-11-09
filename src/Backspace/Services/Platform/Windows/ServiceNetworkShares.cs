@@ -15,7 +15,9 @@ namespace Backspace.Services.Platform.Windows;
 /// the owner, and a home NAS refuses the computer's own identity. Before each
 /// run the worker connects to the share's network path with the saved
 /// credentials, in the service's private logon session, and disconnects after.
-/// Without saved credentials the backup stays with the tray app.
+/// With the service set up it runs every backup (U171): without saved
+/// credentials the run fails with a message saying what to enter, and the
+/// destination editor and Run now ask for them first.
 /// </summary>
 internal static class ServiceNetworkShares
 {
@@ -42,10 +44,14 @@ internal static class ServiceNetworkShares
             foreach (var target in backup.Targets)
             {
                 var destination = config.Destinations.FirstOrDefault(d => d.Id == target.DestinationId);
-                if (destination is not { Kind: DestinationKind.NetworkShare } || NetworkSharePath.ShareRoot(destination.PathOrSubpath) is not { } root
-                    || connected.Contains(root, StringComparer.OrdinalIgnoreCase)) continue;
+                if (destination is not { Kind: DestinationKind.NetworkShare }) continue;
+                // A drive letter exists only in the owner's sign-in: the service
+                // can't see it (U171). Never left for the engine to fail on.
+                if (NetworkSharePath.ShareRoot(destination.PathOrSubpath) is not { } root)
+                    throw new ShareConnectionException($"The background service can't find the network share «{destination.Name}» at {destination.PathOrSubpath}: a drive letter exists only while you're signed in. Edit the destination and enter its network path, like \\\\server\\share\\folder.");
+                if (connected.Contains(root, StringComparer.OrdinalIgnoreCase)) continue;
                 if (!NetworkSharePath.ServiceCanReach(destination) || !vault.TryGet(destination.NetworkPasswordRef!, out var password) || password.Length == 0)
-                    throw new ShareConnectionException($"No password is saved for «{destination.Name}». Edit the destination and enter the share's user name and password.");
+                    throw new ShareConnectionException($"The background service signs in to the network share «{destination.Name}» with its own user name and password, and none are saved. Edit the destination and enter them.");
                 var code = connector.Connect(root, destination.NetworkUsername!.Trim(), password);
                 if (code == ErrorSessionCredentialConflict)
                 {

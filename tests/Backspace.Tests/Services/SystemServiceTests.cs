@@ -227,24 +227,54 @@ public sealed class SystemServiceTests
         Assert.Equal(RunKind.Backup, SystemServiceRuns.Authorize(automatic, "b1", "backup", ownerCommand: false).Kind);
     }
 
+    /// <summary>U171: with the service set up, every backup goes through it.
+    /// Nothing is left for the window: a network share without its sign-in is
+    /// handed to the service, whose run fails saying what to enter
+    /// (ServiceNetworkSharesTests), and a backup the service can't run at all
+    /// is refused with the reason instead of running without a snapshot.</summary>
     [Fact]
-    public void Backups_the_service_cannot_run_stay_with_the_window()
+    public void With_the_service_set_up_nothing_is_left_for_the_window()
     {
-        var custom = Config(b => b.ExtraBackupArgs = "--one-file-system");
-        Assert.False(SystemServiceRuns.CanRun(custom.Backups[0], custom));
-        Assert.False(ServiceCommandLineRun.RunsInService(custom, "b1"));
-        Assert.Throws<NotSupportedException>(() => SystemServiceRuns.Authorize(custom, "b1", "backup", ownerCommand: true));
-        // Custom arguments stay in the window with automatic backups off too.
-        var customManual = Config(b => { b.ExtraBackupArgs = "--one-file-system"; b.Enabled = false; });
-        Assert.False(ServiceCommandLineRun.RunsInService(customManual, "b1"));
-        Assert.Throws<NotSupportedException>(() => SystemServiceRuns.Authorize(customManual, "b1", "backup", ownerCommand: true));
-        // Not saved yet: the window runs it.
-        Assert.False(ServiceCommandLineRun.RunsInService(Config(), "unsaved"));
-        var noSources = Config(b => b.SourcePaths = []);
-        Assert.False(SystemServiceRuns.CanRun(noSources.Backups[0], noSources));
-        Assert.Throws<InvalidDataException>(() => SystemServiceRuns.Authorize(Config(), "missing", "backup", ownerCommand: true));
+        // A network share without a saved user name and password: the service runs it.
         var share = Config();
         share.Destinations[0] = new Destination { Id = "d1", Name = "NAS", Kind = DestinationKind.NetworkShare, PathOrSubpath = @"\\nas\backups" };
-        Assert.False(SystemServiceRuns.CanRun(share.Backups[0], share));
+        Assert.True(SystemServiceRuns.CanRun(share.Backups[0], share));
+        Assert.True(ServiceCommandLineRun.RunsInService(share, "b1"));
+        Assert.True(SystemServiceRuns.RunsOnItsOwn(share.Backups[0], share));
+        Assert.Equal(RunKind.Backup, SystemServiceRuns.Authorize(share, "b1", "backup", ownerCommand: false).Kind);
+        // A drive-letter share too: the run explains it can't see the letter.
+        share.Destinations[0].PathOrSubpath = @"Z:\backups";
+        Assert.True(ServiceCommandLineRun.RunsInService(share, "b1"));
+
+        // What the service can't run is refused with the reason, never handed back.
+        Assert.Null(ServiceCommandLineRun.Refusal(Config(), "b1"));
+        Assert.Equal("This backup isn't saved yet. Save it, then run it.", ServiceCommandLineRun.Refusal(Config(), "unsaved"));
+        var noSources = Config(b => b.SourcePaths = []);
+        Assert.False(SystemServiceRuns.CanRun(noSources.Backups[0], noSources));
+        Assert.Equal("This backup has no folders to back up. Edit it and choose them.", ServiceCommandLineRun.Refusal(noSources, "b1"));
+        var refused = Assert.Throws<NotSupportedException>(() => SystemServiceRuns.Authorize(noSources, "b1", "backup", ownerCommand: true));
+        Assert.Equal("This backup has no folders to back up. Edit it and choose them.", refused.Message);
+        var lostDestination = Config(b => b.Targets = [new BackupTarget { DestinationId = "gone" }]);
+        Assert.Contains("no destination", ServiceCommandLineRun.Refusal(lostDestination, "b1"));
+        Assert.Throws<InvalidDataException>(() => SystemServiceRuns.Authorize(Config(), "missing", "backup", ownerCommand: true));
+    }
+
+    /// <summary>U171: settings carry no engine arguments. The old free-text
+    /// field (never passed to restic since 1.0) is gone: a saved value in
+    /// config.json is ignored on load and dropped on the next save, and it no
+    /// longer keeps a backup out of the service. The service reads settings
+    /// strictly (unknown fields refused), and the owner's saved settings hold
+    /// "extraBackupArgs": "" for every backup, so this load must keep working.</summary>
+    [Fact]
+    public void Settings_carry_no_engine_arguments()
+    {
+        Assert.Null(typeof(Backup).GetProperty("ExtraBackupArgs"));
+        var json = System.Text.Json.JsonSerializer.Serialize(Config(b => b.Enabled = false), ServiceRunAuthorization.Json);
+        var withArguments = json.Replace("\"enabled\":false", "\"enabled\":false,\"extraBackupArgs\":\"--password-command cmd.exe\"", StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual(json, withArguments);
+        var loaded = System.Text.Json.JsonSerializer.Deserialize<AppConfig>(withArguments, ServiceRunAuthorization.Json)!;
+        Assert.True(ServiceCommandLineRun.RunsInService(loaded, "b1"));
+        Assert.DoesNotContain("password-command", System.Text.Json.JsonSerializer.Serialize(loaded, ServiceRunAuthorization.Json));
+        Assert.DoesNotContain("password-command", string.Join(" ", ResticBackrestEngine.BuildBackupFlags(loaded.Backups[0])));
     }
 }
