@@ -549,6 +549,11 @@ only those files has no vault, and the first save asks for a password.
    preserving unknown daemon fields. Backup plans use keep-all retention;
    explicit inline or independently scheduled cleanup uses a tracked command
    with the configured retention and both the backup's plan and instance tags.
+   That forget command is the only thing that deletes snapshots. Its options
+   come from `KeepPolicyRules.cs`: Duplicacy `n:m` rules become `--keep-within`
+   for the newest window and `--keep-within-daily|weekly|monthly|yearly` up to
+   the next rule's age (U172); Backrest's retention policy has no keep-within
+   form, so it cannot carry them. A policy that does not parse deletes nothing.
    It never temporarily changes a shared plan's retention. This prevents Backrest's automatic cleanup
    from running ahead of Backspace's schedule or duplicating its inline request.
    Healthy tasks do not run an unconditional unlock first. A confirmed lock
@@ -557,11 +562,6 @@ only those files has no vault, and the first save asks for a password.
    replacement conflicts reread and retry at most four times; unrelated failures
    and persistent permission errors remain failures.
    Backrest 1.14.1's automatic snapshot index has no pending operation record.
-   That forget command is the only thing that deletes snapshots. Its options
-   come from `KeepPolicyRules.cs`: Duplicacy `n:m` rules become `--keep-within`
-   for the newest window and `--keep-within-daily|weekly|monthly|yearly` up to
-   the next rule's age (U172); Backrest's retention policy has no keep-within
-   form, so it cannot carry them. A policy that does not parse deletes nothing.
    After a saved backup, Backspace waits for both the repository's finished-index
    counter and the exact snapshot's index record. This keeps subsequent reads
    from racing the invisible task. A failed index or unconfirmed cancellation

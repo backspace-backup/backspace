@@ -121,8 +121,6 @@ deletes data no snapshot uses, such as the first copy of what an interrupted
 backup sent again. While it runs, the storage can't be used by another
 operation.
 
-The log ends the cleanup with what it removed ("[cleanup] 2 old backups removed
-· 1.3 GB freed in the storage"), and the backup’s **History** adds "1.3 GB
 ### Retention policy (which old backups are kept)
 
 The **Retention policy** box in the backup editor takes Duplicacy's `n:m`
@@ -151,6 +149,8 @@ A policy the editor refuses (two rules with the same age, a `0:m` rule that
 is not the oldest, `0:0`) deletes nothing: the cleanup keeps every backup and
 says why in the log.
 
+The log ends the cleanup with what it removed ("[cleanup] 2 old backups removed
+· 1.3 GB freed in the storage"), and the backup’s **History** adds "1.3 GB
 freed" to its run when something was freed. With what each backup added, it
 shows why the storage doesn’t only grow.
 
