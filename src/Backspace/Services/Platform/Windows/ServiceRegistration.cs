@@ -20,9 +20,17 @@ internal static class ServiceRegistration
     /// The owner's tray app starts it too, for alerts and saved passwords; when
     /// both start it at once Windows refuses the second start, which is not an
     /// error (a settings update failed this way in the release VM check).</summary>
-    internal static void EnsureRunning(ServiceController controller, TimeSpan timeout)
+    /// <param name="arguments">Passed to the service when this call starts
+    /// it: <see cref="SystemServiceLifetime.ForCommand"/> runs the owner's
+    /// command even after Quit, and only that (U180).</param>
+    internal static void EnsureRunning(ServiceController controller, TimeSpan timeout, params string[] arguments)
     {
-        StartUnlessStarted(() => { controller.Refresh(); return controller.Status; }, controller.Start);
+        // Still stopping (Quit a moment ago): wait until it has, then start it.
+        controller.Refresh();
+        if (controller.Status == ServiceControllerStatus.StopPending)
+            controller.WaitForStatus(ServiceControllerStatus.Stopped, timeout);
+        StartUnlessStarted(() => { controller.Refresh(); return controller.Status; },
+            () => { if (arguments.Length > 0) controller.Start(arguments); else controller.Start(); });
         controller.WaitForStatus(ServiceControllerStatus.Running, timeout);
     }
 

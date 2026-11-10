@@ -87,6 +87,25 @@ internal static class ServiceCommandLineRun
         return matches;
     }
 
+    /// <summary>What the person asked for: "backup", "check" or "cleanup".</summary>
+    internal static string Noun(string operation) => operation switch { "check" => "check", "prune" => "cleanup", _ => "backup" };
+
+    /// <summary>The message when a command could not run (U180, 10 November
+    /// 2026: "--check local_d" after Quit said "The backup command could not
+    /// complete: The operation requested for service … has not been completed
+    /// within the specified time interval."). Names the command and, when the
+    /// service did not start, why and what to do.</summary>
+    internal static string Failure(string operation, Exception error)
+    {
+        var what = $"The {Noun(operation)} command could not run";
+        return error is System.ServiceProcess.TimeoutException
+            or InvalidOperationException { InnerException: System.ComponentModel.Win32Exception }
+            ? $"{what}: Backspace's background service did not start within {ServiceScheduledRun.StartTimeout.TotalSeconds:0} seconds, "
+                + "so nothing was started. Open Backspace (that starts the service again), then run the command again. ("
+                + error.Message + ")"
+            : $"{what}: {error.Message}";
+    }
+
     internal static async Task<int> RunAsync(string root, ServiceWorkerBinding binding, string? name,
         string operation, TextWriter output, CancellationToken cancellation)
     {
@@ -111,7 +130,7 @@ internal static class ServiceCommandLineRun
                 stop.Token.ThrowIfCancellationRequested();
                 await output.WriteLineAsync($"=== {backup.Name} :: {operation} ===").ConfigureAwait(false);
                 var code = await ServiceScheduledRun.RunApprovedAsync(root, binding, revision, backup.Id,
-                    operation, stop.Token, output.WriteLine).ConfigureAwait(false);
+                    operation, stop.Token, output.WriteLine, commandLine: true).ConfigureAwait(false);
                 if (code != 0) result = code;
             }
             return result;

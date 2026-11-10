@@ -49,6 +49,8 @@ internal sealed class SystemBackupService : ServiceBase
     private WorkerRun? _latest;
     private IReadOnlyList<Destination> _scheduleDestinations = [];
     private bool _unreadableSettingsLogged;
+    // Started for the owner's command after Quit (U180).
+    private volatile bool _commandOnly;
 
     /// <summary>One worker's run, as the activity and the run pipe report it.</summary>
     private sealed class WorkerRun(string runId)
@@ -115,14 +117,19 @@ internal sealed class SystemBackupService : ServiceBase
         // Started by Windows while the owner had quit Backspace (a resume
         // from sleep, or a start trigger): stay stopped until the next sign-in,
         // restart or Windows start.
-        if (SystemServiceLifetime.StaysQuit(_binding.DataDirectory, out var reason, () => RequestAdditionalTime(2000)))
+        var mode = SystemServiceLifetime.ModeFor(
+            SystemServiceLifetime.StaysQuit(_binding.DataDirectory, out var reason, () => RequestAdditionalTime(2000)), args);
+        if (mode == SystemServiceLifetime.StartMode.StayStopped)
         {
             log.Information("Staying stopped: {Reason}", reason);
             ExitCode = 0;
             _ = Task.Run(Stop);
             return;
         }
-        log.Information("The background service started ({Reason})", reason);
+        // The owner's command line after Quit (U180): that command only.
+        _commandOnly = mode == SystemServiceLifetime.StartMode.CommandOnly;
+        if (_commandOnly) log.Information("Started for the owner's command only; scheduled backups stay stopped ({Reason})", reason);
+        else log.Information("The background service started ({Reason})", reason);
         // Windows' own account may read every file; these let its engines
         // open files whatever their permissions, as backup programs do.
         try { ServiceWorkerPrivileges.EnableExistingBackupRights(); }
@@ -205,11 +212,7 @@ internal sealed class SystemBackupService : ServiceBase
             // desktop reads this service's history and logs from the portable
             // folder, where they inherit its permissions.
             var notifications = new ServiceNotificationProtocol(new(_binding.DataDirectory)).ServeAsync(_binding, _stop.Token);
-            // Due plans start together (U156); the limits decide who waits.
-            var schedule = new ScheduleLoop(new(Path.Combine(_binding.DataDirectory, "schedule-state.json"),
-                SchedulePlans, RunScheduledAsync, plan => ScheduleConditions.Blocked(plan, _scheduleDestinations,
-                    ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable), ScheduleConditions.OnBattery,
-                MaxParallel: () => MaxWorkers)).RunAsync(_stop.Token);
+            var schedule = _commandOnly ? CommandOnlyAsync() : ScheduleAsync();
             var ended = await Task.WhenAny(commands, notifications, schedule).ConfigureAwait(false);
             await ended.ConfigureAwait(false);
         }
@@ -221,6 +224,39 @@ internal sealed class SystemBackupService : ServiceBase
             ExitCode = 1066;
             _stop.Cancel();
             _ = Task.Run(Stop);
+        }
+    }
+
+    // Due plans start together (U156); the limits decide who waits.
+    private Task ScheduleAsync() => new ScheduleLoop(new(Path.Combine(_binding.DataDirectory, "schedule-state.json"),
+        SchedulePlans, RunScheduledAsync, plan => ScheduleConditions.Blocked(plan, _scheduleDestinations,
+            ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable), ScheduleConditions.OnBattery,
+        MaxParallel: () => MaxWorkers)).RunAsync(_stop.Token);
+
+    /// <summary>Started for the owner's command after Quit (U180): no schedule.
+    /// Stops once the command's runs are over and nothing ran for a moment.
+    /// Opening Backspace meanwhile ends the Quit: the schedule then starts.</summary>
+    private async Task CommandOnlyAsync()
+    {
+        var started = DateTime.UtcNow;
+        DateTime? lastActive = null;
+        while (!_stop.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), _stop.Token).ConfigureAwait(false);
+            bool active;
+            lock (_gate) active = AnyActive;
+            if (active) { lastActive = DateTime.UtcNow; continue; }
+            if (!SystemServiceLifetime.CommandDone(started, lastActive, active, DateTime.UtcNow)) continue;
+            if (!SystemServiceLifetime.StaysQuit(_binding.DataDirectory, out var reason))
+            {
+                AppLogger.For<SystemBackupService>().Information("The Quit ended ({Reason}); scheduled backups start again", reason);
+                _commandOnly = false;
+                await ScheduleAsync().ConfigureAwait(false);
+                return;
+            }
+            AppLogger.For<SystemBackupService>().Information("The owner's command is done; stopping again, as Backspace was quit");
+            _ = Task.Run(Stop);
+            return;
         }
     }
 

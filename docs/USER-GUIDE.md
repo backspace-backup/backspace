@@ -963,8 +963,14 @@ Backspace --background             # start in the tray only (used at sign-in)
 Backspace --run <backup-name>      # run one backup now, without the app
 Backspace --run-all                # run every enabled backup
 Backspace --prune <backup-name>    # apply the backup's retention policy
-Backspace --check <backup-name>    # check the backup's repositories
+Backspace --check <backup-name>    # run every check of the backup, one after another
 Backspace --migrate <path>         # import an existing Duplicacy setup
 Backspace --version
 Backspace --help
 ```
+
+With the background service set up, these commands run in it. After **Quit**
+they still run: the service starts for that command only, keeps scheduled
+backups stopped and stops again when the command is done, so Quit still holds.
+If the service can't start, the command says so and what to do, naming the
+command (backup, check or cleanup).

@@ -108,18 +108,19 @@ internal static class Program
             {
 #if WINDOWS
                 var root = AppContext.BaseDirectory.TrimEnd('\\');
+                var operation = initialMode == RunMode.PruneOne ? "prune" : initialMode == RunMode.CheckOne ? "check" : "backup";
                 try
                 {
                     if (Services.Platform.Windows.ServiceCommandLineRun.FindBinding(root, AppPaths.ConfigRoot) is { } binding)
                     {
                         updateRuntimeLease = WindowsUpdateRuntime.AcquireShared(root, TimeSpan.FromSeconds(30));
                         var selected = ParseMode(args);
-                        var operation = initialMode == RunMode.PruneOne ? "prune" : initialMode == RunMode.CheckOne ? "check" : "backup";
                         return Services.Platform.Windows.ServiceCommandLineRun.RunAsync(root, binding, selected.BackupName,
                             operation, Console.Out, CancellationToken.None).GetAwaiter().GetResult();
                     }
                 }
-                catch (Exception ex) { Console.Error.WriteLine("The backup command could not complete: " + ex.Message); return 4; }
+                // Names the command and, when the service did not start, why (U180).
+                catch (Exception ex) { Console.Error.WriteLine(Services.Platform.Windows.ServiceCommandLineRun.Failure(operation, ex)); return 4; }
 #endif
                 // Admit before loading secrets, starting engines or checking for
                 // updates. The shared lease survives engine disposal in finally.

@@ -17,6 +17,31 @@ namespace Backspace.Services.Platform.Windows;
 internal static class SystemServiceLifetime
 {
     internal const string FileName = "quit.json";
+
+    /// <summary>The start argument of the owner's command line (--run,
+    /// --check, --prune, --run-all) (U180, 10 November 2026). After Quit the
+    /// service then starts for that command only: it runs it, keeps the
+    /// schedule stopped and stops again once idle, and the Quit still holds.
+    /// Quit means "no scheduled work"; a command typed by the owner is an
+    /// explicit request, so it runs, without bringing the schedule back.</summary>
+    internal const string ForCommand = "--for-command";
+
+    internal enum StartMode { Normal, CommandOnly, StayStopped }
+
+    /// <summary>How the service starts: normally, for the owner's command only
+    /// while the Quit holds, or not at all (a start by Windows after Quit).</summary>
+    internal static StartMode ModeFor(bool staysQuit, string[]? arguments)
+        => !staysQuit ? StartMode.Normal
+            : arguments is not null && Array.IndexOf(arguments, ForCommand) >= 0 ? StartMode.CommandOnly
+            : StartMode.StayStopped;
+
+    /// <summary>A service started for a command stops once nothing has run for
+    /// <see cref="CommandIdle"/> after a run, or <see cref="CommandWait"/>
+    /// when no run came at all.</summary>
+    internal static readonly TimeSpan CommandIdle = TimeSpan.FromSeconds(20), CommandWait = TimeSpan.FromMinutes(2);
+
+    internal static bool CommandDone(DateTime startedUtc, DateTime? lastActiveUtc, bool anyActive, DateTime nowUtc)
+        => !anyActive && (lastActiveUtc is { } last ? nowUtc - last >= CommandIdle : nowUtc - startedUtc >= CommandWait);
     internal sealed record QuitRecord(int Version, int SessionId, long LogonTime, string Account, uint? BootId, DateTime QuitUtc);
 
     internal static string PathFor(string dataDirectory) => Path.Combine(dataDirectory, FileName);

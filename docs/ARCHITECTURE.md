@@ -124,6 +124,16 @@ waking from sleep or hibernation, and otherwise deletes it. Updates stop the
 service, replace `Backspace.exe` like any portable copy and start it again
 (`WindowsUpdateRuntime.ApplyPendingAfterExit`).
 
+The owner's command line (`--run`, `--run-all`, `--check`, `--prune`) is an
+explicit request, so it runs after Quit too (U180): `ServiceScheduledRun`
+starts the service with `SystemServiceLifetime.ForCommand`. While the Quit
+holds, the service then starts in command-only mode: no schedule, the runs pipe
+only, and it stops again once nothing has run for 20 seconds (two minutes if no
+run came). The Quit record stays. If the owner opens Backspace meanwhile, the
+Quit ends and the schedule starts. A start without that argument (Windows,
+after Quit) still stays stopped. When the service can't start, the command
+prints `ServiceCommandLineRun.Failure`: which command, why, and what to do.
+
 **One copy per Windows account** (`InstallationHandover`): a GUI started from a
 folder other than the one the service or the sign-in entry uses offers to
 update that copy (stop its service, replace its `Backspace.exe`, open it), to

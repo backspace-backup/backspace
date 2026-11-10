@@ -17,10 +17,11 @@ internal static class ServiceScheduledRun
 {
     internal sealed record Response(int Version, string? RunId, string State, int? ExitCode, string? Error);
     private static readonly TimeSpan ExchangeTimeout = TimeSpan.FromSeconds(8);
+    internal static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(20);
 
     internal static async Task<int> RunApprovedAsync(string installation, ServiceWorkerBinding binding,
         string revision, string backupId, string operation, CancellationToken cancellation, Action<string>? status = null,
-        Action<string>? queued = null)
+        Action<string>? queued = null, bool commandLine = false)
     {
         // The service runs the settings as saved (U100); the revision is unused.
         revision = Guid.NewGuid().ToString("N");
@@ -36,7 +37,9 @@ internal static class ServiceScheduledRun
         if (schedule?.PausedUntilUtc > DateTime.UtcNow)
         { status?.Invoke($"Paused until {schedule.PausedUntilUtc:O}. Nothing was started."); return 0; }
         using var controller = new ServiceController(binding.ServiceName);
-        ServiceRegistration.EnsureRunning(controller, TimeSpan.FromSeconds(20));
+        // The owner's command line runs even after Quit, without bringing the
+        // schedule back (U180); Run now comes from an open Backspace.
+        ServiceRegistration.EnsureRunning(controller, StartTimeout, commandLine ? [SystemServiceLifetime.ForCommand] : []);
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
         return await RunAsync(request, async (message, token) =>
         {
@@ -49,7 +52,7 @@ internal static class ServiceScheduledRun
                 ?? throw new InvalidDataException("The backup service returned an empty status.");
         }, delay: token => Task.Delay(PollInterval(elapsed.Elapsed), token), cancellation, outcome => status?.Invoke(
             outcome.State == "paused" ? "Automatic backups are paused for this Windows session. Nothing was started."
-            : outcome.ExitCode == 0 ? "Command finished. See Activity & logs for the backup result."
+            : outcome.ExitCode == 0 ? $"Command finished. See Activity & logs for the {ServiceCommandLineRun.Noun(operation)} result."
             : "The operation did not finish successfully. See Activity & logs for details."), queued).ConfigureAwait(false);
     }
 
@@ -62,7 +65,7 @@ internal static class ServiceScheduledRun
     internal static async Task<int> RunAsync(ServiceHostRequest start,
         Func<ServiceHostRequest, CancellationToken, Task<Response>> exchange,
         Func<CancellationToken, Task> delay, CancellationToken cancellation, Action<Response>? finishedResponse = null,
-        Action<string>? queued = null)
+        Action<string>? queued = null, bool commandLine = false)
     {
         string? runId = null;
         var finished = false;
