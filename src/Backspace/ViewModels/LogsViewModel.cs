@@ -604,7 +604,23 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             // signal arrived without backupName context.
             var synthetic = History.FirstOrDefault(r =>
                 r is { Status: BackupRunStatus.Running, EndedUtc: null });
+            // A restore writes no section marker of its own: its header
+            // starts its part of the live view (U176).
+            if (!string.IsNullOrEmpty(backupName))
+            {
+                var operation = synthetic?.Kind switch
+                {
+                    RunKind.TestRestore => "test restore",
+                    RunKind.Check => "check",
+                    RunKind.Prune => "cleanup",
+                    RunKind.Backup => "backup",
+                    RunKind.Restore => "restore",
+                    _ => null,
+                };
+                _liveLines.Add(new ConsoleLine(operation is null ? backupName : backupName + " · " + operation, ConsoleLineKind.Section, DateTime.Now));
+            }
             SelectedRun = synthetic;
+            SyncDisplay();
             // SelectedRun setter already nudges DisplayText/IsShowingLive.
             // When synthetic is null (no in-flight registered yet),
             // SelectedRun = null still flips IsShowingLive → Live.

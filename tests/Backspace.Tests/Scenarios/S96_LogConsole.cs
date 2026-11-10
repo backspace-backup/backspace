@@ -328,7 +328,7 @@ public sealed class S96_LogConsole : ScenarioBase
             Assert.True(errorList.IsEffectivelyVisible);
             Assert.Equal(5, vm.ErrorLines.Count); // tasklog error, STATUS_ERROR, attempt failed, non-retriable, last error
             Assert.Equal("5 errors in this run", view.FindControl<TextBlock>("ErrorListTitle")!.Text);
-            Assert.Equal(DarkBrush("BS.Brush.WarnTintFg"), Row(l => l.Text.StartsWith("[tasklog]") && l.Kind == ConsoleLineKind.Warning).TextBlock.Foreground);
+            Assert.Equal(DarkBrush("BS.Brush.Warn"), Row(l => l.Text.StartsWith("[tasklog]") && l.Kind == ConsoleLineKind.Warning).TextBlock.Foreground);
             Assert.Equal(DarkBrush("BS.Brush.DangerTintFg"), Row(l => l.Text.StartsWith("[orchestrator] attempt 1 failed")).TextBlock.Foreground);
             ctx.Snapshot(host, "failed run errors",
                 "A failed run: above its log, '5 errors in this run' lists each error (time and message, red); the warnings in the log are amber and the errors red.");
@@ -353,9 +353,26 @@ public sealed class S96_LogConsole : ScenarioBase
             // A run that did not fail has no list, even with warnings.
             await Open(warned, "[recap]");
             Assert.False(errorList.IsEffectivelyVisible);
-            Assert.All(Rows().Where(r => r.Line!.Text.StartsWith("[restic] {")), r => Assert.Equal(DarkBrush("BS.Brush.WarnTintFg"), r.TextBlock.Foreground));
+            Assert.All(Rows().Where(r => r.Line!.Text.StartsWith("[restic] {")), r => Assert.Equal(DarkBrush("BS.Brush.Warn"), r.TextBlock.Foreground));
             ctx.Snapshot(host, "warning run",
-                "A run with warnings: restic's unreadable files and Backrest's STATUS_WARNING in amber, the outcome 'Warning' amber, no error list.");
+                "A run with warnings: restic's unreadable files and Backrest's STATUS_WARNING in amber, the outcome 'Warning' amber, no error list; the recap below them in the accent blue, semibold.");
+
+            // The recap stands out by weight as well as colour, and no accent's
+            // console tint is the warning or error colour (Terracotta's is
+            // orange, Graphite's near-white).
+            var recapRow = Row(l => l.Text.StartsWith("[recap]"));
+            Assert.Equal(FontWeight.SemiBold, recapRow.TextBlock.FontWeight);
+            Assert.Equal(FontWeight.Normal, Row(l => l.Kind == ConsoleLineKind.Warning).TextBlock.FontWeight);
+            var warn = ((ISolidColorBrush)DarkBrush("BS.Brush.Warn")).Color;
+            var danger = ((ISolidColorBrush)DarkBrush("BS.Brush.DangerTintFg")).Color;
+            foreach (var accent in Enum.GetNames<AccentColor>())
+            {
+                var dictionary = (IResourceProvider)Avalonia.Markup.Xaml.AvaloniaXamlLoader.Load(new Uri($"avares://Backspace/Themes/Accent_{accent}.axaml"));
+                Assert.True(dictionary.TryGetResource("BS.Brush.AccentTintFg", ThemeVariant.Dark, out var tint), accent);
+                var color = ((ISolidColorBrush)tint!).Color;
+                Assert.NotEqual(warn, color);
+                Assert.NotEqual(danger, color);
+            }
 
             // ---- Live: several runs in a row, each with its header ----
             vm.SelectedRun = null;
@@ -363,6 +380,7 @@ public sealed class S96_LogConsole : ScenarioBase
             Assert.True(vm.IsShowingLive);
             Assert.False(view.FindControl<Button>("OpenLogFile")!.IsEffectivelyVisible);
             Click(host, view.FindControl<Button>("ClearLog")!);
+            host.MouseMove(new Point(2, 2)); // no tooltip over the screenshots
             await ctx.Driver.PumpAsync(50);
             var engine = ServiceLocator.Engine;
             foreach (var (_, line) in WarningLines("USB drive (E:)")) engine.RaiseLineWritten(line);
@@ -391,6 +409,50 @@ public sealed class S96_LogConsole : ScenarioBase
                 ctx.Snapshot(host, "failed run dark", "The failed run with its error list in the dark app theme.");
             }
             finally { SetTheme(ThemeVariant.Light); }
+            vm.SelectedRun = null;
+            await ctx.Driver.PumpAsync(100);
+
+            // A restore writes no marker of its own: the page starts its header.
+            var restoring = new RunRecord { BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Restore,
+                StartedUtc = DateTime.UtcNow, Status = BackupRunStatus.Running, Summary = "Running…" };
+            ServiceLocator.Activity.Register(restoring);
+            try
+            {
+                AppNavigator.SignalLiveActivity(backup.Name);
+                await ctx.Driver.PumpAsync(200);
+                Assert.True(vm.IsShowingLive);
+                engine.RaiseLineWritten("[restore] starting 3 item(s)");
+                engine.RaiseLineWritten("[restore] done: status=Success 3/3");
+                Assert.True(ctx.Driver.WaitFor(() => vm.DisplayText.Contains("[restore] done"), 4000));
+                var restoreHeader = vm.DisplayLines.First();
+                Assert.Equal(ConsoleLineKind.Section, restoreHeader.Kind);
+                Assert.Equal("local_c · restore", restoreHeader.Text);
+                Assert.Equal(ConsoleLineKind.Summary, vm.DisplayLines.Last().Kind);
+                await ctx.Driver.PumpAsync(100);
+                ctx.Snapshot(host, "live restore",
+                    "A restore started from the Restore page: the live view starts again with a 'local_c · restore · HH:mm' header; 'done: status=Success 3/3' in the accent.");
+            }
+            finally { ServiceLocator.Activity.Unregister(restoring.Id); }
+            // The finished restore leaves the run picker on a saved run; back to live output.
+            await ctx.Driver.PumpAsync(200);
+            vm.SelectedRun = null;
+            await ctx.Driver.PumpAsync(100);
+
+            // The live view keeps the last 80,000 of more than 100,000 lines, says so first, and still follows.
+            Click(host, view.FindControl<Button>("ClearLog")!);
+            host.MouseMove(new Point(2, 2));
+            for (var i = 0; i <= LogsViewModel.LiveLineCap; i++) engine.RaiseLineWritten("[progress] 1.0% · " + i);
+            Assert.True(ctx.Driver.WaitFor(() => vm.DisplayLines.Count is > 1000 and < LogsViewModel.LiveLineCap, 20_000), "The live view did not trim to its cap.");
+            await ctx.Driver.PumpAsync(200);
+            Assert.StartsWith("[live-tail truncated", vm.DisplayLines[0].Text);
+            Assert.EndsWith("· " + LogsViewModel.LiveLineCap, vm.DisplayLines[^1].Text);
+            Assert.True(view.IsFollowing);
+            Assert.True(Math.Abs(scroll.Offset.Y - Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height)) < 2, "The long live view did not follow its last line.");
+            Assert.True(Rows().Count < 200, "The live view is not virtualized.");
+            Click(host, view.FindControl<Button>("ClearLog")!);
+            await ctx.Driver.PumpAsync(50);
+            Assert.Empty(vm.DisplayLines);
+
 
             // ---- 100,000 lines: virtualized, smooth ----
             vm.ShowTimestamps = false;

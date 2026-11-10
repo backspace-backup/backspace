@@ -500,9 +500,10 @@ unchanged, data added to the storage, duration and the snapshot made.
 Lines are coloured by what they are: setup lines dim, progress lines muted
 with their percentage bright, warnings amber, errors red, and the recap and
 summaries (online-only files skipped, what a cleanup removed) in the accent
-colour; file paths are a shade brighter. Where a backup, a check or a cleanup
-starts, a thin rule and a bold header ("local_c · backup · 20:00", the
-destination on the right) keep several runs apart, and the header's **Copy**
+colour (also semibold, so it stands out whatever the accent); file paths are
+a shade brighter. Where a backup, a check, a cleanup or a restore
+starts, a thin rule and a bold header ("local_c · backup · 20:00", where it
+ran on the right) keep several runs apart, and the header's **Copy**
 copies just that part. Tick **Timestamps** to show the time each line was
 written in a narrow column on the left; Backspace remembers the choice (logs
 written by earlier versions did not record times, so their column stays

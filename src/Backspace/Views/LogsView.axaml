@@ -103,14 +103,19 @@
     <Style Selector="TextBlock.ln-progress">
       <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
     </Style>
+    <!-- Amber: the theme's Warn (dark variant, 9.9:1), not the orange tint an
+         accent can share. -->
     <Style Selector="TextBlock.ln-warning">
-      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.WarnTintFg}"/>
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.Warn}"/>
     </Style>
     <Style Selector="TextBlock.ln-error">
       <Setter Property="Foreground" Value="{DynamicResource BS.Brush.DangerTintFg}"/>
     </Style>
     <Style Selector="TextBlock.ln-summary">
       <Setter Property="Foreground" Value="{DynamicResource BS.Brush.AccentTintFg}"/>
+      <!-- Semibold too: with the Terracotta or Graphite accent the colour
+           alone is close to a warning or to plain text. -->
+      <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
     <Style Selector="TextBlock.ln-blank">
       <Setter Property="LineHeight" Value="10"/>
