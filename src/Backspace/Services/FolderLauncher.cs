@@ -27,4 +27,22 @@ public static class FolderLauncher
             return false;
         }
     }
+
+    /// <summary>Opens a file in the app the system uses for it (a run's log
+    /// file in Notepad, U176). A file that no longer exists is not opened.</summary>
+    public static bool OpenFile(string? path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
+            if (LaunchOverride is { } launch) { launch(path); return true; }
+            using var _ = Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.For(nameof(FolderLauncher)).Warning(ex, "Open file failed for {Path}", path);
+            return false;
+        }
+    }
 }

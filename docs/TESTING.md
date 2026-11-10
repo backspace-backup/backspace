@@ -482,6 +482,8 @@ and switching away from Mailgun sandbox restrictions. It does not send email.
 `S11_LogsViewPopulated` checks combined live output and separate saved history
 with injected activity and log signals, rather than concurrent real engines.
 
+`ConsoleLogTests` classifies real log lines (setup, progress, recap and summaries, warnings, errors, engine debug, file lines) with the near misses that must not match, and parses a run log's header, section markers, stamps and outcome block. `S96_LogConsole` drives Activity & logs through its controls with run logs in the orchestrator's format: colours from the dark-variant theme tokens, the remembered Timestamps column (read back from the saved settings), Copy of the whole log, of one section and of dragged lines, Open log file, a failed run's error list jumping to its line, several live runs with their headers, both app themes, and a 100,000-line log (only the visible rows drawn).
+
 ### Production scale
 
 `E49_TestRestoreProgress` clicks the actual sample/full chooser and Cancel

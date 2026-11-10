@@ -2,9 +2,22 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Backspace.ViewModels"
              xmlns:m="using:Backspace.Models"
+             xmlns:svc="using:Backspace.Services"
+             xmlns:v="using:Backspace.Views"
              x:Class="Backspace.Views.LogsView"
+             x:Name="Root"
              x:DataType="vm:LogsViewModel"
              Background="{DynamicResource BS.Brush.BgBase}">
+
+  <UserControl.Resources>
+    <!-- Console-only tokens. Everything else in the console uses the
+         theme's dark-variant colours (the console sits in a dark theme
+         scope), so status colours read on it in both app themes. -->
+    <SolidColorBrush x:Key="BS.Brush.ConsoleFg" Color="#D7DCE2"/>
+    <SolidColorBrush x:Key="BS.Brush.ConsoleTag" Color="#6E7681"/>
+    <SolidColorBrush x:Key="BS.Brush.ConsoleRule" Color="#2A3340"/>
+    <SolidColorBrush x:Key="BS.Brush.ConsoleSelection" Color="#264F78"/>
+  </UserControl.Resources>
 
   <UserControl.Styles>
     <!-- The console stays dark in either app theme. Theme-wide ghost
@@ -36,6 +49,114 @@
     <Style Selector="Border.run-status.warn > TextBlock"><Setter Property="Foreground" Value="#F5C26B"/></Style>
     <Style Selector="Border.run-status.fail"><Setter Property="Background" Value="#4A1C1C"/></Style>
     <Style Selector="Border.run-status.fail > TextBlock"><Setter Property="Foreground" Value="#FF9A9A"/></Style>
+
+    <!-- Header buttons: one size, the console's palette. -->
+    <Style Selector="Button.console-header">
+      <Setter Property="Padding" Value="10,7"/>
+      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Background" Value="#1F2630"/>
+      <Setter Property="BorderBrush" Value="#2A3340"/>
+      <Setter Property="Foreground" Value="#C9D1D9"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <!-- Header switches: the theme's unticked box outline is invisible on
+         the dark console header. -->
+    <Style Selector="CheckBox.console-switch">
+      <Setter Property="Foreground" Value="#C9D1D9"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="BorderBrush" Value="#8B949E"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- Console lines (U176): colour by line type. -->
+    <Style Selector="v|ConsoleLineRow">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="CornerRadius" Value="3"/>
+      <Setter Property="Padding" Value="4,0"/>
+    </Style>
+    <Style Selector="v|ConsoleLineRow.selected">
+      <Setter Property="Background" Value="{StaticResource BS.Brush.ConsoleSelection}"/>
+    </Style>
+    <Style Selector="v|ConsoleLineRow.flash">
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.DangerLightBg}"/>
+    </Style>
+    <Style Selector="TextBlock.ln, TextBlock.ln-time">
+      <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Mono}"/>
+      <Setter Property="FontSize" Value="12.5"/>
+      <Setter Property="LineHeight" Value="19"/>
+      <Setter Property="Foreground" Value="{StaticResource BS.Brush.ConsoleFg}"/>
+    </Style>
+    <Style Selector="TextBlock.ln-time">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgDim}"/>
+      <Setter Property="Width" Value="68"/>
+      <Setter Property="IsVisible" Value="False"/>
+    </Style>
+    <Style Selector="ItemsControl.stamps TextBlock.ln-time">
+      <Setter Property="IsVisible" Value="True"/>
+    </Style>
+    <Style Selector="TextBlock.ln-setup, TextBlock.ln-meta, TextBlock.ln-detail, TextBlock.ln-notice">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgDim}"/>
+    </Style>
+    <Style Selector="TextBlock.ln-notice">
+      <Setter Property="FontStyle" Value="Italic"/>
+    </Style>
+    <Style Selector="TextBlock.ln-progress">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
+    </Style>
+    <Style Selector="TextBlock.ln-warning">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.WarnTintFg}"/>
+    </Style>
+    <Style Selector="TextBlock.ln-error">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.DangerTintFg}"/>
+    </Style>
+    <Style Selector="TextBlock.ln-summary">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.AccentTintFg}"/>
+    </Style>
+    <Style Selector="TextBlock.ln-blank">
+      <Setter Property="LineHeight" Value="10"/>
+    </Style>
+    <!-- Where a run, a check or a cleanup starts: a thin rule, a bold header. -->
+    <Style Selector="TextBlock.ln-section">
+      <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Body}"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="FontSize" Value="12.5"/>
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="TextWrapping" Value="NoWrap"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+    <Style Selector="v|ConsoleLineRow.ln-section TextBlock.ln-time">
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Border.ln-rule">
+      <Setter Property="Height" Value="1"/>
+      <Setter Property="Background" Value="{StaticResource BS.Brush.ConsoleRule}"/>
+      <Setter Property="Margin" Value="0,12,0,6"/>
+    </Style>
+    <Style Selector="TextBlock.ln-subtitle">
+      <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Body}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgDim}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Margin" Value="12,0,8,0"/>
+      <Setter Property="MaxWidth" Value="320"/>
+    </Style>
+    <Style Selector="Button.ln-copy">
+      <Setter Property="Padding" Value="8,2"/>
+      <Setter Property="MinHeight" Value="0"/>
+      <Setter Property="FontSize" Value="11.5"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="#A8B3C1"/>
+    </Style>
+    <!-- The failed run's errors, above its log. -->
+    <Style Selector="Button.error-jump">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Padding" Value="6,3"/>
+      <Setter Property="MinHeight" Value="0"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="FontWeight" Value="Normal"/>
+    </Style>
   </UserControl.Styles>
 
   <Grid Margin="32,4,32,32" RowDefinitions="Auto,Auto,*">
@@ -104,9 +225,13 @@
 
     <!-- A quiet, full-width console keeps output distinct from the
          controls. Header space is reserved for state, context and
-         actions; there are no decorative window buttons. -->
-    <Border Grid.Row="2"
-            IsVisible="{Binding !HasNoBackups}"
+         actions; there are no decorative window buttons. The console is
+         dark in both app themes: its scope uses the dark theme's
+         colours, so status colours (warnings, errors, the accent) read
+         on it either way (U176). -->
+    <ThemeVariantScope Grid.Row="2" RequestedThemeVariant="Dark"
+                       IsVisible="{Binding !HasNoBackups}">
+    <Border x:Name="Console"
             Background="#0E1116"
             BorderBrush="#1F2630"
             BorderThickness="1"
@@ -120,7 +245,7 @@
                 BorderBrush="#1F2630"
                 BorderThickness="0,0,0,1"
                 Padding="14,8">
-          <Grid x:Name="ConsoleHeader" ColumnDefinitions="*,Auto,8,Auto,8,Auto" VerticalAlignment="Center">
+          <Grid x:Name="ConsoleHeader" ColumnDefinitions="*,Auto,8,Auto,12,Auto,12,Auto,8,Auto" VerticalAlignment="Center">
             <!-- Grid so a long backup name ellipsizes before running
                  under the Copy/Clear buttons (horizontal StackPanels
                  give the label infinite measure width). -->
@@ -158,29 +283,34 @@
               </Border>
             </Grid>
             <Button x:Name="CopyLog" Grid.Column="1"
-                    Classes="ghost console-action"
-                    Padding="10,7" MinHeight="36"
-                    Background="#1F2630"
-                    BorderBrush="#2A3340"
-                    Foreground="#C9D1D9"
+                    Classes="ghost console-action console-header"
                     Command="{Binding CopyDisplayedCommand}"
-                    ToolTip.Tip="Copy the displayed log to the clipboard">
+                    ToolTip.Tip="Copy the shown log to the clipboard. Select lines first (drag, or Ctrl+A) to copy only those with Ctrl+C.">
               <StackPanel Orientation="Horizontal" Spacing="6">
                 <PathIcon Data="{StaticResource Icon.Copy}" Width="12" Height="12"
                           Foreground="#C9D1D9"/>
                 <TextBlock Text="Copy" VerticalAlignment="Center" Foreground="#C9D1D9" FontSize="12"/>
               </StackPanel>
             </Button>
+            <!-- A saved run's log file, opened in the system's text editor. -->
+            <Button x:Name="OpenLogFile" Grid.Column="3"
+                    Classes="ghost console-action console-header"
+                    Command="{Binding OpenLogFileCommand}"
+                    IsVisible="{Binding CanOpenLogFile}"
+                    ToolTip.Tip="{Binding LogFilePath}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{StaticResource Icon.FileText}" Width="12" Height="12"
+                          Foreground="#C9D1D9"/>
+                <TextBlock Text="Open log file" VerticalAlignment="Center" Foreground="#C9D1D9" FontSize="12"/>
+              </StackPanel>
+            </Button>
             <!-- Display only: run logs keep every line, so switching
                  re-renders past lines too (U113). -->
-            <CheckBox x:Name="VerboseLog" Grid.Column="3"
+            <CheckBox x:Name="VerboseLog" Grid.Column="5"
+                      Classes="console-switch"
                       Content="Verbose"
                       IsChecked="{Binding ShowVerbose}"
-                      Foreground="#C9D1D9" FontSize="12"
-                      BorderBrush="#8B949E"
-                      VerticalAlignment="Center"
                       ToolTip.Tip="Show every engine line, including debug details. Logs always record them; this changes only what is shown.">
-              <!-- The theme's unticked box outline is invisible on the dark console header. -->
               <CheckBox.Resources>
                 <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUnchecked" Color="#8B949E"/>
                 <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUncheckedPointerOver" Color="#C9D1D9"/>
@@ -190,13 +320,23 @@
                 <SolidColorBrush x:Key="CheckBoxForegroundCheckedPointerOver" Color="#FFFFFF"/>
               </CheckBox.Resources>
             </CheckBox>
-            <Button x:Name="ClearLog" Grid.Column="5"
-                    Classes="ghost console-action" Content="Clear view"
-                    Padding="10,7" MinHeight="36"
-                    Background="#1F2630"
-                    BorderBrush="#2A3340"
-                    Foreground="#C9D1D9"
-                    FontSize="12"
+            <!-- Each line's local time in a narrow column (U176). Remembered. -->
+            <CheckBox x:Name="TimestampsLog" Grid.Column="7"
+                      Classes="console-switch"
+                      Content="Timestamps"
+                      IsChecked="{Binding ShowTimestamps}"
+                      ToolTip.Tip="Show the time each line was written, in a column on the left. Older logs did not record it.">
+              <CheckBox.Resources>
+                <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUnchecked" Color="#8B949E"/>
+                <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeUncheckedPointerOver" Color="#C9D1D9"/>
+                <SolidColorBrush x:Key="CheckBoxForegroundUnchecked" Color="#C9D1D9"/>
+                <SolidColorBrush x:Key="CheckBoxForegroundUncheckedPointerOver" Color="#FFFFFF"/>
+                <SolidColorBrush x:Key="CheckBoxForegroundChecked" Color="#C9D1D9"/>
+                <SolidColorBrush x:Key="CheckBoxForegroundCheckedPointerOver" Color="#FFFFFF"/>
+              </CheckBox.Resources>
+            </CheckBox>
+            <Button x:Name="ClearLog" Grid.Column="9"
+                    Classes="ghost console-action console-header" Content="Clear view"
                     Command="{Binding ClearLiveCommand}"
                     ToolTip.Tip="Clear the live display. Saved run history is kept."
                     IsVisible="{Binding IsShowingLive}"/>
@@ -215,35 +355,85 @@
                      Text="This combines output from running backups and restores. Select a finished run above to read only that run’s saved log."/>
         </Border>
 
-        <!-- Explicit ScrollViewer + SelectableTextBlock. The earlier
-             TextBox approach put its OWN ScrollViewer inside the
-             FluentTheme template; that inner viewer sized its
-             scrollbars to the CONTENT extents (very tall on long
-             logs) instead of the parent viewport, parking the
-             horizontal scrollbar mid-pane. The user reported this
-             multiple times as "horizontal scrollbar was not at the
-             bottom but in the middle of the terminal". This pattern
-             takes the scroll layout into our own hands: the
-             ScrollViewer fills the DockPanel's remaining space, the
-             SelectableTextBlock is the content. Lines wrap, so there
-             is no horizontal bar at all: a long recap or error line
-             used to add one and push its end out of sight (U113). -->
+        <!-- A failed run's errors, each a link to its line (U176). -->
+        <Border x:Name="ErrorList" DockPanel.Dock="Top"
+                IsVisible="{Binding HasErrorList}"
+                Background="#1E1214"
+                BorderBrush="#1F2630" BorderThickness="0,0,0,1"
+                Padding="12,10,12,8">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="4,0,0,4">
+              <PathIcon Data="{StaticResource Icon.Warn}" Width="13" Height="13"
+                        Foreground="{DynamicResource BS.Brush.DangerTintFg}"/>
+              <TextBlock x:Name="ErrorListTitle" Text="{Binding ErrorListTitle}"
+                         FontFamily="{DynamicResource BS.Font.Body}" FontSize="12" FontWeight="SemiBold"
+                         Foreground="{DynamicResource BS.Brush.DangerTintFg}"
+                         VerticalAlignment="Center"/>
+            </StackPanel>
+            <ScrollViewer MaxHeight="118" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <ItemsControl x:Name="ErrorItems" ItemsSource="{Binding ErrorLines}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="svc:ConsoleLine">
+                    <Button Classes="ghost console-action error-jump"
+                            Command="{Binding #Root.((vm:LogsViewModel)DataContext).JumpToLineCommand}"
+                            CommandParameter="{Binding}"
+                            ToolTip.Tip="Show this line in the log">
+                      <Grid ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0" Text="{Binding TimeLabel}"
+                                   FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12"
+                                   Foreground="{DynamicResource BS.Brush.FgDim}" Margin="0,0,10,0"
+                                   IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding Message}"
+                                   FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12"
+                                   Foreground="{DynamicResource BS.Brush.DangerTintFg}"
+                                   TextTrimming="CharacterEllipsis"/>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+
+        <!-- One row per line in a virtualizing list (U176): a log of
+             100,000 lines scrolls smoothly, and each line has its own
+             colour. Lines wrap, so there is no horizontal bar: a long
+             recap or error line used to add one and push its end out of
+             sight (U113). An explicit ScrollViewer (not a TextBox's own)
+             keeps the scrollbar at the console's edge. Select lines by
+             dragging over them (Ctrl+A for all); Ctrl+C copies them. -->
         <Grid>
           <ScrollViewer x:Name="LogScroll"
                         HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto"
                         AllowAutoHide="False"
                         Background="Transparent"
+                        Focusable="True"
                         ScrollChanged="OnLogScrollChanged">
-            <SelectableTextBlock Text="{Binding DisplayText}"
-                                 Background="Transparent"
-                                 SelectionBrush="#264F78"
-                                 Padding="16,12,16,16"
-                                 FontFamily="{DynamicResource BS.Font.Mono}"
-                                 FontSize="12.5"
-                                 LineHeight="19"
-                                 Foreground="#D7DCE2"
-                                 TextWrapping="Wrap"/>
+            <ItemsControl x:Name="LogLines"
+                          ItemsSource="{Binding DisplayLines}"
+                          Classes.stamps="{Binding ShowTimestamps}"
+                          Background="Transparent"
+                          Padding="12,10,12,16">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <VirtualizingStackPanel/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="svc:ConsoleLine">
+                  <v:ConsoleLineRow/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+              <ItemsControl.ContextMenu>
+                <ContextMenu>
+                  <MenuItem x:Name="CopySelectedMenu" Header="Copy selected lines" InputGesture="Ctrl+C" Click="OnCopySelected"/>
+                  <MenuItem Header="Select all" InputGesture="Ctrl+A" Click="OnSelectAll"/>
+                  <MenuItem Header="Copy all" Command="{Binding CopyDisplayedCommand}"/>
+                </ContextMenu>
+              </ItemsControl.ContextMenu>
+            </ItemsControl>
           </ScrollViewer>
           <!-- Shown while the reader has scrolled away from the end (U083):
                new lines no longer pull them back; this returns and follows again. -->
@@ -280,5 +470,6 @@
         </Grid>
       </DockPanel>
     </Border>
+    </ThemeVariantScope>
   </Grid>
 </UserControl>

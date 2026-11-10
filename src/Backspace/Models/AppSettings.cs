@@ -112,6 +112,10 @@ public sealed class LoggingSettings
     /// is launched with BACKSPACE_DEBUG=1 (see launch-debug.bat).
     /// </summary>
     public string MinimumLevel { get; set; } = "Information";
+
+    /// <summary>Activity &amp; logs shows each line's local time in a narrow
+    /// column (U176). Off by default; remembered.</summary>
+    public bool ShowTimestamps { get; set; }
 }
 
 public sealed class RestoreSettings

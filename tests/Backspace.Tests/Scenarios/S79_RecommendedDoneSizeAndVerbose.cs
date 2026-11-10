@@ -177,7 +177,9 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         // U113 follow-up: long lines (the recap) wrap; no horizontal bar.
         var scroll = view.FindControl<ScrollViewer>("LogScroll")!;
         Assert.True(scroll.Extent.Width <= scroll.Viewport.Width + 1, $"The log is wider ({scroll.Extent.Width}) than its pane ({scroll.Viewport.Width}).");
-        Assert.Contains(view.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("took 26m 10s") == true);
+        // The recap is a console row (U176), drawn within the pane's width.
+        var recapRow = Assert.Single(view.GetVisualDescendants().OfType<ConsoleLineRow>(), r => r.Line?.Text.Contains("took 26m 10s") == true);
+        Assert.True(recapRow.Bounds.Width <= scroll.Viewport.Width + 1, "The recap row is wider than the pane.");
         verbose.IsChecked = false;
         await ctx.Driver.PumpAsync(100);
         Assert.False(VerboseLogFilter.IsVerboseOn());

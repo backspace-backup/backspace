@@ -497,6 +497,20 @@ number of exclusion rules, and whether a shadow copy is used. Progress follows
 every few seconds (percent, bytes and files done, data sent and its speed,
 and an estimate of the time left once the files are counted), then a closing recap: files checked, new, changed and
 unchanged, data added to the storage, duration and the snapshot made.
+Lines are coloured by what they are: setup lines dim, progress lines muted
+with their percentage bright, warnings amber, errors red, and the recap and
+summaries (online-only files skipped, what a cleanup removed) in the accent
+colour; file paths are a shade brighter. Where a backup, a check or a cleanup
+starts, a thin rule and a bold header ("local_c · backup · 20:00", the
+destination on the right) keep several runs apart, and the header's **Copy**
+copies just that part. Tick **Timestamps** to show the time each line was
+written in a narrow column on the left; Backspace remembers the choice (logs
+written by earlier versions did not record times, so their column stays
+empty). Drag over lines to select them, or press Ctrl+A, then Ctrl+C to copy
+them; **Copy** in the console's header copies the whole log as shown.
+**Open log file** opens a saved run's log in your text editor. A failed run
+lists its errors above its log: click one to scroll to its line. Long logs
+scroll smoothly, since only the lines on screen are drawn.
 Long lines wrap. Tick **Verbose** to also show the engine's debug lines
 and status polls. Run logs always record every line, so ticking it shows the
 details of past runs too. It is the same setting as **Settings → Logs &

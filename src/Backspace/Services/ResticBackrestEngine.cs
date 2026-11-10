@@ -55,6 +55,12 @@ public sealed class ResticBackrestEngine : IBackupEngine
         try { LineWritten?.Invoke(line); } catch { /* live-tail subscriber failure shouldn't escape */ }
     }
 
+    /// <summary>Shows a line live and writes it to the run's log.</summary>
+    private void Announce(string line, Action<string>? lineSink)
+    {
+        RaiseLineWritten(line); lineSink?.Invoke(line);
+    }
+
     [ThreadStatic] private static string? _justAnnounced;
 
     /// <summary>True when this thread's last announced line is
@@ -255,6 +261,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
                 }
                 try
                 {
+                    Announce(LogSection.Line(backup.Name, "cleanup", destination.Name), lineSink);
                     var prune = await NeedsPruneAsync(client, repoId, planId, started, ct).ConfigureAwait(false);
                     (var result, cleanup) = await RunRetentionAsync(client, repoId, planId, backup, ct, lineSink, prune).ConfigureAwait(false);
                     if (result.Status is BackrestStatus.Success || cleanup != default)
@@ -283,6 +290,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             {
                 try
                 {
+                    Announce(LogSection.Line(backup.Name, "check", destination.Name), lineSink);
                     var check = await RunRepositoryCheckAsync(client, repoId, backup, ct, lineSink).ConfigureAwait(false);
                     checks.Add(CheckResult(backup, destination, storageName, StatusFromBackrestTerminal(check.Status), check.DisplayMessage));
                     details += " " + RepositoryCheckDescription(backup);
@@ -339,6 +347,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
         var started = DateTime.UtcNow;
         BackrestOperation terminal;
         CleanupResult cleanup = default;
+        // Where this check or cleanup starts in the log (U176).
+        Announce(LogSection.Line(backup.Name, kind == RunKind.Prune ? "cleanup" : "check", destination.Name), lineSink);
         if (kind == RunKind.Prune)
         {
             // Never while a snapshot here is mounted or restored (U159).

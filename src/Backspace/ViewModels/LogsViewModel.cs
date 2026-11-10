@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Avalonia.Collections;
 using Avalonia.Input.Platform;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -35,18 +36,46 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty] private string? _selectedBackup;
     [ObservableProperty] private RunRecord? _selectedRun;
-    [ObservableProperty] private string _logText = "";
-    [ObservableProperty] private string _liveTail = "";
     [ObservableProperty] private bool _isLiveAttached;
 
-    /// <summary>Raw, unfiltered text of the currently-loaded past-run
-    /// log file. The bound <see cref="LogText"/> is materialized from
-    /// this via <see cref="VerboseLogFilter.FilterForDisplay"/>, so
-    /// toggling the verbose setting can re-render the past run
-    /// without re-reading the file. Empty when nothing is loaded
-    /// (live mode, empty selection, or load error).</summary>
-    private string _logTextRaw = "";
-    private string _serviceTail = "";
+    /// <summary>The console's lines (U176): the selected run's log, or the
+    /// live output, without the lines Verbose hides. The view shows them in
+    /// a virtualizing list, so a log of 100,000 lines scrolls smoothly; each
+    /// line keeps its kind (its colour) and the time it was written.</summary>
+    public AvaloniaList<ConsoleLine> DisplayLines { get; } = new();
+
+    /// <summary>The selected run's lines, every one, Verbose or not.</summary>
+    private List<ConsoleLine> _runLines = new();
+    /// <summary>The live output's lines (this app's runs and restores).</summary>
+    private readonly List<ConsoleLine> _liveLines = new();
+    private ConsoleLogParser _liveParser = new();
+    private bool _liveLinesTruncated;
+    /// <summary>The background service's live transcript: its raw lines and
+    /// the console line made from each (null when it made none), kept so a
+    /// new transcript reuses the lines it shares with the previous one.</summary>
+    private List<string> _serviceRaw = new();
+    private List<ConsoleLine?> _serviceObjects = new();
+    private ConsoleLogParser _serviceParser = new();
+    private ConsoleLine? _serviceErrorLine;
+    private readonly ConsoleLine _serviceHeader = new("Background service", ConsoleLineKind.Section);
+    // Lines above this many leave the live view from the top.
+    internal const int LiveLineCap = 100_000;
+    private const int LiveLinesKeepAfterTrim = 80_000;
+
+    /// <summary>Errors of the failed run being read (U176): listed above its
+    /// log; each jumps to its line.</summary>
+    public ObservableCollection<ConsoleLine> ErrorLines { get; } = new();
+    public bool HasErrorList => ErrorLines.Count > 0;
+    public string ErrorListTitle => ErrorLines.Count == 1 ? "1 error in this run" : $"{ErrorLines.Count:N0} errors in this run";
+    /// <summary>Raised to show a line: the view scrolls to it and highlights it.</summary>
+    public event Action<ConsoleLine>? JumpRequested;
+
+    /// <summary>The selected run's text: its log with the lines Verbose hides left out.</summary>
+    public string LogText => JoinVisible(_runLines);
+
+    /// <summary>The live output as text, without the lines Verbose hides.</summary>
+    public string LiveTail => VerboseLogFilter.FilterForDisplay(_liveBuffer.ToString());
+
     private RunRecord? _serviceRun;
     private bool _disposed;
 #if WINDOWS
@@ -120,12 +149,126 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     public bool RunStatusIsWarn => RunStatusLabel is not null && SelectedRun!.Status is BackupRunStatus.Warning or BackupRunStatus.Skipped;
     public bool RunStatusIsFail => RunStatusLabel is not null && SelectedRun!.Status == BackupRunStatus.Failed;
 
-    /// <summary>The text actually shown in the unified log pane: the
-    /// live tail while in live mode, otherwise the loaded per-run log
-    /// text.</summary>
-    public string DisplayText => IsShowingLive
-        ? (string.IsNullOrEmpty(_serviceTail) ? LiveTail : string.IsNullOrEmpty(LiveTail) ? _serviceTail : LiveTail + "\n\n[Background service]\n" + _serviceTail)
-        : LogText;
+    /// <summary>The text shown in the console, one line per shown line
+    /// (section headers as "── local_c · backup · 20:00").</summary>
+    public string DisplayText => JoinVisible(DisplayLines, alreadyFiltered: true);
+
+    private static string JoinVisible(IReadOnlyList<ConsoleLine> lines, bool alreadyFiltered = false, bool withTime = false)
+    {
+        var verbose = alreadyFiltered || VerboseLogFilter.IsVerboseOn();
+        var sb = new System.Text.StringBuilder();
+        foreach (var line in lines)
+        {
+            if (!verbose && line.IsDetail) continue;
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append(line.CopyText(withTime));
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Rebuilds the shown lines from the run or the live output,
+    /// changing only what differs (U176): new live lines are appended and
+    /// lines that left the live buffer are removed from the top, so the
+    /// list the reader is scrolling isn't replaced every flush.</summary>
+    private void SyncDisplay()
+    {
+        var verbose = VerboseLogFilter.IsVerboseOn();
+        var next = new List<ConsoleLine>(IsShowingLive ? _liveLines.Count + _serviceObjects.Count + 2 : _runLines.Count);
+        void AddVisible(IEnumerable<ConsoleLine?> source)
+        {
+            foreach (var line in source)
+                if (line is not null && (verbose || !line.IsDetail)) next.Add(line);
+        }
+        if (IsShowingLive)
+        {
+            AddVisible(_liveLines);
+            if (_serviceObjects.Count > 0 || _serviceErrorLine is not null)
+            {
+                if (next.Count > 0) next.Add(_serviceHeader);
+                AddVisible(_serviceObjects);
+                if (_serviceErrorLine is not null) next.Add(_serviceErrorLine);
+            }
+        }
+        else AddVisible(_runLines);
+        ApplyLines(DisplayLines, next);
+        UpdateErrorList();
+        OnPropertyChanged(nameof(DisplayText));
+    }
+
+    internal void RefreshDisplay() => SyncDisplay();
+
+    /// <summary>Makes <paramref name="target"/> equal <paramref name="next"/>
+    /// with the fewest changes for the common cases: lines appended, lines
+    /// gone from the top, the end replaced.</summary>
+    internal static void ApplyLines(AvaloniaList<ConsoleLine> target, IReadOnlyList<ConsoleLine> next)
+    {
+        if (next.Count == 0) { if (target.Count > 0) target.Clear(); return; }
+        var start = target.Count == 0 ? -1 : target.IndexOf(next[0]);
+        if (start < 0)
+        {
+            if (target.Count > 0) target.Clear();
+            target.AddRange(next);
+            return;
+        }
+        var same = 0;
+        while (start + same < target.Count && same < next.Count && ReferenceEquals(target[start + same], next[same])) same++;
+        if (start + same < target.Count) target.RemoveRange(start + same, target.Count - start - same);
+        if (start > 0) target.RemoveRange(0, start);
+        if (same < next.Count) target.AddRange(next.Skip(same));
+    }
+
+    private void UpdateErrorList()
+    {
+        // A failed run lists its errors above the log (U176).
+        IReadOnlyList<ConsoleLine> errors = !IsShowingLive && SelectedRun is { Status: BackupRunStatus.Failed }
+            ? DisplayLines.Where(l => l.Kind == ConsoleLineKind.Error && l.ListAsError).ToList()
+            : Array.Empty<ConsoleLine>();
+        if (errors.Count == ErrorLines.Count && errors.Select((l, i) => ReferenceEquals(l, ErrorLines[i])).All(x => x)) return;
+        ErrorLines.Clear();
+        foreach (var e in errors) ErrorLines.Add(e);
+        OnPropertyChanged(nameof(HasErrorList));
+        OnPropertyChanged(nameof(ErrorListTitle));
+    }
+
+    /// <summary>Shows an error's line in the log.</summary>
+    [RelayCommand]
+    private void JumpToLine(ConsoleLine? line)
+    {
+        if (line is not null && DisplayLines.Contains(line)) JumpRequested?.Invoke(line);
+    }
+
+    /// <summary>The Timestamps switch beside Verbose (U176): each line's
+    /// local time in a narrow column. Off by default; remembered.</summary>
+    public bool ShowTimestamps
+    {
+        get => ServiceLocator.Config.Current.Logging?.ShowTimestamps ?? false;
+        set
+        {
+            if (value == ShowTimestamps) return;
+            ServiceLocator.Config.Update(cfg => cfg.Logging.ShowTimestamps = value);
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>The selected run's log file, when it is on disk.</summary>
+    public string? LogFilePath
+    {
+        get
+        {
+            if (SelectedRun is not { } run || IsShowingLive) return null;
+            var path = !string.IsNullOrEmpty(run.LogPath) ? run.LogPath
+                : run.Cells.Select(c => c.LogPath).FirstOrDefault(p => !string.IsNullOrEmpty(p));
+            return path is not null && File.Exists(path) ? path : null;
+        }
+    }
+    public bool CanOpenLogFile => LogFilePath is not null;
+
+    /// <summary>Opens the selected run's log file in the system's text editor.</summary>
+    [RelayCommand]
+    private void OpenLogFile()
+    {
+        if (LogFilePath is { } path) FolderLauncher.OpenFile(path);
+    }
 
     /// <summary>Coalesces a flurry of Config.Changed firings into a
     /// single Refresh on the UI thread.</summary>
@@ -169,6 +312,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     public LogsViewModel()
     {
         AppNavigator.RunDetailsRequested += SelectRunById;
+        _shownVerbose = VerboseLogFilter.IsVerboseOn();
         _refreshDebouncer = new UiThreadDebouncer(Refresh);
         Refresh();
         ServiceLocator.Config.Changed += OnConfigChanged;
@@ -242,11 +386,19 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             : Services.Platform.Windows.ServiceActivity.ForBackup(_backgroundActivity?.Current, selectedId);
         var oldId = _serviceRun?.Id; var oldStatus = _serviceRun?.Status;
         var tail = current?.Progress?.TranscriptTail ?? "";
+        // The transcript is the end of a longer one: its first line may be cut.
+        var cutHead = current?.Progress is { } shown && shown.TranscriptEnd > tail.Length;
         if (current?.RunId == _clearedServiceRun && current?.Progress is { } progress)
-            tail = tail[(int)Math.Clamp(_clearedServiceThrough - (progress.TranscriptEnd - tail.Length), 0, tail.Length)..];
+        {
+            var cut = (int)Math.Clamp(_clearedServiceThrough - (progress.TranscriptEnd - tail.Length), 0, tail.Length);
+            if (cut > 0) cutHead = false;
+            tail = tail[cut..];
+        }
         if (current?.State is not ("starting" or "running" or "stopping" or "unknown")) tail = "";
-        _serviceTail = VerboseLogFilter.FilterForDisplay(tail);
-        if (_backgroundActivity?.Error is { } error) _serviceTail += "\n[" + error + "]";
+        SetServiceTranscript(tail, cutHead);
+        var error = _backgroundActivity?.Error is { } e ? "[" + e + "]" : null;
+        if (error != _serviceErrorLine?.Text)
+            _serviceErrorLine = error is null ? null : new ConsoleLine(error, ConsoleLineKind.Error);
         if (current?.Progress?.Result is { } result) _serviceRun = result;
         else if (current is { BackupId: not null, RunId: not null, StartedUtc: not null }
             && current.State is "starting" or "running" or "stopping" or "unknown")
@@ -278,9 +430,54 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             ReloadHistoryForSelected();
             if (showingLive) SelectedRun = null;
         }
-        OnPropertyChanged(nameof(DisplayText));
+        SyncDisplay();
     });
 #endif
+
+    /// <summary>Turns the background service's transcript into console lines,
+    /// reusing those it shares with the previous transcript (it is a sliding
+    /// window: lines leave the top and arrive at the bottom), so the shown list
+    /// only changes where the text did.</summary>
+    internal void SetServiceTranscript(string tail, bool cutHead)
+    {
+        var raw = new List<string>();
+        int i = 0, n = tail.Length;
+        while (i < n)
+        {
+            var start = i;
+            while (i < n && tail[i] != '\n') i++;
+            var end = i > start && tail[i - 1] == '\r' ? i - 1 : i;
+            raw.Add(tail.Substring(start, end - start));
+            i++;
+        }
+        if (cutHead && raw.Count > 0) raw.RemoveAt(0);
+        // Where the new transcript starts in the old one.
+        var at = -1;
+        if (raw.Count > 0)
+            for (var j = 0; j < _serviceRaw.Count && at < 0; j++)
+            {
+                if (_serviceRaw[j] != raw[0]) continue;
+                var k = 0;
+                while (j + k < _serviceRaw.Count && k < raw.Count && _serviceRaw[j + k] == raw[k]) k++;
+                if (j + k == _serviceRaw.Count) at = j;
+            }
+        List<ConsoleLine?> objects;
+        int from;
+        if (at >= 0)
+        {
+            objects = _serviceObjects.GetRange(at, _serviceObjects.Count - at);
+            from = objects.Count;
+        }
+        else
+        {
+            _serviceParser = new ConsoleLogParser();
+            objects = new List<ConsoleLine?>(raw.Count);
+            from = 0;
+        }
+        for (var j = from; j < raw.Count; j++) objects.Add(_serviceParser.Feed(raw[j], null));
+        _serviceRaw = raw;
+        _serviceObjects = objects;
+    }
 
     private void OnActivityRunningChanged()
     {
@@ -411,6 +608,8 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     /// lines included. It is the same setting as Settings' verbose logs,
     /// which also makes Backspace's own app log record debug lines from
     /// then on.</summary>
+    private bool _shownVerbose;
+
     public bool ShowVerbose
     {
         get => VerboseLogFilter.IsVerboseOn();
@@ -422,23 +621,34 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>The backups and destinations the lists were last built from.
+    /// A settings change that touches neither (Verbose, Timestamps, a
+    /// schedule) leaves the lists, the selection and the reader's place alone
+    /// (U176): rebuilding them briefly cleared the selected run, which reread
+    /// its log and moved the reader to its end.</summary>
+    private string? _listsSignature;
+    private static string ListsSignature(AppConfig cfg) =>
+        string.Join("|", cfg.Backups.Select(b => b.Id + "=" + b.Name)) + "#" + string.Join("|", cfg.Destinations.Select(d => d.Id));
+
     private void OnConfigChanged(object? sender, EventArgs e)
     {
-        _refreshDebouncer.Schedule();
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(ShowVerbose)));
-        // Verbose may have just toggled — re-materialize the visible
-        // surfaces from their raw backing buffers so the change
-        // applies retroactively. Cheap: a single FilterForDisplay
-        // pass on each buffer (≤400 KB each).
+        if (ListsSignature(ServiceLocator.Config.Current) != _listsSignature) _refreshDebouncer.Schedule();
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            LiveTail = VerboseLogFilter.FilterForDisplay(_liveBuffer.ToString());
-#if WINDOWS
-            OnBackgroundActivityChanged();
-#endif
-            if (!string.IsNullOrEmpty(_logTextRaw))
-                LogText = VerboseLogFilter.FilterForDisplay(_logTextRaw);
-            OnPropertyChanged(nameof(DisplayText));
+            OnPropertyChanged(nameof(ShowVerbose));
+            OnPropertyChanged(nameof(ShowTimestamps));
+        });
+        // Verbose may have just toggled: show or hide the detail lines of
+        // what is already shown, past lines included. Only when it did, so
+        // other settings changes don't rebuild a long log.
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (_disposed) return;
+            var verbose = VerboseLogFilter.IsVerboseOn();
+            if (verbose == _shownVerbose) return;
+            _shownVerbose = verbose;
+            OnPropertyChanged(nameof(LiveTail));
+            SyncDisplay();
         });
     }
 
@@ -548,8 +758,47 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         }
         _liveBuffer.Clear();
         _liveBufferTruncated = false;
-        LiveTail = "";
-        OnPropertyChanged(nameof(DisplayText));
+        ClearLiveLines();
+        OnPropertyChanged(nameof(LiveTail));
+        SyncDisplay();
+    }
+
+    private void ClearLiveLines()
+    {
+        _liveLines.Clear();
+        _liveParser = new ConsoleLogParser();
+        _liveLinesTruncated = false;
+    }
+
+    /// <summary>Adds a flushed chunk of live output as console lines, each
+    /// with the time it arrived (or the time it carries).</summary>
+    private void AppendLiveLines(string chunk)
+    {
+        var now = DateTime.Now;
+        int i = 0, n = chunk.Length;
+        while (i < n)
+        {
+            var start = i;
+            while (i < n && chunk[i] != '\n') i++;
+            var end = i > start && chunk[i - 1] == '\r' ? i - 1 : i;
+            // The chunk ends with a line break: no empty line after it.
+            if (i < n || end > start)
+                if (_liveParser.Feed(chunk.Substring(start, end - start), now) is { } line) _liveLines.Add(line);
+            i++;
+        }
+        if (_liveLines.Count > LiveLineCap)
+        {
+            // The note saying so stays first.
+            var first = _liveLinesTruncated ? 1 : 0;
+            _liveLines.RemoveRange(first, _liveLines.Count - LiveLinesKeepAfterTrim);
+            if (!_liveLinesTruncated)
+            {
+                _liveLinesTruncated = true;
+                _liveLines.Insert(0, new ConsoleLine(
+                    $"[live-tail truncated to the last {LiveLinesKeepAfterTrim:N0} lines; the run's log file has them all]",
+                    ConsoleLineKind.Notice, now));
+            }
+        }
     }
 
     private void OnOrchestratorRunEnded(string backupId, RunRecord record)
@@ -590,7 +839,10 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     {
         if (string.IsNullOrEmpty(SelectedBackup)) return;
         var previouslySelectedRunId = SelectedRun?.Id;
-        History.Clear();
+        // Clearing the list makes the run picker clear the selection for a
+        // moment; that is not the reader choosing live output (U176).
+        _reloadingHistory = true;
+        try { History.Clear(); } finally { _reloadingHistory = false; }
         // Look up by Backup.Id (not Name) so a renamed backup still
         // shows its complete run timeline. Per-name history files are
         // a legacy of LogStore's filesystem layout — runs persisted
@@ -777,19 +1029,13 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
                     }
                 }
                 // The buffer holds the RAW restic stream — verbose
-                // is a display filter only, so the buffer keeps every
-                // line for "Copy live" and the eventual persistence
-                // path. The bound LiveTail strips DEBUG/TRACE when
-                // verbose is off (toggling the setting re-materializes
-                // via OnConfigChanged).
-                LiveTail = VerboseLogFilter.FilterForDisplay(_liveBuffer.ToString());
-                // Always notify DisplayText. Earlier we gated this on
-                // IsShowingLive, but the DisplayText getter itself
-                // pivots on IsShowingLive at read time — gating the
-                // notification just produced races where a user toggling
-                // selection between live and a finished run wouldn't
-                // see the live pane refresh until the next line landed.
-                OnPropertyChanged(nameof(DisplayText));
+                // is a display filter only. LiveTail filters it when
+                // read; the console shows the parsed lines (U176).
+                AppendLiveLines(chunk);
+                OnPropertyChanged(nameof(LiveTail));
+                // Only the live view shows these lines; a past run being
+                // read is left alone.
+                if (IsShowingLive) SyncDisplay();
             });
         }, System.Threading.Tasks.TaskScheduler.Default);
     }
@@ -809,6 +1055,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         var previousBackup = SelectedBackup;
         var previousRunId = SelectedRun?.Id;
         var previousBackupId = SelectedRun?.BackupId;
+        _listsSignature = ListsSignature(ServiceLocator.Config.Current);
         BackupNames.Clear();
         foreach (var b in ServiceLocator.Config.Current.Backups.OrderBy(b => b.Name))
             BackupNames.Add(b.Name);
@@ -886,9 +1133,16 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     /// not sufficient; the generation tag is the strict ordering.
     /// </summary>
     private int _logLoadGen;
+    // The finished run whose log is shown, so re-selecting it keeps it.
+    private string? _loadedRunKey;
+
+    private bool _reloadingHistory;
 
     partial void OnSelectedRunChanged(RunRecord? value)
     {
+        // The picker's list is being rebuilt: the selection set right after
+        // it counts, not the moment without one.
+        if (_reloadingHistory) return;
         // Notify the dependent computed properties so the unified log
         // pane swaps between LiveTail and LogText cleanly.
         OnPropertyChanged(nameof(IsShowingLive));
@@ -898,7 +1152,19 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(RunStatusIsOk));
         OnPropertyChanged(nameof(RunStatusIsWarn));
         OnPropertyChanged(nameof(RunStatusIsFail));
-        OnPropertyChanged(nameof(DisplayText));
+        OnPropertyChanged(nameof(LogFilePath));
+        OnPropertyChanged(nameof(CanOpenLogFile));
+
+        // The same finished run again (a settings change or the history
+        // refresh re-selects it as a new instance): its lines are shown
+        // already. Reading it again would replace them and move the reader.
+        var key = value is { EndedUtc: not null } ? $"{value.Id}|{value.LogPath}|{value.Status}|{value.EndedUtc:o}" : null;
+        if (key is not null && key == _loadedRunKey)
+        {
+            SyncDisplay();
+            return;
+        }
+        _loadedRunKey = null;
 
         // Bump the load generation up-front so any in-flight async
         // load from a PRIOR SelectedRun is invalidated and won't
@@ -913,6 +1179,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         if (value is not null && value.EndedUtc is null
             && value.Status == BackupRunStatus.Running)
         {
+            SyncDisplay();
             return;
         }
         // A run the background service made names its log in the portable
@@ -920,9 +1187,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         var logPath = value?.LogPath;
         if (value is null || string.IsNullOrEmpty(logPath))
         {
-            _logTextRaw = "";
-            LogText = "";
-            OnPropertyChanged(nameof(DisplayText));
+            SetRunLines(new List<ConsoleLine>());
             return;
         }
         if (!File.Exists(logPath))
@@ -933,19 +1198,16 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             // The "missing file" notice is a UI message, not a
             // restic log line, so it doesn't go through the
             // verbose filter.
-            _logTextRaw = "";
-            LogText =
+            SetRunLines(ConsoleLogParser.ParseText(
                 "[The log file for this run is no longer on disk.]\n\n" +
                 $"Expected at: {logPath}\n" +
-                "Older logs are pruned automatically by the retention policy.";
-            OnPropertyChanged(nameof(DisplayText));
+                "Older logs are pruned automatically by the retention policy."));
             return;
         }
 
         // Show "loading…" placeholder immediately so the user knows we
         // got the click; the actual read runs off the UI thread.
-        _logTextRaw = "";
-        LogText = "Loading…";
+        SetRunLines(new List<ConsoleLine> { new("Loading…", ConsoleLineKind.Notice) });
         var path = logPath;
         var runId = value.Id;
         _ = System.Threading.Tasks.Task.Run(() =>
@@ -1001,6 +1263,8 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
                     _log.Warning(ex, "Failed to read run log file {Path}", path);
                     text = $"[could not read log file: {ex.Message}]";
                 }
+                // Parsed here, off the UI thread: a long log is many lines.
+                var lines = ConsoleLogParser.ParseText(text);
                 try
                 {
                     Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -1016,14 +1280,11 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
                         if (_logLoadGen != thisGen) return;
                         if (SelectedRun?.Id != runId) return;
                         // Persisted log files are RAW (every persistence
-                        // path writes the unfiltered restic stream).
-                        // Stash the raw text so a later verbose toggle
-                        // can re-materialize without re-reading the
-                        // file, and assign the filtered view to
-                        // LogText.
-                        _logTextRaw = text;
-                        LogText = VerboseLogFilter.FilterForDisplay(text);
-                        OnPropertyChanged(nameof(DisplayText));
+                        // path writes the unfiltered restic stream). All
+                        // lines are kept, so a later Verbose toggle shows
+                        // or hides detail without reading the file again.
+                        SetRunLines(lines);
+                        _loadedRunKey = key;
                     });
                 }
                 catch (System.Exception ex)
@@ -1047,24 +1308,55 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         _clearedServiceRun = _backgroundActivity?.Current?.RunId;
         _clearedServiceThrough = _backgroundActivity?.Current?.Progress?.TranscriptEnd ?? 0;
 #endif
-        _serviceTail = "";
-        // Clear both the binding-visible string AND the backing buffer;
+        _serviceRaw = new(); _serviceObjects = new(); _serviceErrorLine = null;
+        _serviceParser = new ConsoleLogParser();
+        // Clear both the shown lines AND the backing buffer;
         // otherwise the next OnLineWritten flush would re-emit the
         // existing buffered tail.
         _liveBuffer.Clear();
         _liveBufferTruncated = false;
-        LiveTail = "";
-        OnPropertyChanged(nameof(DisplayText));
+        ClearLiveLines();
+        OnPropertyChanged(nameof(LiveTail));
+        SyncDisplay();
+    }
+
+    private void SetRunLines(List<ConsoleLine> lines)
+    {
+        _runLines = lines;
+        OnPropertyChanged(nameof(LogText));
+        SyncDisplay();
     }
 
     /// <summary>
     /// Copy whatever the user is currently looking at — live tail when
     /// in live mode, the loaded run's full text otherwise. Bound to
-    /// the unified log pane's "Copy" button.
+    /// the unified log pane's "Copy" button. With Timestamps on, each
+    /// line keeps its time.
     /// </summary>
     [RelayCommand]
     private async System.Threading.Tasks.Task CopyDisplayed() =>
-        await CopyToClipboardAsync(DisplayText);
+        await CopyLinesAsync(DisplayLines);
+
+    /// <summary>Copies lines as shown: with their time when Timestamps is on.</summary>
+    public System.Threading.Tasks.Task CopyLinesAsync(IEnumerable<ConsoleLine> lines) =>
+        CopyToClipboardAsync(JoinVisible(lines.ToList(), alreadyFiltered: true, withTime: ShowTimestamps));
+
+    /// <summary>The lines of the section a header starts: up to the next header.</summary>
+    public IReadOnlyList<ConsoleLine> SectionLines(ConsoleLine header)
+    {
+        var start = DisplayLines.IndexOf(header);
+        if (start < 0) return Array.Empty<ConsoleLine>();
+        var end = start + 1;
+        while (end < DisplayLines.Count && DisplayLines[end].Kind != ConsoleLineKind.Section) end++;
+        return DisplayLines.Skip(start).Take(end - start).ToList();
+    }
+
+    /// <summary>Copies one run, check or cleanup: its header's Copy (U176).</summary>
+    [RelayCommand]
+    private async System.Threading.Tasks.Task CopySection(ConsoleLine? header)
+    {
+        if (header is not null) await CopyLinesAsync(SectionLines(header));
+    }
 
     /// <summary>Copy the live tail to the clipboard. No-op if the tail
     /// is empty or the clipboard is unavailable (headless test runs).</summary>
@@ -1077,9 +1369,13 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     private async System.Threading.Tasks.Task CopySelectedRun() =>
         await CopyToClipboardAsync(LogText);
 
+    /// <summary>Test seam: receives copied text instead of the clipboard.</summary>
+    internal static Action<string>? ClipboardOverride { get; set; }
+
     private static async System.Threading.Tasks.Task CopyToClipboardAsync(string? text)
     {
         if (string.IsNullOrEmpty(text)) return;
+        if (ClipboardOverride is { } copy) { copy(text); return; }
         try
         {
             if (Avalonia.Application.Current?.ApplicationLifetime

@@ -346,7 +346,7 @@ public sealed partial class BackupOrchestrator
                         if (cellLogWriter is null) return;
                         // Lock so the engine emitting from multiple
                         // background threads doesn't interleave bytes.
-                        try { lock (writerLock) cellLogWriter.WriteLine(line); }
+                        try { lock (writerLock) cellLogWriter.WriteLine(LogLineStamp.Stamp(line, DateTime.UtcNow)); }
                         catch { /* file dispose race; ignore */ }
                     };
                     // Initialise with a Failed sentinel rather than null! so an
@@ -354,6 +354,9 @@ public sealed partial class BackupOrchestrator
                     // — it has its own catch — but defensively) leaves a
                     // valid CellOutcome the finally block and the cell list
                     // can both reference.
+                    // Where this backup starts in the log (U176): Activity &
+                    // logs draws a rule and a header here.
+                    lineHandler(LogSection.Line(backup.Name, "backup", dest.Name));
                     var cellOutcome = new CellOutcome
                     {
                         SourcePath = sourcePath,

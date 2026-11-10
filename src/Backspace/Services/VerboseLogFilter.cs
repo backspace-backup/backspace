@@ -48,8 +48,13 @@ internal static class VerboseLogFilter
         RegexOptions.Compiled);
 
     /// <summary>True iff <paramref name="line"/> is shown only with verbose on.</summary>
-    public static bool IsDetailLine(string line) =>
-        !string.IsNullOrEmpty(line) && (SingleLineDebugRegex.IsMatch(line) || EngineDetailRegex.IsMatch(line));
+    public static bool IsDetailLine(string line)
+    {
+        if (string.IsNullOrEmpty(line)) return false;
+        // Saved and service lines may start with the time they were written (U176).
+        line = LogLineStamp.Strip(line);
+        return SingleLineDebugRegex.IsMatch(line) || EngineDetailRegex.IsMatch(line);
+    }
 
     /// <summary>True iff the user has opted into verbose diagnostic
     /// logging via Settings → "Show verbose diagnostic logs". Reads

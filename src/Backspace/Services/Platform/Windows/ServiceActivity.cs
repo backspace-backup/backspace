@@ -174,9 +174,13 @@ internal sealed class ServiceWorkerActivity : IAsyncDisposable
     {
         lock (_tailGate)
         {
-            _tailEnd += (long)line.Length + Environment.NewLine.Length;
+            // Each line starts with when it was written (U176), shown in the
+            // console's Timestamps column.
+            var stamp = LogLineStamp.Prefix(DateTime.UtcNow);
+            var kept = line.AsSpan(Math.Max(0, line.Length - ServiceActivity.TranscriptCharacters));
+            _tailEnd += (long)stamp.Length + kept.Length + Environment.NewLine.Length;
             // Avoid first allocating a copy of a potentially huge line.
-            _tail.Append(line.AsSpan(Math.Max(0, line.Length - ServiceActivity.TranscriptCharacters))).AppendLine();
+            _tail.Append(stamp).Append(kept).AppendLine();
             // Trim in batches so verbose output does not shift a full buffer
             // for every individual line after the first overflow.
             if (_tail.Length > ServiceActivity.TranscriptCharacters) _tail.Remove(0, _tail.Length - ServiceActivity.TranscriptCharacters / 2);
