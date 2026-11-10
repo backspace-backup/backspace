@@ -234,6 +234,10 @@ public sealed class S96_LogConsole : ScenarioBase
             Assert.False(view.IsFollowing);
             var header = Row(l => l.Kind == ConsoleLineKind.Section);
             Assert.Matches(@"^local_c · backup · \d\d:\d\d$", header.Line!.SectionTitle);
+            Assert.Equal(@"C:\ → USB drive (E:)", header.Line.Subtitle);
+            // The first header needs no rule above it; the header fields show with Verbose only.
+            Assert.False(header.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("ln-rule")).IsVisible);
+            Assert.DoesNotContain(Rows(), r => r.Line!.Kind == ConsoleLineKind.Meta && r.Line.Text.StartsWith("storage-name"));
             Assert.Equal(DarkBrush("BS.Brush.FgDim"), Row(l => l.Text.StartsWith("[setup]")).TextBlock.Foreground);
             var progressRow = Row(l => l.Kind == ConsoleLineKind.Progress);
             Assert.Equal(DarkBrush("BS.Brush.FgSecondary"), progressRow.TextBlock.Foreground);
@@ -257,10 +261,10 @@ public sealed class S96_LogConsole : ScenarioBase
             Assert.True(time.IsEffectivelyVisible);
             Assert.Equal(Evening.AddSeconds(1).ToLocalTime().ToString("HH:mm:ss"), time.Text);
             Assert.True(time.Bounds.Width <= 70, "The time column is not narrow.");
-            // The header fields have no time of their own: the column stays empty, lines still align.
-            var meta = Row(l => l.Kind == ConsoleLineKind.Meta);
-            Assert.Equal("", meta.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("ln-time")).Text);
-            Assert.Equal(setupRow.TextBlock.TranslatePoint(new Point(), list)!.Value.X, meta.TextBlock.TranslatePoint(new Point(), list)!.Value.X, 0.5);
+            // A header carries its time in its title: its column stays empty, and it aligns with the lines.
+            var head = Row(l => l.Kind == ConsoleLineKind.Section);
+            Assert.Equal("", head.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("ln-time")).Text);
+            Assert.Equal(setupRow.TextBlock.TranslatePoint(new Point(), list)!.Value.X, head.TextBlock.TranslatePoint(new Point(), list)!.Value.X, 0.5);
             ctx.Snapshot(host, "timestamps on",
                 "Timestamps ticked: each line's local time (HH:mm:ss) in a narrow dim column on the left; the header's fields, which have no time, leave it empty and stay aligned.");
 
@@ -278,7 +282,7 @@ public sealed class S96_LogConsole : ScenarioBase
             Click(host, cleanupHeader.GetVisualDescendants().OfType<Button>().Single());
             await ctx.Driver.PumpAsync(50);
             var section = Assert.Single(copied);
-            Assert.StartsWith("── local_c · cleanup", section.Split('\n')[0][10..]);
+            Assert.StartsWith("── local_c · cleanup", section); // a header carries its time in its title
             Assert.Contains("[cleanup] Nothing to remove", section);
             Assert.DoesNotContain("[recap]", section);
             Assert.DoesNotContain("local_c · check", section);
@@ -340,7 +344,10 @@ public sealed class S96_LogConsole : ScenarioBase
             var y = jumped.TranslatePoint(new Point(), scroll)!.Value.Y;
             Assert.InRange(y, 0, scroll.Viewport.Height - jumped.Bounds.Height);
             Assert.True(jumped.Classes.Contains("flash"));
-            Assert.False(view.IsFollowing, "Showing an error must not pull the reader back to the end.");
+            // Following resumes only when the line shown is in the last screen of the log.
+            var atEnd = scroll.Offset.Y >= scroll.Extent.Height - scroll.Viewport.Height - 4;
+            Assert.Equal(atEnd, view.IsFollowing);
+            Assert.Equal(!atEnd, view.FindControl<Button>("JumpToLatest")!.IsVisible);
             ctx.Snapshot(host, "error jump",
                 "After clicking the first error in the list: the log scrolled to the [tasklog] 'task failed' line, a third of the way down, highlighted in a red tint for a moment; Jump to latest is offered.");
             // A run that did not fail has no list, even with warnings.

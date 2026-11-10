@@ -59,12 +59,18 @@ public sealed partial class ConsoleLine : ObservableObject
     /// <summary>False for the outcome block's status and summary: red with a
     /// failed run, but the error list names the error itself.</summary>
     internal bool ListAsError { get; set; } = true;
+    /// <summary>A log file's bookkeeping (its header fields, the attempt
+    /// count, the UTC end time): the section header and the outcome already
+    /// say it, so it shows with Verbose only.</summary>
+    internal bool VerboseOnly { get; set; }
 
     /// <summary>Shown only with Verbose.</summary>
-    public bool IsDetail => Kind is ConsoleLineKind.Detail or ConsoleLineKind.File;
+    public bool IsDetail => VerboseOnly || Kind is ConsoleLineKind.Detail or ConsoleLineKind.File;
 
     [ObservableProperty] private bool _isSelected;
     [ObservableProperty] private bool _isFlashing;
+    /// <summary>The first shown line: a header there needs no rule above it.</summary>
+    [ObservableProperty] private bool _isFirst;
 
     /// <summary>The line's message, as the error list shows it.</summary>
     public string Message => ConsoleLineClassifier.Message(Text);
@@ -77,10 +83,9 @@ public sealed partial class ConsoleLine : ObservableObject
     /// <summary>The line as copied: what is shown, with its time when Timestamps is on.</summary>
     public string CopyText(bool withTime)
     {
-        var text = Kind == ConsoleLineKind.Section
-            ? "── " + SectionTitle + (string.IsNullOrEmpty(Subtitle) ? "" : " · " + Subtitle)
-            : Text;
-        return withTime && Time is not null ? TimeLabel + "  " + text : text;
+        if (Kind == ConsoleLineKind.Section)
+            return "── " + SectionTitle + (string.IsNullOrEmpty(Subtitle) ? "" : " · " + Subtitle);
+        return withTime && Time is not null ? TimeLabel + "  " + Text : Text;
     }
 
     public override string ToString() => Text;

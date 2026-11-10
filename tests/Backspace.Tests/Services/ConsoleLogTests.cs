@@ -217,14 +217,24 @@ public sealed class ConsoleLogTests
         Assert.Equal(2, sections.Count);
         // The file's header and the marker right after it make one header.
         Assert.Equal("local_c · backup", sections[0].Text);
-        Assert.Equal("Google Drive - backspace", sections[0].Subtitle);
+        // Where it ran: the header's source and the marker's destination.
+        Assert.Equal(@"C:\ → Google Drive - backspace", sections[0].Subtitle);
+        Assert.False(sections[0].IsDetail);
         Assert.Same(lines[0], sections[0]);
         Assert.Equal(new DateTime(2026, 11, 10, 6, 0, 0, 569, DateTimeKind.Utc).ToLocalTime(), sections[0].Time!.Value, TimeSpan.FromSeconds(1));
         Assert.EndsWith(" · " + sections[0].Time!.Value.ToString("HH:mm"), sections[0].SectionTitle);
         Assert.Equal("local_c · cleanup", sections[1].Text);
         Assert.Equal(new DateTime(2026, 11, 10, 6, 10, 0, DateTimeKind.Utc).ToLocalTime(), sections[1].Time);
-        // The header's fields are dim; no marker line is shown as text.
+        // The header's fields are dim, and only with Verbose (the header says
+        // them); no marker line is shown as text.
         Assert.All(lines.Skip(1).Take(5), l => Assert.Equal(ConsoleLineKind.Meta, l.Kind));
+        Assert.All(lines.Skip(1).Take(6), l => Assert.True(l.IsDetail, l.Text + " shows without Verbose."));
+        // The outcome's bookkeeping too, but not its status and summary.
+        Assert.True(lines.Single(l => l.Text == "--- cell outcome ---").IsDetail);
+        Assert.True(lines.Single(l => l.Text.StartsWith("attempts ")).IsDetail);
+        Assert.True(lines.Single(l => l.Text.StartsWith("ended (UTC) ")).IsDetail);
+        Assert.False(lines.Single(l => l.Text.StartsWith("status ")).IsDetail);
+        Assert.False(lines.Single(l => l.Text.StartsWith("summary ")).IsDetail);
         Assert.DoesNotContain(lines, l => l.Text.StartsWith("[section]") || l.Text.StartsWith("--- Backspace"));
         // Each stamped line has its own local time and no stamp in its text.
         var progress = lines.Single(l => l.Kind == ConsoleLineKind.Progress);
@@ -241,6 +251,7 @@ public sealed class ConsoleLogTests
         var lines = ConsoleLogParser.ParseText(CellLog(stamped: false, marker: false));
         var section = Assert.Single(lines, l => l.Kind == ConsoleLineKind.Section);
         Assert.Equal("local_c · backup", section.Text);
+        Assert.Equal(@"C:\ → Google Drive - backspace", section.Subtitle); // the kind "(GoogleDrive)" left out
         Assert.NotNull(section.Time); // from "started (UTC)"
         Assert.All(lines.Where(l => l.Kind is ConsoleLineKind.Progress or ConsoleLineKind.Setup), l => Assert.Null(l.Time));
     }
@@ -253,6 +264,13 @@ public sealed class ConsoleLogTests
         Assert.Equal(ConsoleLineKind.Error, lines.Single(l => l.Text.StartsWith("summary ")).Kind);
         Assert.Equal(ConsoleLineKind.Error, lines.Single(l => l.Text.StartsWith("last error ")).Kind);
         Assert.Equal(ConsoleLineKind.Meta, lines.Single(l => l.Text.StartsWith("attempts ")).Kind);
+        // The error list names the error, not the status and summary that repeat it.
+        Assert.Equal(new[] { "last error    : repository does not exist" },
+            lines.Where(l => l.Kind == ConsoleLineKind.Error && l.ListAsError).Select(l => l.Text));
+        Assert.Equal("repository does not exist", lines.Single(l => l.Text.StartsWith("last error")).Message);
+        // Two attempts is worth seeing without Verbose.
+        var retried = ConsoleLogParser.ParseText(CellLog(stamped: true, marker: true, status: "Failed").Replace("attempts      : 1", "attempts      : 3"));
+        Assert.False(retried.Single(l => l.Text.StartsWith("attempts ")).IsDetail);
         var warning = ConsoleLogParser.ParseText(CellLog(stamped: true, marker: true, status: "Warning"));
         Assert.Equal(ConsoleLineKind.Warning, warning.Single(l => l.Text.StartsWith("status ")).Kind);
     }
@@ -294,6 +312,11 @@ public sealed class ConsoleLogTests
             .Select(s => setup.Substring(s.Start, s.Length)).ToList();
         Assert.Equal(new[] { "C:\\Users\\sam\\calls.xml", "\\\\nas\\share\\photos" }, paths);
 
+        // Backrest's own time and level are quiet with the tag.
+        var record = "[tasklog] 20:05:02.000Z\terror\tbackup for plan \"p\"\ttask failed";
+        var quiet = Assert.Single(ConsoleLineClassifier.Spans(record, ConsoleLineKind.Error));
+        Assert.Equal("[tasklog] 20:05:02.000Z\terror", record.Substring(quiet.Start, quiet.Length));
+
         // Warnings and errors keep one colour; a header has no parts.
         Assert.DoesNotContain(ConsoleLineClassifier.Spans("[skip] C:\\Users\\sam", ConsoleLineKind.Warning), s => s.Kind == ConsoleLineClassifier.SpanKind.Path);
         Assert.Empty(ConsoleLineClassifier.Spans("local_c · backup", ConsoleLineKind.Section));
@@ -304,8 +327,12 @@ public sealed class ConsoleLogTests
     {
         Assert.Equal("attempt 1 failed: repository does not exist",
             ConsoleLineClassifier.Message("[orchestrator] attempt 1 failed: repository does not exist"));
-        Assert.Equal("backup for plan \"p\" task failed {\"error\": \"exit status 1\"}",
-            ConsoleLineClassifier.Message("[tasklog] 06:01:02.000Z\terror\tbackup for plan \"p\"\ttask failed\t{\"error\": \"exit status 1\"}"));
+        // Backrest's record: what failed and its error field, not the plan id.
+        Assert.Equal("task failed: Fatal: unable to save snapshot: \"no space\"",
+            ConsoleLineClassifier.Message("[tasklog] 06:01:02.000Z\terror\tbackup for plan \"p\"\ttask failed\t{\"error\": \"Fatal: unable to save snapshot: \\\"no space\\\"\"}"));
+        Assert.Equal("backup for plan \"p\" · error processing item · {\"item\": \"C:\\x\"}",
+            ConsoleLineClassifier.Message("[tasklog] 00:34:35.623Z\twarn\tbackup for plan \"p\"\terror processing item\t{\"item\": \"C:\\x\"}"));
+        Assert.Equal("the destination drive is full", ConsoleLineClassifier.Message("last error    : the destination drive is full"));
         Assert.Equal("Fatal: unable to open repository", ConsoleLineClassifier.Message("Fatal: unable to open repository"));
         Assert.EndsWith("…", ConsoleLineClassifier.Message("[error] " + new string('x', 400)));
     }

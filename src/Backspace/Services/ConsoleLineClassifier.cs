@@ -143,8 +143,10 @@ internal static class ConsoleLineClassifier
     {
         var spans = new List<Span>(3);
         if (kind is ConsoleLineKind.Section or ConsoleLineKind.Blank or ConsoleLineKind.Notice) return spans;
-        var tag = Tag.Match(text);
-        if (tag.Success) spans.Add(new Span(0, tag.Length - 1, SpanKind.Tag));
+        // Backrest's own time and level ("[tasklog] 20:05:02.000Z  error") are
+        // quiet like the tag: the message after them is what to read.
+        var tag = Leveled.Match(text) is { Success: true } leveled ? leveled : Tag.Match(text);
+        if (tag.Success) spans.Add(new Span(0, tag.Value.TrimEnd().Length, SpanKind.Tag));
         if (kind == ConsoleLineKind.Progress && Percent.Match(text) is { Success: true } pct)
             spans.Add(new Span(pct.Groups["p"].Index, pct.Groups["p"].Length, SpanKind.Percent));
         if (kind is ConsoleLineKind.Plain or ConsoleLineKind.Setup or ConsoleLineKind.Meta or ConsoleLineKind.File
@@ -165,9 +167,24 @@ internal static class ConsoleLineClassifier
     internal static string Message(string text)
     {
         var m = Leveled.Match(text);
-        var message = m.Success ? text[m.Length..]
-            : Tag.Match(text) is { Success: true } tag ? text[tag.Length..] : text;
+        string message;
+        if (m.Success)
+        {
+            // Backrest's record: logger, message, fields. "task failed: <the
+            // error field>" says it; the plan's id doesn't.
+            var fields = text[m.Length..].Split('\t', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var error = fields.Length > 0 && JsonError.Match(fields[^1]) is { Success: true } e
+                ? System.Text.RegularExpressions.Regex.Unescape(e.Groups["e"].Value) : null;
+            message = error is not null && fields.Length >= 2 ? fields[^2] + ": " + error
+                : string.Join(" · ", fields);
+        }
+        else if (OutcomeField.Match(text) is { Success: true } field) message = field.Groups["v"].Value;
+        else message = Tag.Match(text) is { Success: true } tag ? text[tag.Length..] : text;
         message = message.Replace('\t', ' ').Trim();
         return message.Length > 300 ? message[..300] + "…" : message;
     }
+
+    private static readonly Regex JsonError = new(@"""error"":\s*""(?<e>(?:[^""\\]|\\.)*)""", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    // "last error    : the destination drive is full"
+    private static readonly Regex OutcomeField = new(@"^[a-z][a-z ()]*?\s+: (?<v>.+)$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 }

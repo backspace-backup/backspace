@@ -83,13 +83,15 @@ public sealed class ConsoleLineRow : Border
 
     private void OnLinePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ConsoleLine.IsSelected) or nameof(ConsoleLine.IsFlashing)) UpdateState();
+        if (e.PropertyName is nameof(ConsoleLine.IsSelected) or nameof(ConsoleLine.IsFlashing) or nameof(ConsoleLine.IsFirst)) UpdateState();
     }
 
     private void UpdateState()
     {
         Classes.Set("selected", _line?.IsSelected == true);
         Classes.Set("flash", _line?.IsFlashing == true);
+        // No rule above the first header: the console's edge is already there.
+        _rule.IsVisible = _line is { Kind: ConsoleLineKind.Section, IsFirst: false };
     }
 
     private void Build()
@@ -101,10 +103,10 @@ public sealed class ConsoleLineRow : Border
         _kindClass = "ln-" + line.Kind.ToString().ToLowerInvariant();
         _text.Classes.Add(_kindClass);
         Classes.Add(_kindClass);
-        _time.Text = line.TimeLabel;
-
         var section = line.Kind == ConsoleLineKind.Section;
-        _rule.IsVisible = section;
+        // A header's title carries its time.
+        _time.Text = section ? "" : line.TimeLabel;
+        _rule.IsVisible = section && !line.IsFirst;
         _copy.IsVisible = section;
         _subtitle.IsVisible = section && !string.IsNullOrEmpty(line.Subtitle);
         _subtitle.Text = section ? line.Subtitle : null;
@@ -118,8 +120,8 @@ public sealed class ConsoleLineRow : Border
         foreach (var span in spans.OrderBy(s => s.Start))
         {
             if (span.Start < at) continue;
-            if (span.Start > at) inlines.Add(new Run(text[at..span.Start]));
-            var run = new Run(text.Substring(span.Start, span.Length));
+            if (span.Start > at) inlines.Add(new Run(Shown(text[at..span.Start])));
+            var run = new Run(Shown(text.Substring(span.Start, span.Length)));
             switch (span.Kind)
             {
                 case ConsoleLineClassifier.SpanKind.Tag:
@@ -136,7 +138,7 @@ public sealed class ConsoleLineRow : Border
             inlines.Add(run);
             at = span.Start + span.Length;
         }
-        if (at < text.Length) inlines.Add(new Run(text[at..]));
+        if (at < text.Length) inlines.Add(new Run(Shown(text[at..])));
         _text.Text = null;
         _text.Inlines = inlines;
     }
@@ -144,8 +146,12 @@ public sealed class ConsoleLineRow : Border
     private void SetPlain(string text)
     {
         _text.Inlines = null;
-        _text.Text = text;
+        _text.Text = Shown(text);
     }
+
+    // Backrest separates its fields with tabs, which a proportional tab stop
+    // spreads across the line; two spaces read as the same separation.
+    private static string Shown(string text) => text.Contains('\t') ? text.Replace("\t", "  ") : text;
 
     // The console always uses the dark theme's colours (it is dark in both themes).
     private IBrush? Brush(string key) =>

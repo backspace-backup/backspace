@@ -14,7 +14,7 @@
          theme's dark-variant colours (the console sits in a dark theme
          scope), so status colours read on it in both app themes. -->
     <SolidColorBrush x:Key="BS.Brush.ConsoleFg" Color="#D7DCE2"/>
-    <SolidColorBrush x:Key="BS.Brush.ConsoleTag" Color="#6E7681"/>
+    <SolidColorBrush x:Key="BS.Brush.ConsoleTag" Color="#7D8590"/> <!-- 5.1:1 on the console -->
     <SolidColorBrush x:Key="BS.Brush.ConsoleRule" Color="#2A3340"/>
     <SolidColorBrush x:Key="BS.Brush.ConsoleSelection" Color="#264F78"/>
   </UserControl.Resources>
@@ -382,7 +382,7 @@
                         <TextBlock Grid.Column="0" Text="{Binding TimeLabel}"
                                    FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12"
                                    Foreground="{DynamicResource BS.Brush.FgDim}" Margin="0,0,10,0"
-                                   IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                   Width="58"/>
                         <TextBlock Grid.Column="1" Text="{Binding Message}"
                                    FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12"
                                    Foreground="{DynamicResource BS.Brush.DangerTintFg}"

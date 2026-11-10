@@ -356,7 +356,7 @@ public sealed partial class BackupOrchestrator
                     // can both reference.
                     // Where this backup starts in the log (U176): Activity &
                     // logs draws a rule and a header here.
-                    lineHandler(LogSection.Line(backup.Name, "backup", dest.Name));
+                    lineHandler(LogSection.Line(backup.Name, "backup", sourcePath + " → " + dest.Name));
                     var cellOutcome = new CellOutcome
                     {
                         SourcePath = sourcePath,

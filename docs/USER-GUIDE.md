@@ -512,7 +512,8 @@ them; **Copy** in the console's header copies the whole log as shown.
 lists its errors above its log: click one to scroll to its line. Long logs
 scroll smoothly, since only the lines on screen are drawn.
 Long lines wrap. Tick **Verbose** to also show the engine's debug lines
-and status polls. Run logs always record every line, so ticking it shows the
+and status polls, and the run log's own bookkeeping (the fields the header
+already sums up, the attempt count, the end time in UTC). Run logs always record every line, so ticking it shows the
 details of past runs too. It is the same setting as **Settings → Logs &
 diagnostics → Show verbose diagnostic logs**, which also makes Backspace's own
 app log record debug lines from then on. While Verbose is on, each backup

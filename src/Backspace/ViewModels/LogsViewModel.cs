@@ -191,11 +191,19 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         }
         else AddVisible(_runLines);
         ApplyLines(DisplayLines, next);
+        var first = DisplayLines.Count > 0 ? DisplayLines[0] : null;
+        if (!ReferenceEquals(first, _firstShown))
+        {
+            if (_firstShown is not null) _firstShown.IsFirst = false;
+            _firstShown = first;
+            if (first is not null) first.IsFirst = true;
+        }
         UpdateErrorList();
         OnPropertyChanged(nameof(DisplayText));
     }
 
     internal void RefreshDisplay() => SyncDisplay();
+    private ConsoleLine? _firstShown;
 
     /// <summary>Makes <paramref name="target"/> equal <paramref name="next"/>
     /// with the fewest changes for the common cases: lines appended, lines

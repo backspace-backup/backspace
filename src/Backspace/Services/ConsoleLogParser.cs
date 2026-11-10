@@ -56,17 +56,24 @@ internal sealed class ConsoleLogParser
         {
             _block = Block.Header;
             _sectionHasContent = false;
+            _source = _destination = null;
             return _lastSection = new ConsoleLine("backup", ConsoleLineKind.Section, time) { FromHeader = true };
         }
         if (text == OutcomeMarker)
         {
             _block = Block.Outcome;
             _outcomeStatus = "";
-            return new ConsoleLine(text, ConsoleLineKind.Meta, time);
+            return new ConsoleLine(text, ConsoleLineKind.Meta, time) { VerboseOnly = true };
         }
         if (_block != Block.None)
         {
-            if (string.IsNullOrWhiteSpace(text)) { _block = Block.None; return new ConsoleLine("", ConsoleLineKind.Blank, time); }
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                // The gap after a header whose fields are hidden is hidden with them.
+                var verboseOnly = _block == Block.Header;
+                _block = Block.None;
+                return new ConsoleLine("", ConsoleLineKind.Blank, time) { VerboseOnly = verboseOnly };
+            }
             return BlockLine(text, time);
         }
 
@@ -79,7 +86,10 @@ internal sealed class ConsoleLogParser
             if (tab >= 0) { where = title[(tab + 1)..].Trim(); title = title[..tab]; }
             if (_lastSection is { FromHeader: true } header && !_sectionHasContent)
             {
-                header.Text = title; header.Subtitle = where; header.FromHeader = false;
+                header.Text = title; header.FromHeader = false;
+                // A marker naming only the destination keeps the header's source.
+                if (where is not null)
+                    header.Subtitle = _source is not null && !where.Contains(" → ", StringComparison.Ordinal) ? _source + " → " + where : where;
                 header.Time ??= time;
                 return null;
             }
@@ -91,6 +101,11 @@ internal sealed class ConsoleLogParser
         return new ConsoleLine(text, kind, time);
     }
 
+    private string? _source, _destination;
+    // "USB drive (E:) (LocalFolder)": the destination's kind, in brackets at the end.
+    private static readonly System.Text.RegularExpressions.Regex DestinationKind =
+        new(@"\s\([A-Za-z]+\)$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
     private ConsoleLine BlockLine(string text, DateTime? time)
     {
         var colon = text.IndexOf(" : ", StringComparison.Ordinal);
@@ -101,12 +116,15 @@ internal sealed class ConsoleLogParser
             if (_lastSection is { FromHeader: true } section)
             {
                 if (key == "backup" && value.Length > 0) section.Text = value + " · backup";
-                else if (key == "destination" && value.Length > 0) section.Subtitle = value;
+                else if (key == "source" && value.Length > 0) _source = value;
+                else if (key == "destination" && value.Length > 0) _destination = DestinationKind.Replace(value, "");
                 else if (key == "started (UTC)" && DateTime.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
                              System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var started))
                     section.Time = started.ToLocalTime();
+                section.Subtitle = _source is not null && _destination is not null ? _source + " → " + _destination : _destination ?? _source;
             }
-            return new ConsoleLine(text, ConsoleLineKind.Meta, time);
+            // The header says these: shown with Verbose only.
+            return new ConsoleLine(text, ConsoleLineKind.Meta, time) { VerboseOnly = true };
         }
         // Outcome block: the status and what it says take its colour.
         if (key == "status") _outcomeStatus = value;
@@ -125,6 +143,11 @@ internal sealed class ConsoleLogParser
         if (key == "ended (UTC)" && DateTime.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ended))
             time ??= ended.ToLocalTime();
-        return new ConsoleLine(text, kind, time) { ListAsError = key is not ("status" or "summary") };
+        return new ConsoleLine(text, kind, time)
+        {
+            ListAsError = key is not ("status" or "summary"),
+            // One attempt and the end time in UTC add nothing to the header and status.
+            VerboseOnly = key == "ended (UTC)" || key == "attempts" && value == "1",
+        };
     }
 }
