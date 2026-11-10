@@ -502,6 +502,18 @@ folder to open it; **Up** goes back. It compares the backup's snapshot with
 the one before, by size and date, reading only their file lists (cached on
 this computer), so it works as long as both snapshots are kept. Sizes are of
 the files; the storage received less where parts were already stored.
+To stop backing up a folder you opened there (a build output, a cache), click
+**Exclude this folder** beside its path. Backspace shows the rule it will add
+to the backup's own filter rules, written from the top of the drive
+(`?:/Users/you/Projects/app/bin/`), and how much the folder holds now. Confirm
+with **Exclude from next backups**: the rule goes at the end of the backup's
+custom rules, the settings are saved (the background service uses them too),
+and the path shows **Excluded from the next backup** with **Undo**, which takes
+that rule out again. Backups already made keep the folder, so it can still be
+restored from them. A folder an existing rule already leaves out says so
+instead, and when an exception (`!` rule) further down would keep the folder
+in, Backspace names it and adds nothing. The backed-up folders themselves
+can't be excluded this way; change the backup's folders in its settings.
 **Open log** shows the run's log. Runs the background service made are read
 from its history and logs in the portable folder, in full, even while the
 service is stopped; the app never asks the service for them.

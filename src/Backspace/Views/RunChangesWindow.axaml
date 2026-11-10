@@ -5,7 +5,7 @@
         WindowStartupLocation="CenterOwner" Background="{DynamicResource BS.Brush.BgBase}">
   <!-- U143 (5 November 2026): the files one backup added or changed, as a
        map of the folders they are in (area = bytes) and a list of the largest. -->
-  <Grid Margin="24,20,24,18" RowDefinitions="Auto,Auto,*,Auto,Auto">
+  <Grid Margin="24,20,24,18" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
     <StackPanel Spacing="4">
       <TextBlock Classes="page-title" Text="{Binding Title}"/>
       <TextBlock Classes="page-subtitle" Text="{Binding Subtitle}"/>
@@ -14,12 +14,54 @@
     <Grid Grid.Row="1" ColumnDefinitions="Auto,10,*,Auto" Margin="0,14,0,10">
       <Button Grid.Column="0" Classes="ghost" Content="Up" Command="{Binding UpCommand}" IsEnabled="{Binding CanGoUp}"
               ToolTip.Tip="Back to the folder that holds this one"/>
-      <TextBlock Grid.Column="2" Name="MapLocation" Classes="mono" FontSize="13" VerticalAlignment="Center"
-                 TextTrimming="CharacterEllipsis" Text="{Binding Location}" ToolTip.Tip="{Binding TopFolder}"/>
+      <!-- U178: the folder's exclusion sits right after its path; a long
+           path is trimmed first, so the button always stays in view. -->
+      <DockPanel Grid.Column="2" HorizontalAlignment="Left" Margin="0,0,16,0">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0" VerticalAlignment="Center">
+          <Button Name="ExcludeFolder" Classes="ghost" Content="Exclude this folder" Command="{Binding ExcludeFolderCommand}"
+                  IsVisible="{Binding CanExclude}" IsEnabled="{Binding !IsConfirmingExclude}"
+                  ToolTip.Tip="Leave this folder out of this backup's next runs"/>
+          <TextBlock Name="ExcludedNote" Text="Excluded from the next backup" VerticalAlignment="Center" FontWeight="SemiBold"
+                     Foreground="{DynamicResource BS.Brush.BandOkFg}" IsVisible="{Binding IsExcluded}"
+                     ToolTip.Tip="{Binding ExcludeRule}"/>
+          <Button Name="UndoExclude" Classes="ghost" Content="Undo" Command="{Binding UndoExcludeCommand}" IsVisible="{Binding IsExcluded}"
+                  ToolTip.Tip="Take the rule out again: the next backup includes this folder"/>
+          <TextBlock Name="AlreadyExcludedNote" Classes="dim" Text="Already excluded from the next backup" VerticalAlignment="Center"
+                     IsVisible="{Binding IsAlreadyExcluded}" ToolTip.Tip="{Binding AlreadyExcludedBy, StringFormat='By the rule {0}'}"/>
+        </StackPanel>
+        <TextBlock Name="MapLocation" Classes="mono" FontSize="13" VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis" Text="{Binding Location}" ToolTip.Tip="{Binding TopFolder}"/>
+      </DockPanel>
       <TextBlock Grid.Column="3" Name="ChangeSummary" FontWeight="SemiBold" VerticalAlignment="Center" Text="{Binding Summary}"/>
     </Grid>
 
-    <Grid Grid.Row="2" ColumnDefinitions="*,16,320">
+    <!-- U178: the confirmation, with the exact rule it adds. -->
+    <Border Grid.Row="2" Name="ExcludeConfirmation" Classes="callout" Padding="16,12" Margin="0,0,0,12"
+            IsVisible="{Binding IsConfirmingExclude}">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding ExcludeQuestion}" Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+          <TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding ExcludeRuleIntro}" Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+          <SelectableTextBlock Name="ExcludeRuleText" FontFamily="{DynamicResource BS.Font.Mono}" FontSize="13" TextWrapping="Wrap" Text="{Binding ExcludeRule}"
+                               Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+          <TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding ExcludeOnDisk}" IsVisible="{Binding HasExcludeOnDisk}"
+                     Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+          <TextBlock FontSize="13" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgPrimary}"
+                     Text="Backups already made keep it: you can still restore it from them."/>
+          <TextBlock Name="ExcludeWarning" FontSize="13" TextWrapping="Wrap" FontWeight="SemiBold" Text="{Binding ExcludeWarning}"
+                     IsVisible="{Binding HasExcludeWarning}" Foreground="{DynamicResource BS.Brush.BandWarnFg}"/>
+          <TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding ExcludeError}" IsVisible="{Binding HasExcludeError}"
+                     Foreground="{DynamicResource BS.Brush.BandFailFg}"/>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom" Margin="16,0,0,0">
+          <Button Classes="ghost" Content="Cancel" Command="{Binding CancelExcludeCommand}"/>
+          <Button Name="ConfirmExclude" Classes="primary" Content="Exclude from next backups" Command="{Binding ConfirmExcludeCommand}"
+                  IsEnabled="{Binding CanConfirmExclude}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="3" ColumnDefinitions="*,16,320">
       <Border Classes="surface" Padding="6">
         <Panel>
           <v:ChangeTreemap Name="Map" Node="{Binding Current}"/>
@@ -54,9 +96,9 @@
       </Border>
     </Grid>
 
-    <TextBlock Grid.Row="3" Name="HoverInfo" Margin="0,10,0,0" Classes="mono" FontSize="12" TextTrimming="CharacterEllipsis"
+    <TextBlock Grid.Row="4" Name="HoverInfo" Margin="0,10,0,0" Classes="mono" FontSize="12" TextTrimming="CharacterEllipsis"
                Text="{Binding HoverText}"/>
-    <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+    <Grid Grid.Row="5" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
       <StackPanel Spacing="2" VerticalAlignment="Center">
         <TextBlock Name="StatusNote" Text="{Binding Status}" IsVisible="{Binding !IsLoading}" TextWrapping="Wrap" FontSize="13"/>
         <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"

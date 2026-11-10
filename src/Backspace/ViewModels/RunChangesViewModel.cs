@@ -35,6 +35,7 @@ public sealed partial class RunChangesViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _hoverText = "";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Location), nameof(CanGoUp))] private ChangeNode? _current;
     private ChangeNode? _top;
+    private IReadOnlyList<string> _sources = Array.Empty<string>();
 
     public ObservableCollection<ChangedFileRow> LargestFiles { get; } = new();
     public bool HasFiles => LargestFiles.Count > 0;
@@ -116,6 +117,7 @@ public sealed partial class RunChangesViewModel : ObservableObject, IDisposable
                 all.AddRange(result.Files.Select(f => f with { Path = prefix + "/" + f.Path }));
                 if (result.PreviousId is null) missing.Add(source + " (first backup: every file is new)");
             }
+            _sources = cells.Select(g => g[0].SourcePath).ToList();
             var tree = await Task.Run(() => ChangeNode.Build(_backup.Name, all), ct);
             _top = tree.Collapsed();
             Current = _top;
@@ -151,8 +153,180 @@ public sealed partial class RunChangesViewModel : ObservableObject, IDisposable
         IsLoading = false;
     }
 
+    // ---------------------------------------------------------------
+    // Exclude this folder (U178, 10 November 2026): beside the path, a
+    // button that adds a rule leaving the opened folder out of this
+    // backup's next runs, with a confirmation that shows the rule, and Undo.
+    // ---------------------------------------------------------------
+
+    /// <summary>The opened folder, in full, when it can be excluded: a folder
+    /// inside one of the backed-up folders (not one of them, nor above).</summary>
+    [ObservableProperty] private string? _excludePath;
+    /// <summary>"Exclude this folder" is offered.</summary>
+    [ObservableProperty] private bool _canExclude;
+    [ObservableProperty] private bool _isConfirmingExclude;
+    /// <summary>The rule this window added for the opened folder is saved.</summary>
+    [ObservableProperty] private bool _isExcluded;
+    /// <summary>Set when an existing rule already leaves the opened folder out.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsAlreadyExcluded))] private string _alreadyExcludedBy = "";
+    public bool IsAlreadyExcluded => AlreadyExcludedBy.Length > 0;
+    [ObservableProperty] private string _excludeRule = "";
+    [ObservableProperty] private string _excludeQuestion = "";
+    [ObservableProperty] private string _excludeRuleIntro = "";
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasExcludeOnDisk))] private string _excludeOnDisk = "";
+    public bool HasExcludeOnDisk => ExcludeOnDisk.Length > 0;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasExcludeWarning), nameof(CanConfirmExclude))] private string _excludeWarning = "";
+    public bool HasExcludeWarning => ExcludeWarning.Length > 0;
+    public bool CanConfirmExclude => ExcludeWarning.Length == 0;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasExcludeError))] private string _excludeError = "";
+    public bool HasExcludeError => ExcludeError.Length > 0;
+
+    /// <summary>What this window added, by folder: the rule and the filters
+    /// before and after, so Undo can put back exactly what was there.</summary>
+    private readonly Dictionary<string, (string Rule, string Before, string After)> _excluded = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _measureCts;
+
+    partial void OnCurrentChanged(ChangeNode? value) => RefreshExclusion();
+
+    private Backup? SavedBackup() => ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == _backup.Id);
+
+    /// <summary>The folder <paramref name="node"/> stands for on this computer,
+    /// or null when it is a backed-up folder itself or above one.</summary>
+    internal string? FullPathOf(ChangeNode? node)
+    {
+        if (node is null || node.IsFile) return null;
+        string? best = null, rest = null;
+        foreach (var source in _sources)
+        {
+            var key = source.Replace('\\', '/').Trim('/');
+            string? tail = key.Length == 0 ? node.Path
+                : node.Path.StartsWith(key + "/", StringComparison.OrdinalIgnoreCase) ? node.Path[(key.Length + 1)..] : null;
+            if (tail is null || tail.Length == 0 || (best is not null && best.Length >= source.Length)) continue;
+            (best, rest) = (source, tail);
+        }
+        if (best is null || rest is null) return null;
+        var root = best.TrimEnd('/', '\\');
+        var sep = System.IO.Path.DirectorySeparatorChar;
+        return (root.Length == 0 ? sep.ToString() : root + sep) + rest.Replace('/', sep);
+    }
+
+    private void RefreshExclusion()
+    {
+        CancelMeasure();
+        IsConfirmingExclude = false;
+        ExcludeError = "";
+        var path = FullPathOf(Current);
+        var backup = path is null ? null : SavedBackup();
+        var rule = path is null ? null : FolderExclusion.Rule(path);
+        ExcludePath = backup is null || rule is null ? null : path;
+        ExcludeRule = rule ?? "";
+        if (ExcludePath is null)
+        {
+            (CanExclude, IsExcluded, AlreadyExcludedBy) = (false, false, "");
+            return;
+        }
+        var filters = backup!.FiltersText ?? "";
+        IsExcluded = _excluded.TryGetValue(ExcludePath, out var added)
+            && FilterTranslator.ReadRules(filters).Any(r => string.Equals(r.Line, added.Rule, StringComparison.OrdinalIgnoreCase));
+        AlreadyExcludedBy = IsExcluded ? "" : FolderExclusion.ExcludedBy(filters, ExcludePath) ?? "";
+        CanExclude = !IsExcluded && !IsAlreadyExcluded;
+    }
+
+    /// <summary>Shows the confirmation: the rule, what the folder holds now and
+    /// that earlier backups keep it.</summary>
+    [RelayCommand]
+    private async Task ExcludeFolder()
+    {
+        if (!CanExclude || ExcludePath is not { } path || SavedBackup() is not { } backup) return;
+        var name = Current?.Name ?? System.IO.Path.GetFileName(path);
+        ExcludeQuestion = $"Leave {name} out of the next backups?";
+        ExcludeRuleIntro = $"Backspace adds this rule to {backup.Name}'s own filter rules:";
+        var after = FolderExclusion.Add(backup.FiltersText, ExcludeRule);
+        ExcludeWarning = FolderExclusion.KeptBy(after, path) is { } keeper
+            ? $"This rule would change nothing: an exception further down keeps the folder in ({keeper}). To leave it out, change that exception in the backup's filters."
+            : "";
+        ExcludeError = "";
+        ExcludeOnDisk = "Counting what it holds now…";
+        IsConfirmingExclude = true;
+        CancelMeasure();
+        var cts = _measureCts = new CancellationTokenSource();
+        var measured = await Task.Run(() => FolderExclusion.Measure(path, TimeSpan.FromSeconds(3), cts.Token));
+        if (cts.IsCancellationRequested || !ReferenceEquals(cts, _measureCts)) return;
+        var c = CultureInfo.InvariantCulture;
+        ExcludeOnDisk = measured is { } m
+            ? $"It holds about {m.Files.ToString("N0", c)} {(m.Files == 1 ? "file" : "files")}, {BackupLiveProgress.Bytes(m.Bytes)} on disk now."
+            : "";
+    }
+
+    [RelayCommand]
+    private void CancelExclude()
+    {
+        CancelMeasure();
+        IsConfirmingExclude = false;
+    }
+
+    /// <summary>Adds the rule to the backup's custom block and saves the
+    /// settings, which the background service reads too.</summary>
+    [RelayCommand]
+    private void ConfirmExclude()
+    {
+        if (!CanConfirmExclude || ExcludePath is not { } path || ExcludeRule.Length == 0) return;
+        var rule = ExcludeRule;
+        string? before = null, after = null;
+        try
+        {
+            ServiceLocator.Config.Update(cfg =>
+            {
+                if (cfg.Backups.FirstOrDefault(b => b.Id == _backup.Id) is not { } b) return;
+                before = b.FiltersText ?? "";
+                after = FolderExclusion.Add(before, rule);
+                b.FiltersText = after;
+            });
+        }
+        catch (Exception ex)
+        {
+            ExcludeError = "The settings couldn't be saved: " + ex.Message;
+            return;
+        }
+        if (before is null || after is null) { ExcludeError = "This backup no longer exists."; return; }
+        if (after != before) _excluded[path] = (rule, before, after);
+        RefreshExclusion();
+    }
+
+    /// <summary>Takes out exactly the rule this window added for the opened folder.</summary>
+    [RelayCommand]
+    private void UndoExclude()
+    {
+        if (ExcludePath is not { } path || !_excluded.TryGetValue(path, out var added)) return;
+        try
+        {
+            ServiceLocator.Config.Update(cfg =>
+            {
+                if (cfg.Backups.FirstOrDefault(b => b.Id == _backup.Id) is not { } b) return;
+                // Unchanged since: put back the text as it was; otherwise take
+                // out just the rule, keeping later edits.
+                b.FiltersText = b.FiltersText == added.After ? added.Before : FolderExclusion.Remove(b.FiltersText, added.Rule);
+            });
+        }
+        catch (Exception ex)
+        {
+            ExcludeError = "The settings couldn't be saved: " + ex.Message;
+            return;
+        }
+        _excluded.Remove(path);
+        RefreshExclusion();
+    }
+
+    private void CancelMeasure()
+    {
+        if (_measureCts is null) return;
+        try { _measureCts.Cancel(); } catch (ObjectDisposedException) { }
+        _measureCts = null;
+    }
+
     public void Dispose()
     {
+        CancelMeasure();
         try { _cts.Cancel(); } catch (ObjectDisposedException) { }
         _cts.Dispose();
     }

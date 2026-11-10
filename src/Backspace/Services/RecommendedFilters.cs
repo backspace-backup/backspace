@@ -913,10 +913,16 @@ public static class RecommendedFilters
     /// <summary>The rule that excludes <paramref name="folder"/>: its full
     /// path from the top of the drive (<c>?:/Users/me/OneDrive/</c>), or of the
     /// file system on Linux and macOS.</summary>
-    public static string? CloudLine(CloudSyncFolder folder)
+    public static string? CloudLine(CloudSyncFolder folder) => FolderLine(folder.Path);
+
+    /// <summary>The rule that excludes the folder at <paramref name="fullPath"/>,
+    /// written from the top of the drive (<c>?:/Users/me/x/</c>), or of the
+    /// file system on Linux and macOS; glob characters in the names are
+    /// escaped and <c>$</c> doubled. Null for a drive or share root.</summary>
+    public static string? FolderLine(string fullPath)
     {
-        if (ToSourceRelativePath(folder.Path) is null) return null;
-        var path = folder.Path.Trim().Replace('\\', '/').TrimEnd('/');
+        if (ToSourceRelativePath(fullPath) is null) return null;
+        var path = fullPath.Trim().Replace('\\', '/').TrimEnd('/');
         var rule = path.Length >= 2 && path[1] == ':'
             ? "?:" + DuplicacyFilterConverter.EscapeNames(path[2..])
             : DuplicacyFilterConverter.EscapeNames(path);

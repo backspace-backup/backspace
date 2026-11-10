@@ -895,6 +895,16 @@ only those files has no vault, and the first save asks for a password.
   `Backup.IgnoredRecommendationChanges`: `RenderBlock(hidden, kept)` leaves a
   hidden addition out and writes a kept rule again, so Apply never undoes a
   choice.
+- Exclude this folder (U178), in What this backup added
+  (`RunChangesViewModel`): `FolderExclusion.Rule` writes the opened folder as
+  `RecommendedFilters.FolderLine` writes a cloud folder (`?:/…/`, glob
+  characters escaped, `$$`); `FolderExclusion.Add` puts it last in the custom
+  block (a new block at the top when there is none), keeping every other byte
+  and never adding a line twice. `ExcludedBy` and `KeptBy` evaluate the text
+  with `FilterTranslator` to say when a rule already excludes the folder or an
+  exception would keep it in. The change goes through `ConfigStore.Update`, so
+  the service's next run reads it; Undo restores the previous text when nothing
+  else changed since, otherwise removes only that line. Snapshots are untouched.
 - A destination missing its sign-in, S3 keys or storage password
   (`DestinationReadiness`, typically imported from Duplicacy) never reaches
   restic: Run now opens it for setup, and a run's cell fails at once with the
