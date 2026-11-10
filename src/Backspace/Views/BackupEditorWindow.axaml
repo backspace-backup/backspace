@@ -1157,7 +1157,7 @@
                           </StackPanel>
                         </DataTemplate>
                         <DataTemplate DataType="vm:LeftOutGroupRow">
-                          <Grid ColumnDefinitions="*,16,Auto,16,Auto" RowDefinitions="Auto,Auto">
+                          <Grid ColumnDefinitions="*,16,Auto,16,Auto" RowDefinitions="Auto,Auto" Margin="{Binding Indent}">
                             <TextBlock Grid.Row="0" Grid.Column="0" Classes="mono" FontSize="12" Text="{Binding Shown}"
                                        TextTrimming="PrefixCharacterEllipsis" ToolTip.Tip="{Binding Parent}"/>
                             <WrapPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal">

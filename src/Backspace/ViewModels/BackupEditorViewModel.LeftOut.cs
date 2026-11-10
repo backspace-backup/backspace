@@ -234,13 +234,23 @@ public sealed partial class BackupEditorViewModel
                     if (HitPath(one.Path) || Hit(one.Item.Rule)) LeftOutRows.Add(one);
                     continue;
                 }
-                var group = (LeftOutGroupRow)entry;
-                var members = group.Members.Where(m => HitPath(m.Path) || Hit(m.Item.Rule)).ToList();
-                if (members.Count == 0 && !HitPath(group.Parent)) continue;
+                AddGroup((LeftOutGroupRow)entry);
+            }
+
+            // A group shows its children when opened; while searching, the
+            // matching ones show without opening it.
+            void AddGroup(LeftOutGroupRow group)
+            {
+                var items = group.Items.Where(m => HitPath(m.Path) || Hit(m.Item.Rule)).ToList();
+                if (items.Count == 0 && !HitPath(group.Parent)) return;
                 LeftOutRows.Add(group);
-                // While searching, the matching members show without opening the group.
-                if (group.Expanded || q.Length > 0 && members.Count > 0)
-                    foreach (var m in q.Length > 0 && members.Count > 0 ? members : group.Members) LeftOutRows.Add(m);
+                var searching = q.Length > 0 && items.Count > 0;
+                if (!group.Expanded && !searching) return;
+                foreach (var child in group.Children)
+                {
+                    if (child is LeftOutGroupRow sub) AddGroup(sub);
+                    else if (child is LeftOutRow row && (!searching || items.Contains(row))) LeftOutRows.Add(row);
+                }
             }
         }
         if (q.Length > 0 && LeftOutRows.Count == 0)
@@ -288,16 +298,46 @@ public sealed partial class BackupEditorViewModel
     {
         if (ReferenceEquals(_entriesFor, r)) return _entries;
         LeftOutRow Row(LeftOutItem item) => _keptRows.FirstOrDefault(k => ReferenceEquals(k.Item, item)) ?? new LeftOutRow(item, Shown(item.Path));
-        var entries = new List<(object Entry, long Bytes, long Files)>();
+        // First level: items sharing their folder and rule.
+        var level = new List<object>();
         foreach (var g in r.Items.GroupBy(i => (Parent: ParentOf(i.Path), i.RuleIndex)))
         {
             var list = g.ToList();
-            if (list.Count == 1) { entries.Add((Row(list[0]), list[0].Bytes, list[0].Files)); continue; }
-            var members = list.Select(i => { var m = Row(i); m.InGroup = true; return m; }).ToList();
-            var group = new LeftOutGroupRow(g.Key.Parent, Shown(g.Key.Parent), members, this);
-            entries.Add((group, group.Bytes, group.Files));
+            if (list.Count == 1) { level.Add(Row(list[0])); continue; }
+            level.Add(new LeftOutGroupRow(g.Key.Parent, Shown(g.Key.Parent), list.Select(Row).Cast<object>().ToList(), this));
         }
-        _entries = entries.OrderByDescending(e => e.Bytes).ThenByDescending(e => e.Files).Select(e => e.Entry).ToList();
+        // Then folders whose contents one rule leaves out, gathered by their
+        // own folder: ?:/Program Files*/*/* leaves out each program's files and
+        // keeps the program folders, so Program Files gets one row with a row
+        // per program inside, rather than one row per program.
+        // A program folder holding a single file is a single row: it joins its
+        // neighbours' row too (first round only, and only next to a group).
+        for (var round = 0; ; round++)
+        {
+            string? Key(object e) => e switch
+            {
+                LeftOutGroupRow g => ParentOf(g.Parent),
+                LeftOutRow s when round == 0 => ParentOf(ParentOf(s.Path)),
+                _ => null,
+            };
+            string RuleOf(object e) => e is LeftOutGroupRow g ? g.Rule.Rule : ((LeftOutRow)e).Item.Rule;
+            var merged = new List<object>(level.Where(e => Key(e) is null));
+            var changed = false;
+            foreach (var g in level.Where(e => Key(e) is not null).GroupBy(e => (Parent: Key(e)!, Rule: RuleOf(e))))
+            {
+                var list = g.ToList();
+                var top = list.OfType<LeftOutGroupRow>().FirstOrDefault();
+                if (list.Count == 1 || top is null || string.Equals(g.Key.Parent, top.Parent, StringComparison.OrdinalIgnoreCase))
+                { merged.AddRange(list); continue; }
+                merged.Add(new LeftOutGroupRow(g.Key.Parent, Shown(g.Key.Parent), list, this));
+                changed = true;
+            }
+            level = merged;
+            if (!changed) break;
+        }
+        foreach (var e in level) { if (e is LeftOutGroupRow group) group.SetDepth(0); else ((LeftOutRow)e).Depth = 0; }
+        _entries = level.OrderByDescending(e => e is LeftOutGroupRow g ? g.Bytes : ((LeftOutRow)e).Item.Bytes)
+            .ThenByDescending(e => e is LeftOutGroupRow g ? g.Files : ((LeftOutRow)e).Item.Files).ToList();
         _entriesFor = r;
         return _entries;
     }
@@ -354,9 +394,10 @@ public sealed partial class LeftOutRow : ObservableObject
     public string Path => Item.Path;
     /// <summary>The path from the backed-up folder down (the full path is the tooltip).</summary>
     public string Shown { get; }
-    /// <summary>Shown under its group's row, indented.</summary>
-    public bool InGroup { get; set; }
-    public Avalonia.Thickness Indent => InGroup ? new Avalonia.Thickness(24, 0, 0, 0) : default;
+    /// <summary>How deep under group rows it is shown (0 for a row of its own).</summary>
+    public int Depth { get; set; }
+    public bool InGroup => Depth > 0;
+    public Avalonia.Thickness Indent => new(24 * Depth, 0, 0, 0);
     public string Size => Item.IsLink ? "" : BackupEditorViewModel.Size(Item.Bytes);
     public bool IsNew => Item.IsNew;
     public bool CanKeep => !Kept;
@@ -380,49 +421,78 @@ public sealed partial class LeftOutRow : ObservableObject
 }
 
 /// <summary>Items of one folder left out by the same rule, as one row: the
-/// rule leaves out what the folder holds while the folder itself is kept.</summary>
+/// rule leaves out what the folder holds while the folder itself is kept. A
+/// row can also gather such folders ("Program Files: the contents of 143
+/// folders"), opened level by level.</summary>
 public sealed partial class LeftOutGroupRow : ObservableObject
 {
     private readonly BackupEditorViewModel _owner;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ToggleText))] private bool _expanded;
 
-    public LeftOutGroupRow(string parent, string shownParent, List<LeftOutRow> members, BackupEditorViewModel owner)
+    public LeftOutGroupRow(string parent, string shownParent, List<object> children, BackupEditorViewModel owner)
     {
         Parent = parent;
         ShownParent = shownParent;
-        Members = members;
+        Children = children;
         _owner = owner;
-        Rule = members[0].Rule;
+        Rule = children[0] is LeftOutGroupRow g ? g.Rule : ((LeftOutRow)children[0]).Rule;
+        Items = children.SelectMany<object, LeftOutRow>(c => c is LeftOutGroupRow sub ? sub.Items : new[] { (LeftOutRow)c }).ToList();
     }
 
     public string Parent { get; }
     public string ShownParent { get; }
-    public List<LeftOutRow> Members { get; }
+    /// <summary>Rows inside: items, or folders' rows for a gathering row.</summary>
+    public List<object> Children { get; }
+    /// <summary>Every item below, at any level.</summary>
+    public List<LeftOutRow> Items { get; }
     public LeftOutRuleRef Rule { get; }
-    public long Bytes => Members.Sum(m => m.Item.Bytes);
-    public long Files => Members.Sum(m => m.Item.Files);
-    public bool IsNew => Members.All(m => m.IsNew);
+    public int Depth { get; private set; }
+    public Avalonia.Thickness Indent => new(24 * Depth, 0, 0, 0);
+    public long Bytes => Items.Sum(m => m.Item.Bytes);
+    public long Files => Items.Sum(m => m.Item.Files);
+    public bool IsNew => Items.All(m => m.IsNew);
     public string Shown => ShownParent + System.IO.Path.DirectorySeparatorChar + "…";
     public string Size => BackupEditorViewModel.Size(Bytes);
+    private bool Gathers => Children.Any(c => c is LeftOutGroupRow);
+
+    internal void SetDepth(int depth)
+    {
+        Depth = depth;
+        foreach (var child in Children)
+        {
+            if (child is LeftOutGroupRow sub) sub.SetDepth(depth + 1);
+            else if (child is LeftOutRow row) row.Depth = depth + 1;
+        }
+    }
 
     public string Kind
     {
         get
         {
-            var folders = Members.Count(m => m.Item.IsFolder);
-            var files = Members.Count - folders;
-            var parts = new List<string>();
-            if (folders > 0) parts.Add(folders == 1 ? "1 folder" : $"{folders:N0} folders");
-            if (files > 0) parts.Add(files == 1 ? "1 file" : $"{files:N0} files");
-            var text = string.Join(" and ", parts) + " inside, the folder itself kept";
-            if (folders > 0) text += Files == 1 ? " · 1 file in all" : $" · {Files:N0} files in all";
-            var cloud = Members.Sum(m => m.Item.CloudOnly);
-            if (cloud > 0) text += $" ({cloud:N0} online-only)";
+            string text;
+            if (Gathers)
+            {
+                var folders = Children.Count;
+                text = $"What {folders:N0} folders inside hold, those folders kept";
+            }
+            else
+            {
+                var folders = Children.Cast<LeftOutRow>().Count(m => m.Item.IsFolder);
+                var files = Children.Count - folders;
+                var parts = new List<string>();
+                if (folders > 0) parts.Add(folders == 1 ? "1 folder" : $"{folders:N0} folders");
+                if (files > 0) parts.Add(files == 1 ? "1 file" : $"{files:N0} files");
+                text = string.Join(" and ", parts) + " inside, the folder itself kept";
+            }
+            if (Gathers || Children.OfType<LeftOutRow>().Any(m => m.Item.IsFolder))
+                text += Files == 1 ? " · 1 file in all" : $" · {Files:N0} files in all";
+            var online = Items.Sum(m => m.Item.CloudOnly);
+            if (online > 0) text += $" ({online:N0} online-only)";
             return text;
         }
     }
 
-    public string ToggleText => Expanded ? "Hide" : $"Show {Members.Count:N0}";
+    public string ToggleText => Expanded ? "Hide" : $"Show {Children.Count:N0}";
 
     [RelayCommand]
     private void Toggle()

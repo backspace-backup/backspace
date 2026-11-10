@@ -50,8 +50,14 @@ public sealed class S98_LeftOutGroupsAFoldersContents : ScenarioBase
         Write("draft.tmp", 40_000);
         Write("docs/old.tmp", 20_000);
         Write("docs/report.docx", 30_000);
+        // Like ?:/Program Files*/*/*: each program's files left out, the program folders kept.
+        Write("Programs/AppA/a.dll", 10_000);
+        Write("Programs/AppA/sub/b.dll", 5_000);
+        Write("Programs/AppB/c.dll", 8_000);
+        Write("Programs/AppB/d.dll", 2_000);
+        Write("Programs/AppC/e.dll", 1_000);
 
-        var backup = new Backup { Name = "Home", SourcePaths = { source }, FiltersText = "Dropbox/*\n*.tmp" };
+        var backup = new Backup { Name = "Home", SourcePaths = { source }, FiltersText = "Dropbox/*\n*.tmp\nPrograms/*/*" };
         ServiceLocator.Config.Update(c => c.Backups.Add(backup));
         var win = new BackupEditorWindow(ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id), isNew: false) { Width = 1100, Height = 760 };
         ctx.Driver.Show(win);
@@ -65,30 +71,48 @@ public sealed class S98_LeftOutGroupsAFoldersContents : ScenarioBase
         await ctx.Driver.PumpAsync(150);
 
         // The analyzer still finds each topmost item...
-        Assert.Equal(6, vm.LeftOutResult!.Items.Count);
-        // ...but Dropbox's contents are one row, first by size; the two *.tmp files stay apart.
-        var group = Assert.Single(vm.LeftOutRows.OfType<LeftOutGroupRow>());
-        Assert.Same(group, vm.LeftOutRows[0]);
-        Assert.Equal(4, group.Members.Count);
+        Assert.Equal(11, vm.LeftOutResult!.Items.Count);
+        // ...but Dropbox's contents are one row, first by size; the two *.tmp files stay apart;
+        // Programs is one row gathering its program folders.
+        var top = vm.LeftOutRows.Where(r => r is LeftOutRow or LeftOutGroupRow).ToList();
+        Assert.Equal(4, top.Count);
+        var group = Assert.IsType<LeftOutGroupRow>(top[0]);
+        Assert.Equal(4, group.Children.Count);
         Assert.Equal((5L, 3_201_500L, "Dropbox/*"), (group.Files, group.Bytes, group.Rule.Rule));
         Assert.Equal("3 folders and 1 file inside, the folder itself kept · 5 files in all", group.Kind);
         Assert.EndsWith(Path.Combine("home", "Dropbox") + Path.DirectorySeparatorChar + "…", group.Shown);
-        Assert.Equal(new[] { "draft.tmp", "old.tmp" }, vm.LeftOutRows.OfType<LeftOutRow>().Select(r => Path.GetFileName(r.Path)));
-        Assert.Equal("3 items (7 files), 3.1 MB left out", vm.LeftOutTotal);
+        Assert.Equal(new[] { "draft.tmp", "old.tmp" }, top.OfType<LeftOutRow>().Select(r => Path.GetFileName(r.Path)));
+        var programs = Assert.IsType<LeftOutGroupRow>(top[2]);
+        Assert.Equal((5L, 26_000L, "Programs/*/*", 3), (programs.Files, programs.Bytes, programs.Rule.Rule, programs.Children.Count));
+        Assert.Equal("What 3 folders inside hold, those folders kept · 5 files in all", programs.Kind);
+        Assert.EndsWith(Path.Combine("home", "Programs") + Path.DirectorySeparatorChar + "…", programs.Shown);
+        Assert.Equal("4 items (12 files), 3.1 MB left out", vm.LeftOutTotal);
         ctx.Snapshot(win, "dropbox-contents-one-row",
-            "Left out with 'Dropbox/*': one row 'home\\Dropbox\\…' (3 folders and 1 file inside, the folder itself kept · 5 files in all, 3.1 MB, left out by Dropbox/*) with Show 4; then draft.tmp and docs\\old.tmp as rows of their own.");
+            "Left out: one row 'home\\Dropbox\\…' (3 folders and 1 file inside, the folder itself kept · 5 files in all, 3.1 MB, Dropbox/*), draft.tmp, one row 'home\\Programs\\…' (What 3 folders inside hold, those folders kept · 5 files in all, Programs/*/*), and docs\\old.tmp; each group with Show.");
+
+        Button Toggle(LeftOutGroupRow g) => win.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "GroupToggle" && ReferenceEquals(b.DataContext, g));
 
         // Show lists the members under the row, indented, each with Keep this.
-        var toggle = win.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "GroupToggle");
-        Click(ctx, win, toggle);
+        Click(ctx, win, Toggle(group));
         await ctx.Driver.PumpAsync(100);
         Assert.True(group.Expanded);
         var members = vm.LeftOutRows.Skip(1).Take(4).Cast<LeftOutRow>().ToList();
-        Assert.All(members, m => Assert.True(m.InGroup));
+        Assert.All(members, m => Assert.Equal(1, m.Depth));
         Assert.Equal(new[] { "Photos", "Music", "Projects", "notes.txt" }, members.Select(m => Path.GetFileName(m.Path)));
         Assert.Equal("Hide", group.ToggleText);
-        ctx.Snapshot(win, "group-opened",
-            "After Show 4: Photos, Music, Projects and notes.txt listed under the Dropbox row, indented, each with its size and Keep this; the button now reads Hide.");
+
+        // Programs opens level by level: its program folders, then one program's files.
+        Click(ctx, win, Toggle(programs));
+        await ctx.Driver.PumpAsync(100);
+        var appA = programs.Children.OfType<LeftOutGroupRow>().Single(g => Path.GetFileName(g.Parent) == "AppA");
+        Assert.Equal(1, appA.Depth);
+        Click(ctx, win, Toggle(appA));
+        await ctx.Driver.PumpAsync(100);
+        var aRows = appA.Children.Cast<LeftOutRow>().ToList();
+        Assert.All(aRows, m => Assert.Equal(2, m.Depth));
+        Assert.All(aRows, m => Assert.Contains(m, vm.LeftOutRows));
+        ctx.Snapshot(win, "groups-opened",
+            "Dropbox opened (Photos, Music, Projects, notes.txt indented once) and Programs opened: AppA and AppB rows indented once, AppC's single file too; AppA opened again shows a.dll and sub indented twice, each with Keep this.");
 
         // Keep this on a member works as on any row.
         var music = members.Single(m => Path.GetFileName(m.Path) == "Music");
@@ -98,7 +122,7 @@ public sealed class S98_LeftOutGroupsAFoldersContents : ScenarioBase
         Assert.EndsWith(BackupEditorViewModel.KeepRule(music.Path) + "\n", vm.FiltersText);
 
         // Search finds a member inside a closed group.
-        Click(ctx, win, win.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "GroupToggle"));
+        Click(ctx, win, Toggle(group));
         var search = win.FindControl<TextBox>("LeftOutSearch")!;
         search.Text = "Photos";
         await ctx.Driver.PumpAsync(100);
