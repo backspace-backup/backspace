@@ -85,7 +85,7 @@ public sealed class S50_RecommendedRowTextWraps : ScenarioBase
 
         ctx.Snapshot(win, "savings message wraps beside button",
             "Filters > Recommended: the 'Nothing in your sources matched…' message wraps " +
-            "onto two+ lines next to 'Apply recommended exclusions' instead of running off " +
+            "onto two+ lines at the bottom of the Recommended exclusions card instead of running off " +
             "the right edge of the card.");
 
         win.Close();

@@ -528,4 +528,84 @@ public class RecommendedFiltersTests
         Assert.Equal(new[] { RecommendedFilters.CloudLine(dropbox)! }, choice.CloudLines);
         Assert.Null(RecommendedFilters.ReadChoice("my/own/rule/"));
     }
+
+    // ---- U165 follow-up: a tick writes its group at once, nothing else ----
+
+    [Fact]
+    public void Ticking_a_group_changes_only_that_group_and_keeps_everything_else()
+    {
+        var none = Array.Empty<RecommendedFilters.CloudSyncFolder>();
+        var sources = new[] { @"C:\" };
+        var start = RecommendedFilters.MergeIntoFilters("my/own/rule/",
+            RecommendedFilters.RenderBlock(false, true, none, sources)).Replace("\r\n", "\n");
+        // A pending suggestion (a caches rule missing) and a rule written into the block by hand.
+        var missing = RecommendedFilters.GroupRules(start, RecommendedFilters.Group.CachesAndJunk)[0];
+        var text = RecommendedFilters.ApplyUpdates(start, new(new[] { "handmade/" }, new[] { missing }));
+        Assert.DoesNotContain(missing, text.Split('\n'));
+
+        var ticked = RecommendedFilters.WithGroup(text, RecommendedFilters.Group.WindowsSystem, true, sources);
+        var choice = RecommendedFilters.ReadChoice(ticked)!;
+        Assert.True(choice.WindowsSystem);
+        Assert.True(choice.CachesAndJunk);
+        Assert.Equal(RecommendedFilters.RulesFor(RecommendedFilters.Group.WindowsSystem, sources),
+            RecommendedFilters.GroupRules(ticked, RecommendedFilters.Group.WindowsSystem));
+        // The caches group is left as it was: its pending suggestion stays pending.
+        Assert.DoesNotContain(missing, ticked.Split('\n'));
+        Assert.Contains(missing, RecommendedFilters.CheckForUpdates(ticked, sources: sources).Add);
+        Assert.Contains("handmade/", ticked.Split('\n'));
+        Assert.StartsWith(RecommendedFilters.CustomBlockHeader, ticked);
+        Assert.Contains("my/own/rule/", ticked.Split('\n'));
+
+        // Unticking removes every rule of the group and its heading; ticking
+        // again gives back the same text.
+        var unticked = RecommendedFilters.WithGroup(ticked, RecommendedFilters.Group.WindowsSystem, false, sources);
+        Assert.False(RecommendedFilters.ReadChoice(unticked)!.WindowsSystem);
+        Assert.Empty(RecommendedFilters.GroupRules(unticked, RecommendedFilters.Group.WindowsSystem));
+        Assert.Equal(ticked, RecommendedFilters.WithGroup(unticked, RecommendedFilters.Group.WindowsSystem, true, sources));
+        // Unticking a group that isn't there changes nothing.
+        Assert.Equal(unticked, RecommendedFilters.WithGroup(unticked, RecommendedFilters.Group.WindowsSystem, false, sources));
+    }
+
+    [Fact]
+    public void Ticking_a_group_leaves_hidden_rules_out_and_drops_a_copied_block()
+    {
+        var hidden = RecommendedFilters.RulesFor(RecommendedFilters.Group.CachesAndJunk, null)[0];
+        var copied = RecommendedFilters.AutoBlockHeader + "\ncopied/\n" + RecommendedFilters.AutoBlockFooter;
+        var text = "mine/\n\n" + copied + "\nafter/\n" + copied;
+        var result = RecommendedFilters.WithGroup(text, RecommendedFilters.Group.CachesAndJunk, true, null, new[] { hidden });
+        var lines = result.Split('\n');
+        Assert.DoesNotContain(hidden, lines);
+        Assert.Equal(1, lines.Count(l => l.Trim() == RecommendedFilters.AutoBlockHeader));
+        Assert.Equal(1, lines.Count(l => l.Trim() == "copied/"));
+        // Rules before and after the block keep their places (order decides in restic).
+        Assert.Equal(new[] { "mine/", "after/" }, lines.Where(l => l is "mine/" or "after/"));
+        Assert.True(Array.IndexOf(lines, "after/") > Array.IndexOf(lines, RecommendedFilters.AutoBlockFooter));
+    }
+
+    [Fact]
+    public void A_text_without_a_block_gets_one_below_its_rules_only_when_ticking()
+    {
+        Assert.Equal("mine/\n", RecommendedFilters.WithGroup("mine/\n", RecommendedFilters.Group.Essentials, false, null));
+        var result = RecommendedFilters.WithGroup("mine/\n", RecommendedFilters.Group.Essentials, true, new[] { @"C:\Users\me\Documents" });
+        Assert.StartsWith("mine/\n\n" + RecommendedFilters.AutoBlockHeader, result);
+        // No Essentials rule fits a documents folder: the group is still ticked, under its note.
+        Assert.True(RecommendedFilters.ReadChoice(result)!.Essentials);
+        Assert.Contains(RecommendedFilters.NoneApplyNote, result);
+        Assert.Empty(RecommendedFilters.GroupRules(result, RecommendedFilters.Group.Essentials));
+    }
+
+    [Fact]
+    public void Cloud_folders_follow_their_ticks()
+    {
+        var dropbox = new RecommendedFilters.CloudSyncFolder(RecommendedFilters.CloudSyncProvider.Dropbox, "Dropbox", @"C:\Users\me\Dropbox");
+        var none = Array.Empty<RecommendedFilters.CloudSyncFolder>();
+        var text = RecommendedFilters.MergeIntoFilters("", RecommendedFilters.RenderBlock(false, true, none)).Replace("\r\n", "\n");
+        var with = RecommendedFilters.WithCloudFolders(text, new[] { dropbox });
+        Assert.Equal(new[] { RecommendedFilters.CloudLine(dropbox)! }, RecommendedFilters.ReadChoice(with)!.CloudLines);
+        Assert.True(RecommendedFilters.ReadChoice(with)!.CachesAndJunk);
+        var without = RecommendedFilters.WithCloudFolders(with, none);
+        Assert.Empty(RecommendedFilters.ReadChoice(without)!.CloudLines);
+        Assert.Equal(RecommendedFilters.GroupRules(text, RecommendedFilters.Group.CachesAndJunk),
+            RecommendedFilters.GroupRules(without, RecommendedFilters.Group.CachesAndJunk));
+    }
 }

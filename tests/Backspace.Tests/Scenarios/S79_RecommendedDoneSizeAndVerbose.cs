@@ -15,9 +15,9 @@ using Xunit;
 namespace Backspace.Tests.Scenarios;
 
 /// <summary>
-/// U105: after approving updated suggestions, the Recommended exclusions card
-/// says the exclusions are applied and there is nothing left to do; Apply is
-/// offered again only when a tick changes. U106: a backup that never ran shows
+/// U105 (as redesigned on 10 November 2026): after approving updated suggestions,
+/// the caches group says it changes when you save, and the page and footer say
+/// nothing is saved yet; a tick writes at once. U106: a backup that never ran shows
 /// each source's size estimated from the disk, and a measured size once a
 /// backup ran. U113: the Verbose switch beside Clear view shows the engine's
 /// debug lines, hidden by default, for lines already shown too.
@@ -58,44 +58,48 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         Assert.False(vm.RecExcludeWindowsSystem);
         Assert.True(vm.RecExcludeCachesAndJunk);
         Assert.True(vm.HasRecommendationUpdate);
-        Assert.False(vm.RecommendedApplied);
+        // Nothing changed yet: the page says so, and the caches group is in place.
+        Assert.False(vm.FiltersUnsaved);
+        Assert.True(vm.RecommendedSaved);
+        Assert.Equal(GroupStatus.InPlace, vm.CachesState.Status);
+        Assert.True(vm.CachesState.HasPending);
 
         var win = new BackupEditorWindow { DataContext = vm, Width = 1000, Height = 980 };
         ctx.Driver.Show(win);
         Assert.True(ctx.Driver.WaitFor(() => win.GetVisualDescendants().OfType<TabControl>().Any()));
         win.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 2;
         ctx.Driver.Pump();
-        Assert.True(ctx.Driver.WaitFor(() => Button(win, "Apply ticked changes") is { IsEffectivelyVisible: true }));
+        Assert.True(ctx.Driver.WaitFor(() => Button(win, "Use ticked suggestions") is { IsEffectivelyVisible: true }));
 
-        // The person approves the suggestions, as in the report.
-        Button(win, "Apply ticked changes")!.Command!.Execute(null);
+        // The person approves the suggestions, as in the report: the caches
+        // group now waits for Save, and the page and the footer say so.
+        Button(win, "Use ticked suggestions")!.Command!.Execute(null);
         ctx.Driver.Pump();
+        Assert.Equal(GroupStatus.WillChange, vm.CachesState.Status);
+        Assert.True(vm.FiltersUnsaved);
+        Assert.StartsWith("Not saved yet.", vm.RecommendedStatus);
+        Assert.True(win.FindControl<StackPanel>("UnsavedFilters")!.IsEffectivelyVisible);
+        Assert.True(vm.CanEstimateSavings);
+        Button(win, "Estimate savings")!.Command!.Execute(null);
         Assert.True(ctx.Driver.WaitFor(() => vm.RecEstimatedSavingsBytes >= 0, 20_000), "The savings estimate never finished.");
         ctx.Driver.Pump();
-        Assert.True(vm.RecommendedApplied);
-        Assert.StartsWith("✓ Applied.", vm.RecommendedStatus);
-        Assert.False(Button(win, "Apply recommended exclusions")!.IsEffectivelyEnabled);
         Assert.True(vm.RecEstimatedSavingsBytes >= 3_000_000, $"The node_modules folder was not counted: {vm.RecEstimatedSavingsBytes}.");
         Assert.DoesNotContain("Nothing in your sources matched", vm.RecEstimatedSavingsLabel);
-        Button(win, "Apply recommended exclusions")!.BringIntoView();
+        win.FindControl<Border>("RecommendedCard")!.BringIntoView();
         ctx.Driver.Pump();
-        ctx.Snapshot(win, "applied and done",
-            "Recommended exclusions after approving the suggestions: a green '✓ Applied … nothing more to do here' line, a greyed-out Apply button and the amount all its exclusion rules leave out of its folders (3.0 MB).");
+        ctx.Snapshot(win, "suggestions used, waiting for save",
+            "After 'Use ticked suggestions': the caches group reads 'Will change when you save' in amber, the line at the top and the footer say the change is not saved yet, and the estimate shows what the ticked groups leave out (3.0 MB).");
 
-        // Changing a tick means there is something to apply again.
+        // Ticking a group writes it at once: no Apply button to find.
         vm.RecExcludeWindowsSystem = true;
         ctx.Driver.Pump();
-        Assert.False(vm.RecommendedApplied);
-        Assert.StartsWith("Not applied yet.", vm.RecommendedStatus);
-        Assert.True(Button(win, "Apply recommended exclusions")!.IsEffectivelyEnabled);
-        ctx.Snapshot(win, "tick changed",
-            "Windows system files ticked: the line now reads 'Not applied yet. Click Apply …' and Apply is enabled again.");
-        Button(win, "Apply recommended exclusions")!.Command!.Execute(null);
-        ctx.Driver.Pump();
-        Assert.True(vm.RecommendedApplied);
+        Assert.Equal(GroupStatus.WillBeAdded, vm.WindowsSystemState.Status);
+        Assert.Null(Button(win, "Apply recommended exclusions"));
         // The Windows group's rules that can match in a folder (U148): thumbs.db, not /Windows/.
         Assert.Contains("thumbs.db", vm.FiltersText);
         Assert.DoesNotContain("/Windows/", vm.FiltersText);
+        ctx.Snapshot(win, "tick changed",
+            "Windows system files ticked: its rules are in the filters at once and the group reads 'Will be added when you save'; there is no Apply button.");
         win.Close();
         vm.Dispose();
         await Task.CompletedTask;

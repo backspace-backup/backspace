@@ -23,7 +23,11 @@ namespace Backspace.Tests.Scenarios;
 /// recommendations by itself; clicking Advanced turns that off, and a box on
 /// Filters > Recommended turns it on again. Otherwise the card says "New
 /// filter suggestions: Review", which opens the suggestions with what each
-/// changes in the backup; a hidden one stays hidden, Apply included.
+/// changes in the backup; a hidden one stays hidden, a ticked group included.
+/// U165 follow-up (10 November 2026): no Apply button. A tick writes its
+/// group at once; each group says "In place", "Will be added / removed /
+/// change when you save" or "Off", and the page and the footer say when
+/// something waits for Save. Saved, reopened, unticked, saved and reopened.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class S94_RecommendationUpdates : ScenarioBase
@@ -105,20 +109,29 @@ public sealed class S94_RecommendationUpdates : ScenarioBase
         // Essentials first, then Windows system files, then caches.
         Assert.True(groups[0].TranslatePoint(default, editor)!.Value.Y < groups[1].TranslatePoint(default, editor)!.Value.Y);
         Assert.True(groups[1].TranslatePoint(default, editor)!.Value.Y < groups[2].TranslatePoint(default, editor)!.Value.Y);
+        // A new backup: every ticked group is written at once and waits for Save.
+        Assert.All(new[] { vm.EssentialsState, vm.WindowsSystemState, vm.CachesState }, s => Assert.Equal(GroupStatus.WillBeAdded, s.Status));
+        Assert.Equal("Will be added when you save", StatusShown(editor, "CachesStatus"));
+        Assert.True(editor.FindControl<TextBlock>("RecommendedNewLine")!.IsEffectivelyVisible);
+        // A folder backup: none of the Essentials can be inside it, said in words, not "none".
+        Assert.False(vm.EssentialsState.HasRules);
+        Assert.Contains(editor.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == vm.EssentialsState.NoRulesText);
         var expanders = editor.GetVisualDescendants().OfType<Expander>().Where(e => e.Classes.Contains("advanced") && e.IsEffectivelyVisible).ToList();
-        Assert.Equal(3, expanders.Count);
+        Assert.Equal(2, expanders.Count);
         Assert.All(expanders, e => Assert.False(e.IsExpanded)); // collapsed by default
-        var caches = expanders.Single(e => Equals(e.Header, vm.CachesRulesHeader));
+        var caches = expanders.Single(e => Equals(e.Header, vm.CachesState.RulesHeader));
+        Assert.Matches(@"^Its \d+ rules$", vm.CachesState.RulesHeader);
         caches.IsExpanded = true;
         await ctx.Driver.PumpAsync(100);
         var listed = caches.GetVisualDescendants().OfType<SelectableTextBlock>().Single().Text!.Split('\n');
-        Assert.Equal(RecommendedFilters.RulesFor(RecommendedFilters.Group.CachesAndJunk, vm.SourcePaths), listed);
+        Assert.Equal(RecommendedFilters.GroupRules(vm.FiltersText, RecommendedFilters.Group.CachesAndJunk), listed);
         Assert.Contains("node_modules/", listed);
-        // The block Apply wrote holds exactly those lines for the group.
+        // The list is exactly what the filters hold for the group, nothing to apply.
         Assert.All(listed, l => Assert.Contains(l, vm.FiltersText.Replace("\r\n", "\n").Split('\n')));
+        Assert.DoesNotContain(editor.GetVisualDescendants().OfType<Button>(), b => b.Content as string is "Apply recommended exclusions");
         groups[0].BringIntoView(); await ctx.Driver.PumpAsync(50);
         ctx.Snapshot(editor, "advanced-recommended-three-groups",
-            "Advanced > Filters > Recommended: Essentials (ticked, first), Windows system files, App caches and temporary files; each with 'Show the N rules it adds' below it, the caches list opened to show the actual lines (node_modules/, *.tmp, …).");
+            "A new backup, Filters > Recommended: Essentials (first; 'Nothing to leave out in this backup's folders'), Windows system files and App caches, each with an amber 'Will be added when you save'; the caches list opened as 'Its N rules' showing the actual lines. No Apply button: Save keeps them.");
 
         var autoBox = editor.FindControl<CheckBox>("AutoApplyRecommendations")!;
         editor.FindControl<Border>("AutoApplyCard")!.BringIntoView(); await ctx.Driver.PumpAsync(50);
@@ -148,6 +161,90 @@ public sealed class S94_RecommendationUpdates : ScenarioBase
         var fresh = new BackupEditorViewModel(new Backup(), isNew: true);
         Assert.False(fresh.AutoApplyRecommendations);
         fresh.Dispose();
+
+        // ---- 2b. Saved, reopened, a group unticked, saved and reopened again ----
+        // The owner's question (10 November 2026): after saving, is there
+        // anything left to do? Every group says so on its own line.
+        var homeOwner = ctx.Driver.Show(new Window { Width = 1100, Height = 860 });
+        var fresh2 = new Backup { Name = "Home folder", SourcePaths = { ctx.MakeSource("home", seed: 98, targetBytes: 20_000) },
+            Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } } };
+        var creating = new BackupEditorWindow(fresh2, isNew: true) { Width = 1040, Height = 900 };
+        var creatingDone = creating.ShowDialog<Backup?>(homeOwner);
+        await ctx.Driver.PumpAsync(200);
+        ((BackupEditorViewModel)creating.DataContext!).AdministratorAccess.Allow = false; // no Windows prompt from a test
+        Click(ctx, creating, "Save");
+        var created = await creatingDone.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.NotNull(created);
+        ServiceLocator.Config.Update(c => c.Backups.Add(created!));
+
+        async Task<(BackupEditorWindow Window, BackupEditorViewModel Vm, Task<Backup?> Done)> Reopen()
+        {
+            var stored = ServiceLocator.Config.Current.Backups.Single(b => b.Id == created!.Id);
+            var window = new BackupEditorWindow(stored, isNew: false) { Width = 1040, Height = 900 };
+            var done = window.ShowDialog<Backup?>(homeOwner);
+            window.FindControl<TabControl>("EditorTabs")!.SelectedItem = window.FindControl<TabItem>("FiltersTab");
+            await ctx.Driver.PumpAsync(250);
+            return (window, (BackupEditorViewModel)window.DataContext!, done);
+        }
+
+        var (reopened, rvm2, reopenedDone) = await Reopen();
+        Assert.All(new[] { rvm2.EssentialsState, rvm2.WindowsSystemState, rvm2.CachesState }, s => Assert.Equal(GroupStatus.InPlace, s.Status));
+        Assert.Equal("In place", StatusShown(reopened, "CachesStatus"));
+        Assert.True(reopened.FindControl<Border>("RecommendedSavedLine")!.IsEffectivelyVisible);
+        Assert.StartsWith("Saved.", rvm2.RecommendedStatus);
+        Assert.False(reopened.FindControl<Border>("RecommendedUnsavedLine")!.IsEffectivelyVisible);
+        Assert.False(reopened.FindControl<StackPanel>("UnsavedFilters")!.IsEffectivelyVisible);
+        // An in-place group lists the rules in effect.
+        Assert.Equal(RecommendedFilters.GroupRules(created!.FiltersText, RecommendedFilters.Group.CachesAndJunk), rvm2.CachesState.Rules);
+        ctx.Snapshot(reopened, "saved-backup-reopened-in-place",
+            "The new backup saved and opened again: a green 'Saved. This page shows what this backup uses now; there is nothing to do here.' line, and a green 'In place' check beside each of the three groups. Nothing to Apply or Save.");
+
+        // Untick Windows system files: its rules leave the filters at once,
+        // and the page and the footer say it waits for Save.
+        ClickControl(ctx, reopened, reopened.FindControl<CheckBox>("WindowsSystemGroup")!);
+        Assert.False(rvm2.RecExcludeWindowsSystem);
+        Assert.Equal(GroupStatus.WillBeRemoved, rvm2.WindowsSystemState.Status);
+        Assert.Equal("Will be removed when you save", StatusShown(reopened, "WindowsSystemStatus"));
+        Assert.Equal(GroupStatus.InPlace, rvm2.CachesState.Status); // the others don't move
+        Assert.Empty(RecommendedFilters.GroupRules(rvm2.FiltersText, RecommendedFilters.Group.WindowsSystem));
+        Assert.True(rvm2.FiltersUnsaved);
+        Assert.True(reopened.FindControl<Border>("RecommendedUnsavedLine")!.IsEffectivelyVisible);
+        Assert.True(reopened.FindControl<StackPanel>("UnsavedFilters")!.IsEffectivelyVisible);
+        // Nothing reached the stored backup yet.
+        Assert.True(RecommendedFilters.ReadChoice(ServiceLocator.Config.Current.Backups.Single(b => b.Id == created!.Id).FiltersText)!.WindowsSystem);
+        reopened.FindControl<CheckBox>("WindowsSystemGroup")!.BringIntoView(); await ctx.Driver.PumpAsync(50);
+        ctx.Snapshot(reopened, "group-unticked-will-be-removed",
+            "Windows system files unticked: amber 'Will be removed when you save' beside it, 'Not saved yet…' at the top, and 'Filter changes not saved yet' beside Save. The other groups stay 'In place'.");
+        // Ticking it back returns to the saved state: nothing waits any more.
+        ClickControl(ctx, reopened, reopened.FindControl<CheckBox>("WindowsSystemGroup")!);
+        Assert.Equal(GroupStatus.InPlace, rvm2.WindowsSystemState.Status);
+        Assert.False(rvm2.FiltersUnsaved);
+        ClickControl(ctx, reopened, reopened.FindControl<CheckBox>("WindowsSystemGroup")!);
+        Click(ctx, reopened, "Save");
+        var edited = await reopenedDone.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.NotNull(edited);
+        ServiceLocator.Config.SaveBackupEdit(edited!);
+        Assert.False(RecommendedFilters.ReadChoice(ServiceLocator.Config.Current.Backups.Single(b => b.Id == created!.Id).FiltersText)!.WindowsSystem);
+
+        var (again, avm, againDone) = await Reopen();
+        Assert.False(avm.RecExcludeWindowsSystem);
+        Assert.Equal(GroupStatus.NotUsed, avm.WindowsSystemState.Status);
+        Assert.Equal(GroupStatus.InPlace, avm.CachesState.Status);
+        Assert.Equal(GroupStatus.InPlace, avm.EssentialsState.Status);
+        Assert.False(avm.FiltersUnsaved);
+        ctx.Snapshot(again, "saved-unticked-group-persists",
+            "Saved and opened again: Windows system files stays unticked and reads 'Off: these files are backed up', its list 'Its 3 rules, if ticked'; Essentials and caches read 'In place'; the top line is green again.");
+        Application.Current!.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
+        await ctx.Driver.PumpAsync(150);
+        ctx.Snapshot(again, "saved-unticked-group-persists-dark",
+            "The same page in the dark theme: green 'In place' pills and the green saved line stay readable.");
+        Application.Current!.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
+        await ctx.Driver.PumpAsync(50);
+        Click(ctx, again, "Cancel");
+        Assert.Null(await againDone.WaitAsync(TimeSpan.FromSeconds(5)));
+        homeOwner.Close();
+        // Out of the way of the card checks below.
+        ServiceLocator.Config.Update(c => c.Backups.RemoveAll(b => b.Id == created!.Id));
 
         // ---- 3. Not automatic: the card offers the suggestions ----
         var source = ctx.MakeSource("work", seed: 96, targetBytes: 10_000);
@@ -205,28 +302,38 @@ public sealed class S94_RecommendationUpdates : ScenarioBase
         Assert.Equal(reviewing.FindControl<TabItem>("FiltersTab"), reviewing.FindControl<TabControl>("EditorTabs")!.SelectedItem);
         var panel = reviewing.FindControl<Border>("FilterSuggestions")!;
         Assert.True(panel.IsEffectivelyVisible);
-        // Nothing changed yet.
+        // Nothing changed yet: the caches group is in place, with suggestions waiting.
         Assert.Equal(saved, rvm.FiltersText);
+        Assert.Equal(GroupStatus.InPlace, rvm.CachesState.Status);
+        Assert.Equal(3, rvm.CachesState.Pending);
+        Assert.False(rvm.FiltersUnsaved);
         ctx.Snapshot(reviewing, "review-panel-with-measured-effects",
-            "Review opened Filters > Recommended at 'New filter suggestions': node_modules/ leaves out 2 files (41.0 KB), *.tmp 1 file (4.9 KB), *.crdownload matches nothing here today; each ticked, with Apply ticked changes and Hide all.");
+            "Review opened Filters > Recommended at 'New filter suggestions': node_modules/ leaves out 2 files (41.0 KB), *.tmp 1 file (4.9 KB), *.crdownload matches nothing here today; each ticked, with Use ticked suggestions and Hide all. The page says it is saved: nothing has changed yet.");
 
         // Hide one, accept the others.
         reviewing.GetVisualDescendants().OfType<CheckBox>().Single(c => c.DataContext is RecommendationChangeChoice { Pattern: "*.crdownload" }).IsChecked = false;
-        Click(ctx, reviewing, "Apply ticked changes");
+        Click(ctx, reviewing, "Use ticked suggestions");
         var after = rvm.FiltersText.Replace("\r\n", "\n").Split('\n');
         Assert.Contains("node_modules/", after);
         Assert.Contains("*.tmp", after);
         Assert.DoesNotContain("*.crdownload", after);
         Assert.False(rvm.HasRecommendationUpdate);
         Assert.Equal("1 suggested change is hidden for this backup.", rvm.HiddenRecommendationsText);
-        // Apply rebuilds the whole block: the hidden one stays out.
-        rvm.RecExcludeWindowsSystem = true;
-        Click(ctx, reviewing, "Apply recommended exclusions");
+        // The accepted suggestions wait for Save like any other change.
+        Assert.Equal(GroupStatus.WillChange, rvm.CachesState.Status);
+        Assert.True(rvm.FiltersUnsaved);
+        Assert.Equal("Will change when you save", StatusShown(reviewing, "CachesStatus"));
+        reviewing.FindControl<Border>("RecommendedCard")!.BringIntoView(); await ctx.Driver.PumpAsync(50);
+        ctx.Snapshot(reviewing, "suggestions-used-waiting-for-save",
+            "After Use ticked suggestions: the panel is gone, '1 suggested change is hidden for this backup.', the caches group reads 'Will change when you save', and the page and footer say the change is not saved yet.");
+        // Ticking a group never brings a hidden suggestion back.
+        ClickControl(ctx, reviewing, reviewing.FindControl<CheckBox>("CachesGroup")!);
+        ClickControl(ctx, reviewing, reviewing.FindControl<CheckBox>("CachesGroup")!);
+        Assert.True(rvm.RecExcludeCachesAndJunk);
         Assert.DoesNotContain("*.crdownload", rvm.FiltersText.Replace("\r\n", "\n").Split('\n'));
+        rvm.RecExcludeWindowsSystem = true;
         Assert.True(RecommendedFilters.ReadChoice(rvm.FiltersText)!.WindowsSystem);
-        Assert.True(rvm.RecommendedApplied);
         rvm.RecExcludeWindowsSystem = false;
-        Click(ctx, reviewing, "Apply recommended exclusions");
         Click(ctx, reviewing, "Save");
         for (var n = 0; n < 100 && main.OwnedWindows.OfType<BackupEditorWindow>().Any(); n++) await ctx.Driver.PumpAsync(20);
         await ctx.Driver.PumpAsync(300);
@@ -254,6 +361,10 @@ public sealed class S94_RecommendationUpdates : ScenarioBase
         }
         throw new TimeoutException($"Coordinator did not open {typeof(T).Name}.");
     }
+
+    /// <summary>The words of the status pill named <paramref name="name"/>.</summary>
+    private static string? StatusShown(Window window, string name)
+        => window.FindControl<ContentControl>(name)!.GetVisualDescendants().OfType<TextBlock>().Single(t => t.IsEffectivelyVisible).Text;
 
     private static void Click(ScenarioContext ctx, Window window, string label)
         => ClickControl(ctx, window, window.GetVisualDescendants().OfType<Button>().Single(b =>

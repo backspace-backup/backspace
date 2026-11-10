@@ -74,7 +74,7 @@ public sealed class S88_BackupSettingsLayoutAndRelevantRules : ScenarioBase
         // Recommended: the figure counts the ticked recommendations only.
         Tabs(win).SelectedIndex = 2;
         await ctx.Driver.PumpAsync(200);
-        Assert.True(vm.RecommendedApplied);
+        Assert.Equal(GroupStatus.InPlace, vm.CachesState.Status);
         Button(win, "Estimate savings")!.Command!.Execute(null);
         Assert.True(ctx.Driver.WaitFor(() => vm.RecEstimatedSavingsBytes >= 0, 20_000), "The estimate never finished.");
         await ctx.Driver.PumpAsync(100);
@@ -117,7 +117,7 @@ public sealed class S88_BackupSettingsLayoutAndRelevantRules : ScenarioBase
         // The person deletes one recommended line on the Advanced tab.
         vm.FiltersText = string.Join("\n", vm.FiltersText!.Replace("\r\n", "\n").Split('\n').Where(l => l.Trim() != "node_modules/"));
         Assert.Contains(vm.RecommendedAdditions, c => c.Pattern == "node_modules/");
-        Assert.False(vm.RecommendedApplied);
+        Assert.Equal(GroupStatus.WillChange, vm.CachesState.Status); Assert.True(vm.FiltersUnsaved);
 
         var win = new BackupEditorWindow { DataContext = vm, Width = 1000, Height = 840 };
         ctx.Driver.Show(win);
@@ -125,17 +125,17 @@ public sealed class S88_BackupSettingsLayoutAndRelevantRules : ScenarioBase
         Tabs(win).SelectedIndex = 2;
         await ctx.Driver.PumpAsync(200);
         ctx.Snapshot(win, "removed rule offered again",
-            "After deleting 'node_modules/' from the recommended block, Filters → Recommended offers it again under 'Updated recommendations', ticked, with 'Apply ticked changes' and 'Don't suggest these again'.");
+            "After deleting 'node_modules/' from the recommended block, Filters → Recommended offers it again under 'Updated recommendations', ticked, with 'Use ticked suggestions' and 'Hide all'.");
 
         // Unticked and applied: hidden for this backup, and listed as hidden.
         vm.RecommendedAdditions.Single(c => c.Pattern == "node_modules/").IsSelected = false;
-        Button(win, "Apply ticked changes")!.Command!.Execute(null);
+        Button(win, "Use ticked suggestions")!.Command!.Execute(null);
         await ctx.Driver.PumpAsync(200);
         Assert.False(vm.HasRecommendationUpdate);
         Assert.True(vm.HasHiddenRecommendations);
         Assert.DoesNotContain("node_modules/", vm.FiltersText!.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()));
         ctx.Snapshot(win, "declined rule hidden",
-            "Unticked and applied: the offer is gone, '1 suggested change is hidden for this backup.' with 'Show hidden suggestions' to bring it back.");
+            "Unticked and used: the offer is gone, '1 suggested change is hidden for this backup.' with 'Show hidden suggestions' to bring it back.");
         win.Close();
     }
 

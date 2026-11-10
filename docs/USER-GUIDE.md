@@ -328,13 +328,29 @@ which makes this about 5 times faster.
 **Filters → Recommended** groups the suggested exclusions in three groups you
 tick or untick: **Essentials** (first, ticked for every new backup), **Windows
 system files** and **App caches and temporary files**, then the cloud-synced
-folders. Under each group, **Show the N rules it adds** opens the exact lines
-it writes for this backup's folders. A green **✓ Applied** line means the
-ticked groups are already in the backup's filters and there is nothing left to
-do; **Apply recommended exclusions** is enabled again only when you change a
-tick. Apply rewrites the recommended block, below your own rules, with each
+folders. There is no separate Apply: ticking or unticking a group changes the
+backup's rules at once, and the window's **Save** keeps the change, as on
+every other tab (**Cancel** leaves the backup as it was). Beside each group a
+label says where it stands:
+
+- **In place** (green check): the saved backup already has this group;
+  nothing to do.
+- **Will be added when you save**, **Will be removed when you save** or
+  **Will change when you save** (amber): the tick, or a suggestion you used,
+  differs from what is saved.
+- **Off: these files are backed up**: unticked, and saved that way.
+
+A line at the top of the page says **Saved** (green) when the page is what the
+backup uses, or **Not saved yet** (amber) when something waits for Save; the
+same "Filter changes not saved yet" note stands beside the Save button
+whichever tab is open. Under each group, **Its N rules** opens the exact lines
+it puts in this backup's filters (for an unticked group, **Its N rules, if
+ticked**). A group with no rule that fits the backup's folders says
+**Nothing to leave out in this backup's folders** instead. A tick rewrites only
+its group's part of the recommended block, below your own rules, with the
 group's rules from the top of the drive first, then those that match at any
-depth, each sorted by path. **Estimate savings** reads the backup's folders and
+depth, each sorted by path; the other groups, and any rule you wrote into the
+block, stay as they are. **Estimate savings** reads the backup's folders and
 says how much the ticked recommendations leave out of them. On **Filters →
 Advanced**, **Count** says how much all the rules leave out, your own
 included, and **Simulate** lists what each rule keeps or leaves out.
@@ -827,7 +843,7 @@ line without `(?i)` ignores case too. Email and Healthchecks settings are not
 imported; set them up in Settings.
 
 When a Backspace update changes the recommended lists, what happens depends
-on the backup's **Apply Backspace's updated recommendations automatically**
+on the backup's **Keep this backup's lists up to date automatically**
 box (Filters → Recommended, under the groups):
 
 - **On** (every backup set up only in Easy mode): when Backspace starts, and
@@ -845,9 +861,9 @@ box (Filters → Recommended, under the groups):
   deleted is offered again) and rules that can't match in the backup's folders
   (offered again if you add a whole drive).
 
-**Apply ticked changes** makes the ticked suggestions; the unticked ones are
+**Use ticked suggestions** puts the ticked suggestions in the rules (Save keeps them, like any change); the unticked ones are
 hidden for that backup, and **Hide all** hides them all. A hidden suggestion
-stays hidden: neither automatic updates nor **Apply recommended exclusions**
+stays hidden: neither automatic updates nor ticking its group again
 bring it back. Hidden suggestions are counted below the list; **Show hidden
 suggestions** lists them again, unticked. A hidden suggestion that Backspace
 no longer recommends is dropped, so it never comes back.

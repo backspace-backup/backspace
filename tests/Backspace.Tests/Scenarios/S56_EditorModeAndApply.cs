@@ -57,33 +57,41 @@ public sealed class S56_EditorModeAndApply : ScenarioBase
         advancedVm.FiltersText = customBlock + "\n" + oldBlock + "\n" +
             customBlock.Replace("*.private", "*.personal") + "\n" + oldBlock;
         ctx.Driver.Pump();
-        Click(advanced, "Apply recommended exclusions");
+        // No Apply button any more (U165 follow-up): ticking a group writes
+        // its rules at once. The copied blocks have no group, so none is ticked.
+        Assert.False(advancedVm.RecExcludeCachesAndJunk);
+        ClickControl(advanced, advanced.FindControl<CheckBox>("CachesGroup")!);
+        Assert.True(advancedVm.RecExcludeCachesAndJunk);
         var merged = advancedVm.FiltersText;
         var custom = merged.IndexOf(RecommendedFilters.CustomBlockHeader, StringComparison.Ordinal);
-        var customEnd = merged.IndexOf(RecommendedFilters.CustomBlockFooter, StringComparison.Ordinal);
+        var customEnd = merged.LastIndexOf(RecommendedFilters.CustomBlockFooter, StringComparison.Ordinal);
         var generated = merged.IndexOf(RecommendedFilters.AutoBlockHeader, StringComparison.Ordinal);
-        Assert.True(custom >= 0 && customEnd > custom && generated > customEnd);
-        Assert.Contains("*.private", merged.Substring(custom, customEnd - custom));
-        Assert.Contains("*.personal", merged.Substring(custom, customEnd - custom));
-        Assert.Equal(1, merged.Split('\n').Count(line => line.Trim() == RecommendedFilters.CustomBlockHeader));
+        // Both custom rules survive; only the first recommended block counts,
+        // and the copied second one is gone.
+        Assert.Contains("*.private", merged);
+        Assert.Contains("*.personal", merged);
+        Assert.True(custom >= 0 && generated > custom);
         Assert.Equal(1, merged.Split('\n').Count(line => line.Trim() == RecommendedFilters.AutoBlockHeader));
-        Assert.DoesNotContain("stale-copied-rule/", merged);
+        // The rule written into the block by hand is not silently dropped by a
+        // tick on another group: it stays, under its own heading.
+        Assert.Equal(1, merged.Split('\n').Count(line => line.Trim() == "stale-copied-rule/"));
+        Assert.Contains(RecommendedFilters.OwnHeading, merged);
         // A folder backup gets the rules that can match in it (U148): not the
-        // drive-top ?:/pagefile.sys, but the caches. The Essentials stay
-        // ticked (U165), with a note that none of their rules fit here.
+        // drive-top ?:/pagefile.sys, but the caches.
         var recommendedBlock = merged.Substring(generated, merged.IndexOf(RecommendedFilters.AutoBlockFooter, StringComparison.Ordinal) - generated);
         Assert.DoesNotContain("pagefile.sys", merged);
         Assert.Contains("node_modules/", recommendedBlock);
-        Assert.Contains(RecommendedFilters.EssentialsHeading, recommendedBlock);
-        // Nothing is left to apply, so the button says so by being disabled
-        // (U105); applying again would leave the text unchanged.
-        Assert.True(advancedVm.RecommendedApplied);
-        Assert.False(advanced.GetVisualDescendants().OfType<Button>()
-            .Single(b => b.Content?.ToString() == "Apply recommended exclusions").IsEffectivelyEnabled);
-        advancedVm.ApplyRecommendedFiltersCommand.Execute(null);
+        Assert.True(advancedVm.FiltersUnsaved);
+        Assert.Equal(GroupStatus.WillBeAdded, advancedVm.CachesState.Status);
+        // Unticking and ticking again leaves the text as it was.
+        ClickControl(advanced, advanced.FindControl<CheckBox>("CachesGroup")!);
+        Assert.DoesNotContain("node_modules/", advancedVm.FiltersText);
+        Assert.Equal(GroupStatus.NotUsed, advancedVm.CachesState.Status);
+        ClickControl(advanced, advanced.FindControl<CheckBox>("CachesGroup")!);
         Assert.Equal(merged, advancedVm.FiltersText);
+        Assert.DoesNotContain(advanced.GetVisualDescendants().OfType<Button>(), b => b.Content?.ToString() is "Apply recommended exclusions");
         ctx.Snapshot(advanced, "applied-with-custom-rules-preserved",
-            "The actual Apply button generated recommended rules beneath preserved custom rules; afterwards it is greyed out under '✓ Applied', and applying again left the text unchanged.");
+            "Clicking the caches box put its rules beneath the preserved custom rules at once: the group reads 'Will be added when you save', the page and the footer say the change is not saved yet. There is no Apply button.");
 
         Click(advanced, "Easy");
         easy = await Child<OnboardingWindow>();
@@ -106,7 +114,7 @@ public sealed class S56_EditorModeAndApply : ScenarioBase
         ctx.Snapshot(advanced, "round-trip-retains-name-grace-and-filters",
             "After actual Easy/Advanced toggle clicks, the Advanced filter editor retains the custom block above the recommended block and the user-edited draft.");
         ctx.Snapshot(advanced, "copied-custom-blocks-repaired",
-            "After clicking Apply twice, both *.private and *.personal remain together in one custom block. The stale copied generated rule is gone. Cancel below must still preserve the saved backup.");
+            "After ticking the caches group, both *.private and *.personal remain above the one recommended block; the copied second block is gone and the hand-written rule stays under its own heading. Cancel below must still preserve the saved backup.");
         Click(advanced, "Cancel");
         Assert.Null(await flow.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(savedBefore, ServiceLocator.Config.Current.Backups.Single().FiltersText);
@@ -146,7 +154,7 @@ public sealed class S56_EditorModeAndApply : ScenarioBase
         Assert.Equal(21, saved.SkipNotificationGraceDays);
         AssertTargetsRetained(saved);
         Assert.Equal(2, saved.SourcePaths.Count);
-        ctx.Report.RecordNote("Scope and negative/positive controls", "Real coordinator, windows and pointer clicks exercise mode switching, Apply, Cancel and Save. Cancel leaves the live original and persisted backup unchanged. Save returns the edited draft, and the normal persistence boundary survives a fresh ConfigStore load. Both existing storage names and per-target thread overrides on one destination are retained; no scheduler registration or backup operation runs.");
+        ctx.Report.RecordNote("Scope and negative/positive controls", "Real coordinator, windows and pointer clicks exercise mode switching, ticking a recommended group, Cancel and Save. Cancel leaves the live original and persisted backup unchanged. Save returns the edited draft, and the normal persistence boundary survives a fresh ConfigStore load. Both existing storage names and per-target thread overrides on one destination are retained; no scheduler registration or backup operation runs.");
 
         static void AssertTargetsRetained(Backup backup)
         {
@@ -181,6 +189,18 @@ public sealed class S56_EditorModeAndApply : ScenarioBase
             Assert.True(ReferenceEquals(hit, button) || hit is Visual visual && visual.GetVisualAncestors().Contains(button),
                 $"The pointer at {at} for '{label}' would hit {hit?.GetType().Name ?? "nothing"}, not the requested button.");
             Assert.True(button.IsEffectivelyEnabled, $"'{label}' must be enabled before the click.");
+            window.MouseDown(at, MouseButton.Left); window.MouseUp(at, MouseButton.Left);
+            ctx.Driver.Pump();
+        }
+
+        void ClickControl(Window window, Control control)
+        {
+            control.BringIntoView(); ctx.Driver.Pump(); window.UpdateLayout();
+            Screenshots.ScreenshotDiffTests.SettleInitialTransitions(window);
+            var at = control.TranslatePoint(new Point(12, 12), window)!.Value;
+            var hit = window.InputHitTest(at);
+            Assert.True(ReferenceEquals(hit, control) || hit is Visual visual && visual.GetVisualAncestors().Contains(control),
+                $"The pointer at {at} would hit {hit?.GetType().Name ?? "nothing"}, not {control.Name}.");
             window.MouseDown(at, MouseButton.Left); window.MouseUp(at, MouseButton.Left);
             ctx.Driver.Pump();
         }

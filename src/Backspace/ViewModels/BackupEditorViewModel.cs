@@ -292,7 +292,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     /// only auto-apply recommended exclusions on new backups while this
     /// stays false, so the auto-update never clobbers something the
     /// user typed by hand. Reset only by closing/reopening the editor.
-    /// Bypassed when <see cref="ApplyRecommendedFilters"/> writes (it
+    /// Bypassed when <see cref="RenderRecommendedForNewBackup"/> writes (it
     /// programmatically updates FiltersText, which would otherwise flip
     /// this flag and pin auto-application off).
     /// </summary>
@@ -329,6 +329,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     partial void OnFiltersTextChanged(string value)
     {
         RefreshFilterExceptionWarning();
+        if (!_constructing) SyncTicksFromText();
         RefreshRecommendedStatus();
         if (_ignoredRecommendationChanges is not null) RefreshRecommendationUpdate();
         // The count was of the rules before this edit.
@@ -365,41 +366,58 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     /// from Easy mode; saved with the backup.</summary>
     [ObservableProperty] private bool _autoApplyRecommendations;
 
-    /// <summary>The rules each group writes for this backup, one per line,
-    /// shown collapsed under its checkbox (U165).</summary>
-    public string EssentialsRulesText => RulesText(RecommendedFilters.Group.Essentials);
-    public string WindowsSystemRulesText => RulesText(RecommendedFilters.Group.WindowsSystem);
-    public string CachesRulesText => RulesText(RecommendedFilters.Group.CachesAndJunk);
-    public string EssentialsRulesHeader => RulesHeader(RecommendedFilters.Group.Essentials);
-    public string WindowsSystemRulesHeader => RulesHeader(RecommendedFilters.Group.WindowsSystem);
-    public string CachesRulesHeader => RulesHeader(RecommendedFilters.Group.CachesAndJunk);
+    /// <summary>Each group's state, rule list and wording (U165 follow-up):
+    /// shown beside and under its checkbox.</summary>
+    public RecommendedGroupState EssentialsState => GroupState(RecommendedFilters.Group.Essentials, RecExcludeEssentials);
+    public RecommendedGroupState WindowsSystemState => GroupState(RecommendedFilters.Group.WindowsSystem, RecExcludeWindowsSystem);
+    public RecommendedGroupState CachesState => GroupState(RecommendedFilters.Group.CachesAndJunk, RecExcludeCachesAndJunk);
 
-    private IReadOnlyList<string> GroupRules(RecommendedFilters.Group group)
-        => RecommendedFilters.RulesFor(group, SourcePaths, _ignoredRecommendationChanges);
-
-    private string RulesText(RecommendedFilters.Group group)
+    /// <summary>
+    /// What a group means for this backup, compared with what is saved:
+    /// ticked and saved with the same rules, "In place"; ticked or unticked
+    /// since the backup was saved, "Will be added / removed when you save";
+    /// its rules changed by accepted suggestions, "Will change when you
+    /// save". A new backup has nothing saved yet. Ticked, the list is the
+    /// rules the group puts in the filters; unticked, the rules ticking it
+    /// would add.
+    /// </summary>
+    private RecommendedGroupState GroupState(RecommendedFilters.Group group, bool ticked)
     {
-        var rules = GroupRules(group);
-        return rules.Count == 0 ? "None of these rules can match in this backup's folders." : string.Join("\n", rules);
-    }
-
-    private string RulesHeader(RecommendedFilters.Group group)
-    {
-        var count = GroupRules(group).Count;
-        return count switch
-        {
-            0 => "Rules it adds here: none",
-            1 => "Show the 1 rule it adds",
-            _ => $"Show the {count} rules it adds",
-        };
+        var now = RecommendedFilters.GroupRules(FiltersText, group);
+        var rules = ticked ? now : RecommendedFilters.RulesFor(group, SourcePaths, _ignoredRecommendationChanges);
+        var savedOn = !IsNew && RecommendedFilters.Uses(RecommendedFilters.ReadChoice(_savedFiltersText), group);
+        GroupStatus status;
+        if (ticked && savedOn)
+            status = new HashSet<string>(now, StringComparer.OrdinalIgnoreCase)
+                .SetEquals(RecommendedFilters.GroupRules(_savedFiltersText, group)) ? GroupStatus.InPlace : GroupStatus.WillChange;
+        else status = ticked ? GroupStatus.WillBeAdded : savedOn ? GroupStatus.WillBeRemoved : GroupStatus.NotUsed;
+        var pending = ticked ? RecommendedAdditions.Concat(RecommendedRemovals).Count(c => RecommendedFilters.GroupOf(c.Pattern) == group) : 0;
+        return new RecommendedGroupState(status, rules, pending);
     }
 
     private void RefreshGroupRules()
     {
-        foreach (var name in new[] { nameof(EssentialsRulesText), nameof(WindowsSystemRulesText), nameof(CachesRulesText),
-                     nameof(EssentialsRulesHeader), nameof(WindowsSystemRulesHeader), nameof(CachesRulesHeader) })
-            OnPropertyChanged(name);
+        OnPropertyChanged(nameof(EssentialsState));
+        OnPropertyChanged(nameof(WindowsSystemState));
+        OnPropertyChanged(nameof(CachesState));
     }
+
+    /// <summary>The backup's rules as saved (null for a new backup): what the
+    /// group states and the unsaved-changes line compare with.</summary>
+    private string? _savedFiltersText;
+    private List<string> _savedIgnored = new();
+    private bool _savedAutoApply;
+
+    private static string Normalized(string? text) => (text ?? "").Replace("\r\n", "\n").TrimEnd('\n', ' ', '\t');
+
+    /// <summary>True when this existing backup's filters, hidden suggestions
+    /// or automatic updates differ from what is saved: only Save keeps them
+    /// (U165 follow-up). Always false for a new backup, which Save creates.</summary>
+    public bool FiltersUnsaved => !IsNew && (Normalized(FiltersText) != Normalized(_savedFiltersText)
+        || AutoApplyRecommendations != _savedAutoApply
+        || !new HashSet<string>(_ignoredRecommendationChanges ?? new(), StringComparer.OrdinalIgnoreCase).SetEquals(_savedIgnored));
+
+    partial void OnAutoApplyRecommendationsChanged(bool value) => RefreshRecommendedStatus();
     /// <summary>Estimated bytes the rec-block would skip on this PC.
     /// Computed lazily after Apply; -1 means "not estimated yet",
     /// -2 means "computation in progress".</summary>
@@ -481,21 +499,25 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     }
     private CancellationTokenSource? _savingsCts;
 
-    /// <summary>True when the ticked exclusions are already in this backup's
-    /// filters, so Apply has nothing left to do (U105).</summary>
-    public bool RecommendedApplied => RecommendedFilters.IsApplied(FiltersText, RecExcludeWindowsSystem,
-        RecExcludeCachesAndJunk, DetectedCloudFolders.Where(c => c.IsSelected).Select(c => c.Folder).ToList(), SourcePaths,
-        RecExcludeEssentials, _ignoredRecommendationChanges);
+    /// <summary>The line at the top of Filters > Recommended (U165 follow-up):
+    /// whether what the page shows is what the backup uses, or waits for Save.
+    /// There is no separate Apply: a tick changes the rules at once, and the
+    /// window's Save keeps them, as on every other tab.</summary>
+    public string RecommendedStatus => IsNew
+        ? "Ticked groups become part of this new backup when you click Save."
+        : FiltersUnsaved
+            ? "Not saved yet. Your changes on this page take effect when you click Save; Cancel leaves the backup as it was."
+            : HasRecommendationUpdate
+                ? "Saved. The ticked groups below are what this backup uses now; the new suggestions change nothing unless you use them."
+                : "Saved. This page shows what this backup uses now; there is nothing to do here.";
 
-    public string RecommendedStatus => RecommendedApplied
-        ? "✓ Applied. These exclusions are part of this backup's filters, so there is nothing more to do here. Change a tick to adjust them."
-        : HasRecommendationUpdate
-            ? "New suggestions above are not in this backup's filters yet. Accept or hide them there; Apply here would add every one you haven't hidden."
-            : "Not applied yet. Click Apply to put the ticked exclusions in this backup's filters.";
+    /// <summary>Kept for the page's green line: nothing here waits for Save.</summary>
+    public bool RecommendedSaved => !IsNew && !FiltersUnsaved;
 
-    /// <summary>Applied exclusions with no savings figure yet: the card offers
-    /// to measure them instead of walking the sources on every open.</summary>
-    public bool CanEstimateSavings => RecommendedApplied && RecEstimatedSavingsBytes == -1;
+    /// <summary>No savings figure yet: the card offers to measure what the
+    /// ticked groups leave out instead of walking the sources on every open.</summary>
+    public bool CanEstimateSavings => RecEstimatedSavingsBytes == -1
+        && (RecExcludeEssentials || RecExcludeWindowsSystem || RecExcludeCachesAndJunk || DetectedCloudFolders.Any(c => c.IsSelected));
 
     [RelayCommand]
     private Task EstimateSavingsAsync() => ComputeSavingsEstimateAsync();
@@ -504,14 +526,69 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
 
     private void RefreshRecommendedStatus()
     {
-        OnPropertyChanged(nameof(RecommendedApplied));
+        OnPropertyChanged(nameof(FiltersUnsaved));
         OnPropertyChanged(nameof(RecommendedStatus));
+        OnPropertyChanged(nameof(RecommendedSaved));
         OnPropertyChanged(nameof(CanEstimateSavings));
+        RefreshGroupRules();
     }
 
-    partial void OnRecExcludeWindowsSystemChanged(bool value) => RefreshRecommendedStatus();
-    partial void OnRecExcludeCachesAndJunkChanged(bool value) => RefreshRecommendedStatus();
-    partial void OnRecExcludeEssentialsChanged(bool value) => RefreshRecommendedStatus();
+    /// <summary>Set while the ticks are read back from the rules, so reading
+    /// them doesn't write the rules again.</summary>
+    private bool _syncingTicks;
+
+    partial void OnRecExcludeWindowsSystemChanged(bool value) => TickChanged(RecommendedFilters.Group.WindowsSystem, value);
+    partial void OnRecExcludeCachesAndJunkChanged(bool value) => TickChanged(RecommendedFilters.Group.CachesAndJunk, value);
+    partial void OnRecExcludeEssentialsChanged(bool value) => TickChanged(RecommendedFilters.Group.Essentials, value);
+
+    /// <summary>A group ticked or unticked: its rules go into or out of the
+    /// editor's filters at once (U165 follow-up), the other groups as they are.</summary>
+    private void TickChanged(RecommendedFilters.Group group, bool value)
+    {
+        if (!_syncingTicks && !_constructing)
+            WriteRecommended(RecommendedFilters.WithGroup(FiltersText, group, value, SourcePaths, _ignoredRecommendationChanges));
+        RefreshRecommendedStatus();
+    }
+
+    private void CloudTickChanged()
+    {
+        if (!_syncingTicks && !_constructing)
+            WriteRecommended(RecommendedFilters.WithCloudFolders(FiltersText,
+                DetectedCloudFolders.Where(c => c.IsSelected).Select(c => c.Folder).ToList()));
+        RefreshRecommendedStatus();
+    }
+
+    private bool _constructing = true;
+
+    /// <summary>Writes the recommended part of the rules (not the person's
+    /// typing) and forgets the estimate, which was of the rules before.</summary>
+    private void WriteRecommended(string text)
+    {
+        _suppressFilterTouchTracking = true;
+        try { FiltersText = text; }
+        finally { _suppressFilterTouchTracking = false; }
+        try { _savingsCts?.Cancel(); } catch { }
+        RecEstimatedSavingsBytes = -1;
+        OnPropertyChanged(nameof(RecEstimatedSavingsLabel));
+    }
+
+    /// <summary>The ticks follow the rules: after a typed edit in Advanced, a
+    /// group shows ticked exactly when the block holds it.</summary>
+    private void SyncTicksFromText()
+    {
+        var choice = RecommendedFilters.ReadChoice(FiltersText);
+        _syncingTicks = true;
+        try
+        {
+            RecExcludeEssentials = choice?.Essentials ?? false;
+            RecExcludeWindowsSystem = choice?.WindowsSystem ?? false;
+            RecExcludeCachesAndJunk = choice?.CachesAndJunk ?? false;
+            foreach (var c in _allCloudFolders)
+                c.IsSelected = choice is not null && RecommendedFilters.CloudLine(c.Folder) is { } line
+                    && choice.CloudLines.Contains(line, StringComparer.OrdinalIgnoreCase);
+        }
+        finally { _syncingTicks = false; }
+    }
 
     private static string HumanBytes(long b) => b switch
     {
@@ -655,7 +732,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             // only set the toggles from defaults during construction
             // (below).
             if (IsNew && !_userTouchedFilters)
-                ApplyRecommendedFilters();
+                RenderRecommendedForNewBackup();
         };
         // For new backups: render the recommended-filters block on
         // construction so opening the editor's Filters tab shows the
@@ -669,11 +746,11 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         // is harmless and matches the user's expectation that
         // "recommended exclusions" actually means "recommended on by
         // default". User can untick freely.
-        if (isNew && SourcePaths.Count > 0)
+        if (isNew)
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                if (!_userTouchedFilters) ApplyRecommendedFilters();
+                if (!_userTouchedFilters) RenderRecommendedForNewBackup();
             });
         }
         // After the rules are loaded (and a new backup's recommendations applied).
@@ -743,28 +820,38 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         _filtersText = working.FiltersText;
         RefreshFilterExceptionWarning();
         _ignoredRecommendationChanges = new(working.IgnoredRecommendationChanges);
+        // What Save would leave unchanged: the stored backup (the Easy steps
+        // may hand over a draft), or the one given when it isn't stored.
+        if (!isNew)
+        {
+            var stored = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == working.Id) ?? working;
+            _savedFiltersText = stored.FiltersText;
+            _savedIgnored = new(stored.IgnoredRecommendationChanges);
+            _savedAutoApply = stored.AutoApplyRecommendations;
+        }
         if (!isNew) RefreshRecommendationUpdate();
         _healthcheckId = working.HealthcheckId;
         _healthcheckBaseUrlInput = ServiceLocator.Config.Current.Monitoring.HealthchecksBaseUrl;
 
         // Cloud-sync folder detection runs once at editor open. Cheap
         // (env-var + file-existence checks); no need to re-run.
-        // An existing backup's ticks show what its saved block holds, so the
-        // card can say whether anything is left to apply (U105).
-        var saved = isNew ? null : RecommendedFilters.ReadChoice(_filtersText);
-        if (saved is not null)
+        // The ticks show what the rules hold (U105, U165 follow-up): a tick
+        // always means the group is in the filters. A new backup without a
+        // recommended block starts with every group ticked, written below.
+        var saved = RecommendedFilters.ReadChoice(_filtersText);
+        if (saved is not null || !isNew)
         {
-            _recExcludeEssentials = saved.Essentials;
-            _recExcludeWindowsSystem = saved.WindowsSystem;
-            _recExcludeCachesAndJunk = saved.CachesAndJunk;
+            _recExcludeEssentials = saved?.Essentials ?? false;
+            _recExcludeWindowsSystem = saved?.WindowsSystem ?? false;
+            _recExcludeCachesAndJunk = saved?.CachesAndJunk ?? false;
         }
         foreach (var folder in RecommendedFilters.DetectCloudSyncFolders())
         {
             var choice = new CloudExcludeChoice(folder);
-            if (saved is not null)
-                choice.IsSelected = RecommendedFilters.CloudLine(folder) is { } line
+            if (saved is not null || !isNew)
+                choice.IsSelected = saved is not null && RecommendedFilters.CloudLine(folder) is { } line
                     && saved.CloudLines.Contains(line, StringComparer.OrdinalIgnoreCase);
-            choice.PropertyChanged += (_, _) => RefreshRecommendedStatus();
+            choice.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(CloudExcludeChoice.IsSelected)) CloudTickChanged(); };
             _allCloudFolders.Add(choice);
         }
         ShowCloudFoldersInSources();
@@ -802,6 +889,8 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             _probeWarningAcknowledged = false;
             ProbeWarning = null;
         };
+        _constructing = false;
+        RefreshRecommendedStatus();
     }
 
     /// <summary>
@@ -1113,9 +1202,8 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             c.Where(x => x.IsSelected == ticked).Select(x => x.Pattern).ToList();
         var update = new RecommendedFilters.ListUpdate(Ticked(RecommendedAdditions, true), Ticked(RecommendedRemovals, true));
         Ignore(Ticked(RecommendedAdditions, false).Concat(Ticked(RecommendedRemovals, false)));
-        FiltersText = RecommendedFilters.ApplyUpdates(FiltersText ?? "", update);
+        WriteRecommended(RecommendedFilters.ApplyUpdates(FiltersText ?? "", update));
         RefreshRecommendationUpdate();
-        _ = ComputeSavingsEstimateAsync();
     }
 
     [RelayCommand]
@@ -1129,8 +1217,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         _ignoredRecommendationChanges.AddRange(patterns
             .Where(p => !_ignoredRecommendationChanges.Contains(p, StringComparer.OrdinalIgnoreCase)).ToList());
 
-    [RelayCommand]
-    private void ApplyRecommendedFilters()
+    private void RenderRecommendedForNewBackup()
     {
         var cloudPicks = DetectedCloudFolders
             .Where(c => c.IsSelected)
@@ -1190,10 +1277,8 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         try
         {
             var sources = SourcePaths.ToList();
-            // The ticked recommendations alone (U149), as Apply writes them.
-            var filters = RecommendedFilters.RenderBlock(RecExcludeWindowsSystem, RecExcludeCachesAndJunk,
-                DetectedCloudFolders.Where(c => c.IsSelected).Select(c => c.Folder).ToList(), sources,
-                RecExcludeEssentials, _ignoredRecommendationChanges);
+            // The recommended block alone (U149): what the ticked groups leave out.
+            var filters = RecommendedFilters.BlockText(FiltersText);
             var est = await ServiceLocator.Savings.ComputeAsync(sources, filters, ct);
 
             if (ct.IsCancellationRequested) return;
@@ -2184,6 +2269,43 @@ public sealed partial class SourceChipVm : ObservableObject
 /// back up data already living in Dropbox/OneDrive/Drive — that's
 /// duplicate work + duplicate storage cost.
 /// </summary>
+/// <summary>Where a recommended group stands for this backup (U165 follow-up).</summary>
+public enum GroupStatus { InPlace, WillBeAdded, WillBeRemoved, WillChange, NotUsed }
+
+/// <summary>
+/// One recommended group as Filters > Recommended shows it: a status beside
+/// the checkbox, and below it either its rules or why it has none here.
+/// </summary>
+/// <param name="Rules">Ticked: the group's rules in the filters. Unticked:
+/// the rules ticking it would add.</param>
+/// <param name="Pending">Suggestions for this group waiting above.</param>
+public sealed record RecommendedGroupState(GroupStatus Status, IReadOnlyList<string> Rules, int Pending)
+{
+    public string StatusText => Status switch
+    {
+        GroupStatus.InPlace => "In place",
+        GroupStatus.WillBeAdded => "Will be added when you save",
+        GroupStatus.WillBeRemoved => "Will be removed when you save",
+        GroupStatus.WillChange => "Will change when you save",
+        _ => "Off: these files are backed up",
+    };
+
+    public bool IsInPlace => Status == GroupStatus.InPlace;
+    /// <summary>The tick differs from what is saved.</summary>
+    public bool IsPending => Status is GroupStatus.WillBeAdded or GroupStatus.WillBeRemoved or GroupStatus.WillChange;
+    public bool IsNotUsed => Status == GroupStatus.NotUsed;
+
+    public bool HasRules => Rules.Count > 0;
+    public string RulesHeader => (Rules.Count == 1 ? "Its 1 rule" : $"Its {Rules.Count} rules") + (IsNotUsed || Status == GroupStatus.WillBeRemoved ? ", if ticked" : "");
+    public string RulesText => string.Join("\n", Rules);
+
+    /// <summary>For a group with no rule that fits this backup's folders.</summary>
+    public string NoRulesText => "Nothing to leave out in this backup's folders: none of these files can be inside them.";
+
+    public bool HasPending => Pending > 0;
+    public string PendingText => Pending == 1 ? "1 new suggestion for this group, above" : $"{Pending} new suggestions for this group, above";
+}
+
 public sealed partial class CloudExcludeChoice : ObservableObject
 {
     public RecommendedFilters.CloudSyncFolder Folder { get; }

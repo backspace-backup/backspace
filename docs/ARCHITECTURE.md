@@ -893,8 +893,20 @@ only those files has no vault, and the first save asks for a password.
   where `SavingsEstimator.MeasureChangesAsync` measures each one against
   today's rules in one walk. Hidden suggestions live in
   `Backup.IgnoredRecommendationChanges`: `RenderBlock(hidden, kept)` leaves a
-  hidden addition out and writes a kept rule again, so Apply never undoes a
-  choice.
+  hidden addition out and writes a kept rule again, so a re-render never
+  undoes a choice.
+- Filters › Recommended has no Apply (U165 follow-up, 10 November 2026). A
+  tick calls `RecommendedFilters.WithGroup` (or `WithCloudFolders`) on the
+  editor's `FiltersText` at once: only that group's part of the block changes,
+  in place, other groups, pending suggestions and hand-written rules in the
+  block untouched, and a copied second block dropped. The ticks are read back
+  from the text after any edit (`SyncTicksFromText`), so a tick always means
+  the group is in the rules. Each group's `RecommendedGroupState` compares the
+  tick with the saved text (`_savedFiltersText`, the stored backup):
+  In place / Will be added / Will be removed / Will change when you save / Off.
+  `FiltersUnsaved` (text, hidden suggestions or automatic updates differ from
+  the stored backup) drives the amber line on the page and the "Filter changes
+  not saved yet" note beside Save. Save is the only commit point.
 - Exclude this folder (U178), in What this backup added
   (`RunChangesViewModel`): `FolderExclusion.Rule` writes the opened folder as
   `RecommendedFilters.FolderLine` writes a cloud folder (`?:/…/`, glob

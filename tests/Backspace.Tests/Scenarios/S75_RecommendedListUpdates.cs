@@ -14,7 +14,7 @@ namespace Backspace.Tests.Scenarios;
 /// <summary>
 /// U057: when Backspace's recommended exclusions change, a saved backup keeps
 /// its rules. Opening it in the editor lists each addition and removal for the
-/// groups it uses with its own checkbox; "Apply ticked changes" applies only the
+/// groups it uses with its own checkbox; "Use ticked suggestions" applies only the
 /// ticked ones and remembers the unticked ones with the backup, and
 /// "Don't suggest these again" declines them all.
 /// </summary>
@@ -55,7 +55,7 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         Assert.True(ctx.Driver.WaitFor(() => win.GetVisualDescendants().OfType<TabControl>().Any()));
         win.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 2;
         ctx.Driver.Pump();
-        Assert.True(ctx.Driver.WaitFor(() => Button(win, "Apply ticked changes") is { IsEffectivelyVisible: true }),
+        Assert.True(ctx.Driver.WaitFor(() => Button(win, "Use ticked suggestions") is { IsEffectivelyVisible: true }),
             "The update offer never appeared for a backup saved by an earlier version.");
         // The saved rules are untouched until the person chooses.
         Assert.Equal(SavedByEarlierVersion(), vm.FiltersText);
@@ -72,7 +72,7 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         ctx.Snapshot(win, "two changes unticked",
             "node_modules/ (an addition) and Users/*/AppData/Local/Packages/ (a removal) are unticked; every other change stays ticked.");
 
-        Button(win, "Apply ticked changes")!.Command!.Execute(null);
+        Button(win, "Use ticked suggestions")!.Command!.Execute(null);
         ctx.Driver.Pump();
         var lines = vm.FiltersText.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).ToList();
         // Ticked changes applied.
@@ -84,8 +84,8 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         Assert.Contains("Projects/build/", lines);
         // Unticked changes are not offered again.
         Assert.False(vm.HasRecommendationUpdate);
-        Assert.True(ctx.Driver.WaitFor(() => Button(win, "Apply ticked changes") is not { IsEffectivelyVisible: true }));
-        ctx.Snapshot(win, "updated", "After applying, the card is gone: the ticked changes are in the rules, the two unticked ones are not, and the person's own rule stays in the custom block.");
+        Assert.True(ctx.Driver.WaitFor(() => Button(win, "Use ticked suggestions") is not { IsEffectivelyVisible: true }));
+        ctx.Snapshot(win, "updated", "After Use ticked suggestions, the card is gone: the ticked changes are in the rules, the two unticked ones are not, and the person's own rule stays in the custom block.");
         var saved = vm.CommitToWorking();
         Assert.NotNull(saved);
         Assert.Contains(DeclinedAddition, saved!.IgnoredRecommendationChanges);
@@ -119,19 +119,19 @@ public sealed class S75_RecommendedListUpdates : ScenarioBase
         ctx.Snapshot(win, "declined suggestions hidden", "Below the recommended exclusions: '2 suggested changes are hidden for this backup.' with Show hidden suggestions.");
         Button(win, "Show hidden suggestions")!.Command!.Execute(null);
         ctx.Driver.Pump();
-        Assert.True(ctx.Driver.WaitFor(() => Button(win, "Apply ticked changes") is { IsEffectivelyVisible: true }));
+        Assert.True(ctx.Driver.WaitFor(() => Button(win, "Use ticked suggestions") is { IsEffectivelyVisible: true }));
         Assert.Equal(new[] { DeclinedAddition }, vm.RecommendedAdditions.Select(c => c.Pattern));
         Assert.Equal(new[] { DeclinedRemoval }, vm.RecommendedRemovals.Select(c => c.Pattern));
         Assert.All(vm.RecommendedAdditions.Concat(vm.RecommendedRemovals), c => Assert.False(c.IsSelected));
         Assert.False(vm.HasHiddenRecommendations);
         CheckBoxFor(win, DeclinedAddition).BringIntoView();
         ctx.Driver.Pump();
-        ctx.Snapshot(win, "hidden suggestions shown again", "The two declined changes are listed again, unticked; nothing changes until Apply ticked changes.");
+        ctx.Snapshot(win, "hidden suggestions shown again", "The two declined changes are listed again, unticked; nothing changes until Use ticked suggestions.");
 
         // Taking one of them now; the other stays declined.
         CheckBoxFor(win, DeclinedAddition).IsChecked = true;
         ctx.Driver.Pump();
-        Button(win, "Apply ticked changes")!.Command!.Execute(null);
+        Button(win, "Use ticked suggestions")!.Command!.Execute(null);
         ctx.Driver.Pump();
         lines = vm.FiltersText.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).ToList();
         Assert.Contains(DeclinedAddition, lines);

@@ -775,7 +775,7 @@ older scenario comments that describe broader coverage.
 | Pick destination (S3 / Wasabi / R2) | — | ⛔ deferred: needs real bucket creds, same shape as E07 |
 | Set schedule | `S21` | ✅ |
 | Apply recommended exclusions in onboarding | `S42_EasyAdvancedSwitchAndRecommended` asserts the default checkbox model flag; it does not click Apply or assert generated filters | 🟡 |
-| Switch Easy ↔ Advanced mid-wizard | `S56_EditorModeAndApply` clicks the real coordinator's mode buttons, edits draft text, applies rules, verifies custom ordering, preserves both storages/overrides, tests Cancel isolation and actual Save plus fresh reload | ✅ |
+| Switch Easy ↔ Advanced mid-wizard | `S56_EditorModeAndApply` clicks the real coordinator's mode buttons, edits draft text, ticks a recommended group, verifies custom ordering, preserves both storages/overrides, tests Cancel isolation and actual Save plus fresh reload | ✅ |
 
 ### Backup creation/edit (Easy + Advanced)
 
@@ -789,8 +789,8 @@ older scenario comments that describe broader coverage.
 | Edit filter text inline | `E30_CustomFilter` | ✅ |
 | Apply recommended exclusions (full effect on file count) | `E31_FilterExcludesEverything` | ✅ |
 | Estimated-savings indicator label states | `S34_SavingsLabelStates` scans real files and asserts view-model labels; `S50` renders the zero-match label | ✅ |
-| Savings message wraps beside Apply button (no crop) | `S50_RecommendedRowTextWraps` | ✅ |
-| Recommended groups, automatic updates and filter suggestions (U165) | `S94_RecommendationUpdates` (Easy save with automatic updates on and a later load adding a new rule; clicking Advanced turns them off and the box turns them on; three groups with the caches' rule list opened; card line only on the backup with a ticked changed group; Review with each suggestion's measured effect; a hidden one not brought back by Apply). `RecommendationUpdatesTests` (the owner's U151 texts and an always-block-only text convert to the same excluded set, checked with restic's matching on probes and falsified by a broken conversion; automatic updates skip hidden rules; card-line conditions; Easy saves; one-walk measurement). The background service's own settings load is not run | ✅ |
+| Savings message wraps on the Recommended card (no crop) | `S50_RecommendedRowTextWraps` | ✅ |
+| Recommended groups, automatic updates and filter suggestions (U165) | `S94_RecommendationUpdates` (Easy save with automatic updates on and a later load adding a new rule; clicking Advanced turns them off and the box turns them on; three groups with the caches' rule list opened; card line only on the backup with a ticked changed group; Review with each suggestion's measured effect; a hidden one not brought back by ticking its group). U165 follow-up (no Apply): a new backup's groups read "Will be added when you save"; saved and reopened they read "In place" under a green Saved line; a pointer click unticking one reads "Will be removed when you save" with the amber line and the footer note, ticking it back clears both; saved and reopened it reads "Off", light and dark; used suggestions read "Will change when you save". `S79` and `S88` check the same states after suggestions and a deleted rule. `RecommendationUpdatesTests` (the owner's U151 texts and an always-block-only text convert to the same excluded set, checked with restic's matching on probes and falsified by a broken conversion; automatic updates skip hidden rules; card-line conditions; Easy saves; one-walk measurement). The background service's own settings load is not run | ✅ |
 | Exclude a folder from What this backup added (U178) | `S95_ExcludeFolderFromChanges` (pointer clicks on Exclude this folder, Exclude from next backups and Undo in the real window opened from the activity: the rule shown, the saved settings file before, after and after Undo, the button kept whole at 640 pixels, no button for the backed-up folder itself, a folder already excluded, an exception that keeps the folder in). `FolderExclusionTests` (the rule for drive and nested folders, brackets, spaces and `$`, its place in the custom block with every other byte kept, no duplicate, Undo). A real backup after excluding is not run here; E54 covers an edited rule reaching the next backup | ✅ |
 | Grace controls available before and during skips | `S28_GraceBlockVisibility` | ✅ |
 | Reset grace period (Easy + Advanced) | `S28_GraceBlockVisibility` (Easy Save/reopen and Advanced reset) | ✅ |
@@ -880,7 +880,7 @@ older scenario comments that describe broader coverage.
 |---|---|---|
 | Hand-edit filter text | `E30_CustomFilter` | ✅ |
 | Filter excludes everything (edge) | `E31_FilterExcludesEverything` | ✅ |
-| Apply recommended block | `RecommendedFiltersTests` plus `S56_EditorModeAndApply`: actual Apply pointer clicks preserve custom rules above generated rules and are idempotent across Easy/Advanced mode switches | ✅ |
+| Tick a recommended group (no Apply) | `RecommendedFiltersTests` (`WithGroup`: only that group changes, hand-written block rules kept, copied block dropped, untick-then-tick restores the text) plus `S56_EditorModeAndApply`: pointer clicks on the caches box keep custom rules above the block across Easy/Advanced mode switches | ✅ |
 | Custom-block markers placed above generated | `S30_CustomExclusionMarkerPlacement` asserts merged strings, legacy-rule preservation and idempotence; no rendered editor in S30 | ✅ |
 | Filter simulation pane (Simulate button) | `S40_FilterSimulationPane` | ✅ |
 | Simulate, estimate and real restic agree | `E57_CustomFilterParity` (restic `--dry-run` with the same exclude file, real backup and recovery) | ✅ |
