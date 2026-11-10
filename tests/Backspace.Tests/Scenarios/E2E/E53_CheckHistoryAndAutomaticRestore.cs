@@ -34,20 +34,20 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
             StoragePasswordRef = ServiceLocator.Secrets.PutNew("e53", Guid.NewGuid().ToString("N")) };
         var backup = new Backup { Name = "Documents", UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false,
             SourcePaths = { source }, Targets = { new() { DestinationId = dest.Id } }, PruneSchedule = new(),
-            CheckSchedule = new() { Frequency = ScheduleFrequency.Monthly } };
+            Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new() { Frequency = ScheduleFrequency.Monthly } } } };
         ServiceLocator.Config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(dest); });
         using var mainVm = new MainWindowViewModel();
         var main = ctx.Driver.Show(new MainWindow { DataContext = mainVm, Width = 1024, Height = 768 });
         var view = main.GetVisualDescendants().OfType<BackupsView>().Single();
         Assert.Equal(BackupRunStatus.Success, (await RunBackupViaUiAsync(ctx, backup, view, deadline.Token)).Status);
-        var checkedRun = await ServiceLocator.Orchestrator.RunCheckAsync(backup, deadline.Token);
+        var checkedRun = await ServiceLocator.Orchestrator.RunCheckAsync(backup, backup.Checks[0], deadline.Token);
         Assert.Equal(BackupRunStatus.Success, checkedRun.Status);
         Assert.Equal(CheckDepth.RepositoryStructure, Assert.Single(checkedRun.Checks).Depth);
         await ctx.Driver.PumpAsync(300);
         var cards = (BackupsViewModel)view.DataContext!;
         var card = cards.Cards.Single();
         Assert.Equal("ok", card.VerifyClass); Assert.Null(ServiceLocator.Config.Current.Backups.Single().LastVerifyUtc);
-        Assert.Contains("file contents not read", card.CheckScopeLabel);
+        Assert.Contains("stored data not read", card.CheckScopeLabel);
         ctx.Snapshot(main, "scheduled-check-on-card", "A real repository check turns the check line green without a manual Test restore. The result says Backup records intact; its details explain that file contents were not read.");
         Click(main, FindButton(main, "Activity")); await ctx.Driver.PumpAsync(200);
         var history = main.OwnedWindows.OfType<BackupHistoryWindow>().Single();
@@ -68,63 +68,51 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
         ctx.Snapshot(history, "repository-check-history", "Check history opens the repository check with its time, result and actual depth; backup runs are excluded."); history.Close();
 
         using var editor = new BackupEditorViewModel(ServiceLocator.Config.Current.Backups.Single(), false);
-        Assert.False(editor.CheckRestoreFiles);
+        Assert.DoesNotContain(editor.Checks, c => c.Kind == CheckKind.TestRestore);
         var settings = ctx.Driver.Show(new BackupEditorWindow { DataContext = editor, Width = 1024, Height = 768 });
         settings.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
         await ctx.Driver.PumpAsync(100);
-        var dataChoice = settings.FindControl<CheckBox>("SavedDataCheckChoice")!;
-        dataChoice.BringIntoView(); await ctx.Driver.PumpAsync(100); Assert.True(dataChoice.Focus());
-        settings.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None); settings.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        await ctx.Driver.PumpAsync(100);
-        var enable = settings.FindControl<CheckBox>("ScheduledRestoreCheck")!;
-        enable.BringIntoView(); await ctx.Driver.PumpAsync(100); Assert.True(enable.Focus());
-        settings.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None); settings.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        await ctx.Driver.PumpAsync(100);
-        Assert.True(editor.CheckReadDataSample); Assert.True(editor.CheckRestoreFiles);
-        using (var reopenedBoth = new BackupEditorViewModel(editor.CommitToWorking()!, false))
-            Assert.True(reopenedBoth.CheckBoth); // A legacy two-flag setup must retain both checks.
-        dataChoice.BringIntoView(); await ctx.Driver.PumpAsync(100); Assert.True(dataChoice.Focus());
-        settings.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None); settings.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        await ctx.Driver.PumpAsync(100); Assert.True(editor.CheckRestoreFiles); Assert.False(editor.CheckReadDataSample);
-        var full = settings.GetVisualDescendants().OfType<RadioButton>().Single(r => r.Name == "FullChoice");
-        Click(settings, full); await ctx.Driver.PumpAsync(100); Assert.True(editor.RestoreCheckOptions.Full);
-        ctx.Snapshot(settings, "automatic-restore-options", "Recovery is enabled independently of the stored-data sample. Every file is selected; comparison with originals is optional and off.");
-        var saved = editor.CommitToWorking()!; Assert.True(saved.CheckRestoreFiles); Assert.True(saved.RestoreCheckOptions.Full);
+        // U179: each check is its own entry, added with "Add a check".
+        var addRestore = settings.FindControl<Button>("AddTestRestore")!;
+        addRestore.BringIntoView(); await ctx.Driver.PumpAsync(100);
+        Click(settings, addRestore); await ctx.Driver.PumpAsync(100);
+        var restoreEntry = editor.Checks.Single(c => c.Kind == CheckKind.TestRestore);
+        restoreEntry.SamplePercent = 100; restoreEntry.MaximumGiB = 0;
+        ctx.Snapshot(settings, "automatic-restore-options", "The sample test restore is its own check: every file (100%, no limit); comparison with originals is optional and off.");
+        var saved = editor.CommitToWorking()!;
+        var restoreCheck = saved.Checks.Single(c => c.Kind == CheckKind.TestRestore);
+        Assert.Equal(100, restoreCheck.SamplePercent); Assert.Equal(0, restoreCheck.MaximumBytes);
         ServiceLocator.Config.Update(c => c.Backups[0] = saved); settings.Close();
-        var manualOptions = ctx.Driver.Show(new TestRestoreOptionsWindow(saved.Name, saved.RestoreCheckOptions));
-        Assert.True(manualOptions.GetVisualDescendants().OfType<RadioButton>().Single(r => r.Name == "FullChoice").IsChecked);
-        manualOptions.Close();
-        var complete = await ServiceLocator.Orchestrator.RunCheckAsync(saved, deadline.Token);
+        var complete = await ServiceLocator.Orchestrator.RunCheckAsync(saved, restoreCheck, deadline.Token);
         Assert.Equal(BackupRunStatus.Success, complete.Status);
         var automatic = ServiceLocator.Logs.LoadHistoryByBackupId(saved.Id).First(r => r.Kind == RunKind.TestRestore);
         Assert.True(automatic.TriggeredAutomatically); Assert.Equal(BackupRunStatus.Success, automatic.Status);
-        Assert.Equal(CheckDepth.RestoreAllFiles, Assert.Single(automatic.Checks).Depth);
+        Assert.Equal(CheckDepth.RestoreSample, Assert.Single(automatic.Checks).Depth);
         Assert.True(ServiceLocator.Config.Current.Backups.Single().LastVerifyPass);
         await ctx.Driver.PumpAsync(250);
 
         File.WriteAllText(changed, "modified bytes"); File.SetLastWriteTimeUtc(changed, stamp);
-        Assert.False(saved.RestoreCheckOptions.CompareOriginals);
-        var withoutComparison = await ServiceLocator.Orchestrator.RunCheckAsync(saved, deadline.Token);
+        Assert.False(restoreCheck.CompareOriginals);
+        var withoutComparison = await ServiceLocator.Orchestrator.RunCheckAsync(saved, restoreCheck, deadline.Token);
         Assert.Equal(BackupRunStatus.Success, withoutComparison.Status);
         Assert.Contains("not requested", ServiceLocator.Config.Current.Backups.Single().LastVerifySummary);
         {
-            var comparisonWindow = ctx.Driver.Show(new TestRestoreOptionsWindow(saved.Name, saved.RestoreCheckOptions));
+            var comparisonWindow = ctx.Driver.Show(new TestRestoreOptionsWindow(saved.Name, restoreCheck.RestoreOptions()));
             var compare = comparisonWindow.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Name == "CompareOriginals");
             Assert.False(compare.IsChecked);
             Click(comparisonWindow, compare); await ctx.Driver.PumpAsync(100); Assert.True(compare.IsChecked);
             ctx.Snapshot(comparisonWindow, "optional-original-comparison", "Comparison is an explicit optional checkbox, separate from sample/all recovery and from restic's integrity checks.");
-            saved.RestoreCheckOptions = ((RestoreCheckOptionsViewModel)comparisonWindow.FindControl<RestoreCheckOptions>("OptionsUi")!.DataContext!).ToOptions();
+            restoreCheck.CompareOriginals = ((RestoreCheckOptionsViewModel)comparisonWindow.FindControl<RestoreCheckOptions>("OptionsUi")!.DataContext!).ToOptions().CompareOriginals;
             comparisonWindow.Close();
         }
-        Assert.True(saved.RestoreCheckOptions.CompareOriginals);
-        ServiceLocator.Config.Update(c => c.Backups[0].RestoreCheckOptions = saved.RestoreCheckOptions);
-        var mismatch = await ServiceLocator.Orchestrator.RunCheckAsync(saved, deadline.Token);
+        Assert.True(restoreCheck.CompareOriginals);
+        ServiceLocator.Config.Update(c => c.Backups[0].Checks.Single(x => x.Id == restoreCheck.Id).CompareOriginals = true);
+        var mismatch = await ServiceLocator.Orchestrator.RunCheckAsync(saved, restoreCheck, deadline.Token);
         Assert.Equal(BackupRunStatus.Failed, mismatch.Status);
         Assert.Contains("Files recovered successfully", mismatch.Summary);
         Assert.Contains("does not establish which copy changed", mismatch.Summary);
-        Assert.Equal(BackupRunStatus.Success, Assert.Single(mismatch.Checks).Status);
-        ServiceLocator.Config.Update(c => c.Backups[0].CheckRestoreFiles = false);
-        var shallow = await ServiceLocator.Orchestrator.RunCheckAsync(saved, deadline.Token);
+        ServiceLocator.Config.Update(c => c.Backups[0].Checks.RemoveAll(x => x.Kind == CheckKind.TestRestore));
+        var shallow = await ServiceLocator.Orchestrator.RunCheckAsync(saved, saved.Checks.First(c => c.Kind == CheckKind.Structure), deadline.Token);
         Assert.Equal(BackupRunStatus.Success, shallow.Status);
         await ctx.Driver.PumpAsync(300); card = cards.Cards.Single(); Assert.Equal("fail", card.VerifyClass);
         ctx.Snapshot(main, "shallow-success-keeps-comparison-failure", "After a same-size, same-date content mismatch, a later structure-only check succeeds. The card still says Check needs attention.");
@@ -133,7 +121,8 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
         Assert.Contains(((BackupHistoryViewModel)history.DataContext!).Rows, r => r.Status == BackupRunStatus.Failed);
         ctx.Snapshot(history, "failed-comparison-in-history", "The failed restore comparison and later successful repository check remain separate dated results."); history.Close();
         File.WriteAllText(changed, "original bytes"); File.SetLastWriteTimeUtc(changed, stamp);
-        ServiceLocator.Config.Update(c => { c.Backups[0].CheckRestoreFiles = true; c.Backups[0].CheckSchedule = null; });
+        // A test restore after each backup (U179): its own check, run right after the backup ends.
+        ServiceLocator.Config.Update(c => c.Backups[0].Checks.Add(new BackupCheck { Kind = CheckKind.TestRestore, SamplePercent = 100, MaximumBytes = 0, Schedule = null }));
         // Hold the real automatic comparison at a pause checkpoint so the
         // native-card entry point can be exercised while its parent run owns it.
         ActiveRestoreSession? inlineSession = null;
@@ -150,7 +139,7 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
             for (var n = 0; n < 3000 && inlineSession?.IsPaused != true && !inlineTask.IsCompleted; n++) await ctx.Driver.PumpAsync(10);
             Assert.NotNull(inlineSession); Assert.True(inlineSession.IsPaused);
             card = cards.Cards.Single();
-            Assert.True(card.IsRunning); Assert.True(card.IsVerifying);
+            Assert.True(card.IsVerifying);
             var entry = main.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "View test restore"));
             Assert.True(entry.IsEnabled);
             Assert.Contains("View the current test restore", ToolTip.GetTip(entry)?.ToString());
@@ -171,8 +160,8 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
         var inline = await inlineTask;
         Assert.Equal(BackupRunStatus.Success, inline.Status);
         Assert.NotEmpty(inline.Checks);
-        Assert.Contains("Automatic test restore", inline.Summary);
-        Assert.StartsWith(BackupOrchestrator.BuildSummary(inline, null, backup, ServiceLocator.Config.Current), inline.Summary);
+        Assert.Contains(ServiceLocator.Logs.LoadHistoryByBackupId(saved.Id), r => r.Kind == RunKind.Check && r.CheckKind == CheckKind.TestRestore && r.StartedUtc >= inline.StartedUtc && r.Status == BackupRunStatus.Success);
+        Assert.Equal(BackupOrchestrator.BuildSummary(inline, null, backup, ServiceLocator.Config.Current), inline.Summary);
         await ctx.Driver.PumpAsync(250);
         AppNavigator.Go(NavItem.Backups); await ctx.Driver.PumpAsync(150);
         Assert.Equal("ok", cards.Cards.Single().VerifyClass);
@@ -180,11 +169,11 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
         Assert.DoesNotContain("Testing restored files", cards.Cards.Single().OperationPhaseLabel);
         Assert.Contains("Download and recover files", cards.Cards.Single().TestRestoreTooltip);
         var finalLabel = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == cards.Cards.Single().LastRunLabel);
-        Assert.Contains("Automatic test restore", ToolTip.GetTip(finalLabel)?.ToString());
+
         Assert.True(finalLabel.Bounds.Height < 50, "The detailed comparison result must not turn the card header into a paragraph.");
         ctx.Snapshot(main, "passing-recheck-clears-problem", "A new successful full restore comparison clears the problem. The after-backup check path also completed with real Backrest/restic.");
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
-        var cancelled = Task.Run(() => ServiceLocator.TestRestores.RunScheduledAsync(saved, cancel.Token));
+        var cancelled = Task.Run(() => ServiceLocator.TestRestores.RunScheduledAsync(saved, restoreCheck.RestoreOptions(), cancel.Token));
         for (var n = 0; n < 500 && !ServiceLocator.TestRestores.IsRunning(saved.Id) && !cancelled.IsCompleted; n++) await ctx.Driver.PumpAsync(5);
         Assert.True(ServiceLocator.TestRestores.IsRunning(saved.Id)); cancel.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);

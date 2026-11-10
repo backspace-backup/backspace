@@ -62,7 +62,7 @@ internal static class SystemServiceRuns
         var kind = operation switch
         {
             "backup" => RunKind.Backup,
-            "check" when ownerCommand || backup.CheckSchedule is not null => RunKind.Check,
+            "check" when ownerCommand || backup.Checks.Any(c => c.Schedule is not null) => RunKind.Check,
             "prune" when ownerCommand || backup.PruneSchedule is not null => RunKind.Prune,
             _ => throw new SecurityException("This operation is not run by the background service."),
         };

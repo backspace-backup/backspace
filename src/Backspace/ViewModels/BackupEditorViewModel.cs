@@ -130,76 +130,68 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void ResetGracePeriod() => SkipNotificationGraceResetUtc = DateTime.UtcNow;
 
-    // ---- Pruning + Check policies ----
-    // One combo per policy: "After each backup" (inline) or a cadence
-    // — Daily / Weekly / Monthly. The combo maps onto the
-    // Backup.PruneSchedule / Backup.CheckSchedule properties on commit;
-    // see CommitToWorking. AfterEachBackup → schedule = null (engine
-    // runs prune/check inline). Otherwise → schedule = {…} and the OS
-    // scheduler fires the standalone task at the configured cadence.
+    // ---- Cleanup + Checks ----
+    // Cleanup (forget + prune): one cadence, "After each backup" (inline in
+    // the engine) or Daily / Weekly / Monthly. Checks (U179): a list, one
+    // entry per check, each with its own frequency and conditions.
     [ObservableProperty] private MaintenanceCadence _pruneCadence = MaintenanceCadence.AfterEachBackup;
     [ObservableProperty] private TimeSpan _pruneTimeOfDay = TimeSpan.FromHours(3);
 
-    [ObservableProperty] private MaintenanceCadence _checkCadence = MaintenanceCadence.AfterEachBackup;
-    [ObservableProperty] private TimeSpan _checkTimeOfDay = TimeSpan.FromHours(3);
-    [ObservableProperty] private bool _checkReadDataSample;
-    [ObservableProperty] private bool _checkRestoreFiles;
-    public RestoreCheckOptionsViewModel RestoreCheckOptions { get; private set; } = new();
+    public ObservableCollection<CheckEntryViewModel> Checks { get; } = new();
+    public bool HasChecks => Checks.Count > 0;
 
-    // The two additional checks are independent. Retain these derived helpers
-    // for configuration compatibility; the interface binds the flags directly.
-    public bool CheckRecordsOnly { get => !CheckReadDataSample && !CheckRestoreFiles; set { if (value) SetCheckChoice(false, false); } }
-    public bool CheckSavedDataOnly { get => CheckReadDataSample && !CheckRestoreFiles; set { if (value) SetCheckChoice(true, false); } }
-    public bool CheckRecoveryOnly { get => !CheckReadDataSample && CheckRestoreFiles; set { if (value) SetCheckChoice(false, true); } }
-    public bool CheckBoth { get => CheckReadDataSample && CheckRestoreFiles; set { if (value) SetCheckChoice(true, true); } }
-    public string CheckChoiceDescription => CheckBoth
-        ? "Checks the catalog, reads a sample across the backup archive, then recovers files from the latest backup. This combines the two scopes; it can download the same data twice."
-        : CheckRecoveryOnly
-            ? "Checks the catalog, then downloads and rebuilds files from the latest backup in a temporary folder. Backspace checks for damaged data as it reads and writes the recovered files."
-            : CheckSavedDataOnly
-                ? "Checks the catalog and reads a sample of stored file contents, including data used by older versions. Backspace compares the data with its saved checksums to detect damage. Your originals are not needed."
-                : "Checks that the backup catalog is readable and internally consistent, and that the data blocks it refers to are present. Finds missing blocks and damaged catalog records without downloading file contents.";
-    public string CheckChoiceLimit => CheckBoth
-        ? "Unsampled contents and untested older versions can still contain damage. No check proves that files excluded from the backup were saved, or protects against future loss of the destination."
-        : CheckRecoveryOnly
-            ? "Only the automatically selected sample, or all files if requested, is recovered from the latest backup. Older versions are not recovered. Comparison with today's originals is a separate optional diagnostic below."
-            : CheckSavedDataOnly
-                ? "A sample can miss damage elsewhere. This does not rebuild files or test writing them to disk, and it does not compare the backup with today's originals."
-                : "Damage inside stored file contents can go unnoticed. This does not test downloading or recovering your files, or compare them with today's originals.";
-    private bool _settingCheckChoice;
-    private void SetCheckChoice(bool data, bool recovery)
+    /// <summary>The checks in one plain sentence, as Easy mode says it.</summary>
+    public string ChecksSentence
     {
-        // Publish a coherent selection to radio bindings; intermediate flag
-        // changes would briefly select a different radio in the same group.
-        _settingCheckChoice = true;
-        try { CheckReadDataSample = data; CheckRestoreFiles = recovery; }
-        finally { _settingCheckChoice = false; }
-        NotifyCheckChoice();
-    }
-    partial void OnCheckReadDataSampleChanged(bool value) => NotifyCheckChoice();
-    partial void OnCheckRestoreFilesChanged(bool value) => NotifyCheckChoice();
-    private void NotifyCheckChoice()
-    {
-        if (_settingCheckChoice) return;
-        OnPropertyChanged(nameof(CheckRecordsOnly));
-        OnPropertyChanged(nameof(CheckSavedDataOnly));
-        OnPropertyChanged(nameof(CheckRecoveryOnly));
-        OnPropertyChanged(nameof(CheckBoth));
-        OnPropertyChanged(nameof(CheckChoiceDescription));
-        OnPropertyChanged(nameof(CheckChoiceLimit));
+        get
+        {
+            var draft = new Backup { PruneSchedule = PruneCadence == MaintenanceCadence.AfterEachBackup ? null : new BackupSchedule
+                { Frequency = ToScheduleFrequency(PruneCadence), WeeklyDaysBitmask = 1 } };
+            draft.Checks = Checks.Select(c => c.ToModel(validate: false)).ToList();
+            return BackupCheck.Sentence(draft);
+        }
     }
 
-    /// <summary>Maintenance cadences offered in the policy combos.
-    /// Ordered "least → most infrequent": power users typically
-    /// graduate from after-each-backup to a weekly prune and a
-    /// monthly check as their repos grow.</summary>
+    /// <summary>The data sample and the test restore, side by side.</summary>
+    public string ChecksCompared => "So the data sample guards the storage, and the test restore guards the result.";
+
+    /// <summary>A full data read needs an engine that reads all the data (U179).</summary>
+    public bool FullDataReadAvailable => ServiceLocator.Initialized && ServiceLocator.Engine.HonoursDataCheckLimit;
+    public string FullDataReadHint => FullDataReadAvailable
+        ? "Reads every piece of stored data. Off by default: on a large cloud backup it downloads everything."
+        : "Not available yet: this version of the backup engine can only read a sample.";
+
+    [RelayCommand]
+    private void AddCheck(CheckKind kind)
+    {
+        Checks.Add(Entry(BackupMaintenanceDefaults.NewCheck(kind, CurrentScheduleConditions())));
+        ChecksChanged();
+    }
+
+    private CheckEntryViewModel Entry(BackupCheck check)
+        => new(check, CurrentScheduleConditions(), entry => { Checks.Remove(entry); ChecksChanged(); }, ChecksChanged);
+
+    private BackupSchedule CurrentScheduleConditions() => new()
+    {
+        SkipOnBattery = SkipOnBattery, StopOnBattery = StopOnBattery, RequireNetwork = RequireNetwork, CatchUpMissedRuns = CatchUpMissed,
+    };
+
+    private void ChecksChanged()
+    {
+        OnPropertyChanged(nameof(HasChecks));
+        OnPropertyChanged(nameof(ChecksSentence));
+    }
+
+    /// <summary>Maintenance cadences offered for cleanup.</summary>
     public MaintenanceCadence[] AvailableMaintenanceCadences { get; } =
         new[] { MaintenanceCadence.AfterEachBackup, MaintenanceCadence.Daily, MaintenanceCadence.Weekly, MaintenanceCadence.Monthly };
 
     public bool PruneShowsTimeOfDay => PruneCadence != MaintenanceCadence.AfterEachBackup;
-    public bool CheckShowsTimeOfDay => CheckCadence != MaintenanceCadence.AfterEachBackup;
-    partial void OnPruneCadenceChanged(MaintenanceCadence value) => OnPropertyChanged(nameof(PruneShowsTimeOfDay));
-    partial void OnCheckCadenceChanged(MaintenanceCadence value) => OnPropertyChanged(nameof(CheckShowsTimeOfDay));
+    partial void OnPruneCadenceChanged(MaintenanceCadence value)
+    {
+        OnPropertyChanged(nameof(PruneShowsTimeOfDay));
+        OnPropertyChanged(nameof(ChecksSentence));
+    }
 
     // ---- advanced ----
     [ObservableProperty] private int _bandwidthLimitKBps;
@@ -649,7 +641,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         // → Advanced" flow lands on the same recommendation rather
         // than the legacy "after each backup" inline pass. Existing
         // backups (isNew=false) keep whatever they have on disk.
-        if (isNew && working.PruneSchedule is null && working.CheckSchedule is null)
+        if (isNew && working.PruneSchedule is null && working.Checks.Count == 0)
             BackupMaintenanceDefaults.ApplyTo(working);
 
         _name = working.Name;
@@ -753,19 +745,8 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         {
             _pruneCadence = isNew ? MaintenanceCadence.Weekly : MaintenanceCadence.AfterEachBackup;
         }
-        if (working.CheckSchedule is { } check)
-        {
-            _checkCadence = ToMaintenanceCadence(check.Frequency);
-            _checkTimeOfDay = check.TimeOfDay == TimeSpan.Zero ? TimeSpan.FromHours(3) : check.TimeOfDay;
-        }
-        else
-        {
-            _checkCadence = isNew ? MaintenanceCadence.Monthly : MaintenanceCadence.AfterEachBackup;
-        }
-
-        _checkReadDataSample = working.CheckReadDataSample;
-        _checkRestoreFiles = working.CheckRestoreFiles;
-        RestoreCheckOptions = new(working.RestoreCheckOptions);
+        // One entry per check (U179), as saved.
+        foreach (var check in working.Checks) Checks.Add(Entry(check));
         _bandwidthLimitKBps = working.BandwidthLimitKBps;
 
         _filtersText = working.FiltersText;
@@ -1497,6 +1478,12 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             errors.Add("No destinations.");
         }
 
+        foreach (var check in Checks)
+        {
+            try { check.ToModel(); }
+            catch (ArgumentException ex) { errors.Add(ex.Message); }
+        }
+
         if (!string.IsNullOrWhiteSpace(Name))
         {
             // Hard cap matches Backup.MaxNameLength (255). The display
@@ -1657,18 +1644,12 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         Working.SkipNotificationGraceDays = SkipNotificationGraceDays;
         Working.SkipNotificationGraceResetUtc = SkipNotificationGraceResetUtc;
 
-        // Map the MaintenanceCadence combo + TimeOfDay onto PruneSchedule
-        // / CheckSchedule:
-        //   AfterEachBackup → schedule = null (engine runs prune/check inline)
-        //   Daily/Weekly/Monthly → schedule = {…} (OS scheduler fires)
-        // Schedules inherit battery/metered/missed-run preconditions
-        // from the main backup so a maintenance pass never overrides
-        // the user's "don't run on battery" intent.
+        // Cleanup: AfterEachBackup → schedule = null (the engine cleans up
+        // after the backup); otherwise its own schedule, inheriting the
+        // backup's battery / network / missed-run conditions. Checks: one
+        // entry each, with their own (U179); validated in ValidateForm.
         Working.PruneSchedule = BuildMaintenanceSchedule(PruneCadence, PruneTimeOfDay);
-        Working.CheckSchedule = BuildMaintenanceSchedule(CheckCadence, CheckTimeOfDay);
-        Working.CheckReadDataSample = CheckReadDataSample;
-        Working.CheckRestoreFiles = CheckRestoreFiles;
-        Working.RestoreCheckOptions = RestoreCheckOptions.ToOptions();
+        Working.Checks = Checks.Select(c => c.ToModel(validate: false)).ToList();
 
         Working.Targets = Targets.Select(t => new BackupTarget
         {

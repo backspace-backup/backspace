@@ -30,6 +30,7 @@ public static class MaintenanceCadenceHumanizer
         MaintenanceCadence.Daily           => "Daily",
         MaintenanceCadence.Weekly          => "Weekly",
         MaintenanceCadence.Monthly         => "Monthly",
+        MaintenanceCadence.Yearly          => "Yearly",
         _                                   => c.ToString(),
     };
 }

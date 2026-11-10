@@ -33,13 +33,14 @@ public sealed class TestRestoreService
         return Launch(backup, journal, resumed: false);
     }
 
-    public async Task<VerifyOutcome> RunScheduledAsync(Backup backup, CancellationToken ct, bool maintenanceLeaseHeld = false)
+    /// <summary>A sample test restore check entry (U179), with its options.</summary>
+    public async Task<VerifyOutcome> RunScheduledAsync(Backup backup, TestRestoreOptions options, CancellationToken ct, bool maintenanceLeaseHeld = false)
     {
         ct.ThrowIfCancellationRequested();
         backup = JsonSerializer.Deserialize<Backup>(JsonSerializer.Serialize(backup))!;
-        backup.RestoreCheckOptions.Validate();
+        options.Validate();
         var journal = new TestRestoreJournal { BackupId = backup.Id, BackupName = backup.Name,
-            Options = backup.RestoreCheckOptions, Scheduled = true, RouteFingerprint = TestRestoreContext.Fingerprint(backup, _config) };
+            Options = options, Scheduled = true, RouteFingerprint = TestRestoreContext.Fingerprint(backup, _config) };
         var session = Launch(backup, journal, resumed: false, ct, maintenanceLeaseHeld);
         await session.Completion.ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();

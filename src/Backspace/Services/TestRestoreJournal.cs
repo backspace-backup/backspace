@@ -181,7 +181,8 @@ internal sealed class TestRestoreContext
                         f => _history.GetValueOrDefault(FileKey(key, f), DateTime.MinValue));
                 if (Journal.Options.Full && Journal.Options.CompareOriginals)
                     cell.Missing = await Task.Run(() => BackupVerifier.FindMissingSnapshotFiles(backup, source, files, cell.Snapshot.CreatedUtc, ct), ct);
-                if (cell.Files.Count == 0) throw new IOException("This snapshot has no files to restore.");
+                if (cell.Files.Count == 0)
+                    throw new IOException(files.Count > 0 && !Journal.Options.Full ? NothingFits(cap) : "This snapshot has no files to restore.");
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { cell.Error = ex.Message; }
@@ -190,8 +191,15 @@ internal sealed class TestRestoreContext
         PublishProgress();
     }
 
-    // Whole-file selection is intentional: a byte range cannot test whether
-    // the whole file restores. A single oversized file may exceed the budget.
+    /// <summary>The files a sample test restore rebuilds: never-tested files
+    /// first, then those tested longest ago, so the sample rotates through
+    /// the whole backup. Whole files only: a byte range cannot show that the
+    /// whole file restores. The limit is never exceeded (U179, 10 November
+    /// 2026: a 1 GB limit picked a 1.85 GB file and took 11 minutes). A file
+    /// larger than what is left of it is passed over for a smaller one; when
+    /// no file fits, none is picked (<see cref="NothingFits"/>): a smaller
+    /// file that still exceeds the limit would break it all the same, and a
+    /// test of nothing must not pass.</summary>
     internal static List<RevisionFile> SelectSample(IReadOnlyList<RevisionFile> files, double percent, long cap,
         Func<RevisionFile, DateTime> lastChecked)
     {
@@ -203,10 +211,18 @@ internal sealed class TestRestoreContext
         foreach (var file in pool)
         {
             if (picked.Count > 0 && (bytes >= target || (zeroOnly && picked.Count >= zeroLimit))) break;
-            picked.Add(file); bytes = checked(bytes + Math.Max(0, file.SizeBytes));
+            var size = Math.Max(0, file.SizeBytes);
+            if (size > cap - bytes) continue;
+            picked.Add(file); bytes = checked(bytes + size);
         }
         return picked;
     }
+
+    /// <summary>Why a sample is empty although the backup has files: every
+    /// file is larger than the limit.</summary>
+    internal static string NothingFits(long cap) =>
+        $"Every file in this backup is larger than the test restore's limit ({BackupCheck.Size(cap)} here), so no file was restored. "
+        + "Raise the limit in the backup's Checks to test this backup.";
 
     internal void Checkpoint(TestRestoreCell cell, List<FileVerifyResult> results, bool complete = false)
     {

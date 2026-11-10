@@ -22,6 +22,19 @@ internal static class ServiceApprovedWorker
     /// schedule started the run (U173).</summary>
     internal const string AutomaticRunVariable = "BACKSPACE_RUN_AUTOMATIC";
 
+    /// <summary>Set by the service on a worker its schedule starts for one
+    /// check entry (U179); empty runs every check of the backup.</summary>
+    internal const string CheckIdVariable = "BACKSPACE_CHECK_ID";
+
+    /// <summary>The check a worker runs: the schedule's entry, every check
+    /// (null) for the owner's command, or none when the entry was removed.</summary>
+    internal static (bool Found, BackupCheck? Check) CheckToRun(Backup backup, bool ownerCommand, string? variable)
+    {
+        if (ownerCommand || string.IsNullOrEmpty(variable)) return (true, null);
+        var check = backup.Checks.FirstOrDefault(c => c.Id == variable && c.Schedule is not null);
+        return (check is not null, check);
+    }
+
     /// <summary>Whether this worker's run was started by the service's
     /// schedule: never for the owner's command (Run now, command line).</summary>
     internal static bool StartedBySchedule(bool ownerCommand, string? variable) => !ownerCommand && variable == "1";
@@ -110,7 +123,12 @@ internal static class ServiceApprovedWorker
             {
                 RunKind.Backup => await ServiceLocator.Orchestrator.RunBackupAsync(backup, stop,
                     automatic: StartedBySchedule(ownerCommand, Environment.GetEnvironmentVariable(AutomaticRunVariable))).ConfigureAwait(false),
-                RunKind.Check => await ServiceLocator.Orchestrator.RunCheckAsync(backup, stop).ConfigureAwait(false),
+                RunKind.Check => CheckToRun(backup, ownerCommand, Environment.GetEnvironmentVariable(CheckIdVariable)) switch
+                {
+                    (true, { } check) => await ServiceLocator.Orchestrator.RunCheckAsync(backup, check, stop).ConfigureAwait(false),
+                    (true, null) => await ServiceLocator.Orchestrator.RunCheckAsync(backup, stop).ConfigureAwait(false),
+                    _ => throw new InvalidDataException("This check was removed from the backup before it could start."),
+                },
                 RunKind.Prune => await ServiceLocator.Orchestrator.RunPruneAsync(backup, stop).ConfigureAwait(false),
                 _ => throw new SecurityException("Unapproved operation."),
             };

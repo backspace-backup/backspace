@@ -145,12 +145,12 @@ public class ConfigMigratorTests
         // Duplicacy collapses to the single "run inline" state — the new
         // UI doesn't expose "never prune" anyway.
         Assert.Null(dropbox.PruneSchedule);
-        Assert.Null(dropbox.CheckSchedule);
+        Assert.Null(Assert.Single(dropbox.Checks).Schedule); // A structure check after each backup (U179).
 
         // Same for the local-only repo that had no yaml at all.
         var local = cfg.Backups.Single(b => b.Name == "local_c");
         Assert.Null(local.PruneSchedule);
-        Assert.Null(local.CheckSchedule);
+        Assert.Null(Assert.Single(local.Checks).Schedule);
     }
 
     [Fact]

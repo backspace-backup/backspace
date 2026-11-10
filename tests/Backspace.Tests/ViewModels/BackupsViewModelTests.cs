@@ -526,7 +526,7 @@ public class BackupsViewModelTests
         ResetConfig();
         var backup = new Backup { Name = "Overdue check " + Guid.NewGuid().ToString("N"),
             LastRunStatus = BackupRunStatus.Success, LastRunEndUtc = DateTime.UtcNow, Enabled = true,
-            CheckSchedule = new() { Frequency = ScheduleFrequency.Hourly, HourlyInterval = 1, TimeOfDay = TimeSpan.Zero } };
+            Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new() { Frequency = ScheduleFrequency.Hourly, HourlyInterval = 1, TimeOfDay = TimeSpan.Zero } } } };
         ServiceLocator.Config.Update(c => c.Backups.Add(backup));
         using var vm = new BackupsViewModel();
         async System.Threading.Tasks.Task Record(DateTime when, string tone)

@@ -35,47 +35,37 @@ public sealed class E50_ScheduledDataCheck(ITestOutputHelper output) : BackupE2E
             StoragePasswordRef = ServiceLocator.Secrets.PutNew("e50", Guid.NewGuid().ToString("N")) };
         var backup = new Backup { Name = "Documents", UseVss = false, VssDisabledAcknowledged = true,
             AbortOnMeteredNetwork = false, SourcePaths = { source }, Targets = { new() { DestinationId = destination.Id } },
-            PruneSchedule = new(), CheckSchedule = new() { Frequency = ScheduleFrequency.Monthly } };
+            PruneSchedule = new(), Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new() { Frequency = ScheduleFrequency.Monthly } } } };
         ServiceLocator.Config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(destination); });
         Assert.Equal(BackupRunStatus.Success,
             (await fixture.Engine.BackupPruneCheckAsync(backup, source, destination, "default", deadline.Token)).Status);
-        var structureOnly = await ServiceLocator.Orchestrator.RunCheckAsync(backup, deadline.Token);
+        var structureOnly = await ServiceLocator.Orchestrator.RunCheckAsync(backup, backup.Checks[0], deadline.Token);
         Assert.Equal(BackupRunStatus.Success, structureOnly.Status);
         Assert.Contains("were not downloaded", Assert.Single(structureOnly.Cells).Summary);
+        Assert.StartsWith("Structure check passed in ", structureOnly.Summary);
 
+        // U179: a data sample is its own entry, added with "Add a check".
         var editor = new BackupEditorViewModel(backup, false);
-        Assert.False(editor.CheckReadDataSample);
+        Assert.DoesNotContain(editor.Checks, c => c.Kind == CheckKind.DataSample);
         var window = ctx.Driver.Show(new BackupEditorWindow { DataContext = editor, Width = 1024, Height = 768 });
         window.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
         await ctx.Driver.PumpAsync(100);
-        var option = window.FindControl<CheckBox>("SavedDataCheckChoice")!;
-        option.BringIntoView();
+        var add = window.FindControl<Button>("AddDataSample")!;
+        add.BringIntoView();
         await ctx.Driver.PumpAsync(120);
-        var scroll = option.GetVisualAncestors().OfType<ScrollViewer>().First();
-        var comparison = window.FindControl<Border>("CheckComparison")!;
-        scroll.Offset = new Avalonia.Vector(0, scroll.Offset.Y + comparison.TranslatePoint(default, scroll)!.Value.Y - 8);
+        add.Command!.Execute(add.CommandParameter);
         await ctx.Driver.PumpAsync(100);
-        ctx.Snapshot(window, "data-check-off-by-default", "The catalog check is always included. Independent checkboxes add data reading and file recovery; both start off.");
-        Assert.True(option.Focus());
-        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        await ctx.Driver.PumpAsync(100);
-        Assert.True(editor.CheckReadDataSample);
-        Assert.False(editor.CheckRestoreFiles);
-        var saved = editor.CommitToWorking(); Assert.NotNull(saved); Assert.True(saved.CheckReadDataSample);
-        ServiceLocator.Config.Update(c => c.Backups.Single(b => b.Id == backup.Id).CheckReadDataSample = true);
-        var reopened = new BackupEditorViewModel(saved, false); Assert.True(reopened.CheckReadDataSample);
-        scroll.Offset = new Avalonia.Vector(0, scroll.Offset.Y + comparison.TranslatePoint(default, scroll)!.Value.Y - 8);
-        await ctx.Driver.PumpAsync(100);
-        ctx.Snapshot(window, "data-check-enabled", "Verify saved data was selected by keyboard and saved. Recovery remains off, so it does not perform a second comparison download.");
-        scroll.Offset = new Avalonia.Vector(0, scroll.Extent.Height);
-        await ctx.Driver.PumpAsync(100);
-        ctx.Snapshot(window, "data-check-limits", "The selected data check explains sample limits, the missing recovery test, and the approximate download budget.");
+        Assert.Contains(editor.Checks, c => c.Kind == CheckKind.DataSample);
+        var saved = editor.CommitToWorking(); Assert.NotNull(saved);
+        var sample = saved.Checks.Single(c => c.Kind == CheckKind.DataSample);
+        ServiceLocator.Config.Update(c => c.Backups.Single(b => b.Id == backup.Id).Checks = saved.Checks);
+        Assert.Contains(new BackupEditorViewModel(saved, false).Checks, c => c.Kind == CheckKind.DataSample);
+        ctx.Snapshot(window, "data-sample-added", "The data sample was added as its own check, beside the structure check.");
         window.Close();
 
         // Today's source is allowed to differ from the immutable saved backup.
         File.WriteAllText(Path.Combine(source, "photo.bin"), "A newer local version is not backup corruption.");
-        var healthy = await ServiceLocator.Orchestrator.RunCheckAsync(backup, deadline.Token);
+        var healthy = await ServiceLocator.Orchestrator.RunCheckAsync(backup, sample, deadline.Token);
         Assert.True(healthy.Status == BackupRunStatus.Success, string.Join("\n", healthy.Cells.Select(c => c.Summary).Concat(healthy.Errors)));
         Assert.Contains("sample of saved data", Assert.Single(healthy.Cells).Summary);
         Assert.Contains("not a full-data check", healthy.Cells[0].Summary);
@@ -91,14 +81,14 @@ public sealed class E50_ScheduledDataCheck(ITestOutputHelper output) : BackupE2E
         try
         {
             File.WriteAllBytes(pack, original[..(original.Length / 2)]);
-            var damaged = await ServiceLocator.Orchestrator.RunCheckAsync(backup, deadline.Token);
+            var damaged = await ServiceLocator.Orchestrator.RunCheckAsync(backup, sample, deadline.Token);
             Assert.Equal(BackupRunStatus.Failed, damaged.Status);
             Assert.NotEmpty(damaged.Errors);
             Assert.Equal(BackupRunStatus.Failed, ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Single(r => r.Id == damaged.Id).Status);
             ctx.Report.RecordNote("Damaged repository is not successful", "A saved data pack was deliberately truncated in the disposable repository. The same production check path reported Failed and preserved the failure in history. This proves failure handling; because pack size is invalid, it does not prove every possible byte corruption would be selected by a 1% random sample.");
         }
         finally { File.WriteAllBytes(pack, original); }
-        var recovered = await ServiceLocator.Orchestrator.RunCheckAsync(backup, deadline.Token);
+        var recovered = await ServiceLocator.Orchestrator.RunCheckAsync(backup, sample, deadline.Token);
         Assert.Equal(BackupRunStatus.Success, recovered.Status);
         ctx.Report.RecordNote("Proof limits", "Real encrypted local repository and production check coordinator. Interface input and screenshots use headless Avalonia. This did not launch a Windows scheduled task, change real schedules, or measure live-cloud traffic. Random sampling can miss damage outside the selected packs.");
     }

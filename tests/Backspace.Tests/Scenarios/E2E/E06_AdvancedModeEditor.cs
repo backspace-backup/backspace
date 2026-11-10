@@ -71,7 +71,7 @@ public sealed class E06_AdvancedModeEditor : BackupE2EBase
         // Pick Weekly for both so this scenario exercises the
         // "schedule != null" code path on commit.
         vm.PruneCadence = Backspace.Models.MaintenanceCadence.Weekly;
-        vm.CheckCadence = Backspace.Models.MaintenanceCadence.Weekly;
+        foreach (var check in vm.Checks) check.Cadence = Backspace.Models.MaintenanceCadence.Weekly;
         vm.KeepPolicy = "0:365 30:90 7:30 1:7";
 
         // Add the local destination as a target row. The editor's

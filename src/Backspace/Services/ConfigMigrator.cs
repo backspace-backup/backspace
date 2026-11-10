@@ -231,14 +231,12 @@ public sealed class ConfigMigrator
 
         var firstPrune = repoYaml.Prune?.FirstOrDefault();
         backup.KeepPolicy = firstPrune?.Keep ?? "0:365 30:90 7:30 1:7";
-        // PruneSchedule / CheckSchedule left null — imported backups run
-        // prune+check inline after each backup, the same default Backspace
-        // applies to any new backup. Users can opt into a standalone
-        // cadence via the BackupEditor's Pruning Policy / Check Policy
-        // cards. (Duplicacy's prune-not-configured shape silently maps
-        // to "inline" here; the old "no maintenance at all" state isn't
-        // exposed by the new UI, which makes sure every backup gets
-        // maintenance.)
+        // PruneSchedule left null and one structure check after each backup:
+        // imported backups clean up and check right after each backup. The
+        // editor's Cleanup and Checks offer their own schedules (U179).
+        // (Duplicacy's prune-not-configured shape silently maps to "after
+        // each backup" here, so every imported backup gets maintenance.)
+        backup.Checks = [new BackupCheck { Kind = CheckKind.Structure }];
 
         // Default schedule matches the legacy scheduled-task.xml: daily at 20:00.
         backup.Schedule = new BackupSchedule

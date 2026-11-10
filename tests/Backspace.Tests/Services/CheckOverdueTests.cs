@@ -18,7 +18,7 @@ public sealed class CheckOverdueTests
 
     private Backup Backup()
     {
-        var backup = new Backup { Name = "local_dropbox", CheckSchedule = new BackupSchedule(), CheckRestoreFiles = true };
+        var backup = new Backup { Name = "local_dropbox", Checks = BackupCheck.FromLegacy(new BackupSchedule { Frequency = ScheduleFrequency.Monthly }, false, true, null) };
         backup.Targets.Add(new BackupTarget { DestinationId = _drive.Id, StorageName = "default" });
         backup.Targets.Add(new BackupTarget { DestinationId = _cloud.Id, StorageName = "default" });
         return backup;
@@ -47,8 +47,10 @@ public sealed class CheckOverdueTests
         {
             Run(backup, RunKind.Check, T0, BackupRunStatus.Warning, Cell(_drive, BackupRunStatus.Skipped, unavailable: true), Cell(_cloud, BackupRunStatus.Success)),
         };
+        // A check recorded before checks were a list counts for both entries.
         var waiting = CheckOverdue.For(backup, history, Destinations);
-        Assert.Equal(_drive.Id, Assert.Single(waiting).Target.DestinationId);
+        Assert.Equal(2, waiting.Count);
+        Assert.All(waiting, w => Assert.Equal(_drive.Id, w.Target.DestinationId));
 
         // The daily backup with the drive still unplugged: still waiting.
         var unplugged = Run(backup, RunKind.Backup, T0.AddHours(14), BackupRunStatus.Warning, Cell(_drive, BackupRunStatus.Skipped), Cell(_cloud, BackupRunStatus.Success));
@@ -57,12 +59,13 @@ public sealed class CheckOverdueTests
         var failed = Run(backup, RunKind.Backup, T0.AddDays(1), BackupRunStatus.Failed, Cell(_drive, BackupRunStatus.Failed), Cell(_cloud, BackupRunStatus.Success));
         Assert.Empty(CheckOverdue.DueAfter(backup, failed, history, Destinations));
         history.AddRange([unplugged, failed]);
-        Assert.Single(CheckOverdue.For(backup, history, Destinations));
+        Assert.Equal(2, CheckOverdue.For(backup, history, Destinations).Count);
 
         // The drive is back and the backup reaches it: the check is due, for that drive only.
         var plugged = Run(backup, RunKind.Backup, T0.AddDays(9), BackupRunStatus.Success, Cell(_drive, BackupRunStatus.Success), Cell(_cloud, BackupRunStatus.Success));
         var due = CheckOverdue.DueAfter(backup, plugged, history, Destinations);
-        Assert.Equal(_drive.Id, Assert.Single(due).Target.DestinationId);
+        Assert.Equal(2, due.Count);
+        Assert.All(due, w => Assert.Equal(_drive.Id, w.Target.DestinationId));
 
         // Once it ran there, whatever its result, nothing is due any more.
         history.Add(plugged);
@@ -87,10 +90,32 @@ public sealed class CheckOverdueTests
         Assert.Empty(CheckOverdue.DueAfter(backup, plugged, stopped, Destinations));
         // No check schedule any more: nothing waits.
         var missed = new List<RunRecord> { Run(backup, RunKind.Check, T0, BackupRunStatus.Skipped, Cell(_drive, BackupRunStatus.Skipped, unavailable: true)) };
-        Assert.Single(CheckOverdue.DueAfter(backup, plugged, missed, Destinations));
-        backup.CheckSchedule = null;
+        Assert.Equal(2, CheckOverdue.DueAfter(backup, plugged, missed, Destinations).Count);
+        foreach (var check in backup.Checks) check.Schedule = null;
         Assert.Empty(CheckOverdue.DueAfter(backup, plugged, missed, Destinations));
         Assert.Empty(CheckOverdue.For(backup, missed, Destinations));
+    }
+
+    [Fact]
+    public void Each_check_entry_waits_on_its_own()
+    {
+        // U179: the structure check ran on the drive after it came back; the
+        // test restore did not. Only the test restore still waits.
+        var backup = Backup();
+        var structure = backup.Checks.Single(c => c.Kind == CheckKind.Structure);
+        var restore = backup.Checks.Single(c => c.Kind == CheckKind.TestRestore);
+        var missed = Run(backup, RunKind.Check, T0, BackupRunStatus.Skipped, Cell(_drive, BackupRunStatus.Skipped, unavailable: true));
+        missed.CheckId = restore.Id;
+        var history = new List<RunRecord> { missed };
+        Assert.Equal(restore.Id, Assert.Single(CheckOverdue.For(backup, history, Destinations)).Check.Id);
+        var ranStructure = Run(backup, RunKind.Check, T0.AddDays(1), BackupRunStatus.Success, Cell(_drive, BackupRunStatus.Success));
+        ranStructure.CheckId = structure.Id;
+        history.Add(ranStructure);
+        Assert.Equal(restore.Id, Assert.Single(CheckOverdue.For(backup, history, Destinations)).Check.Id);
+        var ranRestore = Run(backup, RunKind.Check, T0.AddDays(2), BackupRunStatus.Success, Cell(_drive, BackupRunStatus.Success));
+        ranRestore.CheckId = restore.Id;
+        history.Add(ranRestore);
+        Assert.Empty(CheckOverdue.For(backup, history, Destinations));
     }
 
     [Fact]
@@ -101,12 +126,12 @@ public sealed class CheckOverdueTests
         var waiting = CheckOverdue.For(backup, history, Destinations);
         var incomplete = new BackupCheckState("Check incomplete · 3d ago", "stale", "", "");
         var shown = CheckOverdue.Shown(incomplete, backup, waiting);
-        Assert.Equal("Test restore overdue: waits for the drive", shown.Label);
+        Assert.Equal("Checks overdue: waits for the drive", shown.Label);
         Assert.NotEqual("fail", shown.Tone);
         Assert.Contains("«My Passport»", shown.Details);
         Assert.Contains("right after the next backup", shown.Details);
-        backup.CheckRestoreFiles = false;
-        Assert.Equal("Check overdue: waits for the drive", CheckOverdue.Shown(incomplete, backup, waiting).Label);
+        backup.Checks.RemoveAll(c => c.Kind == CheckKind.TestRestore);
+        Assert.Equal("Structure check overdue: waits for the drive", CheckOverdue.Shown(incomplete, backup, CheckOverdue.For(backup, history, Destinations)).Label);
 
         var failure = new BackupCheckState("Check needs attention · 3d ago", "fail", "", "");
         Assert.Same(failure, CheckOverdue.Shown(failure, backup, waiting));

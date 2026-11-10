@@ -12,7 +12,7 @@ of Backspace behaves, including its limits.
 - [Restoring files](#restoring-files)
 - [Browsing and mounting snapshots](#browsing-and-mounting-snapshots)
 - [The test-restore drill](#the-test-restore-drill)
-- [Repository checks](#repository-checks)
+- [Checks](#checks)
 - [Alerts, email and Healthchecks.io](#alerts-email-and-healthchecksio)
 - [Removing a backup](#removing-a-backup)
 - [Metered networks](#metered-networks)
@@ -154,8 +154,8 @@ The log ends the cleanup with what it removed ("[cleanup] 2 old backups removed
 freed" to its run when something was freed. With what each backup added, it
 shows why the storage doesn’t only grow.
 
-Each schedule has conditions that also apply to its standalone check and
-prune:
+Each schedule has conditions. New cleanup and checks take the backup's; each
+check can then change its own ([Checks](#checks)):
 
 - **Skip on battery** and **stop on battery**.
 - **Require a network connection**, for backups that send data over the
@@ -682,8 +682,11 @@ Choose **Test restore** on a backup card, then choose the scope:
 - **Check a sample** defaults to 1% of the stored file sizes and a 1 GiB
   download budget. It uses the smaller limit, shared across source and
   destination pairs. Files never checked, or checked longest ago, come first;
-  ties are random. Whole files are selected, so one large file can exceed the
-  budget. These sizes describe recovered files, not exact network traffic:
+  ties are random. Whole files are selected, and the budget is never
+  exceeded: a file larger than what is left of it is passed over for a
+  smaller one. When every file is larger than the budget, nothing is restored
+  and the result says so: raise the budget to test that backup. These sizes
+  describe recovered files, not exact network traffic:
   compression, caching and repeated destinations affect transfers.
 - **Check every file** recovers the latest snapshot of every source at every
   destination, including empty files. Large cloud backups can take hours or
@@ -700,9 +703,8 @@ fails the comparison but doesn't establish which copy changed. With every file
 selected, this diagnostic also looks for unchanged, included local files that
 are missing from the snapshot.
 
-The same check can run automatically: in **Edit → Schedule → Check policy**,
-enable **Test recovery from the latest backup** (off by default). It runs
-after a successful repository check. This can use substantial bandwidth and
+The same check can run by itself as a **Sample test restore** entry in the
+backup's checks (see [Checks](#checks)). This can use substantial bandwidth and
 temporary disk space.
 
 **Restores** shows a running check with recovered-byte progress, file counts,
@@ -721,37 +723,70 @@ Temporary copies are removed after each batch of up to 128 files or 256 MiB;
 a larger file is handled alone. Before each batch, Backspace checks for space
 for two copies plus 64 MiB of reserve. Original files are never replaced.
 
-## Repository checks
+## Checks
 
-The scheduled repository check, on by default, checks restic's repository
-structure. In **Edit → Schedule → Check policy** you can also enable
-**download and check a sample of saved data** (off by default). Each check
-targets 1% of the stored data, up to 1 GiB per repository, and uses restic's
-own authenticated integrity checks. Sources sharing a repository don't repeat
-the same check. Download speed follows the backup's limit.
+A backup's checks are a list in **Edit → Schedule → Checks**: one entry per
+check, each with its own frequency (after each backup, daily, weekly, monthly
+or yearly), time of day and conditions (skip on battery, wait for a network
+connection, run a missed check later). **Add a check** adds one; **Remove**
+removes it. Cleanup (removing old copies and freeing their space) stays its
+own setting above, under **Cleanup**. There are four kinds:
 
-The sample is an approximate budget: restic selects whole packs, at least one
+- **Structure check** (`restic check`): the backup's records are readable
+  and complete, and every piece of data they point to is still there. It
+  reads no file contents, so it is quick.
+- **Data sample**: downloads a random part of the stored data, from any
+  backup old or new, and checks each piece against its fingerprint. It
+  proves the storage hasn't lost or damaged your data, and includes the
+  structure check. It does not rebuild any file. It reads 1% of the stored
+  data, up to its limit (1 GiB by default).
+- **Sample test restore**: rebuilds real files from the latest backup, the
+  way a restore does: following the folder list, unlocking them with your
+  password and writing them to disk. It proves the whole way back to usable
+  files works. Each time it takes files never tested first, then those
+  tested longest ago, so over time it goes through the whole backup. With
+  **compare with today's originals** it also catches files that were read
+  wrongly when they were backed up. Its share and limit work as in
+  [the test-restore drill](#the-test-restore-drill).
+- **Full data read**: downloads all the stored data and checks every piece.
+  The most thorough check of the storage, and the slowest. Off by default.
+
+So the data sample guards the storage, and the test restore guards the result.
+
+New backups get a weekly cleanup, a weekly structure check, a weekly 1 GiB
+data sample and a monthly sample test restore (1%, at most 1 GiB), at 3 AM
+(Sunday for the weekly ones, the 1st for the monthly one). Easy mode shows
+this as one sentence and no settings. Backups set up before checks were a
+list keep what they had: a monthly check with a data sample and a test
+restore becomes a monthly data sample and a monthly sample test restore at
+the same time.
+
+Checks due at the same time run one after another, never together, cheapest
+first, and backups wait for them on that destination. Each check's run in
+**Activity** says what happened in plain words, such as "Data sample (1 GiB)
+passed in 7 min 50 s", and the backup card lists each check's latest result
+under its health line.
+
+The data sample is an approximate budget: restic selects whole packs, at least one
 when data exists. Metadata and retries add traffic, and cloud providers may
 charge for these reads. A random sample can miss damaged data and doesn't
-guarantee that every pack is eventually covered.
+guarantee that every pack is eventually covered. Download speed follows the
+backup's limit.
 
-The checks answer different questions. Repository checks find inconsistent
-metadata; reading data also detects corruption or tampering in the selected
-packs. **Test restore** also exercises Backspace's own file selection,
-recovery and output handling. None of them proves that every file you meant
-to protect was selected for backup.
+None of the checks proves that every file you meant to protect was selected
+for backup.
 
 ### A check that finds the drive unplugged
 
-When a scheduled check (with its test restore, if **restore a sample** is on)
-comes due while its destination can't be reached (an external drive not
-connected or not the expected one, or a network share offline), it isn't a
-failure: that destination's part is skipped and stays overdue. It runs by
-itself right after the next backup that reaches the destination, in the same
-run, once, whether the tray app or the background service runs the backup.
-Meanwhile the card's check line reads "Test restore overdue: waits for the
-drive" (or "Check overdue: …"), and its hover says when the check was missed
-and that nothing else is needed. A backup that doesn't reach the drive (still
+When a scheduled check comes due while its destination can't be reached (an
+external drive not connected or not the expected one, or a network share
+offline), it isn't a failure: that destination's part is skipped and stays
+overdue. It runs by itself right after the next backup that reaches the
+destination, once, whether the tray app or the background service runs the
+backup. Each check waits on its own. Meanwhile the card's check line reads
+"Sample test restore overdue: waits for the drive" (or "Checks overdue: …"
+when several wait), and its hover says when the check was missed and that
+nothing else is needed. A backup that doesn't reach the drive (still
 unplugged, or failed) leaves the check waiting. A check that fails for any
 other reason is reported as before and waits for its next scheduled time.
 

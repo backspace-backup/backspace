@@ -295,6 +295,9 @@
                  the one optional upgrade here, where people choose the time. -->
             <TextBlock Classes="helper" Margin="0,-8,0,0"
                        Text="Runs whenever you're signed in, even with Backspace closed."/>
+            <!-- Maintenance and checks in one plain sentence, no settings (U179). -->
+            <TextBlock Name="EasyChecksSentence" Classes="helper" TextWrapping="Wrap"
+                       Text="{Binding ChecksSentence}"/>
             <StackPanel Spacing="6"
                         IsVisible="{Binding Frequency, Converter={x:Static vm:Eq.To}, ConverterParameter=Hourly}">
               <TextBlock Classes="label-caps" Text="EVERY N HOURS"/>

@@ -971,7 +971,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         var owner = TestRestoreOwner?.Invoke() ?? Owner();
         if (owner is null) return;
         if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to read this backup.")) return;
-        var options = await new TestRestoreOptionsWindow(card.Snapshot.Name, card.Snapshot.RestoreCheckOptions).ShowDialog<TestRestoreOptions?>(owner);
+        var options = await new TestRestoreOptionsWindow(card.Snapshot.Name, card.Snapshot.Checks.FirstOrDefault(c => c.Kind == CheckKind.TestRestore)?.RestoreOptions()).ShowDialog<TestRestoreOptions?>(owner);
         if (options is null) return;
         try
         {

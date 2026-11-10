@@ -22,7 +22,8 @@ public class BackupMaintenanceScheduleTests
         // backup. This is the simple-case default the BackupEditor
         // surfaces as "After each backup" in the cadence combo.
         Assert.Null(b.PruneSchedule);
-        Assert.Null(b.CheckSchedule);
+        // Checks are entries (U179): a backup made in code has none.
+        Assert.Empty(b.Checks);
     }
 
     [Fact]
@@ -37,11 +38,11 @@ public class BackupMaintenanceScheduleTests
                 TimeOfDay = TimeSpan.FromHours(3),
                 WeeklyDaysBitmask = 0b0000_0001, // Sunday only
             },
-            CheckSchedule = new BackupSchedule
+            Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule
             {
                 Frequency = ScheduleFrequency.Hourly,
                 HourlyInterval = 24,
-            },
+            } } },
         };
 
         var json = JsonSerializer.Serialize(src);
@@ -52,9 +53,9 @@ public class BackupMaintenanceScheduleTests
         Assert.Equal(TimeSpan.FromHours(3), rt.PruneSchedule.TimeOfDay);
         Assert.Equal(0b0000_0001, rt.PruneSchedule.WeeklyDaysBitmask);
 
-        Assert.NotNull(rt.CheckSchedule);
-        Assert.Equal(ScheduleFrequency.Hourly, rt.CheckSchedule!.Frequency);
-        Assert.Equal(24, rt.CheckSchedule.HourlyInterval);
+        var check = Assert.Single(rt.Checks).Schedule!;
+        Assert.Equal(ScheduleFrequency.Hourly, check.Frequency);
+        Assert.Equal(24, check.HourlyInterval);
     }
 
     [Fact]
@@ -99,6 +100,7 @@ public class BackupMaintenanceScheduleTests
         var legacyJson = """{"Name":"docs","SourcePaths":["C:/Users/me/Docs"]}""";
         var rt = JsonSerializer.Deserialize<Backup>(legacyJson)!;
         Assert.Null(rt.PruneSchedule);
-        Assert.Null(rt.CheckSchedule);
+        // No check schedule meant a structure check after each backup (U179).
+        Assert.Null(Assert.Single(rt.Checks).Schedule);
     }
 }

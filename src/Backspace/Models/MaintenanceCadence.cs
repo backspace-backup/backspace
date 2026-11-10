@@ -22,4 +22,6 @@ public enum MaintenanceCadence
     Daily,
     Weekly,
     Monthly,
+    /// <summary>Checks only (U179).</summary>
+    Yearly,
 }

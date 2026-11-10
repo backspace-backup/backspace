@@ -14,6 +14,9 @@ public enum ScheduleFrequency
     /// Windows Task Scheduler maps this to a MonthlyTrigger with
     /// every-month + day-1 + WhichWeek-irrelevant.</summary>
     Monthly,
+    /// <summary>Once a year, on 1 January at <see cref="BackupSchedule.TimeOfDay"/>.
+    /// Offered for checks only (U179).</summary>
+    Yearly,
 }
 
 /// <summary>
@@ -107,7 +110,8 @@ public sealed class BackupSchedule
             ScheduleFrequency.Weekly  => DescribeWeeklyShort(),
             ScheduleFrequency.Hourly  => HourlyInterval == 1 ? "Hourly" : $"Every {HourlyInterval}h",
             ScheduleFrequency.Monthly => "Monthly",
-            _                         => Frequency.ToString(),
+            ScheduleFrequency.Yearly  => "Yearly",
+            _                        => Frequency.ToString(),
         };
     }
 
@@ -141,6 +145,7 @@ public sealed class BackupSchedule
             ScheduleFrequency.Weekly  => DescribeWeekly(time),
             ScheduleFrequency.Hourly  => HourlyInterval == 1 ? "Hourly" : $"Every {HourlyInterval}h",
             ScheduleFrequency.Monthly => $"Monthly on the 1st at {time}",
+            ScheduleFrequency.Yearly  => $"Yearly on 1 January at {time}",
             _                         => Frequency.ToString(),
         };
     }
@@ -231,6 +236,11 @@ public sealed class BackupSchedule
                 if (thisMonth > now) return thisMonth;
                 var nextMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, now.Kind).AddMonths(1).Add(TimeOfDay);
                 return nextMonth;
+            }
+            case ScheduleFrequency.Yearly:
+            {
+                var thisYear = new DateTime(now.Year, 1, 1, 0, 0, 0, now.Kind).Add(TimeOfDay);
+                return thisYear > now ? thisYear : thisYear.AddYears(1);
             }
             default:
                 return null;

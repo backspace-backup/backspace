@@ -102,6 +102,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _verifyClass = "never";
     [ObservableProperty] private string _verifyDetails = "The first scheduled check or Test restore will appear here.";
     [ObservableProperty] private string _checkScopeLabel = "";
+    /// <summary>Each check's latest result, one per line (U179).</summary>
+    [ObservableProperty] private string _checkKindsText = "";
     private IReadOnlyList<BackupCheckEntry> _checkEntries = Array.Empty<BackupCheckEntry>();
     private IReadOnlyList<RunRecord> _checkRuns = Array.Empty<RunRecord>();
     private bool _checkHistoryLoaded;
@@ -722,6 +724,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         }
         VerifyLabel = state.Label; VerifyClass = state.Tone;
         CheckScopeLabel = state.Scope; VerifyDetails = state.Details;
+        CheckKindsText = string.Join("\n", state.Kinds);
     }
 
     /// <param name="startedUtc">When the run started, if known (the

@@ -42,11 +42,11 @@ public sealed class S49_ReviewUiRepairs : ScenarioBase
         ctx.Snapshot(host, "unmounted-card-offers-mount", "Unmount releases this backup's drive and restores the Mount action.");
         host.Close();
 
-        using var editor = new BackupEditorViewModel(new Backup { Name = "Every setting stays reachable", CheckSchedule = new BackupSchedule { Frequency = ScheduleFrequency.Monthly } }, false);
+        using var editor = new BackupEditorViewModel(new Backup { Name = "Every setting stays reachable", Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Monthly } } } }, false);
         var window = ctx.Driver.Show(new BackupEditorWindow { DataContext = editor, Width = 980, Height = 640 });
         window.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
         ctx.Driver.Pump(); window.UpdateLayout();
-        var label = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "BACKUP CHECKS");
+        var label = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "CHECKS");
         var scroller = label.GetVisualAncestors().OfType<ScrollViewer>().First();
         scroller.Offset = new Vector(0, scroller.Extent.Height); ctx.Driver.Pump(); window.UpdateLayout();
         var policy = label.GetVisualAncestors().OfType<Border>().First(b => b.Classes.Contains("surface"));

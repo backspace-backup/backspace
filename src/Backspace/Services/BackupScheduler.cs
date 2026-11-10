@@ -10,20 +10,24 @@ using Backspace.Services.Platform;
 
 namespace Backspace.Services;
 
-/// <summary>One scheduled entry: a backup, or its standalone check or prune.</summary>
-public sealed record SchedulePlan(Backup Backup, ScheduledTaskKind Kind, BackupSchedule Schedule)
+/// <summary>One scheduled entry: a backup, one of its checks (U179), or its
+/// cleanup.</summary>
+public sealed record SchedulePlan(Backup Backup, ScheduledTaskKind Kind, BackupSchedule Schedule, BackupCheck? Check = null)
 {
-    internal string Key => Backup.Id + "/" + Kind;
+    internal string Key => Check is null ? Backup.Id + "/" + Kind : Backup.Id + "/" + Kind + "/" + Check.Id;
     internal string Timing => FormattableString.Invariant(
         $"{Schedule.Frequency}|{Schedule.TimeOfDay.Ticks}|{Schedule.WeeklyDaysBitmask}|{Schedule.HourlyInterval}");
 
+    /// <summary>Checks due at the same time come in run order, cheapest first,
+    /// and then run one after another (U179).</summary>
     public static IReadOnlyList<SchedulePlan> From(AppConfig config)
     {
         var plans = new List<SchedulePlan>();
         foreach (var backup in config.Backups)
         {
             plans.Add(new(backup, ScheduledTaskKind.Backup, backup.Schedule));
-            if (backup.CheckSchedule is not null) plans.Add(new(backup, ScheduledTaskKind.Check, backup.CheckSchedule));
+            foreach (var check in BackupCheck.InRunOrder(backup.Checks).Where(c => c.Schedule is not null))
+                plans.Add(new(backup, ScheduledTaskKind.Check, check.Schedule!, check));
             if (backup.PruneSchedule is not null) plans.Add(new(backup, ScheduledTaskKind.Prune, backup.PruneSchedule));
         }
         return plans;

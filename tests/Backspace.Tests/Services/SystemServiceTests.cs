@@ -213,7 +213,7 @@ public sealed class SystemServiceTests
 
         // The service's schedule never plans it, and an automatic start is refused,
         // even with a check or clean-up schedule saved.
-        manual.Backups[0].CheckSchedule = new BackupSchedule();
+        manual.Backups[0].Checks = [new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule() }];
         manual.Backups[0].PruneSchedule = new BackupSchedule();
         Assert.False(SystemServiceRuns.RunsOnItsOwn(manual.Backups[0], manual));
         Assert.Empty(SchedulePlan.From(manual).Where(p => SystemServiceRuns.RunsOnItsOwn(p.Backup, manual)));
@@ -221,7 +221,7 @@ public sealed class SystemServiceTests
             Assert.Throws<System.Security.SecurityException>(() => SystemServiceRuns.Authorize(manual, "b1", operation, ownerCommand: false));
 
         // The same backup with automatic backups on is planned and started by the schedule.
-        var automatic = Config(b => { b.CheckSchedule = new BackupSchedule(); b.PruneSchedule = new BackupSchedule(); });
+        var automatic = Config(b => { b.Checks = [new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule() }]; b.PruneSchedule = new BackupSchedule(); });
         Assert.True(SystemServiceRuns.RunsOnItsOwn(automatic.Backups[0], automatic));
         Assert.Equal(3, SchedulePlan.From(automatic).Count(p => SystemServiceRuns.RunsOnItsOwn(p.Backup, automatic)));
         Assert.Equal(RunKind.Backup, SystemServiceRuns.Authorize(automatic, "b1", "backup", ownerCommand: false).Kind);

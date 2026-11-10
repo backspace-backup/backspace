@@ -102,17 +102,50 @@ public sealed class TestRestoreJournalTests
         Assert.Equal(files[99], picked[0]);
         Assert.Equal(files.Take(4), picked.Skip(1));
         Assert.DoesNotContain(files[5], picked);
-        Assert.Equal(2, TestRestoreContext.SelectSample(files, 50, 150, Checked).Count);
+        Assert.Single(TestRestoreContext.SelectSample(files, 50, 150, Checked)); // A second 100-byte file would pass 150.
+    }
+
+    /// <summary>U179 (10 November 2026): local_d's test restore with a 1 GB
+    /// limit picked a 1.85 GB file and took 11 minutes. The limit now holds:
+    /// a file larger than what is left of it is passed over for a smaller one.</summary>
+    [Fact]
+    public void The_size_limit_is_never_exceeded_and_an_oversized_file_is_passed_over()
+    {
+        const long GiB = 1024L * 1024 * 1024;
+        var big = new RevisionFile("video.mkv", 1_986_422_374, DateTime.UnixEpoch); // 1.85 GB, never tested
+        var small = Enumerable.Range(0, 400).Select(i => new RevisionFile("doc-" + i, 10_000_000, DateTime.UnixEpoch)).ToArray();
+        var files = small.Append(big).ToArray();
+        DateTime Checked(RevisionFile f) => f == big ? DateTime.MinValue : DateTime.UnixEpoch; // The big file comes first in the rotation.
+        var picked = TestRestoreContext.SelectSample(files, 50, GiB, Checked);
+        Assert.DoesNotContain(big, picked);
+        Assert.True(picked.Sum(f => f.SizeBytes) <= GiB);
+        Assert.Equal(107, picked.Count); // 107 x 10 MB fills the limit; the 108th would pass it.
+        // The same files without a limit: the big one comes first.
+        Assert.Equal(big, TestRestoreContext.SelectSample(files, 50, long.MaxValue, Checked)[0]);
     }
 
     [Fact]
-    public void A_whole_large_file_is_not_silently_excluded_and_empty_files_can_be_sampled()
+    public void When_every_file_is_larger_than_the_limit_none_is_picked_and_the_reason_says_so()
     {
         var huge = new RevisionFile("large", 5_000_000_000, DateTime.UnixEpoch);
-        Assert.Equal(huge, Assert.Single(TestRestoreContext.SelectSample(new[] { huge }, 1, 100, _ => DateTime.MinValue)));
+        Assert.Empty(TestRestoreContext.SelectSample(new[] { huge }, 1, 100, _ => DateTime.MinValue));
+        Assert.Contains("larger than the test restore's limit", TestRestoreContext.NothingFits(1024L * 1024 * 1024));
+        Assert.Contains("1 GiB", TestRestoreContext.NothingFits(1024L * 1024 * 1024));
         var empty = Enumerable.Range(0, 100).Select(i => new RevisionFile("empty-" + i, 0, DateTime.UnixEpoch)).ToArray();
         Assert.Equal(5, TestRestoreContext.SelectSample(empty, 5, 100, _ => DateTime.MinValue).Count);
         Assert.Empty(TestRestoreContext.SelectSample(Array.Empty<RevisionFile>(), 1, 100, _ => DateTime.MinValue));
+    }
+
+    [Fact]
+    public void The_rotation_skips_a_file_too_big_for_what_is_left_but_keeps_its_place()
+    {
+        // Never-tested first, then tested longest ago: a 60-byte file does not
+        // fit after 50 of a 100-byte limit, so the next smaller one is taken.
+        var a = new RevisionFile("a", 50, DateTime.UnixEpoch);
+        var b = new RevisionFile("b", 60, DateTime.UnixEpoch);
+        var c = new RevisionFile("c", 40, DateTime.UnixEpoch);
+        var order = new System.Collections.Generic.Dictionary<RevisionFile, DateTime> { [a] = DateTime.MinValue, [b] = DateTime.UnixEpoch, [c] = DateTime.UnixEpoch.AddDays(1) };
+        Assert.Equal(new[] { a, c }, TestRestoreContext.SelectSample(new[] { c, b, a }, 100, 100, f => order[f]));
     }
 
     [Fact]

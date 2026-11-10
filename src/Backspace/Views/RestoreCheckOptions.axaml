@@ -15,7 +15,7 @@
             <NumericUpDown Name="DownloadBudget" Minimum="0" Maximum="1048576" Increment="1" Value="{Binding DownloadGiB}" FormatString="0.##"/>
           </StackPanel>
         </Grid>
-        <TextBlock IsVisible="{Binding !Full}" Classes="helper" TextWrapping="Wrap" Text="Stops at the smaller of these limits, shared across sources and destinations. 0 GiB removes the budget limit. Whole files are recovered, so one large file can exceed it."/>
+        <TextBlock IsVisible="{Binding !Full}" Classes="helper" TextWrapping="Wrap" Text="Stops at the smaller of these limits, shared across sources and destinations. 0 GiB removes the budget limit. Whole files only: a file larger than what is left of the budget is passed over, so the budget is never exceeded."/>
       </StackPanel>
     </Border>
     <Border Background="{DynamicResource BS.Brush.BgBase}" BorderBrush="{DynamicResource BS.Brush.BorderSubtle}" BorderThickness="1" Padding="14" CornerRadius="10">

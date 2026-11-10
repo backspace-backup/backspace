@@ -145,8 +145,6 @@ public class EditorInteractionTests
             // commit-side mapping: AfterEachBackup → schedule=null
             // (inline); Weekly → schedule={Weekly, …} (standalone OS task).
             PruneCadence = Backspace.Models.MaintenanceCadence.AfterEachBackup,
-            CheckCadence = Backspace.Models.MaintenanceCadence.Weekly,
-            CheckTimeOfDay = TimeSpan.FromHours(3),
             Enabled = true,
             // Restic-native filter syntax: bare globs + comments.
             FiltersText = "*.tmp\ncache",
@@ -174,17 +172,19 @@ public class EditorInteractionTests
         Assert.Equal("0:365 7:30", saved.KeepPolicy);
         // Prune cadence = AfterEachBackup → schedule null = inline.
         Assert.Null(saved.PruneSchedule);
-        // Check cadence = Weekly → schedule populated; OS scheduler
-        // fires a standalone weekly task and the inline check pass is
-        // suppressed at engine time.
-        Assert.NotNull(saved.CheckSchedule);
-        Assert.Equal(Backspace.Models.ScheduleFrequency.Weekly, saved.CheckSchedule!.Frequency);
-        Assert.Equal(TimeSpan.FromHours(3), saved.CheckSchedule.TimeOfDay);
+        // U179: a new backup gets the recommended checks: a weekly
+        // structure check and data sample, a monthly sample test restore.
+        Assert.Equal(new[] { Backspace.Models.CheckKind.Structure, Backspace.Models.CheckKind.DataSample, Backspace.Models.CheckKind.TestRestore },
+            saved.Checks.Select(c => c.Kind));
+        var structure = saved.Checks[0].Schedule!;
+        Assert.Equal(Backspace.Models.ScheduleFrequency.Weekly, structure.Frequency);
+        Assert.Equal(TimeSpan.FromHours(3), structure.TimeOfDay);
+        Assert.Equal(Backspace.Models.ScheduleFrequency.Monthly, saved.Checks[2].Schedule!.Frequency);
         // Weekly cadence must pin WeeklyDaysBitmask to a single day —
         // the BackupSchedule default of 0b0111_1111 (every day)
         // would otherwise turn a "Weekly" maintenance pass into a
         // daily one through the WeeklyTrigger.
-        Assert.Equal(0b0000_0001, saved.CheckSchedule.WeeklyDaysBitmask);
+        Assert.Equal(0b0000_0001, structure.WeeklyDaysBitmask);
         Assert.Single(saved.Targets);
         Assert.Equal(dest.Id, saved.Targets[0].DestinationId);
     }

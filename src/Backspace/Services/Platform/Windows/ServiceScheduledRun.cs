@@ -29,7 +29,7 @@ internal static class ServiceScheduledRun
         ServiceHostRequest.Parse(JsonSerializer.SerializeToUtf8Bytes(request, ServiceRunAuthorization.Json));
         var schedule = operation switch
         {
-            "check" => run.Backup.CheckSchedule,
+            "check" => null, // Checks are not paused on their own (U179).
             "prune" => run.Backup.PruneSchedule,
             _ => run.Backup.Schedule,
         };

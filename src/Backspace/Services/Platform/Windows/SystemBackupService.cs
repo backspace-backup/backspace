@@ -358,7 +358,9 @@ internal sealed class SystemBackupService : ServiceBase
     /// <summary>A run the service's schedule started, not the owner (U173).</summary>
     internal static bool IsAutomatic(ServiceHostRequest request) => request.Command == "scheduled";
 
-    private WorkerRun StartWorker(ServiceHostRequest request, ServiceRunAuthorization.AuthorizedRun approved)
+    /// <param name="checkId">The one check entry its schedule runs (U179);
+    /// null runs every check of the backup (the owner's command line).</param>
+    private WorkerRun StartWorker(ServiceHostRequest request, ServiceRunAuthorization.AuthorizedRun approved, string? checkId = null)
     {
         var run = new WorkerRun(Guid.NewGuid().ToString("N"))
         {
@@ -371,6 +373,7 @@ internal sealed class SystemBackupService : ServiceBase
         // Only the service's own schedule starts a run automatically; Run
         // now and the command line are the owner's (U173).
         start.Environment[ServiceApprovedWorker.AutomaticRunVariable] = IsAutomatic(request) ? "1" : "0";
+        start.Environment[ServiceApprovedWorker.CheckIdVariable] = checkId ?? "";
         // The run's identity is the worker's revision: its reason file is named after it.
         foreach (var argument in new[] { request.Command == "start-cli" ? "--service-worker-cli" : "--service-worker-owned",
             run.RunId, request.BackupId!, request.Operation! })
@@ -568,7 +571,7 @@ internal sealed class SystemBackupService : ServiceBase
             if (Busy(plan.Backup.Id)) return false;
             var operation = plan.Kind.ToString().ToLowerInvariant();
             var approved = SystemServiceRuns.Authorize(_installation, plan.Backup.Id, operation, ownerCommand: false);
-            run = StartWorker(new ServiceHostRequest(1, "scheduled", null, plan.Backup.Id, operation), approved);
+            run = StartWorker(new ServiceHostRequest(1, "scheduled", null, plan.Backup.Id, operation), approved, plan.Check?.Id);
             exited = run.Exited?.Task ?? Task.CompletedTask;
         }
         // A time limit or battery stops the worker, then waits for it. When

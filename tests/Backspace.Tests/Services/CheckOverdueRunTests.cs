@@ -29,7 +29,8 @@ public sealed class CheckOverdueRunTests
         var dest = new Destination { Name = "Passport", Kind = DestinationKind.LocalFolder, PathOrSubpath = ws.Sub("storage"), Encrypted = false };
         var backup = new Backup
         {
-            Name = "OverdueTest", SourcePaths = { src }, PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
+            Name = "OverdueTest", SourcePaths = { src }, PruneSchedule = new BackupSchedule(),
+            Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule() } },
             UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false, Threads = 1,
         };
         backup.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });

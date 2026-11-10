@@ -33,7 +33,7 @@ public enum BackupEditMode
     Easy = 1,
 }
 
-public sealed class Backup
+public sealed class Backup : IJsonOnDeserialized
 {
     /// <summary>True when any destination is reached over the network
     /// (cloud, S3, a network share or a UNC path). A destination that can't
@@ -215,20 +215,56 @@ public sealed class Backup
     /// </summary>
     public BackupSchedule? PruneSchedule { get; set; }
 
-    /// <summary>
-    /// Cadence for the integrity-check pass. Same shape as
-    /// <see cref="PruneSchedule"/>: null = inline after every backup,
-    /// non-null = OS-scheduler task. Big-repo best practice is monthly.
-    /// </summary>
-    public BackupSchedule? CheckSchedule { get; set; }
+    /// <summary>The backup's checks, one entry per check, each with its own
+    /// frequency and conditions (U179, 10 November 2026). Settings saved
+    /// before then have none: <see cref="IJsonOnDeserialized.OnDeserialized"/>
+    /// converts their single check into entries.</summary>
+    public List<BackupCheck> Checks { get => _checks ??= new(); set => _checks = value; }
+    private List<BackupCheck>? _checks;
 
-    /// <summary>Opt-in pack-data reading during repository checks. The engine
-    /// targets 1% of stored data, up to 1 GiB per repository. Restic samples
-    /// whole packs, so actual traffic varies and metadata is additional.</summary>
+    // ---- the single check of settings saved before U179 ----
+    // Read, converted into Checks and never written again. Both the app and
+    // the background service's strict reader must still load them.
+
+    [JsonPropertyName("checkSchedule"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BackupSchedule? LegacyCheckSchedule { get; set; }
+    [JsonPropertyName("checkRestoreFiles"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool LegacyCheckRestoreFiles { get; set; }
+    [JsonPropertyName("restoreCheckOptions"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Services.TestRestoreOptions? LegacyRestoreCheckOptions { get; set; }
+
+    void IJsonOnDeserialized.OnDeserialized()
+    {
+        if (_checks is null)
+        {
+            _checks = BackupCheck.FromLegacy(LegacyCheckSchedule, CheckReadDataSample, LegacyCheckRestoreFiles, LegacyRestoreCheckOptions);
+            CheckReadDataSample = false;
+        }
+        LegacyCheckSchedule = null; LegacyCheckRestoreFiles = false; LegacyRestoreCheckOptions = null;
+    }
+
+    /// <summary>What the engine reads to decide whether to check right after a
+    /// backup: null makes it run a check inside the backup. Checks are entries
+    /// the orchestrator runs (U179), so this is never null for a saved backup.
+    /// Engine compatibility only, until the engine stops reading it (U175);
+    /// tests of that engine path may still set it to null.</summary>
+    [JsonIgnore]
+    public BackupSchedule? CheckSchedule { get; set; } = ChecksRunSeparately;
+    internal static readonly BackupSchedule ChecksRunSeparately = new() { Frequency = ScheduleFrequency.Monthly };
+
+    /// <summary>Set on the copy of a backup given to the engine for one check:
+    /// true for a data sample or a full data read, false for a structure check.
+    /// Also the old "read a sample of stored data" setting, read once and
+    /// converted (U179); never written for a saved backup.</summary>
+    [JsonPropertyName("checkReadDataSample"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool CheckReadDataSample { get; set; }
-    /// <summary>Opt-in: recover and compare real files after the repository check.</summary>
-    public bool CheckRestoreFiles { get; set; }
-    public Services.TestRestoreOptions RestoreCheckOptions { get; set; } = new();
+
+    /// <summary>The data the engine reads for one check, at most: the data
+    /// sample's limit, or <see cref="long.MaxValue"/> for a full data read.
+    /// Set on the engine's copy only (U179); null for the engine's own limit
+    /// (1% of the stored data, up to 1 GiB).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? DataCheckLimitBytes { get; set; }
 
     /// <summary>Stop if the network becomes metered mid-run (watchdog).</summary>
     public bool AbortOnMeteredNetwork { get; set; } = true;

@@ -462,13 +462,8 @@ public sealed partial class BackupOrchestrator
         // Time spent queued behind other backups is not working time (U173).
         if (info is not null && ReferenceEquals(info.Record, final)) final.QueuedFor = info.QueuedFor;
         final.Summary = BuildSummary(final, orchestratorReason, backup, _config.Current);
-        if (backup.CheckSchedule is null && backup.CheckRestoreFiles)
-        {
-            var comparisonSummary = await AddAutomaticRestoreCheckAsync(backup, final, ct, maintenanceLeaseHeld: true);
-            // The comparison can take longer than the backup. Its time and
-            // outcome belong in the completed run's headline too.
-            final.Summary = BuildSummary(final, orchestratorReason, backup, _config.Current) + comparisonSummary;
-        }
+        // Checks after each backup run as their own entries once the backup
+        // has ended (RunChecksAfterBackupAsync, U179).
 
         // Persistence + alerts are NOT done here — they're now done in
         // the outer RunBackupAsync's finally block, gated on the

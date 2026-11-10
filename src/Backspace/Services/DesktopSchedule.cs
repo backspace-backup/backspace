@@ -143,10 +143,14 @@ internal static class DesktopSchedule
             var record = plan.Kind switch
             {
                 ScheduledTaskKind.Prune => await ServiceLocator.Orchestrator.RunPruneAsync(backup, run.Token).ConfigureAwait(false),
-                ScheduledTaskKind.Check => await ServiceLocator.Orchestrator.RunCheckAsync(backup, run.Token).ConfigureAwait(false),
+                // One check entry (U179); removed meanwhile, it does not run.
+                ScheduledTaskKind.Check => backup.Checks.FirstOrDefault(c => c.Id == plan.Check?.Id) is { } check
+                    ? await ServiceLocator.Orchestrator.RunCheckAsync(backup, check, run.Token).ConfigureAwait(false)
+                    : null,
                 _ => await ServiceLocator.Orchestrator.RunBackupAsync(backup, run.Token, automatic: true).ConfigureAwait(false),
             };
-            AppLogger.For(nameof(DesktopSchedule)).Information("Scheduled {Kind} for {Name}: {Status}", plan.Kind, backup.Name, record.Status);
+            if (record is not null)
+                AppLogger.For(nameof(DesktopSchedule)).Information("Scheduled {Kind} for {Name}: {Status}", plan.Kind, backup.Name, record.Status);
         }
         return true;
     }

@@ -11,19 +11,44 @@ public sealed record BackupCheckEntry(string RunId, DateTime When, BackupRunStat
     public string Scope => BackupCheckHistory.Describe(Depth);
 }
 
-public sealed record BackupCheckState(string Label, string Tone, string Scope, string Details);
+/// <param name="Kinds">One line per check of the backup, with its latest
+/// result: "Data sample · passed 2d ago" (U179).</param>
+public sealed record BackupCheckState(string Label, string Tone, string Scope, string Details)
+{
+    public IReadOnlyList<string> Kinds { get; init; } = [];
+}
 
 /// <summary>Uses saved observations, never infers old check depth from current settings.</summary>
 public static class BackupCheckHistory
 {
     public static string Describe(CheckDepth depth) => depth switch
     {
-        CheckDepth.RepositoryStructure => "Repository structure · file contents not read",
-        CheckDepth.SavedDataSample => "Repository structure + saved-data sample",
-        CheckDepth.RestoreSample => "Sample restore + original-file comparison",
-        CheckDepth.RestoreAllFiles => "Full restore + original-file comparison",
+        CheckDepth.RepositoryStructure => "Structure check · stored data not read",
+        CheckDepth.SavedDataSample => "Data sample · part of the stored data read and checked",
+        CheckDepth.AllData => "Full data read · all stored data read and checked",
+        CheckDepth.RestoreSample => "Sample test restore · files rebuilt from the latest backup",
+        CheckDepth.RestoreAllFiles => "Full test restore · every file rebuilt from the latest backup",
         CheckDepth.RestoreUnspecified => "Test restore · sample/full scope was not recorded",
         _ => "Repository check · depth was not recorded",
+    };
+
+    /// <summary>The recorded results that answer for a check of this kind.
+    /// A data sample also checks the structure; an old check of unknown
+    /// depth counts as a structure check.</summary>
+    internal static bool Answers(CheckKind kind, CheckDepth depth) => kind switch
+    {
+        CheckKind.Structure => depth is CheckDepth.RepositoryStructure or CheckDepth.SavedDataSample or CheckDepth.AllData or CheckDepth.Unknown,
+        CheckKind.DataSample => depth is CheckDepth.SavedDataSample or CheckDepth.AllData,
+        CheckKind.FullDataRead => depth is CheckDepth.AllData,
+        _ => depth is CheckDepth.RestoreSample or CheckDepth.RestoreAllFiles or CheckDepth.RestoreUnspecified,
+    };
+
+    private static CheckDepth DepthOf(CheckKind kind) => kind switch
+    {
+        CheckKind.Structure => CheckDepth.RepositoryStructure,
+        CheckKind.DataSample => CheckDepth.SavedDataSample,
+        CheckKind.FullDataRead => CheckDepth.AllData,
+        _ => CheckDepth.RestoreSample,
     };
 
     public static List<BackupCheckEntry> Entries(Backup backup, IEnumerable<RunRecord> history)
@@ -52,6 +77,15 @@ public static class BackupCheckHistory
                     entries.Add(new(run.Id, checks.Max(c => c.EndedUtc), status, group.Key, detail));
                 }
             }
+            // A sample test restore entry (U179): its test restore saved its
+            // own record with the result. Only a run that could not start the
+            // test restore stands for it here.
+            else if (run.Kind == RunKind.Check && run.CheckKind is { } kind)
+            {
+                if (kind == CheckKind.TestRestore && run.Cells.Any(c => !c.DestinationUnavailable && c.Status is BackupRunStatus.Success)) continue;
+                if (run.Cells.Count > 0 && run.Cells.All(c => c.DestinationUnavailable)) continue;
+                entries.Add(new(run.Id, run.EndedUtc!.Value, run.Status, DepthOf(kind), run.Summary));
+            }
             else if (run.Kind is RunKind.Check or RunKind.TestRestore)
             {
                 // Old restore records did not preserve sample/full scope.
@@ -68,9 +102,49 @@ public static class BackupCheckHistory
         return entries.OrderByDescending(e => e.When).ToList();
     }
 
+    private static string Ago(DateTime nowUtc, DateTime when)
+    {
+        var age = nowUtc - when;
+        return age.TotalMinutes < 1 ? "just now" : age.TotalHours < 1 ? $"{(int)age.TotalMinutes}m ago"
+            : age.TotalDays < 1 ? $"{(int)age.TotalHours}h ago" : $"{(int)age.TotalDays}d ago";
+    }
+
+    /// <summary>When this check was last due and has not run since, or null:
+    /// a scheduled check past its next time after its latest result, or one
+    /// after each backup older than the latest backup.</summary>
+    private static bool Overdue(Backup backup, BackupCheck check, BackupCheckEntry? latest, DateTime nowUtc)
+    {
+        // A backup with automatic backups off runs no scheduled checks either.
+        if (check.Schedule is { } schedule)
+            return backup.Enabled && schedule.ComputeNextFire((latest?.When ?? backup.CreatedUtc).ToLocalTime())?.ToUniversalTime() is { } due && nowUtc > due;
+        return backup.LastRunStartUtc is { } lastBackup && (latest is null || latest.When < lastBackup)
+            && backup.LastRunStatus is BackupRunStatus.Success or BackupRunStatus.Warning;
+    }
+
+    /// <summary>One line per check of the backup: its latest result (U179).</summary>
+    public static IReadOnlyList<string> KindLines(Backup backup, IReadOnlyList<BackupCheckEntry> entries, DateTime nowUtc)
+        => BackupCheck.InRunOrder(backup.Checks).Select(check =>
+        {
+            var latest = entries.FirstOrDefault(e => Answers(check.Kind, e.Depth));
+            var name = BackupCheck.Name(check.Kind);
+            if (latest is null) return $"{name} · not run yet";
+            var result = latest.Status switch
+            {
+                BackupRunStatus.Success => "passed",
+                BackupRunStatus.Failed => "failed",
+                BackupRunStatus.Warning => "incomplete",
+                _ => "not done",
+            };
+            return $"{name} · {result} {Ago(nowUtc, latest.When)}" + (Overdue(backup, check, latest, nowUtc) ? " · due again" : "");
+        }).Distinct().ToList();
+
     public static BackupCheckState State(Backup backup, IReadOnlyList<BackupCheckEntry> entries, DateTime nowUtc)
     {
-        if (entries.Count == 0) return new("No checks recorded", "never", "", "The first scheduled check or Test restore will appear here.");
+        var kinds = KindLines(backup, entries, nowUtc);
+        if (entries.Count == 0)
+            return backup.Checks.Count == 0
+                ? new("No checks set up", "never", "", "Add checks in this backup's settings, under Checks.") { Kinds = kinds }
+                : new("No checks recorded", "never", "", "The first scheduled check or Test restore will appear here.") { Kinds = kinds };
         var latest = entries[0];
         // A shallower success does not erase a deeper failure. A full restore
         // can supersede a sample restore, but neither checks every old pack.
@@ -78,31 +152,29 @@ public static class BackupCheckHistory
             .GroupBy(e => e.Depth).Select(g => g.First())
             .FirstOrDefault(e => e.Status == BackupRunStatus.Failed
                 && !(e.Depth is CheckDepth.RestoreSample or CheckDepth.RestoreUnspecified && entries.Any(x => x.Depth == CheckDepth.RestoreAllFiles && x.Status == BackupRunStatus.Success && x.When > e.When)));
-        var age = nowUtc - latest.When;
-        var ago = age.TotalMinutes < 1 ? "just now" : age.TotalHours < 1 ? $"{(int)age.TotalMinutes}m ago"
-            : age.TotalDays < 1 ? $"{(int)age.TotalHours}h ago" : $"{(int)age.TotalDays}d ago";
+        var ago = Ago(nowUtc, latest.When);
         if (unresolved is not null)
             return new($"Check needs attention · {ago}", "fail", latest.Scope,
-                $"Latest check: {latest.Summary}\n\nUnresolved failed check: {unresolved.Scope}\n{unresolved.Summary}");
+                $"Latest check: {latest.Summary}\n\nUnresolved failed check: {unresolved.Scope}\n{unresolved.Summary}") { Kinds = kinds };
         if (latest.Status != BackupRunStatus.Success)
-            return new($"Check incomplete · {ago}", "stale", latest.Scope, latest.Summary);
-        var repository = entries.FirstOrDefault(e => e.Depth is CheckDepth.RepositoryStructure or CheckDepth.SavedDataSample or CheckDepth.Unknown);
-        var due = backup.Enabled && backup.CheckSchedule is { } schedule
-            ? schedule.ComputeNextFire((repository?.When ?? backup.CreatedUtc).ToLocalTime())?.ToUniversalTime() : null;
-        var afterBackupMissing = backup.CheckSchedule is null && backup.LastRunStartUtc is { } lastBackup
-            && (repository is null || repository.When < lastBackup);
-        if (due is { } expected && nowUtc > expected || afterBackupMissing)
-            return new($"Check overdue · {ago}", "stale", latest.Scope,
-                latest.Summary + "\nA repository check is due. A manual restore check does not replace the scheduled repository check.");
+            return new($"Check incomplete · {ago}", "stale", latest.Scope, latest.Summary) { Kinds = kinds };
+        {
+            var overdue = BackupCheck.InRunOrder(backup.Checks)
+                .FirstOrDefault(c => Overdue(backup, c, entries.FirstOrDefault(e => Answers(c.Kind, e.Depth)), nowUtc));
+            if (overdue is not null)
+                return new($"{BackupCheck.Name(overdue.Kind)} overdue · {ago}", "stale", latest.Scope,
+                    latest.Summary + $"\nThe {BackupCheck.Name(overdue.Kind).ToLowerInvariant()} is due. Another kind of check does not replace it.") { Kinds = kinds };
+        }
         var reassurance = latest.Depth switch
         {
             CheckDepth.RepositoryStructure => "Backup records intact",
             CheckDepth.SavedDataSample => "Saved data sample intact",
+            CheckDepth.AllData => "All saved data intact",
             CheckDepth.RestoreSample => "Sample recovery tested",
             CheckDepth.RestoreAllFiles => "Full recovery tested",
             CheckDepth.RestoreUnspecified => "Recovery tested",
             _ => "Recorded check passed",
         };
-        return new($"{reassurance} · {ago}", "ok", latest.Scope, latest.Scope + "\n" + latest.Summary);
+        return new($"{reassurance} · {ago}", "ok", latest.Scope, latest.Scope + "\n" + latest.Summary) { Kinds = kinds };
     }
 }

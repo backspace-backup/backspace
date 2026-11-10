@@ -25,7 +25,7 @@ public sealed class BackupCheckHistoryTests
         var b = Backup(); var entries = BackupCheckHistory.Entries(b, new[] { Check(b, CheckDepth.RepositoryStructure, BackupRunStatus.Success) });
         var state = BackupCheckHistory.State(b, entries, Now);
         Assert.Equal("ok", state.Tone); Assert.Contains("1m ago", state.Label);
-        Assert.Contains("file contents not read", state.Scope); Assert.Null(b.LastVerifyUtc);
+        Assert.Contains("stored data not read", state.Scope); Assert.Null(b.LastVerifyUtc);
     }
     [Fact] public void New_structure_success_cannot_hide_old_restore_or_saved_data_failure()
     {
@@ -46,7 +46,7 @@ public sealed class BackupCheckHistoryTests
     }
     [Fact] public void Missed_scheduled_check_and_unchecked_destination_are_not_green()
     {
-        var b = Backup(); b.Enabled = true; b.CheckSchedule = new() { Frequency = ScheduleFrequency.Hourly, HourlyInterval = 1, TimeOfDay = TimeSpan.Zero };
+        var b = Backup(); b.Enabled = true; b.Checks = [new BackupCheck { Kind = CheckKind.Structure, Schedule = new() { Frequency = ScheduleFrequency.Hourly, HourlyInterval = 1, TimeOfDay = TimeSpan.Zero } }];
         var old = BackupCheckHistory.Entries(b, new[] { Check(b, CheckDepth.RepositoryStructure, BackupRunStatus.Success, 180) });
         Assert.Equal("stale", BackupCheckHistory.State(b, old, Now).Tone);
         b.Targets.Add(new() { DestinationId = "b" });

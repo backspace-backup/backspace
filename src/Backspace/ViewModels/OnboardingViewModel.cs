@@ -39,6 +39,10 @@ public sealed partial class OnboardingViewModel : ViewModelBase
 
     public Backup Working { get; } = new();
 
+    /// <summary>What Backspace does by itself to keep this backup healthy, in
+    /// one plain sentence: Easy mode shows no maintenance settings (U179).</summary>
+    public string ChecksSentence => BackupCheck.Sentence(Working);
+
     // ---- step navigation ----
     [ObservableProperty] private int _currentStep = 1;
     public bool IsStep1 => CurrentStep == 1;

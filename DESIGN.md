@@ -236,11 +236,13 @@ The action row wraps on narrow cards; labels and targets stay readable. Run now 
 only accent button; Mount, Restore files and Test restore are filled neutral
 buttons; Activity and More are quiet text buttons that fill on hover.
 
-Scheduled check choices use a comparison table for the catalog check, backup-data
-sample, test restore, and both deeper checks. The selected row explains what it
-can find and what it cannot prove. Recovery sampling controls appear only when
-relevant. Selecting both explicitly explains the overlapping downloads; reopening
-an older configuration never silently reduces its protection.
+A backup's checks are a list, one entry per check (U179): each entry says in
+plain words what it proves, then its frequency, time, limits and conditions,
+with Remove on the right. A tinted sentence above the list sums up what runs
+when, the same sentence Easy mode shows instead of settings. Add a check is a
+row of quiet buttons, one per kind; a kind the engine can't run yet stays
+disabled with the reason beside it. The card's health half lists each check's
+latest result in small secondary text under its headline.
 
 ## Sidebar
 

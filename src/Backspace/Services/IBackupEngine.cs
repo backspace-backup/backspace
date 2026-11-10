@@ -69,9 +69,18 @@ public interface IBackupEngine
         CancellationToken ct,
         Action<string>? lineSink = null);
 
-    /// <summary>Stand-alone integrity check for a single
-    /// (source × target) cell. Used by the orchestrator's independent
-    /// check cadence (<see cref="Backup.CheckSchedule"/>).</summary>
+    /// <summary>True once <see cref="RunCheckOnlyAsync"/> honours
+    /// <see cref="Backup.DataCheckLimitBytes"/> (U179): a data sample's own
+    /// limit, and <see cref="long.MaxValue"/> for a full data read
+    /// (<c>check --read-data</c>). Until then the engine reads 1% of the
+    /// stored data, up to 1 GiB, whatever the limit, and the orchestrator
+    /// does not start a full data read.</summary>
+    bool HonoursDataCheckLimit => false;
+
+    /// <summary>Stand-alone check for a single (source × target) cell, one
+    /// check entry at a time (<see cref="Backup.Checks"/>, U179): a structure
+    /// check, or with <see cref="Backup.CheckReadDataSample"/> a data read
+    /// limited by <see cref="Backup.DataCheckLimitBytes"/>.</summary>
     Task<RunRecord> RunCheckOnlyAsync(
         Backup backup,
         string sourcePath,

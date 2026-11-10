@@ -114,6 +114,13 @@ public sealed class RunRecord
     /// </summary>
     public List<CellOutcome> Cells { get; set; } = new();
     public List<BackupCheckResult> Checks { get; set; } = new();
+
+    /// <summary>The check entry this check run was (U179). Null for checks
+    /// recorded before checks were a list: those count for every entry.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CheckId { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CheckKind? CheckKind { get; set; }
 }
 
 /// <summary>

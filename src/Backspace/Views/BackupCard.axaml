@@ -168,6 +168,10 @@
                          Classes.stale="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stale}"
                          Classes.never="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=never}"/>
             </Grid>
+            <!-- Each check's latest result (U179). -->
+            <TextBlock Name="CheckKinds" Text="{Binding CheckKindsText}" Margin="24,0,0,0" FontSize="12" LineHeight="17"
+                       TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                       IsVisible="{Binding CheckKindsText, Converter={x:Static vm:NotEmpty.To}}"/>
 
             </StackPanel>
           </Border>

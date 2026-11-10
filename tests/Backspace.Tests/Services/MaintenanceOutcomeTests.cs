@@ -92,7 +92,7 @@ public sealed class MaintenanceOutcomeTests
         Assert.Equal(3, result.Cells.Count);
         Assert.Equal(BackupRunStatus.Success, result.Cells[0].Status);
         Assert.All(result.Cells.Skip(1), c => Assert.Equal(BackupRunStatus.Skipped, c.Status));
-        Assert.Contains("2 skipped", result.Summary);
+        Assert.Contains(kind == RunKind.Prune ? "2 skipped" : "but was not done at", result.Summary);
         Assert.Contains(result.Warnings, w => w.Contains("cancel", StringComparison.OrdinalIgnoreCase));
         var persisted = Assert.Single(fixture.Logs.LoadHistoryByBackupId(fixture.Backup.Id));
         Assert.Equal(BackupRunStatus.Warning, persisted.Status);
@@ -140,21 +140,22 @@ public sealed class MaintenanceOutcomeTests
         Assert.Equal(1, fixture.Engine.Calls);
         Assert.Equal(2, result.Cells.Count);
         Assert.Equal(BackupRunStatus.Failed, result.Status);
-        Assert.Contains("2 parts", result.Summary);
+        Assert.Contains("no longer exists", result.Summary);
         Assert.Equal("(missing)", result.Cells[1].DestinationName);
     }
 
     private sealed class Fixture : IDisposable
     {
         private readonly TempWorkspace _workspace = new();
-        private readonly BackupOrchestrator _orchestrator;
+        public BackupOrchestrator Orchestrator { get; }
+        public ConfigStore Config { get; }
         public Backup Backup { get; }
         public LogStore Logs { get; } = new();
         public OutcomeEngine Engine { get; }
 
         public Fixture(int sources, bool separateRepositories = false)
         {
-            var config = new ConfigStore(); config.Load();
+            var config = Config = new ConfigStore(); config.Load();
             var secrets = new SecretsStore();
             var destination = new Destination { Name = "Review repository", Kind = DestinationKind.LocalFolder, PathOrSubpath = _workspace.Sub("repository") };
             Backup = new Backup { Name = "Maintenance outcome review", AbortOnMeteredNetwork = false };
@@ -165,13 +166,84 @@ public sealed class MaintenanceOutcomeTests
             config.Update(c => { c.Backups.Add(Backup); c.Destinations.Add(destination); });
             var engine = DispatchProxy.Create<IBackupEngine, OutcomeEngine>();
             Engine = (OutcomeEngine)(object)engine;
-            _orchestrator = new BackupOrchestrator(config, secrets, engine, Logs,
+            Orchestrator = new BackupOrchestrator(config, secrets, engine, Logs,
                 new HealthcheckService(config, secrets), new MailService(config, secrets), new NotificationService(config), new BackupProgressService());
         }
 
         public Task<RunRecord> Run(RunKind kind, CancellationToken token = default) => kind == RunKind.Prune
-            ? _orchestrator.RunPruneAsync(Backup, token) : _orchestrator.RunCheckAsync(Backup, token);
+            ? Orchestrator.RunPruneAsync(Backup, token) : Orchestrator.RunCheckAsync(Backup, token);
         public void Dispose() => _workspace.Dispose();
+    }
+
+    /// <summary>U179: checks of one backup due together are queued, never run
+    /// at once. Two destinations, so the destination's own exclusive access
+    /// alone would let the second check start at the first destination while
+    /// the first check works at the second.</summary>
+    [Fact]
+    public async Task Checks_started_together_run_one_after_another()
+    {
+        using var fixture = new Fixture(2, separateRepositories: true);
+        var structure = new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule() };
+        var sample = new BackupCheck { Kind = CheckKind.DataSample, Schedule = new BackupSchedule() };
+        fixture.Backup.Checks = [structure, sample];
+        fixture.Config.Update(c => c.Backups.Single(b => b.Id == fixture.Backup.Id).Checks = [structure, sample]);
+        var running = 0; var most = 0; var order = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        fixture.Engine.Result = (_, _) =>
+        {
+            var now = Interlocked.Increment(ref running);
+            InterlockedMax(ref most, now);
+            Thread.Sleep(150);
+            Interlocked.Decrement(ref running);
+            return new RunRecord { Status = BackupRunStatus.Success, Summary = "ok" };
+        };
+        fixture.Engine.Seen = b => order.Enqueue(b.CheckReadDataSample ? "sample" : "structure");
+        var first = Task.Run(() => fixture.Orchestrator.RunCheckAsync(fixture.Backup, structure, CancellationToken.None));
+        var second = Task.Run(() => fixture.Orchestrator.RunCheckAsync(fixture.Backup, sample, CancellationToken.None));
+        var results = await Task.WhenAll(first, second);
+        Assert.Equal(4, fixture.Engine.Calls);
+        Assert.Equal(1, most);
+        // Each check finished at both destinations before the other began.
+        var seen = order.ToArray();
+        Assert.Equal(seen[0], seen[1]); Assert.Equal(seen[2], seen[3]); Assert.NotEqual(seen[0], seen[2]);
+        Assert.All(results, r => Assert.Equal(BackupRunStatus.Success, r.Status));
+        Assert.Equal(structure.Id, results[0].CheckId);
+        Assert.Equal(CheckKind.DataSample, results[1].CheckKind);
+        Assert.StartsWith("Structure check passed in ", results[0].Summary);
+        Assert.StartsWith("Data sample (1 GiB) passed in ", results[1].Summary);
+    }
+
+    /// <summary>The engine gets one check at a time: a structure check, or a
+    /// data read limited to the entry's size (U179).</summary>
+    [Theory]
+    [InlineData(CheckKind.Structure, false, null)]
+    [InlineData(CheckKind.DataSample, true, 2L * 1024 * 1024 * 1024)]
+    [InlineData(CheckKind.FullDataRead, true, long.MaxValue)]
+    public void Each_kind_reaches_the_engine_as_its_own_check(CheckKind kind, bool readsData, long? limit)
+    {
+        var backup = new Backup { Name = "b", Checks = [new BackupCheck { Kind = CheckKind.Structure }] };
+        var view = BackupOrchestrator.EngineViewFor(backup, new BackupCheck { Kind = kind, MaximumBytes = 2L * 1024 * 1024 * 1024 });
+        Assert.Equal(readsData, view.CheckReadDataSample);
+        Assert.Equal(limit, view.DataCheckLimitBytes);
+        Assert.NotNull(view.CheckSchedule); // Never a check of its own inside a backup.
+        Assert.False(backup.CheckReadDataSample); // The saved backup is untouched.
+    }
+
+    [Fact]
+    public async Task A_full_data_read_is_not_started_by_an_engine_that_only_samples()
+    {
+        using var fixture = new Fixture(1);
+        var full = new BackupCheck { Kind = CheckKind.FullDataRead, Schedule = new BackupSchedule() };
+        fixture.Config.Update(c => c.Backups.Single(b => b.Id == fixture.Backup.Id).Checks = [full]);
+        var result = await fixture.Orchestrator.RunCheckAsync(fixture.Backup, full, CancellationToken.None);
+        Assert.Equal(BackupRunStatus.Skipped, result.Status);
+        Assert.Equal(0, fixture.Engine.Calls);
+        Assert.Contains("can only read a sample", result.Summary);
+    }
+
+    private static void InterlockedMax(ref int target, int value)
+    {
+        int seen;
+        while ((seen = Volatile.Read(ref target)) < value && Interlocked.CompareExchange(ref target, value, seen) != seen) { }
     }
 
     [Fact]
@@ -209,11 +281,15 @@ public sealed class MaintenanceOutcomeTests
     {
         private readonly InMemoryBackupEngine _other = new();
         public int Calls { get; private set; }
+        public Action<Backup>? Seen { get; set; }
         public Func<int, CancellationToken, RunRecord> Result { get; set; } = (_, _) => new() { Status = BackupRunStatus.Success };
         protected override object? Invoke(MethodInfo? method, object?[]? args)
         {
             if (method!.Name is nameof(IBackupEngine.RunPruneOnlyAsync) or nameof(IBackupEngine.RunCheckOnlyAsync))
+            {
+                Seen?.Invoke((Backup)args![0]!);
                 return Task.FromResult(Result(++Calls, (CancellationToken)args![4]!));
+            }
             return method.Invoke(_other, args);
         }
     }

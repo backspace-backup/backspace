@@ -21,4 +21,6 @@ public enum CheckDepth
     RestoreSample,
     RestoreAllFiles,
     RestoreUnspecified,
+    /// <summary>Every piece of stored data read and checked (U179).</summary>
+    AllData,
 }

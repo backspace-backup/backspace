@@ -860,6 +860,7 @@ older scenario comments that describe broader coverage.
 | Test-restore drill | `E16_TestRestoreVerifyDrill`: actual button pointer clicks in headless Avalonia; real Backrest/restic, two sources, an empty file, all file counts, persisted runs, and a second-source same-size mismatch that must fail. Screenshots show the result beside the button. | ✅ |
 | Drill skips mid-flight-edited files | E16 deliberately retains the source modification time to test byte mismatch detection; it does not simulate a concurrent edit. `BackupVerifierMidFlightDirtyTests` covers record state and retry replacement only. | 🟡 |
 | Maintenance policy cards rendered | `S26_MaintenancePolicyCards` | ✅ |
+| Checks as a list (U179): Add a check, edit, Remove; Easy mode sentence; conversion of the old single check; checks due together run one after another; the test restore limit never exceeded | `S99_ChecksList` (pointer clicks on + Structure check and Remove, invalid share refused, light and dark, Easy step 3). `BackupChecksTests` (the owner's saved shapes in the app and the service's strict reader, defaults, sentence, yearly, one plan per check, plain summaries, card lines), `MaintenanceOutcomeTests.Checks_started_together_run_one_after_another`, `CheckOverdueTests` (each entry waits on its own), `TestRestoreJournalTests` (limit) | ✅ |
 
 ### Destinations
 

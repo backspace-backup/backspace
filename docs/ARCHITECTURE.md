@@ -161,32 +161,56 @@ enable them. NAS sources and filesystems unsupported by VSS can legitimately
 need the disabled setting. A VSS-enabled run can still warn or fail if Windows
 cannot create a snapshot; configuration is not a guarantee of successful capture.
 
-## Scheduled repository checks
+## Checks
 
-The editor presents four mutually exclusive choices: inspect backup records,
-verify saved data, try recovering files, or run both deeper checks. These map
-to the existing `CheckReadDataSample` and `CheckRestoreFiles` flags; opening
-an older configuration with both flags enabled preserves both. Recovery alone
-still inspects repository records first, then reads file contents while
-recovering them. Selecting both additionally samples stored data in a separate
-pass, which can download overlapping data twice. The UI explains that cost.
+`Backup.Checks` is a list of `BackupCheck` entries (U179): one entry is one
+check, with a `CheckKind` (`Structure`, `DataSample`, `TestRestore`,
+`FullDataRead`), its own `Schedule` (null = after each backup that reached the
+destination; `ScheduleFrequency.Yearly` exists for checks) with its own
+battery, network and missed-run conditions, and kind settings
+(`MaximumBytes`, `SamplePercent`, `CompareOriginals`). Cleanup stays
+`Backup.PruneSchedule`. `BackupMaintenanceDefaults` gives new backups a weekly
+cleanup, structure check and 1 GiB data sample, and a monthly 1% / 1 GiB test
+restore, at 3 AM; Easy mode shows them as `BackupCheck.Sentence`.
 
-`Backup.CheckReadDataSample` is false by default. Structure-only checks use
-Backrest's native repository Check operation. The opt-in data sample uses
-Backrest's tracked RunCommand path to run bundled restic `stats --mode raw-data
---json`, then `check --read-data-subset=<bytes>B`. The byte target is the smaller
-of 1% of the stored blob size and 1 GiB. An invalid or unavailable size fails
-the check; it never falls back to an unlimited download. RunCommand retains
-the usual operation ownership, cancellation acknowledgement and diagnostics.
+Settings saved before U179 hold one check (`checkSchedule`,
+`checkReadDataSample`, `checkRestoreFiles`, `restoreCheckOptions`). They still
+load in the app and in the service's strict reader (`Unmapped` disallowed):
+`Backup.OnDeserialized` converts them with `BackupCheck.FromLegacy` when the
+JSON has no `checks`, and they are never written again. A data sample replaces
+the structure check rather than adding to it, since restic's
+`--read-data-subset` check includes the structure check.
+
+`SchedulePlan.From` makes one plan per scheduled check, keyed
+`<backup>/Check/<check id>`, in run order (structure, data sample, full read,
+test restore). The service passes the check's id to its worker
+(`BACKSPACE_CHECK_ID`); the command line's `--check NAME` runs every check of
+the backup in that order. `BackupOrchestrator.RunCheckAsync(backup, check)`
+queues checks of one backup behind each other in the process, the service runs
+one operation per backup at a time, and every check holds its destination
+exclusively (`RepositoryAccess`), so checks due together run one after another
+and backups there wait. Checks after each backup, and scheduled checks that
+waited for a destination (U174, per entry through `RunRecord.CheckId`), run
+right after the backup in `RunChecksAfterBackupAsync`.
+
+The engine gets one check at a time through `EngineViewFor`: a copy with
+`CheckReadDataSample` (data read or not) and `DataCheckLimitBytes` (the data
+sample's limit, `long.MaxValue` for a full read). `Backup.CheckSchedule` is no
+longer saved and is never null, so the engine never runs a check inside a
+backup. Until the engine reports `IBackupEngine.HonoursDataCheckLimit`, it
+reads 1% of the stored data up to 1 GiB whatever the limit, and a full data
+read is not started (its run says so). Structure checks use `restic check`;
+the data sample runs `stats --mode raw-data --json`, then
+`check --read-data-subset=<bytes>B`. An invalid or unavailable size fails the
+check; it never falls back to an unlimited download.
 
 This is an approximate sampling target, not a network quota. Restic converts
 the byte target to a fraction of pack count, with a minimum of one pack.
-Unequal packs, metadata, compression and retries affect traffic. Shared
-repository settings are not changed to apply one backup's preference. The
-standalone coordinator checks each repository once, while retention remains
-per source plan. Inline checks run with the last configured source for each
-destination. The result distinguishes structure-only, sampled-data and full
-recovery work; a sample never establishes full data coverage.
+Unequal packs, metadata, compression and retries affect traffic. A check
+covers the repository once per destination, while retention remains per
+source plan. `CheckRunWording` writes the run's summary in plain words
+("Data sample (1 GiB) passed in 7 min 50 s"); a sample never establishes full
+data coverage.
 
 ## Test restore ownership and recovery
 
@@ -206,14 +230,18 @@ comparison and from a confirmed byte match. A requested comparison difference
 is reported separately in the summary: successful recovery does not establish
 which copy changed. Existing persisted enum values retain their numeric values.
 
-`Backup.CheckRestoreFiles` enables the automatic step after a successful check;
-it defaults to false. Manual and automatic checks use the same
+A `TestRestore` check entry runs `TestRestoreService.RunScheduledAsync` with
+the entry's options, at the destinations it can reach, each held
+exclusively meanwhile. Manual and automatic checks use the same
 `RestoreCheckOptions` view and `TestRestoreService` journal/ownership path.
+`TestRestoreContext.SelectSample` never exceeds the limit: a file larger than
+what is left of it is passed over, and when no file fits nothing is picked and
+the check fails saying so (U179: a 1 GB limit had picked a 1.85 GB file).
 The automatic coordinator passes its existing maintenance read lease to the
 verifier instead of trying to acquire a nested lease while a writer waits.
 Cancellation and the metered-network watchdog cover the extra restore work.
-An automatic comparison failure makes a backup warn, or a standalone check
-fail; it never turns a successful copy into a claim that recovery was tested.
+A comparison failure makes the check fail; it never turns a successful copy
+into a claim that recovery was tested.
 
 Each `RunRecord` retains structured `BackupCheckResult` observations, including
 the depth actually used. `BackupCheckHistory` combines repository checks and

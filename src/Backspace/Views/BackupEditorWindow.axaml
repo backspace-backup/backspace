@@ -675,31 +675,25 @@
               </StackPanel>
             </Border>
 
-            <!-- MAINTENANCE POLICIES — two cards, prune + check.
-                 Each lets the user pick "After each backup" (legacy
-                 inline pass) or an independent cadence (Daily /
-                 Weekly / Monthly). The TimePicker only shows when
-                 the cadence is something other than after-each-backup
-                 (an after-each-backup pass has no time-of-day of its
-                 own; it runs whenever the backup finishes). The
-                 schedules inherit battery / metered / catch-up
-                 preconditions from the main backup schedule above,
-                 so "Skip on battery" applies to maintenance too. -->
+            <!-- MAINTENANCE: cleanup, then the backup's checks (U179). Cleanup
+                 keeps one cadence; checks are a list, one entry per check,
+                 each with its own frequency, time and conditions. Entries
+                 due together run one after another. -->
             <TextBlock Classes="section-title" Margin="0,4,0,0"
                        Text="Maintenance"/>
 
             <Border Classes="surface">
               <StackPanel Spacing="10">
-                <TextBlock Classes="label-caps" Text="PRUNING POLICY"/>
+                <TextBlock Classes="label-caps" Text="CLEANUP"/>
                 <TextBlock Classes="helper" TextWrapping="Wrap"
-                           Text="Prune (forget + repack) reclaims space by deleting snapshots that fall outside the retention policy. After-each-backup is friendliest for small repos; switch to weekly off-hours when prune starts taking longer than the backup itself."/>
+                           Text="Removes old copies your retention policy no longer keeps and frees the space they used. After each backup suits small backups; weekly is better once cleanup takes longer than the backup itself."/>
                 <!-- NOT gated on Enabled — maintenance can run on its
                      own schedule even when the user runs backups
                      manually rather than on the auto-schedule. -->
                 <Grid ColumnDefinitions="*,22,*">
                   <StackPanel Grid.Column="0" Spacing="6">
-                    <TextBlock Classes="label-caps" Text="CADENCE"/>
-                    <ComboBox ItemsSource="{Binding AvailableMaintenanceCadences}"
+                    <TextBlock Classes="label-caps" Text="HOW OFTEN"/>
+                    <ComboBox Name="CleanupCadence" ItemsSource="{Binding AvailableMaintenanceCadences}"
                               SelectedItem="{Binding PruneCadence}"
                               HorizontalAlignment="Stretch">
                       <ComboBox.ItemTemplate>
@@ -718,66 +712,97 @@
               </StackPanel>
             </Border>
 
-            <Border Classes="surface">
-              <StackPanel Spacing="10">
-                <TextBlock Classes="label-caps" Text="BACKUP CHECKS"/>
+            <Border Classes="surface" Name="ChecksCard">
+              <StackPanel Spacing="12">
+                <TextBlock Classes="label-caps" Text="CHECKS"/>
                 <TextBlock Classes="helper" TextWrapping="Wrap"
-                           Text="Choose what to test. Every option checks the backup catalog and follows your battery and network settings. Checks find problems; they do not repair damaged backups."/>
-                <Grid ColumnDefinitions="*,22,*">
-                  <StackPanel Grid.Column="0" Spacing="6">
-                    <TextBlock Classes="label-caps" Text="CADENCE"/>
-                    <ComboBox ItemsSource="{Binding AvailableMaintenanceCadences}"
-                              SelectedItem="{Binding CheckCadence}"
-                              HorizontalAlignment="Stretch">
-                      <ComboBox.ItemTemplate>
-                        <DataTemplate DataType="m:MaintenanceCadence">
-                          <TextBlock Text="{Binding ., Converter={x:Static vm:MaintenanceCadenceHumanizer.To}}"/>
-                        </DataTemplate>
-                      </ComboBox.ItemTemplate>
-                    </ComboBox>
-                  </StackPanel>
-                  <StackPanel Grid.Column="2" Spacing="6"
-                              IsVisible="{Binding CheckShowsTimeOfDay}">
-                    <TextBlock Classes="label-caps" Text="TIME OF DAY"/>
-                    <TimePicker SelectedTime="{Binding CheckTimeOfDay}" ClockIdentifier="24HourClock"/>
-                  </StackPanel>
-                </Grid>
-                <Border Name="CheckComparison" Background="{DynamicResource BS.Brush.BgBase}" CornerRadius="10" Padding="14" Margin="0,6,0,0">
-                  <StackPanel Spacing="12">
-                    <Grid ColumnDefinitions="*,Auto">
-                      <TextBlock Text="Check the backup catalog" FontWeight="SemiBold" FontSize="16" TextWrapping="Wrap"/>
-                      <TextBlock Grid.Column="1" Text="Always included" Foreground="{DynamicResource BS.Brush.Accent}" FontWeight="SemiBold" Margin="12,0,0,0"/>
-                    </Grid>
-                    <TextBlock Text="Checks every backup's records and confirms that referenced data blocks are present. It does not read the file contents inside those blocks." TextWrapping="Wrap" FontSize="14"/>
-                    <Border Height="1" Background="{DynamicResource BS.Brush.BorderSubtle}" Margin="0,2"/>
-                    <TextBlock Text="Add deeper checks" FontWeight="SemiBold" FontSize="16"/>
-                    <TextBlock Text="Choose either, both, or neither. Each adds to the catalog check above." TextWrapping="Wrap" FontSize="14"/>
-                    <Border Classes="check-row" Classes.selected="{Binding CheckReadDataSample}">
-                      <StackPanel Spacing="6">
-                        <CheckBox Name="SavedDataCheckChoice" IsChecked="{Binding CheckReadDataSample}"><TextBlock Text="Read a sample of stored data" TextWrapping="Wrap" FontWeight="SemiBold"/></CheckBox>
-                        <TextBlock Text="Checks data against its saved hashes, across the repository, including older backups. This does not recover files to disk." TextWrapping="Wrap" FontSize="14" Margin="30,0,0,0"/>
-                      </StackPanel>
-                    </Border>
-                    <Border Classes="check-row" Classes.selected="{Binding CheckRestoreFiles}">
-                      <StackPanel Spacing="6">
-                        <CheckBox Name="ScheduledRestoreCheck" IsChecked="{Binding CheckRestoreFiles}"><TextBlock Text="Test recovery from the latest backup" TextWrapping="Wrap" FontWeight="SemiBold"/></CheckBox>
-                        <TextBlock Text="Restores a sample or every file, using the settings below. Backspace checks the saved data for damage and tests rebuilding and writing the files." TextWrapping="Wrap" FontSize="14" Margin="30,0,0,0"/>
-                      </StackPanel>
-                    </Border>
-                    <TextBlock Text="What it can find" FontWeight="SemiBold" Margin="0,4,0,0"/>
-                    <TextBlock Text="{Binding CheckChoiceDescription}" FontSize="14" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
-                    <TextBlock Text="What it does not prove" FontWeight="SemiBold" Margin="0,4,0,0"/>
-                    <TextBlock Text="{Binding CheckChoiceLimit}" FontSize="14" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
-                  </StackPanel>
+                           Text="Each check below runs on its own schedule. Checks due at the same time run one after another, never together, and backups wait for them. Checks find problems; they do not repair a damaged backup."/>
+                <Border Background="{DynamicResource BS.Brush.AccentTint}" CornerRadius="8" Padding="12,10">
+                  <TextBlock Name="ChecksSentence" Text="{Binding ChecksSentence}" TextWrapping="Wrap"
+                             Foreground="{DynamicResource BS.Brush.AccentTintFg}"/>
                 </Border>
-                <Border IsVisible="{Binding CheckReadDataSample}" Background="{DynamicResource BS.Brush.AccentTint}" CornerRadius="8" Padding="12">
-                  <TextBlock Text="Backup-data sample: about 1% of the archive, up to roughly 1 GiB per destination. Reading whole blocks, catalog information and retries can exceed that amount. Cloud downloads may cost money." TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.AccentTintFg}"/>
-                </Border>
-                <StackPanel IsVisible="{Binding CheckRestoreFiles}" Spacing="10">
-                  <TextBlock Text="Files to recover" FontWeight="SemiBold" FontSize="16" Margin="0,6,0,0"/>
-                  <v:RestoreCheckOptions DataContext="{Binding RestoreCheckOptions}"/>
-                  <TextBlock Classes="helper" TextWrapping="Wrap" Text="This covers the latest backup from each source and destination. Temporary recovered copies are removed after checking. Older versions are not recovered by this check."/>
-                </StackPanel>
+                <TextBlock Text="{Binding ChecksCompared}" TextWrapping="Wrap" FontSize="13"
+                           Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
+                <TextBlock Classes="dim" IsVisible="{Binding !HasChecks}" TextWrapping="Wrap"
+                           Text="No checks. Nothing confirms that this backup can be restored until you add one."/>
+
+                <ItemsControl Name="CheckList" ItemsSource="{Binding Checks}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="10"/></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:CheckEntryViewModel">
+                      <Border Classes="check-row" Padding="14">
+                        <StackPanel Spacing="10">
+                          <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap"/>
+                              <TextBlock Text="{Binding When}" Classes="dim" FontSize="12" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Classes="ghost" Content="Remove" VerticalAlignment="Top"
+                                    Command="{Binding RemoveCommand}"
+                                    AutomationProperties.Name="{Binding Title, StringFormat='Remove {0}'}"/>
+                          </Grid>
+                          <TextBlock Text="{Binding Explanation}" TextWrapping="Wrap" FontSize="13"
+                                     Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
+                          <WrapPanel>
+                            <StackPanel Spacing="6" Width="190" Margin="0,0,16,8">
+                              <TextBlock Classes="label-caps" Text="HOW OFTEN"/>
+                              <ComboBox ItemsSource="{x:Static vm:CheckEntryViewModel.Cadences}" SelectedItem="{Binding Cadence}"
+                                        HorizontalAlignment="Stretch">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate DataType="m:MaintenanceCadence">
+                                    <TextBlock Text="{Binding ., Converter={x:Static vm:MaintenanceCadenceHumanizer.To}}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </StackPanel>
+                            <StackPanel Spacing="6" Margin="0,0,16,8" IsVisible="{Binding ShowsTime}">
+                              <TextBlock Classes="label-caps" Text="TIME OF DAY"/>
+                              <TimePicker SelectedTime="{Binding TimeOfDay}" ClockIdentifier="24HourClock"/>
+                            </StackPanel>
+                            <StackPanel Spacing="6" Width="150" Margin="0,0,16,8" IsVisible="{Binding IsTestRestore}">
+                              <TextBlock Classes="label-caps" Text="SHARE OF FILES (%)"/>
+                              <NumericUpDown Value="{Binding SamplePercent}" Minimum="0.01" Maximum="100" Increment="1" FormatString="0.##"/>
+                            </StackPanel>
+                            <StackPanel Spacing="6" Width="150" Margin="0,0,16,8" IsVisible="{Binding !IsStructureOrFull}">
+                              <TextBlock Classes="label-caps" Text="AT MOST (GiB)"/>
+                              <NumericUpDown Value="{Binding MaximumGiB}" Minimum="0" Maximum="1048576" Increment="1" FormatString="0.##"/>
+                            </StackPanel>
+                          </WrapPanel>
+                          <TextBlock Text="{Binding LimitHelp}" Classes="helper" TextWrapping="Wrap" IsVisible="{Binding !IsStructureOrFull}"/>
+                          <CheckBox IsChecked="{Binding CompareOriginals}" IsVisible="{Binding IsTestRestore}">
+                            <TextBlock Text="Also compare with today's originals (a difference can't tell which copy changed)" TextWrapping="Wrap"/>
+                          </CheckBox>
+                          <WrapPanel IsVisible="{Binding ShowsTime}">
+                            <CheckBox IsChecked="{Binding SkipOnBattery}" Content="Skip on battery" Margin="0,0,18,0"/>
+                            <CheckBox IsChecked="{Binding RequireNetwork}" Content="Wait for a network connection" Margin="0,0,18,0"/>
+                            <CheckBox IsChecked="{Binding CatchUpMissed}" Content="Run a missed check later"/>
+                          </WrapPanel>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Classes="label-caps" Text="ADD A CHECK" Margin="0,4,0,0"/>
+                <WrapPanel>
+                  <Button Name="AddStructureCheck" Classes="ghost" Content="+ Structure check" Margin="0,0,8,8"
+                          Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.Structure}"
+                          ToolTip.Tip="Checks the backup's records and that every piece of data is there. Quick; reads no file contents."/>
+                  <Button Name="AddDataSample" Classes="ghost" Content="+ Data sample" Margin="0,0,8,8"
+                          Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.DataSample}"
+                          ToolTip.Tip="Downloads part of the stored data and checks it against its fingerprints."/>
+                  <Button Name="AddTestRestore" Classes="ghost" Content="+ Sample test restore" Margin="0,0,8,8"
+                          Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.TestRestore}"
+                          ToolTip.Tip="Rebuilds a few real files from the latest backup."/>
+                  <Button Name="AddFullDataRead" Classes="ghost" Content="+ Full data read" Margin="0,0,8,8"
+                          Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.FullDataRead}"
+                          IsEnabled="{Binding FullDataReadAvailable}"
+                          ToolTip.Tip="{Binding FullDataReadHint}" ToolTip.ShowOnDisabled="True"/>
+                </WrapPanel>
+                <TextBlock Classes="helper" TextWrapping="Wrap" IsVisible="{Binding !FullDataReadAvailable}"
+                           Text="Full data read is not available yet: this version of the backup engine can only read a sample."/>
               </StackPanel>
             </Border>
 

@@ -55,11 +55,11 @@ public sealed class S26_MaintenancePolicyCards : ScenarioBase
                 TimeOfDay = TimeSpan.FromHours(3),
                 WeeklyDaysBitmask = 0b0000_0001,
             },
-            CheckSchedule = new BackupSchedule
+            Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule
             {
                 Frequency = ScheduleFrequency.Monthly,
                 TimeOfDay = TimeSpan.FromHours(4),
-            },
+            } } },
         };
         existing.Targets.Add(new BackupTarget { DestinationId = dest.Id, StorageName = "default" });
 
@@ -67,7 +67,7 @@ public sealed class S26_MaintenancePolicyCards : ScenarioBase
 
         // Sanity-check the hydration mapped schedule→cadence correctly.
         Assert.Equal(MaintenanceCadence.Weekly, vm.PruneCadence);
-        Assert.Equal(MaintenanceCadence.Monthly, vm.CheckCadence);
+        Assert.Equal(MaintenanceCadence.Monthly, Assert.Single(vm.Checks).Cadence);
 
         var win = new BackupEditorWindow { DataContext = vm, Width = 980, Height = 820 };
         ctx.Driver.Show(win);
@@ -78,7 +78,7 @@ public sealed class S26_MaintenancePolicyCards : ScenarioBase
         if (tabs is not null && tabs.Items.Count > 1) tabs.SelectedIndex = 1;
         ctx.Driver.Pump();
         ctx.Snapshot(win, "schedule tab with maintenance cards",
-            "Maintenance section: PRUNING POLICY = Weekly, CHECK POLICY = Monthly. " +
+            "Maintenance section: CLEANUP = Weekly; CHECKS lists one structure check, monthly. " +
             "Cadence combo + Time of Day picker visible in each card.");
 
         // Flip the prune cadence to AfterEachBackup so the
@@ -93,11 +93,10 @@ public sealed class S26_MaintenancePolicyCards : ScenarioBase
         var saved = vm.CommitToWorking();
         Assert.NotNull(saved);
         Assert.Null(saved!.PruneSchedule); // AfterEachBackup → no standalone schedule, engine runs prune inline
-        Assert.NotNull(saved.CheckSchedule);
-        Assert.Equal(ScheduleFrequency.Monthly, saved.CheckSchedule!.Frequency);
+        Assert.Equal(ScheduleFrequency.Monthly, Assert.Single(saved.Checks).Schedule!.Frequency);
         ctx.Report.RecordNote(
             "commit round-trip",
-            "PruneSchedule=null (AfterEachBackup), CheckSchedule.Frequency=Monthly.");
+            "PruneSchedule=null (AfterEachBackup), structure check monthly.");
 
         win.Close();
         return Task.CompletedTask;
