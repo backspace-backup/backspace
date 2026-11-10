@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,17 +29,49 @@ public sealed partial class BackupOrchestrator
 
     /// <summary>Stand-alone integrity check, same shape as
     /// <see cref="RunPruneAsync"/>.</summary>
-    public Task<RunRecord> RunCheckAsync(Backup backup, CancellationToken ct)
+    /// <param name="onlyTargets">Only these destinations (the overdue check
+    /// after a backup, U174); null for all.</param>
+    public Task<RunRecord> RunCheckAsync(Backup backup, CancellationToken ct, IReadOnlyCollection<BackupTarget>? onlyTargets = null)
         => RunStandaloneMaintenanceAsync(
             backup, RunKind.Check, action: "Check",
             engineCall: (engine, b, src, dest, storageName, runCt) =>
                 engine.RunCheckOnlyAsync(b, src, dest, storageName, runCt),
-            ct);
+            ct, onlyTargets);
+
+    /// <summary>Why a check can't reach this destination now, or null: a
+    /// drive not connected or not the expected one, a network share offline
+    /// (U174). The check then waits for the next backup there.</summary>
+    private async Task<string?> UnavailableForCheckAsync(Destination dest, string sourcePath, string storageName, CancellationToken ct)
+    {
+        if (dest.IsLocalLike && VolumeDetector.Check(dest.ExpectedDriveLetter, dest.ExpectedVolumeLabel) is { Verdict: not VolumeDetector.Verdict.Mounted } volume)
+            return volume.Detail;
+        return await ProbeReachabilityAsync(dest, sourcePath, storageName, ct).ConfigureAwait(false) is { Status: BackupRunStatus.Skipped } offline
+            ? offline.Summary : null;
+    }
+
+    /// <summary>Checks that waited for their destination (U174) run once,
+    /// right after a backup that reached it, while the backup's turn is
+    /// over: in the tray app and in the background service alike.</summary>
+    private async Task RunOverdueChecksAsync(Backup backup, RunRecord backupRun, CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested) return;
+        try
+        {
+            if (_config.Current.Backups.FirstOrDefault(b => b.Id == backup.Id) is not { CheckSchedule: not null } current) return;
+            var due = CheckOverdue.DueAfter(current, backupRun, _logs.LoadHistoryByBackupId(current.Id), _config.Current.Destinations);
+            if (due.Count == 0) return;
+            _log.Information("Running the overdue check of {Backup} after its backup: {Destinations}",
+                current.Name, string.Join(", ", due.Select(d => d.Destination.Name)));
+            await RunCheckAsync(current, ct, due.Select(d => d.Target).ToList()).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _log.Warning(ex, "The overdue check of {Backup} could not run", backup.Name); }
+    }
 
     private async Task<RunRecord> RunStandaloneMaintenanceAsync(
         Backup backup, RunKind kind, string action,
         Func<IBackupEngine, Backup, string, Destination, string, CancellationToken, Task<RunRecord>> engineCall,
-        CancellationToken ct)
+        CancellationToken ct, IReadOnlyCollection<BackupTarget>? onlyTargets = null)
     {
         using var scope = LogContext.PushProperty("Backup", backup.Name);
         var wasConfigured = _config.Current.Backups.Any(b => b.Id == backup.Id);
@@ -114,6 +147,10 @@ public sealed partial class BackupOrchestrator
             // re-introduce the truncated-log + ambiguous-event-stream bug
             // for one path but not the other).
             var distinctTargets = DistinctTargets(backup.Targets);
+            if (onlyTargets is not null)
+                distinctTargets = distinctTargets.Where(t => onlyTargets.Any(o => o.DestinationId == t.DestinationId
+                    && string.Equals(o.StorageName, t.StorageName, StringComparison.OrdinalIgnoreCase))).ToList();
+            var waitingFor = new List<string>();
             // Check covers the entire repository, not one source's snapshots.
             // Do not download the same data sample again for every source.
             // Prune remains per source because retention is plan-specific.
@@ -133,6 +170,17 @@ public sealed partial class BackupOrchestrator
                     {
                         AddOutcome(src, "(missing)", target.StorageName, BackupRunStatus.Failed,
                             $"Destination id={target.DestinationId} no longer exists. Backup needs reconfiguration.");
+                        continue;
+                    }
+                    // A check of a drive that is not connected (or a share
+                    // offline) waits for the next backup there (U174),
+                    // rather than failing and waiting a whole schedule.
+                    if (kind == RunKind.Check && await UnavailableForCheckAsync(dest, src, target.StorageName, linked.Token) is { } unavailable)
+                    {
+                        _log.Information("Check of {Dest} waits for the destination: {Detail}", dest.Name, unavailable);
+                        AddOutcome(src, dest.Name, target.StorageName, BackupRunStatus.Skipped, unavailable);
+                        aggregate.Cells[^1].DestinationUnavailable = true;
+                        waitingFor.Add(dest.Name);
                         continue;
                     }
                     try
@@ -189,6 +237,10 @@ public sealed partial class BackupOrchestrator
             aggregate.Summary = $"{action}: {cellsOk} completed, {cellsWarned} with warnings, {cellsFailed} failed, {cellsSkipped} skipped " +
                                 $"across {aggregate.Cells.Count} parts " +
                                 $"in {durationSec:F1}s{meteredSuffix}." + comparisonSummary;
+            if (waitingFor.Count > 0)
+                aggregate.Summary += $"\nWaiting for {string.Join(", ", waitingFor.Select(n => "«" + n + "»"))}: "
+                    + (backup.CheckRestoreFiles ? "the check and test restore run" : "the check runs")
+                    + " right after the next backup there.";
 
             try { _logs.AppendRun(aggregate); }
             catch (Exception ex) { _log.Warning(ex, "Failed to persist {Action} run for {Backup}", action, backup.Name); }

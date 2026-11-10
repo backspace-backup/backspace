@@ -172,4 +172,10 @@ public sealed class CellOutcome
     /// <summary>Online-only files this cell's backup skipped (U168).</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public long CloudOnlySkipped { get; set; }
+
+    /// <summary>A check part not started because its destination was
+    /// unavailable (drive not connected, share offline): the check waits for
+    /// the next backup there (U174, <see cref="Services.CheckOverdue"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool DestinationUnavailable { get; set; }
 }

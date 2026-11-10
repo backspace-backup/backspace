@@ -709,6 +709,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     {
         if (_checkHistoryReadFailed) return;
         var state = BackupCheckHistory.State(Snapshot, _checkEntries, DateTime.UtcNow);
+        // A check that waits for its drive says so calmly (U174).
+        if (ServiceLocator.Config?.Current is { } config)
+            state = CheckOverdue.Shown(state, Snapshot, CheckOverdue.For(Snapshot, _checkRuns, config.Destinations));
         // A fresh card has not yet ruled out a newer failure in saved history.
         // Known warnings can be shown immediately, but success must wait.
         if (!_checkHistoryLoaded && state.Tone is "ok" or "never")

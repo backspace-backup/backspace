@@ -529,6 +529,8 @@ public sealed partial class BackupOrchestrator
     {
         var record = await RunBackupOnceAsync(backup, ct, automatic).ConfigureAwait(false);
         record.TriggeredAutomatically = automatic;
+        // A check that waited for this destination runs now, once (U174).
+        await RunOverdueChecksAsync(backup, record, ct).ConfigureAwait(false);
         return record;
     }
 

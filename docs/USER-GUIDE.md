@@ -661,6 +661,23 @@ packs. **Test restore** also exercises Backspace's own file selection,
 recovery and output handling. None of them proves that every file you meant
 to protect was selected for backup.
 
+### A check that finds the drive unplugged
+
+When a scheduled check (with its test restore, if **restore a sample** is on)
+comes due while its destination can't be reached (an external drive not
+connected or not the expected one, or a network share offline), it isn't a
+failure: that destination's part is skipped and stays overdue. It runs by
+itself right after the next backup that reaches the destination, in the same
+run, once, whether the tray app or the background service runs the backup.
+Meanwhile the card's check line reads "Test restore overdue: waits for the
+drive" (or "Check overdue: …"), and its hover says when the check was missed
+and that nothing else is needed. A backup that doesn't reach the drive (still
+unplugged, or failed) leaves the check waiting. A check that fails for any
+other reason is reported as before and waits for its next scheduled time.
+
+For a drive you connect rarely, a monthly check thus runs the first time the
+drive is back and backed up to.
+
 ## Alerts, email and Healthchecks.io
 
 - **Alerts**: a notification and a sound for failures, which can bypass Focus

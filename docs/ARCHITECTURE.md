@@ -561,6 +561,12 @@ only those files has no vault, and the first save asks for a password.
    A worker the service's schedule starts gets `BACKSPACE_RUN_AUTOMATIC=1`, so
    its history says automatic; an owner request (`start-cli`) never does. A
    run's `QueuedFor` is left out of its duration.
+   A standalone check skips a destination it can't reach (drive not
+   connected, share offline) and marks that part `DestinationUnavailable`.
+   `CheckOverdue.cs` reads the history: when a destination's latest check part
+   has that mark, `RunBackupAsync` runs the check for that destination once,
+   right after a backup whose parts there all succeeded (U174). No state is
+   saved besides the history.
    It never temporarily changes a shared plan's retention. This prevents Backrest's automatic cleanup
    from running ahead of Backspace's schedule or duplicating its inline request.
    Healthy tasks do not run an unconditional unlock first. A confirmed lock
