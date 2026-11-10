@@ -124,9 +124,14 @@ internal sealed class BackupLiveProgress
     internal Action? HeldBack { get; set; }
 
     /// <summary>The line to show now, or null when it is too soon or nothing changed.</summary>
-    internal string? Next(JsonElement? operationBackup, DateTime nowUtc)
+    internal string? Next(JsonElement? operationBackup, DateTime nowUtc) => NextStatus(Parse(operationBackup), nowUtc);
+
+    /// <summary>The line to show now for a status sample (restic's own status
+    /// message, <see cref="FromResticStatus"/>), or null when it is too soon
+    /// or nothing changed.</summary>
+    internal string? NextStatus(Sample? status, DateTime nowUtc)
     {
-        if (Parse(operationBackup) is not { } sample) return null;
+        if (status is not { } sample) return null;
         if ((sample.FilesDone > 0 || sample.BytesDone > 0) && Reading is { } reading)
         {
             Reading = null;
@@ -310,6 +315,19 @@ internal sealed class BackupLiveProgress
             (long)Number(status, "totalFiles"), (long)Number(status, "filesDone"), current);
     }
 
+    /// <summary>restic's own status message (<c>backup --json</c>, message_type
+    /// "status", U175): the same figures Backrest copied into its operation
+    /// record (percent_done is a fraction, as Backrest's percentDone was).</summary>
+    internal static Sample? FromResticStatus(JsonElement status)
+    {
+        if (status.ValueKind != JsonValueKind.Object) return null;
+        string? current = null;
+        if (status.TryGetProperty("current_files", out var files) && files.ValueKind == JsonValueKind.Array)
+            current = string.Join('\n', files.EnumerateArray().Where(f => f.ValueKind == JsonValueKind.String).Select(f => f.GetString()));
+        return new(Number(status, "percent_done") * 100, (long)Number(status, "total_bytes"), (long)Number(status, "bytes_done"),
+            (long)Number(status, "total_files"), (long)Number(status, "files_done"), current);
+    }
+
     // Protocol buffers write 64-bit numbers as strings in JSON.
     private static double Number(JsonElement element, string name)
         => !element.TryGetProperty(name, out var value) ? 0
@@ -403,30 +421,49 @@ internal sealed class BackupLiveProgress
     /// <summary>The closing summary of a finished backup, like the totals
     /// Duplicacy wrote at the end of its log (U112), or null when Backrest
     /// kept no summary (a failed or cancelled run).</summary>
-    internal static string? Recap(JsonElement? operationBackup)
+    internal static string? Recap(JsonElement? operationBackup) => BackrestSummary(operationBackup) is { } summary ? RecapOf(summary) : null;
+
+    /// <summary>The closing summary from restic's own summary message (U175).</summary>
+    internal static string RecapOf(ResticBackupSummary s)
     {
-        if (operationBackup is not { ValueKind: JsonValueKind.Object } backup
-            || !backup.TryGetProperty("lastStatus", out var last) || last.ValueKind != JsonValueKind.Object
-            || !last.TryGetProperty("summary", out var s) || s.ValueKind != JsonValueKind.Object) return null;
-        string Count(string name) => ((long)Number(s, name)).ToString("N0", CultureInfo.InvariantCulture);
-        var duration = TimeSpan.FromSeconds(Number(s, "totalDuration"));
+        static string Count(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
+        var duration = TimeSpan.FromSeconds(s.TotalDuration);
         return RecapPrefix + string.Join(" · ",
-            $"Backup complete: {Count("totalFilesProcessed")} files ({Bytes((long)Number(s, "totalBytesProcessed"))}) checked",
-            $"{Count("filesNew")} new, {Count("filesChanged")} changed, {Count("filesUnmodified")} unchanged",
-            $"{Bytes((long)Number(s, "dataAdded"))} added to the storage",
+            $"Backup complete: {Count(s.TotalFilesProcessed)} files ({Bytes(s.TotalBytesProcessed)}) checked",
+            $"{Count(s.FilesNew)} new, {Count(s.FilesChanged)} changed, {Count(s.FilesUnmodified)} unchanged",
+            $"{Bytes(s.DataAdded)} added to the storage",
             duration.TotalHours >= 1 ? $"took {(int)duration.TotalHours}h {duration.Minutes:00}m" : $"took {duration.Minutes}m {duration.Seconds:00}s")
             // The snapshot it made, like Duplicacy's revision number (U115).
-            + (s.TryGetProperty("snapshotId", out var id) && id.GetString() is { Length: >= 8 } snapshot ? $" · snapshot {snapshot[..8]}" : "");
+            + (s.SnapshotId is { Length: >= 8 } snapshot ? $" · snapshot {snapshot[..8]}" : "");
     }
 
     /// <summary>New and changed files and the data added, from restic's
     /// summary of a finished backup (U142), or null without one.</summary>
     internal static (int New, int Changed, long Added)? Stats(JsonElement? operationBackup)
+        => BackrestSummary(operationBackup) is { } summary ? StatsOf(summary) : null;
+
+    internal static (int New, int Changed, long Added) StatsOf(ResticBackupSummary s) => ((int)s.FilesNew, (int)s.FilesChanged, s.DataAdded);
+
+    /// <summary>The summary Backrest kept on its operation record (camel case,
+    /// 64-bit numbers as strings).</summary>
+    private static ResticBackupSummary? BackrestSummary(JsonElement? operationBackup)
     {
         if (operationBackup is not { ValueKind: JsonValueKind.Object } backup
             || !backup.TryGetProperty("lastStatus", out var last) || last.ValueKind != JsonValueKind.Object
             || !last.TryGetProperty("summary", out var s) || s.ValueKind != JsonValueKind.Object) return null;
-        return ((int)Number(s, "filesNew"), (int)Number(s, "filesChanged"), (long)Number(s, "dataAdded"));
+        return new((long)Number(s, "filesNew"), (long)Number(s, "filesChanged"), (long)Number(s, "filesUnmodified"),
+            (long)Number(s, "dataAdded"), (long)Number(s, "totalFilesProcessed"), (long)Number(s, "totalBytesProcessed"),
+            Number(s, "totalDuration"), s.TryGetProperty("snapshotId", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null);
+    }
+
+    /// <summary>restic's own summary message (<c>backup --json</c>, message_type
+    /// "summary"), or null when it is not one.</summary>
+    internal static ResticBackupSummary? FromResticSummary(JsonElement s)
+    {
+        if (s.ValueKind != JsonValueKind.Object) return null;
+        return new((long)Number(s, "files_new"), (long)Number(s, "files_changed"), (long)Number(s, "files_unmodified"),
+            (long)Number(s, "data_added"), (long)Number(s, "total_files_processed"), (long)Number(s, "total_bytes_processed"),
+            Number(s, "total_duration"), s.TryGetProperty("snapshot_id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null);
     }
 
     private static readonly System.Text.RegularExpressions.Regex StatsRx = new(
@@ -517,3 +554,8 @@ internal sealed class BackupLiveProgress
         return separator < 0 ? null : line[(separator + 3)..];
     }
 }
+
+/// <summary>What a finished backup reported (restic's summary message), the
+/// figures the recap line and the run's record use.</summary>
+internal sealed record ResticBackupSummary(long FilesNew, long FilesChanged, long FilesUnmodified, long DataAdded,
+    long TotalFilesProcessed, long TotalBytesProcessed, double TotalDuration, string? SnapshotId);
