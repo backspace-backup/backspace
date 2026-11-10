@@ -253,7 +253,31 @@ public partial class LogsView : UserControl
     private void OnLinesPointerMoved(object? sender, PointerEventArgs e)
     {
         if (!_dragging || _anchor is null) return;
+        // Dragging past the top or bottom edge scrolls on, selecting as it goes.
+        var y = e.GetPosition(LogScroll).Y;
+        if (y < 0 || y > LogScroll.Viewport.Height)
+        {
+            var step = Math.Clamp(y < 0 ? y : y - LogScroll.Viewport.Height, -120, 120);
+            LogScroll.Offset = new Vector(LogScroll.Offset.X, Math.Max(0, LogScroll.Offset.Y + step));
+            LogScroll.UpdateLayout();
+            var edge = VisibleRows();
+            if ((y < 0 ? edge.FirstOrDefault() : edge.LastOrDefault()) is { Line: { } atEdge }) SelectRange(_anchor, atEdge);
+            return;
+        }
         if (LineAt(e) is { } line) SelectRange(_anchor, line);
+    }
+
+    /// <summary>The rows inside the viewport, top to bottom.</summary>
+    private List<ConsoleLineRow> VisibleRows()
+    {
+        var rows = new List<(double Top, ConsoleLineRow Row)>();
+        foreach (var row in LogLines.GetVisualDescendants().OfType<ConsoleLineRow>())
+        {
+            if (row.Line is null || !row.IsVisible) continue;
+            var top = row.TranslatePoint(new Point(0, 0), LogScroll)?.Y ?? double.NaN;
+            if (top + row.Bounds.Height > 0 && top < LogScroll.Viewport.Height) rows.Add((top, row));
+        }
+        return rows.OrderBy(r => r.Top).Select(r => r.Row).ToList();
     }
 
     private void OnLinesPointerReleased(object? sender, PointerReleasedEventArgs e)

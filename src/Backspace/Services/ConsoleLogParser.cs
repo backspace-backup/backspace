@@ -63,15 +63,18 @@ internal sealed class ConsoleLogParser
         {
             _block = Block.Outcome;
             _outcomeStatus = "";
+            _lastFieldKind = ConsoleLineKind.Meta;
             return new ConsoleLine(text, ConsoleLineKind.Meta, time) { VerboseOnly = true };
         }
         if (_block != Block.None)
         {
             if (string.IsNullOrWhiteSpace(text))
             {
-                // The gap after a header whose fields are hidden is hidden with them.
+                // The gap after a header whose fields are hidden is hidden with
+                // them. The outcome block runs to the end: a summary can hold
+                // blank lines ("note: task was cancelled by user request").
                 var verboseOnly = _block == Block.Header;
-                _block = Block.None;
+                if (_block == Block.Header) _block = Block.None;
                 return new ConsoleLine("", ConsoleLineKind.Blank, time) { VerboseOnly = verboseOnly };
             }
             return BlockLine(text, time);
@@ -98,8 +101,22 @@ internal sealed class ConsoleLogParser
         }
         if (kind is not (ConsoleLineKind.Setup or ConsoleLineKind.Meta or ConsoleLineKind.Blank or ConsoleLineKind.Detail))
             _sectionHasContent = true;
-        return new ConsoleLine(text, kind, time);
+        // A message Backrest wrote over several lines ("failed to backup: …"
+        // then "output processing: no summary event found") keeps the colour
+        // of the line it continues, up to a blank line.
+        if (kind == ConsoleLineKind.Plain && !text.StartsWith('[') && _lastKind is ConsoleLineKind.Warning or ConsoleLineKind.Error)
+            kind = _lastKind;
+        _lastKind = kind;
+        // The first attempt's start (in UTC) adds nothing to the header above
+        // it; a second attempt is a retry and shows, amber.
+        return new ConsoleLine(text, kind, time) { VerboseOnly = text.StartsWith(FirstAttempt, StringComparison.Ordinal) };
     }
+
+    private const string FirstAttempt = "[orchestrator] attempt 1 starting at ";
+    private ConsoleLineKind _lastKind = ConsoleLineKind.Plain;
+    // The outcome field a line without a key continues ("summary : …" over
+    // several lines).
+    private ConsoleLineKind _lastFieldKind = ConsoleLineKind.Meta;
 
     private string? _source, _destination;
     // "USB drive (E:) (LocalFolder)": the destination's kind, in brackets at the end.
@@ -128,6 +145,8 @@ internal sealed class ConsoleLogParser
         }
         // Outcome block: the status and what it says take its colour.
         if (key == "status") _outcomeStatus = value;
+        if (key.Length == 0)
+            return new ConsoleLine(text, _lastFieldKind, time) { ListAsError = false };
         var kind = key switch
         {
             "status" or "summary" => _outcomeStatus switch
@@ -143,6 +162,7 @@ internal sealed class ConsoleLogParser
         if (key == "ended (UTC)" && DateTime.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ended))
             time ??= ended.ToLocalTime();
+        _lastFieldKind = kind;
         return new ConsoleLine(text, kind, time)
         {
             ListAsError = key is not ("status" or "summary"),

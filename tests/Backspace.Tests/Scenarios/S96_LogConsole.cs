@@ -304,6 +304,26 @@ public sealed class S96_LogConsole : ScenarioBase
             ctx.Snapshot(host, "lines selected",
                 "Three lines selected by dragging from the recap to 'Finishing snapshot history' (blue selection); Ctrl+C copied exactly those, with their times.");
             copied.Clear();
+            // Dragging past the bottom edge scrolls on and keeps selecting; Escape clears.
+            scroll.Offset = new Vector(0, 0);
+            await ctx.Driver.PumpAsync(100);
+            var shownRows = Rows().Count(r => r.TranslatePoint(new Point(), scroll)!.Value.Y is >= 0 and var top && top < scroll.Viewport.Height);
+            var start = Rows().First(r => r.Line!.Text.StartsWith("[setup] Previous"));
+            var startLine = start.Line!; // the row is recycled once it scrolls away
+            host.MouseDown(Center(host, start), MouseButton.Left);
+            var below = scroll.TranslatePoint(new Point(60, scroll.Viewport.Height + 60), host)!.Value;
+            for (var i = 0; i < 8; i++) { host.MouseMove(below); await ctx.Driver.PumpAsync(20); }
+            host.MouseUp(below, MouseButton.Left);
+            await ctx.Driver.PumpAsync(50);
+            Assert.True(scroll.Offset.Y > 0, "Dragging below the log did not scroll it.");
+            var selectedCount = vm.DisplayLines.Count(l => l.IsSelected);
+            Assert.True(selectedCount > shownRows, $"{selectedCount} lines selected; the drag should reach past the {shownRows} first shown.");
+            Assert.True(startLine.IsSelected);
+            ctx.Snapshot(host, "drag past the edge",
+                "Dragging from '[setup] Previous backup…' to below the console scrolled it on: every line from there to the bottom of the view is selected.");
+            scroll.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            Assert.DoesNotContain(vm.DisplayLines, l => l.IsSelected);
+
 
             // ---- Open log file ----
             var openFile = view.FindControl<Button>("OpenLogFile")!;

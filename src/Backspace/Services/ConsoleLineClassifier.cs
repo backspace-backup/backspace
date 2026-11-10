@@ -38,6 +38,8 @@ internal static class ConsoleLineClassifier
     private static readonly Regex Retry = new(
         @"^\[orchestrator\] (retry \d|transient retry|tolerable skip|cancelled)\b",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex NotReady = new(
+        @"^\[orchestrator\] «[^»]+» (isn't|is not) set up\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex RestoreDone = new(
         @"^\[restore\] done: status=(?<status>\w+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex GenericError = new(
@@ -82,7 +84,9 @@ internal static class ConsoleLineClassifier
                 : Trouble.IsMatch(text) ? ConsoleLineKind.Warning : ConsoleLineKind.Plain;
         if (text.StartsWith("[orchestrator] ", StringComparison.Ordinal))
             return text.StartsWith("[orchestrator] attempt ", StringComparison.Ordinal) && text.Contains(" starting at ", StringComparison.Ordinal)
-                ? ConsoleLineKind.Setup
+                ? (text.StartsWith("[orchestrator] attempt 1 ", StringComparison.Ordinal) ? ConsoleLineKind.Setup : ConsoleLineKind.Warning)
+                // A destination without its sign-in or password: the cell fails.
+                : NotReady.IsMatch(text) ? ConsoleLineKind.Error
                 : Failure.IsMatch(text) ? ConsoleLineKind.Error
                 : Retry.IsMatch(text) || Trouble.IsMatch(text) ? ConsoleLineKind.Warning
                 : ConsoleLineKind.Plain;

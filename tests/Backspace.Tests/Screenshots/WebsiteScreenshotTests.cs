@@ -423,14 +423,36 @@ public class WebsiteScreenshotTests : IDisposable
         {
             record.BackupId = ServiceLocator.Config.Current.Backups.Single(b => b.Name == record.BackupName).Id;
             record.LogPath = Path.Combine(transcriptDir, record.Id + ".log");
-            File.WriteAllText(record.LogPath,
-                $"Sample backup transcript — {record.BackupName}\n" +
-                "Connecting to backup destination…\n" +
-                "Reading source files and comparing the previous snapshot…\n" +
-                $"{record.Summary}\n" +
-                (record.Status == BackupRunStatus.Warning
-                    ? "Two files could not be read (access denied); the remaining files were saved.\n"
-                    : "Snapshot saved. Backup completed successfully.\n"));
+            // The format a real run log has (U176): header block, stamped
+            // engine lines with section markers, outcome block.
+            var t = record.StartedUtc;
+            var dest = "Dropbox - Backspace";
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("--- Backspace cell log ---").AppendLine($"backup        : {record.BackupName}")
+              .AppendLine($"source        : C:\\Users\\sam\\{record.BackupName}").AppendLine($"destination   : {dest} (Dropbox)")
+              .AppendLine("storage-name  : default").AppendLine($"started (UTC) : {t:o}").AppendLine();
+            void L(int s, string line) => sb.AppendLine(global::Backspace.Services.LogLineStamp.Stamp(line, t.AddSeconds(s)));
+            L(0, global::Backspace.Services.LogSection.Line(record.BackupName, "backup", dest));
+            L(0, $"[orchestrator] attempt 1 starting at {t:o}");
+            L(1, $"[setup] Previous backup to «{dest}»: {t.AddDays(-1).ToLocalTime():yyyy-MM-dd HH:mm}, snapshot 7ee22f0f. Only changes are sent.");
+            L(1, "[setup] 41 exclusion rules loaded; files kept only in the cloud are skipped.");
+            L(1, "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive.");
+            for (var i = 0; i < 8; i++)
+                L(5 + i * 40, System.FormattableString.Invariant(
+                    $"[progress] {i * 12.5:0.0}% · Backing up · {i * 1_551:N0} of ~12,408 files checked (~8.7 GB) · {i * 46} MB of new data uploaded, 2.1 MB/s · about {8 - i} min left"));
+            if (record.Status == BackupRunStatus.Warning)
+            {
+                L(330, "[backrest] op=12 status=STATUS_WARNING Partial backup, some files may not have been read completely.");
+                L(330, "[restic] {\"item\":\"C:\\\\Users\\\\sam\\\\Music\\\\iTunes Library.itl\",\"during\":\"archival\",\"message\":\"access denied\"}");
+            }
+            L(340, $"[recap] Backup complete: {record.Summary} · snapshot 4bd48ee6");
+            L(341, "[backspace] 3 online-only files skipped: kept only in the cloud, not downloaded and not in this backup");
+            L(350, global::Backspace.Services.LogSection.Line(record.BackupName, "cleanup", dest));
+            L(360, "[cleanup] 1 old backup removed · 212 MB freed in the storage");
+            sb.AppendLine().AppendLine("--- cell outcome ---").AppendLine($"status        : {record.Status}").AppendLine("attempts      : 1")
+              .AppendLine($"summary       : Backup result: STATUS_{record.Status.ToString().ToUpperInvariant()}.")
+              .AppendLine($"ended (UTC)   : {record.EndedUtc:o}");
+            File.WriteAllText(record.LogPath, sb.ToString());
             store.AppendRun(record);
         }
             AppendSample(new RunRecord
@@ -576,12 +598,12 @@ public class WebsiteScreenshotTests : IDisposable
             if (window.DataContext is MainWindowViewModel { SelectedNav: NavItem.Logs } main)
             {
                 var deadline = DateTime.UtcNow.AddSeconds(4);
-                while (!main.Logs.DisplayText.Contains("Sample backup transcript") && DateTime.UtcNow < deadline)
+                while (!main.Logs.DisplayText.Contains("[recap] Backup complete") && DateTime.UtcNow < deadline)
                 {
                     Avalonia.Threading.Dispatcher.UIThread.RunJobs();
                     System.Threading.Thread.Sleep(10);
                 }
-                Assert.Contains("Sample backup transcript", main.Logs.DisplayText);
+                Assert.Contains("[recap] Backup complete", main.Logs.DisplayText);
                 window.UpdateLayout();
             }
 

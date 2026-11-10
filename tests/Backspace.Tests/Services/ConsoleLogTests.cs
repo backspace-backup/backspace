@@ -257,6 +257,57 @@ public sealed class ConsoleLogTests
     }
 
     [Fact]
+    public void Retries_and_destinations_not_set_up_stand_out_and_the_first_attempt_is_quiet()
+    {
+        // From real logs (10 November 2026): a second attempt, and a destination missing its sign-in.
+        Assert.Equal(ConsoleLineKind.Warning, ConsoleLineClassifier.Classify("[orchestrator] attempt 2 starting at 2026-11-04T22:53:40.1234567Z"));
+        Assert.Equal(ConsoleLineKind.Error, ConsoleLineClassifier.Classify(
+            "[orchestrator] «Dropbox - sam_local_d» isn't set up yet: connect your Dropbox account and choose a storage password. Open it from Destinations to finish."));
+        var parser = new ConsoleLogParser();
+        var first = parser.Feed("[orchestrator] attempt 1 starting at 2026-11-10T06:00:00.5737522Z", null)!;
+        Assert.Equal(ConsoleLineKind.Setup, first.Kind);
+        Assert.True(first.IsDetail, "The first attempt's UTC start shows without Verbose.");
+        Assert.False(parser.Feed("[orchestrator] attempt 2 starting at 2026-11-10T06:01:00.0000000Z", null)!.IsDetail);
+    }
+
+    [Fact]
+    public void A_message_over_several_lines_keeps_its_colour_up_to_a_blank_line()
+    {
+        var lines = ConsoleLogParser.ParseText(string.Join("\n",
+            "[backrest] op=2 status=STATUS_USER_CANCELLED failed to backup: command failed",
+            "output processing: no summary event found",
+            "",
+            "Snapshot saved."));
+        Assert.Equal(ConsoleLineKind.Warning, lines[1].Kind);
+        Assert.Equal(ConsoleLineKind.Plain, lines[3].Kind);
+        // A tagged line after a warning is read on its own.
+        Assert.Equal(ConsoleLineKind.Plain, ConsoleLogParser.ParseText("[skip] x\n[backspace] Finishing snapshot history")[1].Kind);
+    }
+
+    [Fact]
+    public void An_outcome_summary_over_several_lines_stays_in_its_block()
+    {
+        // A cancelled run's real outcome: the summary continues on its own
+        // lines, with a blank line inside, before the end time.
+        var text = string.Join("\n",
+            "--- cell outcome ---",
+            "status        : Skipped",
+            "attempts      : 2",
+            "summary       : Backup result: STATUS_USER_CANCELLED. failed to backup: command failed",
+            "output processing: no summary event found",
+            "",
+            "note: task was cancelled by user request",
+            "ended (UTC)   : 2026-11-04T23:05:19.1800000Z");
+        var lines = ConsoleLogParser.ParseText(text);
+        Assert.Equal(ConsoleLineKind.Warning, lines.Single(l => l.Text.StartsWith("output processing")).Kind);
+        Assert.Equal(ConsoleLineKind.Warning, lines.Single(l => l.Text.StartsWith("note:")).Kind);
+        var ended = lines.Single(l => l.Text.StartsWith("ended (UTC)"));
+        Assert.Equal(ConsoleLineKind.Meta, ended.Kind);
+        Assert.True(ended.IsDetail);
+        Assert.False(lines.Single(l => l.Text.StartsWith("attempts")).IsDetail); // two attempts are worth seeing
+    }
+
+    [Fact]
     public void A_failed_outcome_block_is_red()
     {
         var lines = ConsoleLogParser.ParseText(CellLog(stamped: true, marker: true, status: "Failed", lastError: "repository does not exist"));
