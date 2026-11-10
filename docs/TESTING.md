@@ -46,7 +46,7 @@ Backrest plan and does not change older snapshots. Restic gets the Filters
 text unchanged as its exclude file, and the preview reads it the same way, on
 full paths (U151).
 
-E57 compares the preview and savings estimate with restic's own
+E57 compares Left out (U177) and the savings estimate with restic's own
 `backup --dry-run -vv` run directly with the same exclude file, an actual
 backup and byte-verified recovery, for three backups: character classes,
 literal brackets, ordered `!` exceptions and a bare directory name; restic's
@@ -482,7 +482,7 @@ and switching away from Mailgun sandbox restrictions. It does not send email.
 `S11_LogsViewPopulated` checks combined live output and separate saved history
 with injected activity and log signals, rather than concurrent real engines.
 
-`ConsoleLogTests` classifies real log lines (setup, progress, recap and summaries, warnings, errors, engine debug, file lines) with the near misses that must not match, and parses a run log's header, section markers, stamps and outcome block. `S96_LogConsole` drives Activity & logs through its controls with run logs in the orchestrator's format: colours from the dark-variant theme tokens, the remembered Timestamps column (read back from the saved settings), Copy of the whole log, of one section and of dragged lines, Open log file, a failed run's error list jumping to its line, several live runs with their headers, both app themes, and a 100,000-line log (only the visible rows drawn).
+`ConsoleLogTests` classifies real log lines (setup, progress, recap and summaries, warnings, errors, engine debug, file lines) with the near misses that must not match, and parses a run log's header, section markers, stamps and outcome block. `S96_LogConsole` drives Activity & logs through its controls with run logs in the orchestrator's format: colours from the dark-variant theme tokens, the remembered Timestamps column (read back from the saved settings), Copy of the whole log, of one section and of dragged lines (also past the edge, which scrolls), Open log file, a failed run's error list jumping to its line, several live runs and a restore with their headers, every accent's console tint against the warning and error colours, both app themes, a 100,000-line saved log (only the visible rows drawn) and the live view's 100,000-line cap.
 
 ### Production scale
 
@@ -884,8 +884,8 @@ older scenario comments that describe broader coverage.
 | Filter excludes everything (edge) | `E31_FilterExcludesEverything` | ✅ |
 | Tick a recommended group (no Apply) | `RecommendedFiltersTests` (`WithGroup`: only that group changes, hand-written block rules kept, copied block dropped, untick-then-tick restores the text) plus `S56_EditorModeAndApply`: pointer clicks on the caches box keep custom rules above the block across Easy/Advanced mode switches | ✅ |
 | Custom-block markers placed above generated | `S30_CustomExclusionMarkerPlacement` asserts merged strings, legacy-rule preservation and idempotence; no rendered editor in S30 | ✅ |
-| Filter simulation pane (Simulate button) | `S40_FilterSimulationPane` | ✅ |
-| Simulate, estimate and real restic agree | `E57_CustomFilterParity` (restic `--dry-run` with the same exclude file, real backup and recovery) | ✅ |
+| What these rules leave out (Filters › Advanced › Left out, U177) | `S97_WhatTheRulesLeaveOut` (pointer clicks: nothing before Run; Run; topmost rows sorted by size with their rules; total; search; By rule; a rule link selecting the line on the Rules tab; Keep this adding an exception; a second run compared with the saved rules, New and Back in; Stop while held before reading; light and dark). `LeftOutAnalyzerTests` (topmost collapsing, last-match attribution with `!` exceptions, rules matching nothing with lines, recommended ones apart, the backed-up folder left out whole, comparison with saved rules, cancel, missing folder, links not followed, Keep this rule). `CloudFileBehaviorTests` (online-only files counted apart) | ✅ |
+| Left out, estimate and real restic agree | `E57_CustomFilterParity` (restic `--dry-run` with the same exclude file, real backup and recovery) | ✅ |
 | Duplicacy rules converted once at load | `DuplicacyFilterConverterTests` (byte-for-byte against the approved texts, in their U165 form), `S90_DuplicacyRulesConvertedOnce`, E57 part 3 | ✅ |
 
 ### Settings

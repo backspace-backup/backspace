@@ -364,22 +364,51 @@ public static class FilterTranslator
     /// A trailing <c>/</c> (a folder, for display) is ignored.</summary>
     internal static (bool Excluded, string? Rule) Evaluate(IReadOnlyList<CompiledRule> rules, string path)
     {
+        var decided = Decide(rules, path);
+        return decided >= 0 && !rules[decided].Negated ? (true, rules[decided].Glob) : (false, null);
+    }
+
+    /// <summary>The index of the last rule that matches <paramref name="path"/>
+    /// (the one restic goes by: excluded unless it is a <c>!</c> exception), or
+    /// -1 when none does. Each matching rule is marked in <paramref name="matched"/>.</summary>
+    internal static int Decide(IReadOnlyList<CompiledRule> rules, string path, bool[]? matched = null)
+    {
         path = path.TrimEnd('/');
         // Restic splits "/home/me" into "/", "home", "me": a rule starting with
         // "/" must start at that top, and any other rule starts at a name.
         var absolute = path.StartsWith('/');
         var body = absolute ? path[1..] : path;
-        string? decided = null;
+        var decided = -1;
         string[]? names = null;
-        foreach (var rule in rules)
+        for (var i = 0; i < rules.Count; i++)
         {
+            var rule = rules[i];
             if (rule.Rooted && !absolute) continue;
             if (rule.Required is { } text
                 && body.IndexOf(text, rule.CaseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) < 0) continue;
             if (rule.Parts is { } parts ? !ResticMatch(parts, names ??= ResticNames(path), rule.CaseInsensitive) : !rule.Pattern.IsMatch(body)) continue;
-            decided = rule.Negated ? null : rule.Glob;
+            decided = i;
+            if (matched is not null) matched[i] = true;
         }
-        return (decided is not null, decided);
+        return decided;
+    }
+
+    /// <summary>The line (from 0) of each rule <see cref="CompileRules(string?)"/>
+    /// returns, in the same order, so a rule can be found in the text.</summary>
+    internal static List<int> RuleLines(string? text, Func<string, string?>? getenv = null)
+    {
+        var lines = new List<int>();
+        if (string.IsNullOrEmpty(text)) return lines;
+        getenv ??= Environment.GetEnvironmentVariable;
+        var all = text.TrimStart('\uFEFF').Split('\n');
+        for (var i = 0; i < all.Length; i++)
+        {
+            var line = all[i].Trim();
+            if (line.Length == 0 || line[0] == '#') continue;
+            if (Expand(line, getenv).Length == 0) continue;
+            lines.Add(i);
+        }
+        return lines;
     }
 
     /// <summary>

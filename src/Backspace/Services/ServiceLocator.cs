@@ -31,7 +31,7 @@ public static class ServiceLocator
     /// never adds a real one to the machine running it.</summary>
     public static ISignInStart SignInStart => SignInStartOverride?.Invoke() ?? Services.SignInStart.Create();
     internal static Func<ISignInStart>? SignInStartOverride { get; set; }
-    public static FilterSimulator Filters { get; private set; } = default!;
+    public static LeftOutAnalyzer LeftOut { get; private set; } = default!;
     public static ConfigMigrator Migrator { get; private set; } = default!;
     public static RestoreEngine Restore { get; private set; } = default!;
     public static ActiveRestoreRegistry ActiveRestores { get; private set; } = default!;
@@ -140,7 +140,7 @@ public static class ServiceLocator
         Maintenance = new MaintenanceCoordinator();
         Orchestrator = new BackupOrchestrator(Config, Secrets, Engine, Logs, Healthcheck, Mail, Notifier, Progress);
         Scheduler = scheduler ?? SchedulerOverride?.Invoke() ?? TaskSchedulerService.Create();
-        Filters = new FilterSimulator();
+        LeftOut = new LeftOutAnalyzer();
         Migrator = new ConfigMigrator(Config);
         Restore = new RestoreEngine(Config, Engine, Secrets);
         ActiveRestores = new ActiveRestoreRegistry();
@@ -204,7 +204,7 @@ public static class ServiceLocator
     internal static void RebuildEngineDependents()
     {
         Orchestrator    = new BackupOrchestrator(Config, Secrets, Engine, Logs, Healthcheck, Mail, Notifier, Progress);
-        // FilterSimulator walks the local filesystem directly and has no
+        // LeftOutAnalyzer walks the local filesystem directly and has no
         // engine reference, so it doesn't need a rebuild on engine swap.
         Restore         = new RestoreEngine(Config, Engine, Secrets);
         Revisions       = new RevisionBrowser(Engine, Secrets);

@@ -18,7 +18,7 @@ using Xunit;
 namespace Backspace.Tests.Scenarios.E2E;
 
 /// <summary>
-/// Simulate, the byte estimate, the real backup and restic's own dry run
+/// Left out (U177), the byte estimate, the real backup and restic's own dry run
 /// leave out the same files. Since U151 (6 November 2026) the Filters text is
 /// handed to restic unchanged as an exclude file, and Backspace reads it with
 /// restic's rules on full paths; three backups check that:
@@ -103,56 +103,49 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         ctx.Driver.Pump();
         await Check(ctx, view, destination, null, dropbox, converted.FiltersText, kept3, omitted3, converted);
 
-        // The editor shows the converted text; Simulate lists what restic keeps.
+        // The editor shows the converted text; Left out lists what restic leaves out (U177).
         var vm = new BackupEditorViewModel(converted, isNew: false);
         // Wide: the test folder's path is long.
-        var editor = new BackupEditorWindow { DataContext = vm, Width = 2600, Height = 900 };
+        var editor = new BackupEditorWindow { DataContext = vm, Width = 1600, Height = 900 };
         ctx.Driver.Show(editor);
-        var outerTabs = editor.GetVisualDescendants().OfType<TabControl>().First();
-        outerTabs.SelectedIndex = 2;
+        editor.FindControl<TabControl>("EditorTabs")!.SelectedItem = editor.FindControl<TabItem>("FiltersTab");
+        editor.FindControl<TabControl>("FiltersSubTabs")!.SelectedItem = editor.FindControl<TabItem>("AdvancedFiltersTab");
+        editor.FindControl<TabControl>("AdvancedSubTabs")!.SelectedItem = editor.FindControl<TabItem>("LeftOutTab");
         ctx.Driver.Pump();
-        var innerTabs = editor.GetVisualDescendants().OfType<TabControl>().First(t => !ReferenceEquals(t, outerTabs));
-        innerTabs.SelectedIndex = 1;
-        ctx.Driver.Pump();
-        await vm.RunFilterSimulationCommand.ExecuteAsync(null);
+        await vm.RunLeftOutCommand.ExecuteAsync(null);
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-        ctx.Driver.Pump();
-        Assert.Contains("(rule: " + top.Replace("/restic-syntax", "/Dropbox") + "/Applications/Duplicacy/*)", vm.FilterSimulationLog);
-        Assert.Contains("✓  " + Path.Combine(dropbox, "notes.txt"), vm.FilterSimulationLog);
-        Assert.Null(vm.FilterInvalidWarning);
-        ctx.Snapshot(editor, "converted-duplicacy-rules-and-simulate",
-            "Filters > Advanced for a backup whose stored Duplicacy rules were converted when the settings loaded: each rule under its # was: line, " +
-            "the recommended block with its Essentials group at the end, and Simulate listing ✓ kept files and ✗ excluded folders with the rule that decided.");
-        // The test folder's path is long: scroll both panes to the ends of the lines.
-        foreach (var box in editor.GetVisualDescendants().OfType<TextBox>().Where(t => t.Text == vm.FiltersText || t.Text == vm.FilterSimulationLog))
-            if (box.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault() is { } scroller)
-                scroller.Offset = new Avalonia.Vector(Math.Max(0, scroller.Extent.Width - scroller.Viewport.Width), scroller.Offset.Y);
         await ctx.Driver.PumpAsync(200);
-        ctx.Snapshot(editor, "converted-rules-and-simulate-line-ends",
-            "The same panes scrolled to the ends of the lines: each converted rule ends with the Dropbox folder's own path (…/Dropbox/Applications/Duplicacy/*), " +
-            "and each ✗ line of the simulation names the rule that left that folder out.");
-        ctx.Report.RecordNote("Simulate pane for the converted Dropbox rules", vm.FilterSimulationLog);
+        Assert.Contains(vm.LeftOutResult!.Items, i => i.Rule == top.Replace("/restic-syntax", "/Dropbox") + "/Applications/Duplicacy/*");
+        Assert.DoesNotContain(vm.LeftOutResult.Items, i => i.Path == Path.Combine(dropbox, "notes.txt"));
+        Assert.Null(vm.FilterInvalidWarning);
+        ctx.Snapshot(editor, "converted-duplicacy-rules-left-out",
+            "Filters > Advanced > Left out for a backup whose stored Duplicacy rules were converted when the settings loaded: each folder the converted rules leave out, " +
+            "once, with its size and the rule responsible (…/Dropbox/Applications/Duplicacy/*).");
+        ctx.Report.RecordNote("Left out for the converted Dropbox rules",
+            string.Join("\n", vm.LeftOutResult.Items.Select(i => $"{i.Path}  {i.Files} files  {i.Bytes} B  ({i.Rule})")));
         editor.Close();
 
-        // The restic-syntax rules include "/top.txt": on Windows the editor
-        // says such a rule matches nothing (U151, 7 November 2026).
+        // The restic-syntax rules include "/top.txt": on Windows Left out says
+        // such a rule matches nothing, and why (U151, moved here by U177).
         var syntaxVm = new BackupEditorViewModel(new Backup { Name = "restic syntax", SourcePaths = { syntax }, FiltersText = rules2,
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } }, isNew: false);
-        Assert.Equal("/top.txt", syntaxVm.FilterNothingWarning);
         var syntaxEditor = new BackupEditorWindow { DataContext = syntaxVm, Width = 1500, Height = 900 };
         ctx.Driver.Show(syntaxEditor);
-        var syntaxTabs = syntaxEditor.GetVisualDescendants().OfType<TabControl>().First();
-        syntaxTabs.SelectedIndex = 2;
-        ctx.Driver.Pump();
-        syntaxEditor.GetVisualDescendants().OfType<TabControl>().First(t => !ReferenceEquals(t, syntaxTabs)).SelectedIndex = 1;
+        syntaxEditor.FindControl<TabControl>("EditorTabs")!.SelectedItem = syntaxEditor.FindControl<TabItem>("FiltersTab");
+        syntaxEditor.FindControl<TabControl>("FiltersSubTabs")!.SelectedItem = syntaxEditor.FindControl<TabItem>("AdvancedFiltersTab");
+        syntaxEditor.FindControl<TabControl>("AdvancedSubTabs")!.SelectedItem = syntaxEditor.FindControl<TabItem>("LeftOutTab");
+        await syntaxVm.RunLeftOutCommand.ExecuteAsync(null);
         await ctx.Driver.PumpAsync(200);
-        ctx.Snapshot(syntaxEditor, "rule-starting-with-slash-warning",
-            "Filters > Advanced with the restic-syntax rules: a warning lists /top.txt as matching nothing on Windows and suggests ?:/ or C:/; the rule itself stays as written.");
+        var rooted = Assert.Single(syntaxVm.LeftOutResult!.MatchNothing, u => u.Rule == "/top.txt");
+        Assert.True(rooted.Rooted);
+        Assert.Contains(syntaxVm.LeftOutRows.OfType<LeftOutUnusedRow>(), r => r.Rule.Rule == "/top.txt" && r.Why.Contains("?:/", StringComparison.Ordinal));
+        ctx.Snapshot(syntaxEditor, "rule-starting-with-slash-matches-nothing",
+            "Filters > Advanced > Left out with the restic-syntax rules: under 'Rules that match nothing here', /top.txt with why (a Windows path starts with its drive) and the fix (?:/ or C:/); the rule itself stays as written.");
         syntaxEditor.Close();
 
         ctx.Report.RecordNote("Restic parity",
             "Three backups: character classes and exceptions; restic syntax (?:/, $$, $USERNAME, **, a trailing /, a plain leading /); " +
-            "and a stored Duplicacy filter converted at load. For each, Simulate, the byte estimate, restic's own dry run with the same " +
+            "and a stored Duplicacy filter converted at load. For each, Left out, the byte estimate, restic's own dry run with the same " +
             "exclude file, the real backup and the recovered files agree.");
     }
 
@@ -166,7 +159,7 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         }
     }
 
-    /// <summary>Simulate, the estimate, restic's dry run, the real backup and
+    /// <summary>Left out, the estimate, restic's dry run, the real backup and
     /// the restore keep exactly <paramref name="kept"/>.</summary>
     private async Task<Backup> Check(ScenarioContext ctx, BackupsView view, Destination destination, string? name, string source,
         string filters, string[] kept, string[] omitted, Backup? existing = null)
@@ -178,14 +171,20 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         Assert.Empty(FilterTranslator.InvalidRules(filters));
 
         string Rel(string path) => Path.GetRelativePath(source, path).Replace('\\', '/');
-        var preview = new List<SimulatedEntry>();
-        await new FilterSimulator().SimulateAsync(backup, preview.Add, CancellationToken.None);
-        var simulated = preview.Where(p => p.Included && File.Exists(p.Path)).Select(p => Rel(p.Path)).Order().ToArray();
+        // What these rules leave out (U177): every file not under a row is kept.
+        var leftOut = LeftOutAnalyzer.Analyze(new LeftOutRequest(new[] { source }, filters, null, backup.ExcludeCloudFiles),
+            new LeftOutCounters(), CancellationToken.None);
+        bool Out(string file) => leftOut.Items.Any(i => string.Equals(i.Path, file, StringComparison.OrdinalIgnoreCase)
+            || file.StartsWith(i.Path.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        var all = Directory.GetFiles(source, "*", SearchOption.AllDirectories);
+        var simulated = all.Where(f => !Out(f)).Select(Rel).Order().ToArray();
         Assert.Equal(kept.Order(), simulated);
+        Assert.Equal(all.Length - kept.Length, leftOut.TotalFiles);
 
         var savings = await new SavingsEstimator().ComputeAsync(new[] { source }, filters, CancellationToken.None);
         Assert.Equal(kept.Sum(n => new FileInfo(Path.Combine(source, n)).Length), savings.IncludedBytes);
         Assert.Equal(omitted.Sum(n => new FileInfo(Path.Combine(source, n)).Length), savings.ExcludedBytes);
+        Assert.Equal(savings.ExcludedBytes, leftOut.TotalBytes);
 
         var dryRun = ResticDryRun(ctx, source, filters).Order().ToArray();
         Assert.Equal(simulated, dryRun);

@@ -572,7 +572,7 @@ a file marked OFFLINE or `FILE_ATTRIBUTE_RECALL_ON_OPEN` as online-only, from
 the attributes Lstat already read, in the select step before the file's type is
 looked at: such files are skipped without an error and without opening their
 data. `CloudFileBehavior.IsCloudOnly(FileAttributes)` is the same rule, used by
-Count, Simulate, the estimates and the run's own listing. Keep the two equal.
+Left out, the estimates and the run's own listing. Keep the two equal.
 
 - The reparse tag is not used. A placeholder whose data was downloaded keeps
   its Cloud Files tag, and its data is local: skipping it would lose data.
@@ -633,14 +633,14 @@ Traps, each checked with restic 0.19.1:
   it unticked, restic reports each alias as an unsupported file type and a
   backup of a profile ends as a partial backup (STATUS_WARNING).
 
-Count, Simulate, the size estimates, the change listing and test-restore
+Left out (`LeftOutAnalyzer`), the size estimates, the change listing and test-restore
 completeness read the text with `FilterTranslator` on full paths, restic's
 semantics. A rule with two or more `**` is matched with restic's own steps
 (`FilterTranslator.ResticMatch`), so it leaves in exactly what restic leaves
 in: with the fixed loop bound on Windows, where Backspace's restic carries
 the upstream fix (`engine/restic/patches/0002`), and official restic's bound
 elsewhere (below). On Windows a rule starting with
-`/` matches nothing in restic (a path starts with its drive); the editor
+`/` matches nothing in restic (a path starts with its drive); Left out
 lists such rules (`RulesMatchingNothing`) without changing them. The
 environment is this process's; Backrest's restic inherits the daemon's, which
 for the background service is the service's own. E57 compares both with

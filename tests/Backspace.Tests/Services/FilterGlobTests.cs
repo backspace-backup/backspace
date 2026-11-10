@@ -5,19 +5,19 @@ using Xunit;
 namespace Backspace.Tests.Services;
 
 /// <summary>
-/// Pins <see cref="FilterSimulator.GlobToRegex"/> behaviour. A bug here
+/// Pins <see cref="FilterTranslator.GlobToRegex"/> behaviour. A bug here
 /// is a silent data leak — the user's filter rule never matches, so
 /// files they thought they'd excluded sail into the backup.
 ///
 /// The most expensive bug class is Windows-backslash glob patterns
 /// silently failing to match restic's forward-slash-internal paths.
 /// </summary>
-public class FilterSimulatorGlobTests
+public class FilterGlobTests
 {
     private static bool Match(string glob, string path)
     {
-        var pattern = FilterSimulator.GlobToRegex(glob);
-        // FilterSimulator uses IgnoreCase + Compiled at the call site;
+        var pattern = FilterTranslator.GlobToRegex(glob);
+        // The matcher uses IgnoreCase + Compiled at the call site;
         // mirror that here so the assertions reflect production
         // semantics on Windows.
         return Regex.IsMatch(path, pattern, RegexOptions.IgnoreCase);

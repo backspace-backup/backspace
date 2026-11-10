@@ -284,8 +284,6 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
 
     // ---- filters ----
     [ObservableProperty] private string _filtersText;
-    [ObservableProperty] private string _filterSimulationLog = "";
-    [ObservableProperty] private bool _simulationRunning;
 
     /// <summary>
     /// Sticky flag: true once the user manually edits FiltersText. We
@@ -307,10 +305,6 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     /// refuses the whole list, so the backup would fail (U151).</summary>
     [ObservableProperty] private string? _filterInvalidWarning;
 
-    /// <summary>Rules that start with / on Windows, which restic accepts but
-    /// never matches, one per line, or null (U151, 7 November 2026).</summary>
-    [ObservableProperty] private string? _filterNothingWarning;
-
     /// <summary>How rules are written, for this system's restic (U151).</summary>
     public static string RuleSyntaxHint => Services.Platform.PlatformInfo.IsWindows
         ? "One restic rule per line, exactly as restic reads an exclude file; # starts a comment. ?:/ is the top of any drive (?:/Users/*/AppData/Local/Temp/); a rule without it matches at any depth. * matches within one name, ** any number of folders, and the last matching rule decides: a rule starting with ! keeps what an earlier one left out. Write a $ as $$."
@@ -322,19 +316,15 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         FilterExceptionWarning = dead.Count == 0 ? null : string.Join(System.Environment.NewLine, dead);
         var invalid = FilterTranslator.InvalidRules(FiltersText);
         FilterInvalidWarning = invalid.Count == 0 ? null : string.Join(System.Environment.NewLine, invalid);
-        var nothing = FilterTranslator.RulesMatchingNothing(FiltersText);
-        FilterNothingWarning = nothing.Count == 0 ? null : string.Join(System.Environment.NewLine, nothing);
     }
 
     partial void OnFiltersTextChanged(string value)
     {
         RefreshFilterExceptionWarning();
         if (!_constructing) SyncTicksFromText();
+        OnPropertyChanged(nameof(LeftOutStale));
         RefreshRecommendedStatus();
         if (_ignoredRecommendationChanges is not null) RefreshRecommendationUpdate();
-        // The count was of the rules before this edit.
-        try { _allRulesCts?.Cancel(); } catch { }
-        AllRulesSavingsBytes = -1;
         if (_suppressFilterTouchTracking) return;
         _userTouchedFilters = true;
     }
@@ -458,45 +448,6 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
               : $"The ticked recommended exclusions leave out {HumanBytes(RecEstimatedSavingsBytes)} of this backup's folders.",
     };
 
-    /// <summary>What all of this backup's rules leave out of its folders, for
-    /// the Advanced tab (U149): -1 not counted, -2 counting.</summary>
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(AllRulesSavingsLabel))] private long _allRulesSavingsBytes = -1;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(AllRulesSavingsLabel))] private bool _allRulesTruncated;
-
-    public string AllRulesSavingsLabel => AllRulesSavingsBytes switch
-    {
-        -1 => "Not counted yet: Count measures what all these rules leave out of this backup's folders.",
-        -2 => "Counting what all these rules leave out…",
-        _ => AllRulesTruncated
-            ? $"All these rules leave out at least {HumanBytes(AllRulesSavingsBytes)} of this backup's folders (the count stopped early: the folders are too large to read in full)."
-            : $"All these rules leave out {HumanBytes(AllRulesSavingsBytes)} of this backup's folders.",
-    };
-
-    private CancellationTokenSource? _allRulesCts;
-
-    [RelayCommand]
-    private async Task CountAllRulesAsync()
-    {
-        var prev = _allRulesCts;
-        _allRulesCts = new CancellationTokenSource();
-        try { prev?.Cancel(); prev?.Dispose(); } catch { }
-        var ct = _allRulesCts.Token;
-        AllRulesSavingsBytes = -2;
-        AllRulesTruncated = false;
-        try
-        {
-            var est = await ServiceLocator.Savings.ComputeAsync(SourcePaths.ToList(), FiltersText ?? "", ct);
-            if (ct.IsCancellationRequested) return;
-            AllRulesTruncated = est.Truncated;
-            AllRulesSavingsBytes = est.ExcludedBytes;
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex)
-        {
-            _log.Warning(ex, "Counting what all rules leave out failed");
-            AllRulesSavingsBytes = -1;
-        }
-    }
     private CancellationTokenSource? _savingsCts;
 
     /// <summary>The line at the top of Filters > Recommended (U165 follow-up):
@@ -1306,69 +1257,6 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         }
     }
 
-    /// <summary>Simulate's line about online-only files (U168), or null for none.</summary>
-    internal static string? SimulationCloudNote(long cloudOnly, bool skipped)
-    {
-        if (cloudOnly <= 0) return null;
-        if (skipped) return CloudFileBehavior.SkippedPhrase(cloudOnly) + ": kept only in the cloud, the backup leaves them out without downloading them.";
-        return (cloudOnly == 1 ? "1 online-only file" : $"{cloudOnly:N0} online-only files")
-            + ": \"Skip cloud-only placeholders\" is off, so the backup reads them, which can download them.";
-    }
-
-    [RelayCommand]
-    private async Task RunFilterSimulationAsync()
-    {
-        var saved = CommitToWorking();
-        if (saved is null) return;
-
-        SimulationRunning = true;
-        FilterSimulationLog = "";
-
-        // The simulator walks the local sources directly (no engine, no
-        // destination), so there's nothing to look up here. Entries
-        // arrive on a worker thread; buffer them and republish the pane
-        // text in batches — appending to the bound string per entry is
-        // quadratic and floods the dispatcher on big trees.
-        var sb = new System.Text.StringBuilder();
-        var pending = 0;
-
-        void Flush()
-        {
-            var text = sb.ToString();
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => FilterSimulationLog = text);
-        }
-
-        void OnEntry(SimulatedEntry e)
-        {
-            sb.Append(e.Included ? "✓  " : "✗  ").Append(e.Path);
-            if (!e.Included && !string.IsNullOrEmpty(e.MatchingRule))
-                sb.Append("   (rule: ").Append(e.MatchingRule).Append(')');
-            sb.Append('\n');
-            if (++pending >= 100) { pending = 0; Flush(); }
-        }
-
-        try
-        {
-            var result = await ServiceLocator.Filters.SimulateAsync(saved, OnEntry, CancellationToken.None);
-            if (result.Entries == 0 && result.CloudOnly == 0)
-                sb.Append("No files found under the configured sources.\n");
-            else if (result.Truncated)
-                sb.Append("\n[note] Large tree: showing the first ")
-                  .Append(result.Entries.ToString("N0")).Append(" entries only.\n");
-            if (SimulationCloudNote(result.CloudOnly, saved.ExcludeCloudFiles) is { } cloudNote)
-                sb.Append("\n[note] ").Append(cloudNote).Append('\n');
-        }
-        catch (Exception ex)
-        {
-            sb.Append("\n[error] ").Append(ex.Message);
-        }
-        finally
-        {
-            Flush();
-            SimulationRunning = false;
-        }
-    }
-
     [RelayCommand]
     private async Task CreateHealthcheckAsync()
     {
@@ -2158,7 +2046,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     /// <see cref="ComputeSavingsEstimateAsync"/>.</summary>
     public void Dispose()
     {
-        foreach (var cts in new[] { _savingsCts, _suggestionsCts })
+        foreach (var cts in new[] { _savingsCts, _suggestionsCts, _leftOutCts })
         {
             try { cts?.Cancel(); } catch { }
             try { cts?.Dispose(); } catch { }

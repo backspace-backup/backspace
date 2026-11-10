@@ -155,35 +155,28 @@ public class CloudFileBehaviorTests
     }
 
     [Fact]
-    public async Task Simulate_counts_online_only_files_instead_of_listing_them()
+    public void Left_out_counts_online_only_files_apart()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var workspace = new TempWorkspace("cloud-simulate");
+        using var workspace = new TempWorkspace("cloud-left-out");
         var root = Source(workspace, out var offline);
         try
         {
-            var backup = new Backup { SourcePaths = { root }, FiltersText = "", ExcludeCloudFiles = true };
-            var entries = new List<SimulatedEntry>();
-            var result = await new FilterSimulator().SimulateAsync(backup, entries.Add, CancellationToken.None);
-            Assert.Equal(2, result.CloudOnly);
-            Assert.DoesNotContain(entries, e => e.Path.Contains("online-only", StringComparison.Ordinal));
-            Assert.Equal(2, entries.Count(e => e.Included));
-
-            backup.ExcludeCloudFiles = false;
-            entries.Clear();
-            result = await new FilterSimulator().SimulateAsync(backup, entries.Add, CancellationToken.None);
-            Assert.Equal(2, result.CloudOnly);
-            Assert.Equal(4, entries.Count(e => e.Included)); // read, as before
+            LeftOutResult Run(string rules, bool skip) => LeftOutAnalyzer.Analyze(
+                new LeftOutRequest(new[] { root }, rules, null, skip), new LeftOutCounters(), CancellationToken.None);
+            // Kept by the rules but skipped as online-only: counted apart, not rows.
+            var r = Run("", skip: true);
+            Assert.Empty(r.Items);
+            Assert.Equal(2, r.CloudOnlySkipped);
+            // A folder left out says how many of its files are online-only.
+            r = Run("cache/", skip: true);
+            var cache = Assert.Single(r.Items);
+            Assert.Equal((1L, 1L), (cache.Files, cache.CloudOnly));
+            Assert.Equal(1, r.CloudOnlySkipped);
+            // With the setting off the backup reads them: nothing skipped.
+            Assert.Equal(0, Run("", skip: false).CloudOnlySkipped);
         }
         finally { Restore(offline); }
-    }
-
-    [Fact]
-    public void Simulate_says_how_many_online_only_files_are_skipped()
-    {
-        Assert.Null(BackupEditorViewModel.SimulationCloudNote(0, skipped: true));
-        Assert.StartsWith(8_335.ToString("N0") + " online-only files skipped:", BackupEditorViewModel.SimulationCloudNote(8_335, skipped: true));
-        Assert.Contains("is off", BackupEditorViewModel.SimulationCloudNote(2, skipped: false));
     }
 
     [Fact]

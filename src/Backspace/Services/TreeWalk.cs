@@ -81,9 +81,24 @@ internal static class TreeWalk
     /// <returns>False when <paramref name="deadline"/> passed before the end.</returns>
     public static bool Walk(string root, Func<Entry, bool, bool?> visit, DateTime deadline, CancellationToken ct,
         Action<string>? unreadable = null, Action<Entry, bool>? link = null)
+        => Walk(root, false, (entry, mark) =>
+        {
+            if (entry.IsLink) { link?.Invoke(entry, mark); return (false, mark); }
+            var next = visit(entry, mark);
+            return (next is not null, next ?? false);
+        }, deadline, ct, unreadable is null ? null : (dir, _) => unreadable(dir));
+
+    /// <summary>
+    /// <see cref="Walk(string, Func{Entry, bool, bool?}, DateTime, CancellationToken, Action{string}?, Action{Entry, bool}?)"/>
+    /// with any mark: <paramref name="visit"/> sees every entry, links
+    /// included, with its folder's mark, and returns whether to go into a
+    /// folder and the mark its entries get. A link is never gone into.
+    /// </summary>
+    public static bool Walk<TMark>(string root, TMark rootMark, Func<Entry, TMark, (bool Descend, TMark Mark)> visit,
+        DateTime deadline, CancellationToken ct, Action<string, TMark>? unreadable = null)
     {
-        var queue = new ConcurrentStack<(string Dir, bool Mark)>();
-        queue.Push((root, false));
+        var queue = new ConcurrentStack<(string Dir, TMark Mark)>();
+        queue.Push((root, rootMark));
         var pending = 1;
         var finished = true;
         var workers = Math.Clamp(Environment.ProcessorCount, 2, 8);
@@ -98,15 +113,14 @@ internal static class TreeWalk
                 try
                 {
                     var entries = ListOrNull(item.Dir);
-                    if (entries is null) { unreadable?.Invoke(item.Dir); continue; }
+                    if (entries is null) { unreadable?.Invoke(item.Dir, item.Mark); continue; }
                     foreach (var entry in entries)
                     {
-                        if (entry.IsLink) { link?.Invoke(entry, item.Mark); continue; }
-                        var mark = visit(entry, item.Mark);
-                        if (entry.IsDirectory && mark is { } m)
+                        var (descend, mark) = visit(entry, item.Mark);
+                        if (entry.IsDirectory && !entry.IsLink && descend)
                         {
                             Interlocked.Increment(ref pending);
-                            queue.Push((entry.FullPath, m));
+                            queue.Push((entry.FullPath, mark));
                         }
                     }
                 }

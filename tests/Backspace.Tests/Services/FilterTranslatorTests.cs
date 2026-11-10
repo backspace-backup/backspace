@@ -26,10 +26,12 @@ public class FilterTranslatorTests
     [InlineData("a**b.txt", "C:/src/axyzb.txt", false)]
     [InlineData("cache", "C:/src/nested/cache/", false)]
     [InlineData("cache\n!cache", "C:/src/nested/cache/", true)]
-    public void PreviewAndEstimateShareOrderedGlobMatching(string filters, string path, bool included)
+    public void LeftOutAndEstimateShareOrderedGlobMatching(string filters, string path, bool included)
     {
-        var preview = Assert.Single(new FilterSimulator().Preview(filters, new[] { path }));
-        Assert.Equal(included, preview.Included);
+        var rules = FilterTranslator.CompileRules(filters);
+        var decided = FilterTranslator.Decide(rules, path);
+        Assert.Equal(included, decided < 0 || rules[decided].Negated);
+        Assert.Equal(!included, FilterTranslator.Evaluate(rules, path).Excluded);
         Assert.Equal(!included, SavingsEstimator.IsExcluded(SavingsEstimator.ParseRules(filters), path));
     }
 

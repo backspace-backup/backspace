@@ -100,17 +100,19 @@ public sealed class E30_CustomFilter : BackupE2EBase
             cfg.Backups.Add(backup);
         });
 
-        var preview = new System.Collections.Generic.List<SimulatedEntry>();
-        await new FilterSimulator().SimulateAsync(backup, preview.Add, CancellationToken.None);
-        Assert.Contains(preview, e => e.Included && e.Path.EndsWith("k00.txt"));
-        Assert.Contains(preview, e => !e.Included && e.MatchingRule == top + "/root-only.txt");
-        Assert.Contains(preview, e => e.Included && e.Path == Path.Combine(keepDir, "root-only.txt"));
+        // What these rules leave out (U177): the skip folder and the top
+        // root-only.txt, never the nested namesake.
+        var preview = LeftOutAnalyzer.Analyze(new LeftOutRequest(backup.SourcePaths, backup.FiltersText, null, backup.ExcludeCloudFiles),
+            new LeftOutCounters(), CancellationToken.None);
+        Assert.DoesNotContain(preview.Items, i => i.Path.StartsWith(keepDir, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(preview.Items, i => i.Rule == top + "/root-only.txt" && !i.IsFolder);
+        Assert.Contains(preview.Items, i => i.Path == skipDir && i.IsFolder && i.Files >= 5);
         // The same name without its anchor is restic's "skip anywhere": the
-        // ancestor named skip takes the whole source with it.
-        var floating = new System.Collections.Generic.List<SimulatedEntry>();
-        await new FilterSimulator().SimulateAsync(new Backup { SourcePaths = { sourceRoot }, FiltersText = "skip" }, floating.Add, CancellationToken.None);
-        Assert.NotEmpty(floating);
-        Assert.All(floating, e => Assert.False(e.Included, e.Path));
+        // ancestor named skip takes the whole source with it, one row.
+        var floating = LeftOutAnalyzer.Analyze(new LeftOutRequest(new[] { sourceRoot }, "skip", null, true),
+            new LeftOutCounters(), CancellationToken.None);
+        var whole = Assert.Single(floating.Items);
+        Assert.Equal(TreeWalk.Root(sourceRoot), whole.Path);
 
         var view = new BackupsView { DataContext = new BackupsViewModel() };
         var host = new Window { Width = 1100, Height = 760, Content = view };

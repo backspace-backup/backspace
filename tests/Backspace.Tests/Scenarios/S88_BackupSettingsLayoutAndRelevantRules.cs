@@ -84,21 +84,23 @@ public sealed class S88_BackupSettingsLayoutAndRelevantRules : ScenarioBase
         ctx.Snapshot(win, "recommended",
             "Filters → Recommended: 'The ticked recommended exclusions leave out 2.9 MB of this backup's folders.' (node_modules only; the person's own Videos rule is not counted here).");
 
-        // Advanced: Count measures all the rules, the person's own included.
+        // Advanced: the rules at full width; Left out measures all of them,
+        // the person's own included (U177).
         var sub = win.GetVisualDescendants().OfType<TabControl>().First(t => t.Classes.Contains("sub"));
         sub.SelectedIndex = 1;
         await ctx.Driver.PumpAsync(200);
-        Assert.StartsWith("Not counted yet", vm.AllRulesSavingsLabel);
-        Button(win, "Count")!.Command!.Execute(null);
-        Assert.True(ctx.Driver.WaitFor(() => vm.AllRulesSavingsBytes >= 0, 20_000), "The count never finished.");
-        await ctx.Driver.PumpAsync(100);
-        Assert.InRange(vm.AllRulesSavingsBytes, 5_000_000, 6_000_000);
-        Assert.StartsWith("All these rules leave out 4.8 MB", vm.AllRulesSavingsLabel);
+        var editorBox = win.FindControl<TextBox>("RulesEditor")!;
+        Assert.True(editorBox.Bounds.Width > win.Bounds.Width * 0.8, $"The rules editor is {editorBox.Bounds.Width} wide in a {win.Bounds.Width} window.");
         ctx.Snapshot(win, "advanced",
-            "Filters → Advanced: one short syntax line, Simulate and Count on one row with 'All these rules leave out 4.8 MB of this backup's folders.', and two one-line pane headers above the rules and the simulation.");
-        // Editing the rules makes the count out of date.
+            "Filters → Advanced → Rules: one short syntax line and the rules editor across the whole width; Left out is its own tab.");
+        win.FindControl<TabControl>("AdvancedSubTabs")!.SelectedItem = win.FindControl<TabItem>("LeftOutTab");
+        await vm.RunLeftOutCommand.ExecuteAsync(null);
+        await ctx.Driver.PumpAsync(100);
+        Assert.InRange(vm.LeftOutResult!.TotalBytes, 5_000_000, 6_000_000);
+        Assert.EndsWith("4.8 MB left out", vm.LeftOutTotal);
+        // Editing the rules makes the result out of date, and the tab says so.
         vm.FiltersText += "\n*.log";
-        Assert.Equal(-1, vm.AllRulesSavingsBytes);
+        Assert.True(vm.LeftOutStale);
         win.Close();
     }
 

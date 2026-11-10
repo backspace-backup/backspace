@@ -63,6 +63,41 @@ public partial class BackupEditorWindow : Window
 
     private void OnCancel(object? sender, RoutedEventArgs e) => Close(null);
 
+    // Left out's rule links (U177) select the rule on the Rules tab.
+    private BackupEditorViewModel? _ruleSource;
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        if (_ruleSource is not null) _ruleSource.RuleHighlightRequested -= ShowRule;
+        _ruleSource = DataContext as BackupEditorViewModel;
+        if (_ruleSource is not null) _ruleSource.RuleHighlightRequested += ShowRule;
+    }
+
+    /// <summary>Opens Filters › Advanced › Rules with line <paramref name="line"/>
+    /// (from 0) selected and scrolled into view.</summary>
+    internal void ShowRule(int line)
+    {
+        EditorTabs.SelectedItem = FiltersTab;
+        FiltersSubTabs.SelectedItem = AdvancedFiltersTab;
+        AdvancedSubTabs.SelectedItem = RulesTab;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            var text = RulesEditor.Text ?? "";
+            var start = 0;
+            for (var i = 0; i < line && start >= 0; i++)
+                start = text.IndexOf('\n', start) is var n and >= 0 ? n + 1 : -1;
+            if (start < 0) return;
+            var end = text.IndexOf('\n', start);
+            if (end < 0) end = text.Length;
+            if (end > start && text[end - 1] == '\r') end--;
+            RulesEditor.Focus();
+            RulesEditor.SelectionStart = start;
+            RulesEditor.SelectionEnd = end;
+            RulesEditor.ScrollToLine(line);
+        }, Avalonia.Threading.DispatcherPriority.Loaded);
+    }
+
     /// <summary>Opens Filters > Recommended at the new filter suggestions:
     /// the card's "New filter suggestions: Review" (U165).</summary>
     public void ShowFilterSuggestions()

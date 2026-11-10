@@ -800,7 +800,7 @@
                sits inside a ScrollViewer so a too-small window shows
                a scrollbar instead of silently clipping the
                cloud-folder list at the bottom.
-             • Advanced   — free-form rule text + Simulate. Lives in
+             • Advanced   — the rule text (Rules) and what it leaves out (Left out). Lives in
                its own sub-tab because it needs the full available
                vertical space for the text editor (the previous
                combined layout left the editor a sliver too short
@@ -1021,120 +1021,217 @@
             </ScrollViewer>
           </TabItem>
 
-          <!-- Advanced sub-tab. Two clearly-labelled panes side-by-side:
-               left is the rule editor (your input), right is the
-               Simulate output (read-only but selectable so the user
-               can copy a path to investigate). Header strip above
-               each pane carries the label + helper text so it's
-               obvious which side is which. -->
-          <TabItem Header="Advanced">
-            <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="0,8,0,0">
-              <TextBlock Grid.Row="0" Name="RuleSyntax"
-                         Classes="dim" FontSize="13" Margin="0,0,0,8"
-                         TextWrapping="Wrap"
-                         ToolTip.Tip="Backspace hands this text to restic unchanged, as an exclude file (--iexclude-file on Windows, where upper and lower case don't matter; --exclude-file on macOS and Linux). Everything no rule excludes is backed up."
-                         Text="{x:Static vm:BackupEditorViewModel.RuleSyntaxHint}"/>
-              <!-- One toolbar row (U150, U149): Simulate lists what each rule
-                   does; Count measures what all of them leave out. A Grid so
-                   the result wraps instead of clipping. -->
-              <Grid Grid.Row="1" ColumnDefinitions="Auto,8,Auto,12,*" Margin="0,0,0,10">
-                <Button Grid.Column="0" Classes="ghost" Content="Simulate"
-                        VerticalAlignment="Center"
-                        ToolTip.Tip="Checks your rules against the files on disk. The right pane shows what would end up in the snapshot."
-                        Command="{Binding RunFilterSimulationCommand}"/>
-                <Button Grid.Column="2" Classes="ghost" Content="Count"
-                        VerticalAlignment="Center"
-                        ToolTip.Tip="Measures how much all these rules leave out of this backup's folders."
-                        Command="{Binding CountAllRulesCommand}"/>
-                <TextBlock Grid.Column="4" Name="AllRulesSavings" VerticalAlignment="Center"
-                           TextWrapping="Wrap" FontSize="13"
-                           Foreground="{DynamicResource BS.Brush.FgSecondary}"
-                           Text="{Binding AllRulesSavingsLabel}"/>
-              </Grid>
-              <StackPanel Grid.Row="2">
-              <!-- U151: restic refuses the whole list for one invalid rule. -->
-              <Border Name="InvalidRuleWarning" Margin="0,0,0,12"
-                      IsVisible="{Binding FilterInvalidWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
-                      Background="{DynamicResource BS.Brush.WarnTint}" BorderBrush="{DynamicResource BS.Brush.Warn}"
-                      BorderThickness="1" CornerRadius="8" Padding="12,10">
-                <StackPanel Spacing="4">
-                  <TextBlock FontWeight="SemiBold" Text="restic can't read these rules, so the backup would stop. Fix or remove them:" TextWrapping="Wrap"/>
-                  <TextBlock Classes="mono" FontSize="12" Text="{Binding FilterInvalidWarning}" TextWrapping="Wrap"/>
-                </StackPanel>
-              </Border>
-              <!-- U151: on Windows a path starts with its drive, so a rule starting with / never matches. -->
-              <Border Name="RootlessRuleWarning" Margin="0,0,0,12"
-                      IsVisible="{Binding FilterNothingWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
-                      Background="{DynamicResource BS.Brush.WarnTint}" BorderBrush="{DynamicResource BS.Brush.Warn}"
-                      BorderThickness="1" CornerRadius="8" Padding="12,10">
-                <StackPanel Spacing="4">
-                  <TextBlock FontWeight="SemiBold" Text="These rules match nothing on Windows" TextWrapping="Wrap"/>
-                  <TextBlock Text="A Windows path starts with its drive, so restic never matches a rule starting with /. Write ?:/ for the top of any drive, or C:/ for one drive." TextWrapping="Wrap"/>
-                  <TextBlock Classes="mono" FontSize="12" Text="{Binding FilterNothingWarning}" TextWrapping="Wrap"/>
-                </StackPanel>
-              </Border>
-              <!-- U127: an exception below a folder excluded whole keeps nothing. -->
-              <Border Name="DeadExceptionWarning" Margin="0,0,0,12"
-                      IsVisible="{Binding FilterExceptionWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
-                      Background="{DynamicResource BS.Brush.WarnTint}" BorderBrush="{DynamicResource BS.Brush.Warn}"
-                      BorderThickness="1" CornerRadius="8" Padding="12,10">
-                <StackPanel Spacing="4">
-                  <TextBlock FontWeight="SemiBold" Text="An exception in these rules keeps nothing" TextWrapping="Wrap"/>
-                  <TextBlock Text="{Binding FilterExceptionWarning}" TextWrapping="Wrap"/>
-                </StackPanel>
-              </Border>
-              </StackPanel>
-              <Grid Grid.Row="3" ColumnDefinitions="*,16,*" RowDefinitions="Auto,*">
-                <!-- LEFT header. -->
-                <TextBlock Grid.Column="0" Grid.Row="0" Margin="0,0,0,4" Classes="label-caps"
-                           Text="RULES · SAVED WITH THE BACKUP"/>
-                <!-- LEFT pane. -->
-                <Border Grid.Column="0" Grid.Row="1"
-                        BorderBrush="{DynamicResource BS.Brush.BorderSubtle}"
-                        BorderThickness="1"
-                        CornerRadius="{DynamicResource BS.CornerRadiusSmall}">
-                  <TextBox Text="{Binding FiltersText}"
-                           Classes="pane"
-                           BorderThickness="0"
-                           Background="Transparent"
-                           FontFamily="{DynamicResource BS.Font.Mono}"
-                           FontSize="12"
-                           AcceptsReturn="True"
-                           AcceptsTab="True"
-                           TextWrapping="NoWrap"
-                           ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                           ScrollViewer.VerticalScrollBarVisibility="Visible"/>
-                </Border>
+          <!-- Advanced sub-tab (U177, 10 November 2026): the rules at full
+               width on Rules; what they leave out on Left out, shown only
+               once the person runs it. -->
+          <TabItem Header="Advanced" Name="AdvancedFiltersTab">
+            <TabControl Classes="sub" Margin="0,4,0,0" Padding="0" Name="AdvancedSubTabs">
+              <TabItem Header="Rules" Name="RulesTab">
+                <Grid RowDefinitions="Auto,Auto,*" Margin="0,8,0,0">
+                  <TextBlock Grid.Row="0" Name="RuleSyntax"
+                             Classes="dim" FontSize="13" Margin="0,0,0,8"
+                             TextWrapping="Wrap"
+                             ToolTip.Tip="Backspace hands this text to restic unchanged, as an exclude file (--iexclude-file on Windows, where upper and lower case don't matter; --exclude-file on macOS and Linux). Everything no rule excludes is backed up."
+                             Text="{x:Static vm:BackupEditorViewModel.RuleSyntaxHint}"/>
+                  <StackPanel Grid.Row="1">
+                    <!-- U151: restic refuses the whole list for one invalid rule. -->
+                    <Border Name="InvalidRuleWarning" Margin="0,0,0,12"
+                            IsVisible="{Binding FilterInvalidWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            Background="{DynamicResource BS.Brush.WarnTint}" BorderBrush="{DynamicResource BS.Brush.Warn}"
+                            BorderThickness="1" CornerRadius="8" Padding="12,10">
+                      <StackPanel Spacing="4">
+                        <TextBlock FontWeight="SemiBold" Text="restic can't read these rules, so the backup would stop. Fix or remove them:" TextWrapping="Wrap"/>
+                        <TextBlock Classes="mono" FontSize="12" Text="{Binding FilterInvalidWarning}" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </Border>
+                    <!-- U127: an exception below a folder excluded whole keeps nothing. -->
+                    <Border Name="DeadExceptionWarning" Margin="0,0,0,12"
+                            IsVisible="{Binding FilterExceptionWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            Background="{DynamicResource BS.Brush.WarnTint}" BorderBrush="{DynamicResource BS.Brush.Warn}"
+                            BorderThickness="1" CornerRadius="8" Padding="12,10">
+                      <StackPanel Spacing="4">
+                        <TextBlock FontWeight="SemiBold" Text="An exception in these rules keeps nothing" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding FilterExceptionWarning}" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </Border>
+                  </StackPanel>
+                  <Border Grid.Row="2"
+                          BorderBrush="{DynamicResource BS.Brush.BorderSubtle}"
+                          BorderThickness="1"
+                          CornerRadius="{DynamicResource BS.CornerRadiusSmall}">
+                    <TextBox Text="{Binding FiltersText}" Name="RulesEditor"
+                             Classes="pane"
+                             BorderThickness="0"
+                             Background="Transparent"
+                             FontFamily="{DynamicResource BS.Font.Mono}"
+                             FontSize="12"
+                             AcceptsReturn="True"
+                             AcceptsTab="True"
+                             TextWrapping="NoWrap"
+                             AutomationProperties.Name="Rules, saved with the backup"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             ScrollViewer.VerticalScrollBarVisibility="Visible"/>
+                  </Border>
+                </Grid>
+              </TabItem>
 
-                <!-- RIGHT header. -->
-                <TextBlock Grid.Column="2" Grid.Row="0" Margin="0,0,0,4" Classes="label-caps"
-                           Text="SIMULATION · READ-ONLY, SELECTABLE"/>
-                <!-- RIGHT pane. ReadOnly TextBox (not TextBlock) so the
-                     user can select and copy individual paths from the
-                     output — the prior TextBlock made the right side
-                     look like a results pane but you couldn't actually
-                     pull a path out of it. Distinct background so it
-                     reads as "output" at a glance. -->
-                <Border Grid.Column="2" Grid.Row="1"
-                        Background="{DynamicResource BS.Brush.BgSurface}"
-                        BorderBrush="{DynamicResource BS.Brush.BorderSubtle}"
-                        BorderThickness="1"
-                        CornerRadius="{DynamicResource BS.CornerRadiusSmall}">
-                  <TextBox Text="{Binding FilterSimulationLog}"
-                           Classes="pane"
-                           IsReadOnly="True"
-                           BorderThickness="0"
-                           Background="Transparent"
-                           FontFamily="{DynamicResource BS.Font.Mono}"
-                           FontSize="12"
-                           AcceptsReturn="True"
-                           TextWrapping="NoWrap"
-                           Foreground="{DynamicResource BS.Brush.FgSecondary}"
-                           ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                           ScrollViewer.VerticalScrollBarVisibility="Visible"/>
-                </Border>
-              </Grid>
-            </Grid>
+              <!-- What these rules leave out (U177): one row per topmost item,
+                   sorted by size, with the rule responsible. -->
+              <TabItem Header="Left out" Name="LeftOutTab">
+                <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="0,8,0,0">
+                  <Grid Grid.Row="0" ColumnDefinitions="Auto,12,*" Margin="0,0,0,10">
+                    <Panel Grid.Column="0">
+                      <Button Classes="primary" Content="Run" Name="RunLeftOut" MinWidth="88"
+                              IsVisible="{Binding LeftOutIdle}"
+                              ToolTip.Tip="Reads this backup's folders with these rules, as the backup will. Nothing is read until you run it."
+                              Command="{Binding RunLeftOutCommand}"/>
+                      <Button Classes="ghost" Content="Stop" Name="CancelLeftOut" MinWidth="88"
+                              ToolTip.Tip="Stops reading. Nothing changes in the rules."
+                              IsVisible="{Binding LeftOutRunning}"
+                              Command="{Binding CancelLeftOutCommand}"/>
+                    </Panel>
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
+                      <TextBlock Classes="section-title" FontSize="15" Margin="0" Text="What these rules leave out"/>
+                      <TextBlock FontSize="12" TextWrapping="Wrap" Name="LeftOutProgressLine"
+                                 Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                                 IsVisible="{Binding LeftOutRunning}" Text="{Binding LeftOutProgress}"/>
+                      <TextBlock FontSize="12" TextWrapping="Wrap"
+                                 Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                                 IsVisible="{Binding LeftOutIdle}"
+                                 Text="Each folder left out is listed once, with what it holds; a file alone only when its folder is kept. Click a rule to see it on the Rules tab."/>
+                    </StackPanel>
+                  </Grid>
+
+                  <!-- The rules changed after the run. -->
+                  <Border Grid.Row="1" Name="LeftOutStaleNotice" CornerRadius="10" Padding="12,8" Margin="0,0,0,10"
+                          Background="{DynamicResource BS.Brush.WarnTint}" IsVisible="{Binding LeftOutStale}">
+                    <Grid ColumnDefinitions="Auto,8,*">
+                      <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{DynamicResource BS.Brush.Warn}"/>
+                      <TextBlock Grid.Column="2" FontSize="13" TextWrapping="Wrap" VerticalAlignment="Center"
+                                 Text="The rules changed since this run. Run it again to see what they leave out now."/>
+                    </Grid>
+                  </Border>
+
+                  <Grid Grid.Row="2" ColumnDefinitions="*,12,Auto,8,Auto" Margin="0,0,0,8" IsVisible="{Binding HasLeftOutResult}">
+                    <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                      <TextBlock Name="LeftOutTotal" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding LeftOutTotal}"/>
+                      <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}" Text="{Binding LeftOutDetail}"/>
+                    </StackPanel>
+                    <TextBox Grid.Column="2" Name="LeftOutSearch" Width="220" VerticalAlignment="Center"
+                             Watermark="Search paths and rules" Text="{Binding LeftOutSearch}"/>
+                    <StackPanel Grid.Column="4" Orientation="Horizontal" Height="32" VerticalAlignment="Center">
+                      <Button Classes="toggle-segment toggle-segment-left" Content="By item" Name="LeftOutByItemButton"
+                              Classes.toggle-segment-active="{Binding !LeftOutByRule}"
+                              Command="{Binding ShowLeftOutByItemCommand}"/>
+                      <Button Classes="toggle-segment toggle-segment-right" Content="By rule" Name="LeftOutByRuleButton"
+                              Classes.toggle-segment-active="{Binding LeftOutByRule}"
+                              Command="{Binding ShowLeftOutByRuleCommand}"/>
+                    </StackPanel>
+                  </Grid>
+
+                  <Panel Grid.Row="3">
+                    <Border IsVisible="{Binding LeftOutEmptyState}" Classes="surface" VerticalAlignment="Top" Name="LeftOutEmpty">
+                      <StackPanel Spacing="6">
+                        <TextBlock FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" Text="See what these rules leave out before the backup does."/>
+                        <TextBlock FontSize="13" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                                   Text="Run reads this backup's folders with the rules as they are on the Rules tab, the way the backup reads them. It can take a while on a whole drive; you can stop it. Folders it can't read and online-only files are counted apart."/>
+                      </StackPanel>
+                    </Border>
+                    <Border IsVisible="{Binding LeftOutMessage, Converter={x:Static ObjectConverters.IsNotNull}}" Classes="surface" VerticalAlignment="Top">
+                      <TextBlock FontSize="13" TextWrapping="Wrap" Name="LeftOutMessageText" Text="{Binding LeftOutMessage}"/>
+                    </Border>
+                    <ListBox Name="LeftOutList" ItemsSource="{Binding LeftOutRows}" IsVisible="{Binding HasLeftOutResult}"
+                             Background="{DynamicResource BS.Brush.BgSurface}" CornerRadius="10" Padding="4"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                      <ListBox.Styles>
+                        <Style Selector="ListBoxItem">
+                          <Setter Property="Padding" Value="12,6"/>
+                        </Style>
+                      </ListBox.Styles>
+                      <ListBox.DataTemplates>
+                        <DataTemplate DataType="vm:LeftOutHeading">
+                          <StackPanel Spacing="2" Margin="0,10,0,2">
+                            <TextBlock IsVisible="{Binding HasTitle}" Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock IsVisible="{Binding HasNote}" Text="{Binding Note}" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
+                          </StackPanel>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:LeftOutRow">
+                          <Grid ColumnDefinitions="*,16,Auto,16,Auto" RowDefinitions="Auto,Auto">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Classes="mono" FontSize="12" Text="{Binding Shown}"
+                                       TextTrimming="PrefixCharacterEllipsis" ToolTip.Tip="{Binding Path}"/>
+                            <WrapPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal">
+                              <Border IsVisible="{Binding IsNew}" CornerRadius="999" Padding="7,0" Margin="0,1,6,1"
+                                      Background="{DynamicResource BS.Brush.WarnTint}">
+                                <TextBlock Text="New with your edits" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource BS.Brush.WarnTintFg}"/>
+                              </Border>
+                              <TextBlock FontSize="12" Foreground="{DynamicResource BS.Brush.FgSecondary}" Text="{Binding Kind}"/>
+                              <TextBlock FontSize="12" Foreground="{DynamicResource BS.Brush.FgSecondary}" Text=" · left out by "/>
+                              <Button Classes="link-text" FontWeight="Normal" Name="RuleLink"
+                                      ToolTip.Tip="Show this rule on the Rules tab"
+                                      Command="{Binding $parent[ListBox].((vm:BackupEditorViewModel)DataContext).HighlightRuleCommand}"
+                                      CommandParameter="{Binding Rule}">
+                                <TextBlock FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12" Text="{Binding Rule.Rule}" Foreground="{DynamicResource BS.Brush.Accent}"/>
+                              </Button>
+                            </WrapPanel>
+                            <TextBlock Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" VerticalAlignment="Center"
+                                       FontSize="13" FontWeight="SemiBold" Text="{Binding Size}"/>
+                            <Panel Grid.Row="0" Grid.RowSpan="2" Grid.Column="4" VerticalAlignment="Center" MinWidth="96">
+                              <Button Classes="ghost" Content="Keep this" IsVisible="{Binding CanKeep}" Padding="10,3" FontSize="12"
+                                      ToolTip.Tip="Adds an exception (!) for this item at the end of the rules, so the backup keeps it. Save keeps the change."
+                                      Command="{Binding $parent[ListBox].((vm:BackupEditorViewModel)DataContext).KeepThisCommand}"
+                                      CommandParameter="{Binding}"/>
+                              <TextBlock IsVisible="{Binding Kept}" FontSize="12" TextWrapping="Wrap" MaxWidth="150"
+                                         Foreground="{DynamicResource BS.Brush.SuccessTintFg}"
+                                         Text="Kept by a new exception; Save keeps it"/>
+                            </Panel>
+                          </Grid>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:LeftOutRuleRow">
+                          <Grid ColumnDefinitions="*,16,Auto">
+                            <StackPanel Grid.Column="0" Spacing="1">
+                              <Button Classes="link-text" FontWeight="Normal" HorizontalAlignment="Left"
+                                      ToolTip.Tip="Show this rule on the Rules tab"
+                                      Command="{Binding $parent[ListBox].((vm:BackupEditorViewModel)DataContext).HighlightRuleCommand}"
+                                      CommandParameter="{Binding Rule}">
+                                <TextBlock FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12" Text="{Binding Rule.Rule}" Foreground="{DynamicResource BS.Brush.Accent}"/>
+                              </Button>
+                              <TextBlock FontSize="12" Foreground="{DynamicResource BS.Brush.FgSecondary}" Text="{Binding Detail}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Text="{Binding Size}"/>
+                          </Grid>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:LeftOutBackInRow">
+                          <Grid ColumnDefinitions="*,16,Auto">
+                            <StackPanel Grid.Column="0" Spacing="1">
+                              <TextBlock Classes="mono" FontSize="12" Text="{Binding Shown}" TextTrimming="PrefixCharacterEllipsis" ToolTip.Tip="{Binding Path}"/>
+                              <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}" Text="{Binding Kind}"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource BS.Brush.SuccessTintFg}" Text="{Binding Size}"/>
+                          </Grid>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:LeftOutUnusedRow">
+                          <StackPanel Spacing="1">
+                            <Button Classes="link-text" FontWeight="Normal" HorizontalAlignment="Left"
+                                    ToolTip.Tip="Show this rule on the Rules tab"
+                                    Command="{Binding $parent[ListBox].((vm:BackupEditorViewModel)DataContext).HighlightRuleCommand}"
+                                    CommandParameter="{Binding Rule}">
+                              <TextBlock FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12" Text="{Binding Rule.Rule}" Foreground="{DynamicResource BS.Brush.Accent}"/>
+                            </Button>
+                            <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}" Text="{Binding Why}"/>
+                          </StackPanel>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:LeftOutPathRow">
+                          <TextBlock Classes="mono" FontSize="12" Text="{Binding Shown}" TextTrimming="PrefixCharacterEllipsis" ToolTip.Tip="{Binding Path}"/>
+                        </DataTemplate>
+                      </ListBox.DataTemplates>
+                    </ListBox>
+                  </Panel>
+                </Grid>
+              </TabItem>
+            </TabControl>
           </TabItem>
         </TabControl>
       </TabItem>

@@ -292,8 +292,9 @@ A backup's filters are a restic exclude file, and Backspace hands that text to
 restic as it is: `restic backup --iexclude-file` on Windows (upper and lower
 case don't matter) and `--exclude-file` on macOS and Linux. Nothing is
 rewritten on the way, so the same file gives the same backup with restic
-alone. **Filters → Advanced** shows the text, with a simulation pane that
-lists what would be kept or left out before you run.
+alone. **Filters → Advanced → Rules** shows the text across the whole window;
+**Left out**, the tab beside it, lists what the rules leave out before you run
+(see [What these rules leave out](#what-these-rules-leave-out)).
 
 How restic reads the rules, one per line (`#` starts a comment):
 
@@ -351,9 +352,39 @@ its group's part of the recommended block, below your own rules, with the
 group's rules from the top of the drive first, then those that match at any
 depth, each sorted by path; the other groups, and any rule you wrote into the
 block, stay as they are. **Estimate savings** reads the backup's folders and
-says how much the ticked recommendations leave out of them. On **Filters →
-Advanced**, **Count** says how much all the rules leave out, your own
-included, and **Simulate** lists what each rule keeps or leaves out.
+says how much the ticked recommendations leave out of them; **Filters →
+Advanced → Left out** shows what all the rules leave out, your own included.
+
+### What these rules leave out
+
+**Filters → Advanced → Left out** shows nothing until you click **Run**. It
+then reads the backup's folders with the rules as they are on the Rules tab,
+the way the backup reads them (the same matching as restic: full paths, the
+last matching rule decides, an excluded folder is never looked inside), with a
+progress line; **Stop** ends it. The result:
+
+- One row per topmost item left out, largest first: a folder once, with how
+  many files it holds and their size, never its contents; a file alone only
+  when its folder is kept. Each row names the rule responsible (the last one
+  that matched). Click the rule to see it selected on the **Rules** tab.
+- A total ("5 items (16 files), 5.3 MB left out") and a search box for paths
+  and rules. There is no cap: folders are collapsed, so even a whole drive
+  gives a short list.
+- **By rule** groups the same result per rule, with what each leaves out.
+- **Keep this** adds an exception (`!` and the item's full path) at the end of
+  the rules, so the backup keeps it whatever rule left it out. Like any edit,
+  Save keeps it.
+- While the rules differ from the saved ones, a run compares the two: rows
+  your edits newly leave out are marked **New with your edits**, and **Back in
+  the backup with your edits** lists what the saved rules leave out and the
+  edited ones keep.
+- **Rules that match nothing here** lists your rules that leave nothing out of
+  these folders; a rule starting with `/` on Windows says why it never can.
+  Recommended rules that match nothing today are counted in one line.
+- Folders that couldn't be read are listed apart, and online-only files that
+  the backup skips are counted apart. Links are never followed.
+
+When the rules change after a run, an amber line says so; run it again.
 
 In Easy mode the same lists are one box, **Skip junk for me**: ticked, the
 backup gets the Essentials, the app caches and, for a whole drive, Windows'
@@ -389,8 +420,8 @@ options) leaves those files out of the backup without opening them, so nothing
 is downloaded. Backspace recognises them by the marks Windows puts on such a
 file (offline, or downloaded when opened or read). They are not errors and do
 not turn the backup into a warning; the run's log and the **Last backup** hover
-say how many were left out ("8,335 online-only files skipped"), and **Simulate**
-and **Count** say so too. A file that is skipped this way cannot be restored
+say how many were left out ("8,335 online-only files skipped"), and **Left out**
+says so too. A file that is skipped this way cannot be restored
 from this backup. Make it available offline in the cloud app if you want it
 backed up.
 
@@ -498,7 +529,7 @@ every few seconds (percent, bytes and files done, data sent and its speed,
 and an estimate of the time left once the files are counted), then a closing recap: files checked, new, changed and
 unchanged, data added to the storage, duration and the snapshot made.
 Lines are coloured by what they are: setup lines dim, progress lines muted
-with their percentage bright, warnings amber, errors red, and the recap and
+with their percentage bright, warnings and retries amber, errors red, and the recap and
 summaries (online-only files skipped, what a cleanup removed) in the accent
 colour (also semibold, so it stands out whatever the accent); file paths are
 a shade brighter. Where a backup, a check, a cleanup or a restore
@@ -507,8 +538,9 @@ ran on the right) keep several runs apart, and the header's **Copy**
 copies just that part. Tick **Timestamps** to show the time each line was
 written in a narrow column on the left; Backspace remembers the choice (logs
 written by earlier versions did not record times, so their column stays
-empty). Drag over lines to select them, or press Ctrl+A, then Ctrl+C to copy
-them; **Copy** in the console's header copies the whole log as shown.
+empty). Drag over lines to select them (dragging past the edge scrolls on),
+or press Ctrl+A, then Ctrl+C to copy them; Escape clears the selection.
+**Copy** in the console's header copies the whole log as shown.
 **Open log file** opens a saved run's log in your text editor. A failed run
 lists its errors above its log: click one to scroll to its line. Long logs
 scroll smoothly, since only the lines on screen are drawn.

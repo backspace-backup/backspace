@@ -867,7 +867,7 @@ only those files has no vault, and the first save asks for a password.
   (`FilterTranslator.ExcludeFileFlag`); the plan's `excludes`/`iexcludes`
   stay empty. Never rewrite, bind or append rules on the way: restic expands
   `$NAME` in a file but not in an argument, and the owner's rules must work
-  with restic alone. Count, Simulate, the size estimates, the change listing
+  with restic alone. Left out, the size estimates, the change listing
   and test-restore completeness read the same text with
   `FilterTranslator.CompileRules`/`Evaluate`, restic's matching on full paths
   (`C:/…`, `?:` for any drive, last match wins); E57 checks them against
@@ -907,6 +907,25 @@ only those files has no vault, and the first save asks for a password.
   `FiltersUnsaved` (text, hidden suggestions or automatic updates differ from
   the stored backup) drives the amber line on the page and the "Filter changes
   not saved yet" note beside Save. Save is the only commit point.
+- Filters › Advanced is two tabs (U177): Rules, the text at full width, and
+  Left out, filled only by Run. `LeftOutAnalyzer` walks the sources with
+  `TreeWalk.Walk<TMark>` (parallel, links handed to the visitor and never
+  entered, no deadline, cancellable) and decides each entry with
+  `FilterTranslator.Decide` (the last matching rule's index, every matching
+  rule marked), the backed-up folder included. A folder left out becomes one
+  `LeftOutItem` and its subtree is only counted (files, bytes, online-only,
+  unreadable folders); a file is a row only when its folder is kept. Rules
+  never marked are `UnusedRule`s (`RulesMatchingNothing` says which can never
+  match on Windows; rules between the recommended markers are counted apart).
+  With the saved text differing, the same walk evaluates the saved rules too:
+  rows they don't leave out are `IsNew`, and what they leave out but the
+  edited rules keep is a `BackInItem`. The view model's partial
+  (`BackupEditorViewModel.LeftOut.cs`) builds the flat row list (items or
+  per-rule totals, back in, match nothing, unreadable) for one virtualised
+  ListBox, the search (paths below the backed-up folder, rules), Keep this
+  (`KeepRule`: `!` plus the escaped full path, appended last so it wins) and
+  the rule links (`RuleHighlightRequested`, which the window turns into a
+  selection on the Rules tab).
 - Exclude this folder (U178), in What this backup added
   (`RunChangesViewModel`): `FolderExclusion.Rule` writes the opened folder as
   `RecommendedFilters.FolderLine` writes a cloud folder (`?:/…/`, glob
