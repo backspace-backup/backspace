@@ -1156,8 +1156,36 @@
                                        Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
                           </StackPanel>
                         </DataTemplate>
-                        <DataTemplate DataType="vm:LeftOutRow">
+                        <DataTemplate DataType="vm:LeftOutGroupRow">
                           <Grid ColumnDefinitions="*,16,Auto,16,Auto" RowDefinitions="Auto,Auto">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Classes="mono" FontSize="12" Text="{Binding Shown}"
+                                       TextTrimming="PrefixCharacterEllipsis" ToolTip.Tip="{Binding Parent}"/>
+                            <WrapPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal">
+                              <Border IsVisible="{Binding IsNew}" CornerRadius="999" Padding="7,0" Margin="0,1,6,1"
+                                      Background="{DynamicResource BS.Brush.WarnTint}">
+                                <TextBlock Text="New with your edits" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource BS.Brush.WarnTintFg}"/>
+                              </Border>
+                              <TextBlock FontSize="12" Foreground="{DynamicResource BS.Brush.FgSecondary}" Text="{Binding Kind}"/>
+                              <TextBlock FontSize="12" Foreground="{DynamicResource BS.Brush.FgSecondary}" Text=" · left out by "/>
+                              <Button Classes="link-text" FontWeight="Normal"
+                                      ToolTip.Tip="Show this rule on the Rules tab"
+                                      Command="{Binding $parent[ListBox].((vm:BackupEditorViewModel)DataContext).HighlightRuleCommand}"
+                                      CommandParameter="{Binding Rule}">
+                                <TextBlock FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12" Text="{Binding Rule.Rule}" Foreground="{DynamicResource BS.Brush.Accent}"/>
+                              </Button>
+                            </WrapPanel>
+                            <TextBlock Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" VerticalAlignment="Center"
+                                       FontSize="13" FontWeight="SemiBold" Text="{Binding Size}"/>
+                            <Panel Grid.Row="0" Grid.RowSpan="2" Grid.Column="4" VerticalAlignment="Center" MinWidth="96">
+                              <Button Classes="ghost" Name="GroupToggle" Content="{Binding ToggleText}" Padding="10,3" FontSize="12"
+                                      ToolTip.Tip="List these items one by one, each with Keep this"
+                                      Command="{Binding ToggleCommand}"/>
+                            </Panel>
+                          </Grid>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:LeftOutRow">
+                          <Grid ColumnDefinitions="*,16,Auto,16,Auto" RowDefinitions="Auto,Auto" Margin="{Binding Indent}">
                             <TextBlock Grid.Row="0" Grid.Column="0" Classes="mono" FontSize="12" Text="{Binding Shown}"
                                        TextTrimming="PrefixCharacterEllipsis" ToolTip.Tip="{Binding Path}"/>
                             <WrapPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal">
