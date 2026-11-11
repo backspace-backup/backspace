@@ -56,6 +56,45 @@ public sealed class CloudNotificationRepairTests
         Assert.NotNull(result); Assert.Equal(result.PingUrl, backup.HealthcheckPingUrl);
     }
 
+    /// <summary>U187: Healthchecks turned on in Settings with a key, but no
+    /// backup had a check, so nothing was ever pinged. Each backup without
+    /// one now gets it; one with a check, or Healthchecks off, is left alone.</summary>
+    [Fact]
+    public async Task Healthchecks_on_gives_each_backup_without_a_check_its_check()
+    {
+        using var setup = new Setup();
+        var existing = setup.AddBackup();
+        var bare = new Backup { Name = "no-check-yet", CreatedUtc = DateTime.UtcNow, SkipNotificationGraceDays = 7 };
+        setup.Config.Update(c => c.Backups.Add(bare));
+        setup.Secrets.Set("hc-key", "synthetic-key");
+        var asked = new List<string>();
+        using var client = new HttpClient(new Handler(async (request, ct) =>
+        {
+            using var body = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            asked.Add(body.RootElement.GetProperty("name").GetString()!);
+            return Json("{\"ping_url\":\"https://hc-ping.com/11111111-2222-3333-4444-555555555555\"}");
+        }));
+        var service = new HealthcheckService(setup.Config, setup.Secrets, client);
+
+        // Off, or on without a key: nothing is created.
+        setup.Config.Update(c => { c.Monitoring.HealthchecksEnabled = false; c.Monitoring.HealthchecksApiKeyRef = "hc-key"; });
+        Assert.Equal(0, await service.EnsureChecksAsync(default));
+        setup.Config.Update(c => { c.Monitoring.HealthchecksEnabled = true; c.Monitoring.HealthchecksApiKeyRef = null; });
+        Assert.Equal(0, await service.EnsureChecksAsync(default));
+        Assert.Empty(asked);
+
+        setup.Config.Update(c => c.Monitoring.HealthchecksApiKeyRef = "hc-key");
+        Assert.Equal(1, await service.EnsureChecksAsync(default));
+        Assert.Equal(new[] { "no-check-yet" }, asked);
+        var saved = setup.Config.Current.Backups.Single(b => b.Id == bare.Id);
+        Assert.Equal("https://hc-ping.com/11111111-2222-3333-4444-555555555555", saved.HealthcheckPingUrl);
+        Assert.Equal("11111111-2222-3333-4444-555555555555", saved.HealthcheckId);
+        Assert.Equal(existing.HealthcheckPingUrl, setup.Config.Current.Backups.Single(b => b.Id == existing.Id).HealthcheckPingUrl);
+        // Run again: every backup has its check, nothing is asked.
+        Assert.Equal(0, await service.EnsureChecksAsync(default));
+        Assert.Single(asked);
+    }
+
     [Fact]
     public async Task Real_orchestrator_expired_grace_keeps_unmounted_drive_skipped()
     {

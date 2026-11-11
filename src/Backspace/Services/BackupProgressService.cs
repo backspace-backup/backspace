@@ -493,7 +493,16 @@ public sealed class BackupProgressService
     public void ReportActivity(string backupId, string text)
     {
         var p = _state.GetOrAdd(backupId, _ => new BackupProgress(backupId));
-        lock (p.Gate) p.Activity = text;
+        bool idle;
+        lock (p.Gate)
+        {
+            p.Activity = text;
+            // A check named after its backup ended keeps the entry: the
+            // backup's pending purge would otherwise drop the name mid-check.
+            if (text.Length > 0) p.PurgeGeneration++;
+            idle = text.Length == 0 && !p.Sources.Values.Any(s => s.IsRunning);
+        }
+        if (idle) { ReportRunFinished(backupId); return; }
         try { Updated?.Invoke(backupId); } catch (Exception ex) { _log.Warning(ex, "A progress listener failed"); }
     }
 

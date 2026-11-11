@@ -43,6 +43,12 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     // inside their OnChanged partials (live-theme swaps need
     // immediate effect); the rest are covered here.
     partial void OnHealthchecksEnabledChanged(bool value)     => ScheduleAutoSave();
+
+    private static async Task EnsureHealthchecksAsync()
+    {
+        try { await ServiceLocator.Healthcheck.EnsureChecksAsync(System.Threading.CancellationToken.None); }
+        catch (Exception ex) { AppLogger.For<SettingsViewModel>().Warning(ex, "Could not create the Healthchecks.io checks"); }
+    }
     partial void OnHealthchecksApiKeyChanged(string value)    => ScheduleAutoSave();
     partial void OnHealthchecksBaseUrlChanged(string value)   => ScheduleAutoSave();
     partial void OnMinimizeToTrayOnCloseChanged(bool value)
@@ -973,6 +979,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
             // manual click would persist forever even after the next
             // auto-save fixed the underlying issue.
             _savedKeys = keys;
+            // Healthchecks on with a key: each backup gets its check (U187).
+            if (HealthchecksEnabled) _ = EnsureHealthchecksAsync();
             if (!silent) SaveStatus = "Saved.";
             else if (!string.IsNullOrEmpty(SaveStatus)) SaveStatus = "";
         }

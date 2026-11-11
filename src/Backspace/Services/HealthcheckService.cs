@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -142,6 +143,36 @@ public sealed class HealthcheckService
             _log.Warning(ex, "Healthchecks.io upsert failed for {Backup}", backup.Name);
             return null;
         }
+    }
+
+    /// <summary>With Healthchecks on and an API key saved, every backup
+    /// without a check gets one, so its runs ping it. Before, a check was
+    /// made only by the backup editor's Create button, and turning
+    /// Healthchecks on in Settings sent nothing (U187). The upsert is
+    /// matched by name and tags, so running it again reuses the same check.
+    /// Returns how many backups got a check.</summary>
+    public async Task<int> EnsureChecksAsync(CancellationToken ct)
+    {
+        var cfg = _config.Current;
+        if (!cfg.Monitoring.HealthchecksEnabled || !TryGetApiKey(out _)) return 0;
+        var made = 0;
+        foreach (var backup in cfg.Backups.Where(b => string.IsNullOrWhiteSpace(b.HealthcheckPingUrl) && string.IsNullOrWhiteSpace(b.HealthcheckId)).ToList())
+        {
+            if (ct.IsCancellationRequested) break;
+            // The upsert writes the ping address on the backup it gets: a copy, not the live settings.
+            var copy = JsonSerializer.Deserialize<Backup>(JsonSerializer.Serialize(backup))!;
+            if (await UpsertCheckAsync(copy, ct).ConfigureAwait(false) is not { PingUrl: { Length: > 0 } pingUrl } record) continue;
+            _config.Update(c =>
+            {
+                if (c.Backups.FirstOrDefault(b => b.Id == backup.Id) is not { } live
+                    || !string.IsNullOrWhiteSpace(live.HealthcheckPingUrl) || !string.IsNullOrWhiteSpace(live.HealthcheckId)) return;
+                live.HealthcheckPingUrl = pingUrl;
+                live.HealthcheckId = record.ExtractPingUuid();
+            });
+            made++;
+        }
+        if (made > 0) _log.Information("Created a Healthchecks.io check for {Count} backup(s)", made);
+        return made;
     }
 
     public async Task<bool> DeleteCheckAsync(string checkUuid, CancellationToken ct)

@@ -808,6 +808,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         CurrentPhaseLabel = "";
         foreach (var s in Sources) { s.PercentComplete = 0; s.IsRunning = false; s.Detail = ""; }
         foreach (var d in Destinations) d.PercentComplete = 0;
+        // The backup's checks may already have started (U183).
+        if (_progressHandler is not null) ApplyCheckActivity(ServiceLocator.Progress.Snapshot(Id)?.Activity ?? "");
     }
 
     /// <summary>Coalesce multiple progress-event bursts into one
@@ -849,6 +851,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if (BackgroundRunId is not null && !ServiceLocator.Orchestrator.IsRunning(Id)) return;
 #endif
         var snap = ServiceLocator.Progress.Snapshot(Id);
+        ApplyCheckActivity(snap?.Activity ?? "");
         if (snap is null)
         {
             OverallPercent = 0;
@@ -890,6 +893,31 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         ProgressDetail = Sources.FirstOrDefault(s => s.IsRunning && s.Detail.Length > 0)?.Detail ?? "";
     }
 
+    /// <summary>A check run in this app (scheduled, or after a backup): the
+    /// card says "Checking · {check}" while it runs, then shows its stored
+    /// state again. The background service's runs come through its activity.</summary>
+    private void ApplyCheckActivity(string activity)
+    {
+#if WINDOWS
+        if (BackgroundRunId is not null) return;
+#endif
+        if (activity.Length > 0)
+        {
+            if (!IsRunning || RunningOperation == "check")
+            {
+                if (!IsRunning) SetRunning(operation: "check");
+                RunningActivity = activity;
+            }
+        }
+        else if (IsRunning && RunningOperation == "check" && !ServiceLocator.Orchestrator.IsRunning(Id))
+        {
+            IsRunning = false;
+            RunningActivity = "";
+            RunningOperation = "backup";
+            ApplyStoredRunState(Snapshot);
+        }
+    }
+
     /// <summary>Volatile so the read in <see cref="OnProgressUpdated"/>
     /// (which fires on the runner's stdout pump thread, not the UI
     /// thread) is guaranteed to observe the write from
@@ -925,7 +953,10 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if (activity.State is "starting" or "running" or "stopping" or "unknown")
         {
             BackgroundRunId = activity.RunId;
-            SetRunning(activity.StartedUtc, activity.Operation is "check" or "prune" ? activity.Operation : "backup");
+            // A backup's checks run once its own work is over, in the same
+            // job: the card then says which check runs, not the backup's 100%.
+            SetRunning(activity.StartedUtc, activity.Operation is "check" or "prune" ? activity.Operation
+                : string.IsNullOrEmpty(activity.Progress?.Activity) ? "backup" : "check");
             RunningActivity = activity.Progress?.Activity ?? "";
             _reportedQueued = TimeSpan.FromSeconds(activity.Progress?.QueuedSeconds ?? 0);
             SetQueuedReason(activity.Progress?.Queued ?? "");

@@ -75,8 +75,16 @@ public sealed partial class BackupOrchestrator
             try { _logs.AppendRun(skipped); } catch (Exception ex) { _log.Warning(ex, "Failed to persist a cancelled check for {Backup}", backup.Name); }
             return skipped;
         }
+        // Says which check runs, unless a list of checks already does: the
+        // card shows "Checking · …" in the app and through the service.
+        var named = string.IsNullOrEmpty(_progress.Snapshot(backup.Id)?.Activity);
+        if (named) _progress.ReportActivity(backup.Id, check.Title);
         try { return await RunStandaloneMaintenanceAsync(backup, RunKind.Check, check, ct, onlyTargets).ConfigureAwait(false); }
-        finally { queue.Release(); }
+        finally
+        {
+            if (named) _progress.ReportActivity(backup.Id, "");
+            queue.Release();
+        }
     }
 
     /// <summary>Why a check can't reach this destination now, or null: a
@@ -114,9 +122,12 @@ public sealed partial class BackupOrchestrator
                     .Select(w => w.Target).Where(t => reached.Any(r => SameTarget(r, t))).ToList();
                 if (waiting.Count > 0) due.Add((check, waiting));
             }
-            foreach (var (check, targets) in due)
+            for (var i = 0; i < due.Count; i++)
             {
+                var (check, targets) = due[i];
                 if (ct.IsCancellationRequested) break;
+                // The backup's own work is over: the card says which check runs (U183).
+                _progress.ReportActivity(current.Id, due.Count > 1 ? $"{check.Title} ({i + 1} of {due.Count})" : check.Title);
                 _log.Information("Running {Check} of {Backup} after its backup: {Destinations}", check.Title, current.Name,
                     string.Join(", ", targets.Select(t => destinations.FirstOrDefault(d => d.Id == t.DestinationId)?.Name ?? t.DestinationId)));
                 await RunCheckAsync(current, check, ct, targets).ConfigureAwait(false);
@@ -124,6 +135,7 @@ public sealed partial class BackupOrchestrator
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { _log.Warning(ex, "The checks after the backup of {Backup} could not run", backup.Name); }
+        finally { _progress.ReportActivity(backup.Id, ""); }
     }
 
     private static bool SameTarget(BackupTarget a, BackupTarget b) => a.DestinationId == b.DestinationId

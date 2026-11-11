@@ -173,13 +173,14 @@ public class EditorInteractionTests
         // Prune cadence = AfterEachBackup → schedule null = inline.
         Assert.Null(saved.PruneSchedule);
         // U179: a new backup gets the recommended checks: a weekly
-        // structure check and data sample, a monthly sample test restore.
-        Assert.Equal(new[] { Backspace.Models.CheckKind.Structure, Backspace.Models.CheckKind.DataSample, Backspace.Models.CheckKind.TestRestore },
+        // structure check + data sample (one restic check), a monthly
+        // sample test restore.
+        Assert.Equal(new[] { Backspace.Models.CheckKind.DataSample, Backspace.Models.CheckKind.TestRestore },
             saved.Checks.Select(c => c.Kind));
         var structure = saved.Checks[0].Schedule!;
         Assert.Equal(Backspace.Models.ScheduleFrequency.Weekly, structure.Frequency);
         Assert.Equal(TimeSpan.FromHours(3), structure.TimeOfDay);
-        Assert.Equal(Backspace.Models.ScheduleFrequency.Monthly, saved.Checks[2].Schedule!.Frequency);
+        Assert.Equal(Backspace.Models.ScheduleFrequency.Monthly, saved.Checks[1].Schedule!.Frequency);
         // Weekly cadence must pin WeeklyDaysBitmask to a single day —
         // the BackupSchedule default of 0b0111_1111 (every day)
         // would otherwise turn a "Weekly" maintenance pass into a

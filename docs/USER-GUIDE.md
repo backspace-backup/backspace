@@ -811,8 +811,10 @@ drive is back and backed up to.
   Assist. Choose per event (success, skipped, failure) in Settings.
 - **Email**: optional, through [Resend](https://resend.com) or Mailgun, using
   the provider's HTTP API and an API key.
-- **Healthchecks.io**: paste your API key and Backspace creates and names the
-  checks for you.
+- **Healthchecks.io**: paste your API key and Backspace creates and names one
+  check per backup for you (when you save the key, and for a backup added
+  later when Backspace starts). Each backup run pings its check when it
+  starts and when it succeeds or fails.
 
 ## Removing a backup
 

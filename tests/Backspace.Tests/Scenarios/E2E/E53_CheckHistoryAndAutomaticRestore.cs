@@ -144,8 +144,11 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
             Assert.True(entry.IsEnabled);
             Assert.Contains("View the current test restore", ToolTip.GetTip(entry)?.ToString());
             Assert.DoesNotContain("Stop it first", ToolTip.GetTip(entry)?.ToString());
-            Assert.Contains(main.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "Testing restored files");
-            ctx.Snapshot(main, "automatic-comparison-phase", "After upload reaches 100%, the card names Testing restored files. View test restore remains enabled and its tooltip describes viewing the active check.");
+            // Since U179 the test restore after each backup is its own check
+            // run, started when the backup ends: the card says it is checking.
+            var running = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "RunningText" && t.IsEffectivelyVisible);
+            Assert.StartsWith("Checking · Sample test restore", running.Text);
+            ctx.Snapshot(main, "automatic-comparison-phase", "After the backup ends, its test restore runs as a check: the card says Checking. View test restore remains enabled and its tooltip describes viewing the active check.");
             Click(main, entry); await ctx.Driver.PumpAsync(150);
             Assert.Equal(NavItem.ActiveRestores, mainVm.SelectedNav);
             Assert.Same(inlineSession, mainVm.ActiveRestores.SelectedSession);
@@ -159,7 +162,6 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
         }
         var inline = await inlineTask;
         Assert.Equal(BackupRunStatus.Success, inline.Status);
-        Assert.NotEmpty(inline.Checks);
         Assert.Contains(ServiceLocator.Logs.LoadHistoryByBackupId(saved.Id), r => r.Kind == RunKind.Check && r.CheckKind == CheckKind.TestRestore && r.StartedUtc >= inline.StartedUtc && r.Status == BackupRunStatus.Success);
         Assert.Equal(BackupOrchestrator.BuildSummary(inline, null, backup, ServiceLocator.Config.Current), inline.Summary);
         await ctx.Driver.PumpAsync(250);

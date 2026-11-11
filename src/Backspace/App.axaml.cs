@@ -256,6 +256,9 @@ public partial class App : Application
                 // Schedules run while Backspace runs, including a start at sign-in (U043).
                 DesktopSchedule.Start();
                 if (!startedInBackground) Program.RunPostInitStartup();
+                // Backups without their Healthchecks.io check get one (U187).
+                try { await ServiceLocator.Healthcheck.EnsureChecksAsync(System.Threading.CancellationToken.None); }
+                catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Could not create the Healthchecks.io checks"); }
                 try { await ServiceLocator.TestRestores.ResumeInterruptedAsync(); }
                 catch (Exception ex) { AppLogger.For<App>().Error(ex, "Could not load interrupted test restores"); }
                 // Finish deleting removed backups' copies once their drive or
