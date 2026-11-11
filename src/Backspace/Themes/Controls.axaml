@@ -277,7 +277,10 @@
     <Setter Property="FontSize" Value="14"/>
     <Setter Property="FontWeight" Value="Normal"/>
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
-    <Setter Property="Background" Value="Transparent"/>
+    <!-- The hover hue at alpha 0, not Transparent (#00FFFFFF): the hover
+         fade from Transparent passed through whitish tones, a flash on the
+         dark sidebar (U194, 11 November 2026). -->
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.NeutralHoverRest}"/>
     <Setter Property="BorderThickness" Value="0"/>
     <Setter Property="Padding" Value="12,8"/>
     <Setter Property="HorizontalContentAlignment" Value="Left"/>
