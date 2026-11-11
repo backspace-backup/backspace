@@ -496,6 +496,7 @@ public sealed class BackupProgressService
         bool idle;
         lock (p.Gate)
         {
+            if (p.Activity != text) { p.ActivityStep = ""; p.ActivityWhere = ""; p.ActivityPercent = -1; }
             p.Activity = text;
             // A check named after its backup ended keeps the entry: the
             // backup's pending purge would otherwise drop the name mid-check.
@@ -503,6 +504,21 @@ public sealed class BackupProgressService
             idle = text.Length == 0 && !p.Sources.Values.Any(s => s.IsRunning);
         }
         if (idle) { ReportRunFinished(backupId); return; }
+        try { Updated?.Invoke(backupId); } catch (Exception ex) { _log.Warning(ex, "A progress listener failed"); }
+    }
+
+    /// <summary>Where a running check is and how far it got (U198): the step
+    /// ("Reading the data sample · 12 of 64 packs"), the destination
+    /// ("Google Drive (1 of 2)"), and its share done, -1 when unknown.</summary>
+    public void ReportActivityStep(string backupId, string step, string where, double percent)
+    {
+        var p = _state.GetOrAdd(backupId, _ => new BackupProgress(backupId));
+        lock (p.Gate)
+        {
+            p.ActivityStep = step;
+            p.ActivityWhere = where;
+            p.ActivityPercent = double.IsFinite(percent) && percent >= 0 ? Math.Min(100, percent) : -1;
+        }
         try { Updated?.Invoke(backupId); } catch (Exception ex) { _log.Warning(ex, "A progress listener failed"); }
     }
 
@@ -634,6 +650,11 @@ public sealed class BackupProgressService
         /// <summary>What a check run is doing now, such as "Sample test restore
         /// (2 of 2)" (U183); empty for a backup.</summary>
         public string Activity { get; set; } = "";
+        /// <summary>The running check's step and destination, and its share
+        /// done (-1 unknown), U198.</summary>
+        public string ActivityStep { get; set; } = "";
+        public string ActivityWhere { get; set; } = "";
+        public double ActivityPercent { get; set; } = -1;
         /// <summary>Aggregate 0..100. Computed as the average of
         /// every (source × destination) cell percent, so a backup with
         /// 2 sources and 2 destinations needs all four cells at 100%
@@ -776,6 +797,9 @@ public sealed class BackupProgressService
                 CurrentSourcePath = CurrentSourcePath,
                 OverallPercent = OverallPercent,
                 Activity = Activity,
+                ActivityStep = ActivityStep,
+                ActivityWhere = ActivityWhere,
+                ActivityPercent = ActivityPercent,
             };
             foreach (var (k, v) in Sources)
             {

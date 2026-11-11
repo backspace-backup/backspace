@@ -372,7 +372,7 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
         return Task.FromResult(SimpleRecord(backup, "prune complete (simulated)"));
     }
 
-    public Task<RunRecord> RunCheckOnlyAsync(Backup backup, string sourcePath, Destination destination, string storageName, CancellationToken ct, Action<string>? lineSink = null)
+    public Task<RunRecord> RunCheckOnlyAsync(Backup backup, string sourcePath, Destination destination, string storageName, CancellationToken ct, Action<string>? lineSink = null, Action<CheckStep, double>? progress = null)
     {
         Calls.Enqueue($"RunCheckOnly({backup.Name},{sourcePath})");
         lineSink?.Invoke("[fake] check complete (simulated)");

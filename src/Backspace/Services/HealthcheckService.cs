@@ -49,10 +49,26 @@ public sealed class HealthcheckService
     {
         var @ref = _config.Current.Monitoring.HealthchecksApiKeyRef;
         if (!string.IsNullOrEmpty(@ref) && _secrets.TryGet(@ref, out key!) && !string.IsNullOrEmpty(key))
-            return true;
+        {
+            key = CleanApiKey(key);
+            if (key.Length > 0) return true;
+        }
         key = "";
         return false;
     }
+
+    /// <summary>The key as Healthchecks.io gave it: a key pasted with a
+    /// space, a line break or an invisible character (a zero-width space, a
+    /// byte-order mark) around or inside it could not be sent at all
+    /// ("Request headers must contain only ASCII characters", U187), so
+    /// no check was ever created. A key never contains those characters.</summary>
+    internal static string CleanApiKey(string key)
+        => new(key.Where(c => !char.IsWhiteSpace(c) && !char.IsControl(c)
+            && char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.Format).ToArray());
+
+    /// <summary>Why the last attempt to create the checks failed, in plain
+    /// words, or null (U187). Settings shows it.</summary>
+    public string? LastProblem { get; private set; }
 
     // ---- management ----
 
@@ -118,6 +134,9 @@ public sealed class HealthcheckService
             if (!resp.IsSuccessStatusCode)
             {
                 _log.Warning("Healthchecks.io upsert for {Backup} returned HTTP {Status}", backup.Name, (int)resp.StatusCode);
+                LastProblem = (int)resp.StatusCode is 401 or 403
+                    ? "Healthchecks.io refused the API key. Use the project's regular API key, not the read-only one."
+                    : $"Healthchecks.io answered with an error (HTTP {(int)resp.StatusCode}).";
                 return null;
             }
             var parsed = await resp.Content.ReadFromJsonAsync<HealthcheckRecord>(Json, ct);
@@ -141,6 +160,9 @@ public sealed class HealthcheckService
         catch (Exception ex)
         {
             _log.Warning(ex, "Healthchecks.io upsert failed for {Backup}", backup.Name);
+            LastProblem = ex is HttpRequestException && ex.Message.Contains("ASCII", StringComparison.Ordinal)
+                ? "The API key contains characters a Healthchecks.io key never has. Copy it again from healthchecks.io and paste it here."
+                : "Healthchecks.io could not be reached: " + ex.Message;
             return null;
         }
     }
@@ -156,6 +178,7 @@ public sealed class HealthcheckService
         var cfg = _config.Current;
         if (!cfg.Monitoring.HealthchecksEnabled || !TryGetApiKey(out _)) return 0;
         var made = 0;
+        LastProblem = null;
         foreach (var backup in cfg.Backups.Where(b => string.IsNullOrWhiteSpace(b.HealthcheckPingUrl) && string.IsNullOrWhiteSpace(b.HealthcheckId)).ToList())
         {
             if (ct.IsCancellationRequested) break;
@@ -207,7 +230,7 @@ public sealed class HealthcheckService
             return UuidVerificationResult.MalformedShape();
 
         var apiKey = !string.IsNullOrWhiteSpace(inlineApiKey)
-            ? inlineApiKey.Trim()
+            ? CleanApiKey(inlineApiKey)
             : (TryGetApiKey(out var globalKey) ? globalKey : "");
         if (string.IsNullOrEmpty(apiKey))
             return UuidVerificationResult.NoApiKey();

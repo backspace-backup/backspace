@@ -99,7 +99,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _lastRunLabel = "Never run";
     [ObservableProperty] private string _nextRunLabel = "";
     [ObservableProperty] private string _verifyLabel = "No checks recorded";
-    [ObservableProperty] private string _verifyClass = "never";
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HealthTileClass))] private string _verifyClass = "never";
+    /// <summary>The Backup health tile's tone: running while a check runs (U197).</summary>
+    public string HealthTileClass => IsChecking ? "running" : VerifyClass;
     [ObservableProperty] private string _verifyDetails = "The first scheduled check or Test restore will appear here.";
     [ObservableProperty] private string _checkScopeLabel = "";
     private IReadOnlyList<BackupCheckEntry> _checkEntries = Array.Empty<BackupCheckEntry>();
@@ -125,6 +127,94 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     public bool IsBackingUp => IsRunning && RunningOperation == "backup";
     /// <summary>Which check runs now ("Sample test restore (2 of 2)"), U183.</summary>
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(RunningLabel))] private string _runningActivity = "";
+    /// <summary>The running check's step ("Reading the data sample · 12 of 64
+    /// packs"), its destination, and its share done, -1 unknown (U198).</summary>
+    [ObservableProperty] private string _runningActivityStep = "";
+    [ObservableProperty] private string _runningActivityWhere = "";
+    [ObservableProperty] private double _runningActivityPercent = -1;
+    partial void OnRunningOperationChanged(string value) => NotifyCheckState();
+    partial void OnRunningActivityChanged(string value) => NotifyCheckState();
+    partial void OnRunningActivityStepChanged(string value) => NotifyCheckState();
+    partial void OnRunningActivityWhereChanged(string value) => NotifyCheckState();
+    partial void OnRunningActivityPercentChanged(double value) => NotifyCheckState();
+
+    /// <summary>A check runs (U197): it shows under Backup health, with its
+    /// progress, and Last backup keeps the last backup's result.</summary>
+    public bool IsChecking => IsRunning && RunningOperation == "check";
+    /// <summary>Last backup says Running: a backup or a cleanup runs, not a check.</summary>
+    public bool ShowsRunInLastBackup => IsActuallyRunning && !IsChecking;
+    public bool ShowsCheckProgress => IsChecking && !IsQueued;
+
+    /// <summary>"Checking · Structure + data sample (1 of 2) · 7 min" (U197):
+    /// the check's sizes are in the hover.</summary>
+    public string CheckRunLabel
+    {
+        get
+        {
+            if (IsQueued && QueuedReason.Length > 0) return "Check queued: " + QueuedReason;
+            var what = RunningActivity.Length > 0 ? "Checking · " + ShortCheckName(RunningActivity) : "Checking";
+            return RunStartedUtc is { } started ? what + " · " + Elapsed(UtcNow() - started - QueuedTime()) : what;
+        }
+    }
+
+    /// <summary>"Structure check + data sample (1 GiB) (1 of 2)" →
+    /// "Structure + data sample (1 of 2)": the card line names the check;
+    /// its size and sample are in the hover.</summary>
+    internal static string ShortCheckName(string activity)
+    {
+        var name = activity.Replace("Structure check + data sample", "Structure + data sample", StringComparison.Ordinal);
+        if (name.StartsWith("Structure check", StringComparison.Ordinal)) name = "Structure" + name["Structure check".Length..];
+        return System.Text.RegularExpressions.Regex.Replace(name, @" \((?:[0-9.,]+ ?[KMGT]i?B|[0-9.,]+%[^)]*)\)", "");
+    }
+
+    /// <summary>The step under the check's bar; with several destinations,
+    /// which one.</summary>
+    public string CheckStepLine => RunningActivityWhere.Contains(" of ", StringComparison.Ordinal) && RunningActivityStep.Length > 0
+        ? RunningActivityWhere + " · " + RunningActivityStep
+        : RunningActivityStep;
+    public bool CheckProgressKnown => RunningActivityPercent >= 0;
+    public double CheckPercent => Math.Max(0, RunningActivityPercent);
+
+    /// <summary>Everything about the running check, on hover (U198).</summary>
+    public string CheckTooltip
+    {
+        get
+        {
+            var lines = new List<string> { RunningActivity.Length > 0 ? RunningActivity : "A check" };
+            if (RunningActivityWhere.Length > 0) lines.Add("On " + RunningActivityWhere);
+            if (RunningActivityStep.Length > 0) lines.Add(RunningActivityStep);
+            if (CheckProgressKnown) lines.Add($"About {RunningActivityPercent.ToString("0", System.Globalization.CultureInfo.CurrentCulture)}% of this check done");
+            if (RunStartedUtc is { } started) lines.Add("Running for " + Elapsed(UtcNow() - started - QueuedTime()));
+            lines.Add("");
+            lines.Add(CheckExplanation(RunningActivity));
+            if (VerifyLabel.Length > 0) lines.Add("Latest result: " + VerifyLabel);
+            return string.Join("\n", lines);
+        }
+    }
+
+    internal static string CheckExplanation(string activity) =>
+        activity.StartsWith("Structure check + data sample", StringComparison.Ordinal)
+            ? "Reads the backup's index and snapshots to confirm all their data is present, then downloads a sample of the stored data and verifies it is intact."
+        : activity.StartsWith("Structure check", StringComparison.Ordinal)
+            ? "Reads the backup's index and snapshots to confirm all their data is present. Only this metadata is downloaded."
+        : activity.StartsWith("Sample test restore", StringComparison.Ordinal)
+            ? "Restores a sample of files into a temporary folder and compares them with your originals. Your originals are never changed."
+        : activity.StartsWith("Full data read", StringComparison.Ordinal)
+            ? "Downloads all the stored data and verifies it is intact."
+        : "Checks this backup's stored data.";
+
+    private void NotifyCheckState()
+    {
+        OnPropertyChanged(nameof(IsChecking));
+        OnPropertyChanged(nameof(HealthTileClass));
+        OnPropertyChanged(nameof(ShowsRunInLastBackup));
+        OnPropertyChanged(nameof(ShowsCheckProgress));
+        OnPropertyChanged(nameof(CheckRunLabel));
+        OnPropertyChanged(nameof(CheckStepLine));
+        OnPropertyChanged(nameof(CheckProgressKnown));
+        OnPropertyChanged(nameof(CheckPercent));
+        OnPropertyChanged(nameof(CheckTooltip));
+    }
     [ObservableProperty] private bool _isVerifying;
     /// <summary>True while the run is registered (IsRunning) but
     /// parked on the orchestrator's per-destination queue waiting
@@ -343,7 +433,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsIdle));
         OnPropertyChanged(nameof(IsActuallyRunning));
         OnPropertyChanged(nameof(OperationPhaseLabel));
-        if (!value) RunStartedUtc = null;
+        NotifyCheckState();
+        if (!value) { RunStartedUtc = null; RunningActivityStep = ""; RunningActivityWhere = ""; RunningActivityPercent = -1; }
         UpdateElapsedTimer();
     }
     partial void OnIsQueuedChanged(bool value)
@@ -358,6 +449,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         }
         OnPropertyChanged(nameof(IsActuallyRunning));
         OnPropertyChanged(nameof(RunningLabel));
+        NotifyCheckState();
         UpdateElapsedTimer();
     }
 
@@ -425,7 +517,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if (!_disposed && IsActuallyRunning && RunStartedUtc is not null)
         {
             _elapsedTimer ??= new Avalonia.Threading.DispatcherTimer(TimeSpan.FromSeconds(1), Avalonia.Threading.DispatcherPriority.Background,
-                (_, _) => OnPropertyChanged(nameof(RunningLabel)));
+                (_, _) => { OnPropertyChanged(nameof(RunningLabel)); if (IsChecking) { OnPropertyChanged(nameof(CheckRunLabel)); OnPropertyChanged(nameof(CheckTooltip)); } });
             _elapsedTimer.Start();
         }
         else _elapsedTimer?.Stop();
@@ -699,7 +791,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     private void ApplyStoredRunState(Backup saved)
     {
-        if (IsRunning) return;
+        if (IsRunning && !IsChecking) return;
         var latest = _checkRuns.Where(r => r.BackupId == saved.Id && r.Kind == RunKind.Backup
             && r.EndedUtc is not null && r.EndedUtc >= r.StartedUtc
             && r.Status is BackupRunStatus.Success or BackupRunStatus.Warning or BackupRunStatus.Failed or BackupRunStatus.Skipped)
@@ -748,7 +840,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// something else (running, queued, stopping, an error) is left alone.</summary>
     public void RefreshTimes()
     {
-        if (!IsRunning && _lastRunAgeLabel is not null && LastRunLabel == _lastRunAgeLabel)
+        if ((!IsRunning || IsChecking) && _lastRunAgeLabel is not null && LastRunLabel == _lastRunAgeLabel)
             LastRunLabel = _lastRunAgeLabel = LastRunText();
         if (Snapshot.Enabled) NextRunLabel = Snapshot.Schedule.DescribeNextRun(DateTime.Now);
     }
@@ -756,7 +848,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     public void RefreshCheckAge()
     {
         if (_checkHistoryReadFailed) return;
-        var state = BackupCheckHistory.State(Snapshot, _checkEntries, DateTime.UtcNow);
+        var state = BackupCheckHistory.State(Snapshot, _checkEntries, DateTime.UtcNow, nothingStored: !HasRestorableRun);
         // A check that waits for its drive says so calmly (U174).
         if (ServiceLocator.Config?.Current is { } config)
             state = CheckOverdue.Shown(state, Snapshot, CheckOverdue.For(Snapshot, _checkRuns, config.Destinations));
@@ -783,9 +875,18 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             ?? (IsRunning ? RunStartedUtc : null)
             ?? DateTime.UtcNow;
         OnPropertyChanged(nameof(RunningLabel));
+        var wasChecking = IsChecking;
         IsRunning = true;
-        DisplayedRunStatus = BackupRunStatus.Running;
         IsQueued = false;
+        // A check shows under Backup health (U197): Last backup keeps the
+        // last backup's result, read again with the history (the backup
+        // before it may have just ended, in the same background job).
+        if (operation == "check")
+        {
+            if (!wasChecking) ApplyVerifyState(Snapshot);
+            return;
+        }
+        DisplayedRunStatus = BackupRunStatus.Running;
         StatusClass = "running";
         StatusLabel = "Running";
         LastRunLabel = "Running…";
@@ -808,12 +909,13 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         IsQueued = queued;
         QueuedReason = queued ? reason : "";
         // The card says just "Queued"; why is on hover (7 November 2026).
-        LastRunLabel = queued ? "Queued" : "Running…";
+        // A check says it under Backup health (U197).
+        if (!IsChecking) LastRunLabel = queued ? "Queued" : "Running…";
     }
 
     /// <summary>Why a queued run waits ("waiting for local_c (same destination)").</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(LastRunDetail))]
+    [NotifyPropertyChangedFor(nameof(LastRunDetail), nameof(CheckRunLabel))]
     private string _queuedReason = "";
 
     /// <summary>The status line's hover text: for a queued run, why it waits
@@ -843,7 +945,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         foreach (var s in Sources) { s.PercentComplete = 0; s.IsRunning = false; s.Detail = ""; }
         foreach (var d in Destinations) d.PercentComplete = 0;
         // The backup's checks may already have started (U183).
-        if (_progressHandler is not null) ApplyCheckActivity(ServiceLocator.Progress.Snapshot(Id)?.Activity ?? "");
+        if (_progressHandler is not null) ApplyCheckActivity(ServiceLocator.Progress.Snapshot(Id));
     }
 
     /// <summary>Coalesce multiple progress-event bursts into one
@@ -885,7 +987,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if (BackgroundRunId is not null && !ServiceLocator.Orchestrator.IsRunning(Id)) return;
 #endif
         var snap = ServiceLocator.Progress.Snapshot(Id);
-        ApplyCheckActivity(snap?.Activity ?? "");
+        ApplyCheckActivity(snap);
         if (snap is null)
         {
             OverallPercent = 0;
@@ -930,17 +1032,21 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// <summary>A check run in this app (scheduled, or after a backup): the
     /// card says "Checking · {check}" while it runs, then shows its stored
     /// state again. The background service's runs come through its activity.</summary>
-    private void ApplyCheckActivity(string activity)
+    private void ApplyCheckActivity(BackupProgressService.BackupProgress? snap)
     {
 #if WINDOWS
         if (BackgroundRunId is not null) return;
 #endif
+        var activity = snap?.Activity ?? "";
         if (activity.Length > 0)
         {
             if (!IsRunning || RunningOperation == "check")
             {
                 if (!IsRunning) SetRunning(operation: "check");
                 RunningActivity = activity;
+                RunningActivityStep = snap!.ActivityStep;
+                RunningActivityWhere = snap.ActivityWhere;
+                RunningActivityPercent = snap.ActivityPercent;
             }
         }
         else if (IsRunning && RunningOperation == "check" && !ServiceLocator.Orchestrator.IsRunning(Id))
@@ -992,9 +1098,16 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             SetRunning(activity.StartedUtc, activity.Operation is "check" or "prune" ? activity.Operation
                 : string.IsNullOrEmpty(activity.Progress?.Activity) ? "backup" : "check");
             RunningActivity = activity.Progress?.Activity ?? "";
+            RunningActivityStep = activity.Progress?.ActivityStep ?? "";
+            RunningActivityWhere = activity.Progress?.ActivityWhere ?? "";
+            RunningActivityPercent = activity.Progress?.ActivityPercent ?? -1;
             _reportedQueued = TimeSpan.FromSeconds(activity.Progress?.QueuedSeconds ?? 0);
             SetQueuedReason(activity.Progress?.Queued ?? "");
-            if (activity.State == "stopping") LastRunLabel = "Stopping background backup…";
+            if (activity.State == "stopping")
+            {
+                if (IsChecking) RunningActivityStep = "Stopping the check…";
+                else LastRunLabel = "Stopping background backup…";
+            }
             if (error is not null) LastRunLabel = error;
             var progress = activity.Progress;
             OverallPercent = progress?.Percent ?? 0;

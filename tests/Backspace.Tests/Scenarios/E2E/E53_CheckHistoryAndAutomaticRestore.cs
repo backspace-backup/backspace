@@ -145,10 +145,12 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
             Assert.Contains("View the current test restore", ToolTip.GetTip(entry)?.ToString());
             Assert.DoesNotContain("Stop it first", ToolTip.GetTip(entry)?.ToString());
             // Since U179 the test restore after each backup is its own check
-            // run, started when the backup ends: the card says it is checking.
-            var running = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "RunningText" && t.IsEffectivelyVisible);
+            // run, started when the backup ends: Backup health says it is
+            // checking (U197), and Last backup keeps the backup's result.
+            Assert.DoesNotContain(main.GetVisualDescendants().OfType<TextBlock>(), t => t.Name == "RunningText" && t.IsEffectivelyVisible);
+            var running = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "CheckRunText" && t.IsEffectivelyVisible);
             Assert.StartsWith("Checking · Sample test restore", running.Text);
-            ctx.Snapshot(main, "automatic-comparison-phase", "After the backup ends, its test restore runs as a check: the card says Checking. View test restore remains enabled and its tooltip describes viewing the active check.");
+            ctx.Snapshot(main, "automatic-comparison-phase", "After the backup ends, its test restore runs as a check: Backup health says Checking. View test restore remains enabled and its tooltip describes viewing the active check.");
             Click(main, entry); await ctx.Driver.PumpAsync(150);
             Assert.Equal(NavItem.ActiveRestores, mainVm.SelectedNav);
             Assert.Same(inlineSession, mainVm.ActiveRestores.SelectedSession);

@@ -95,6 +95,75 @@ public sealed class CloudNotificationRepairTests
         Assert.Single(asked);
     }
 
+    /// <summary>U187, the owner's log: "Request headers must contain only
+    /// ASCII characters" for every backup, so no check was ever created. A
+    /// key pasted with an invisible character around it is now sent as the
+    /// key alone, through .NET's real HTTP stack to a local stand-in server;
+    /// a key still not a key says so in plain words.</summary>
+    [Theory]
+    [InlineData("​synthetic-key-123 ")]
+    [InlineData("﻿synthetic-key-123\r\n")]
+    [InlineData(" synthetic-key-123 ")]
+    public async Task A_key_pasted_with_invisible_characters_still_creates_the_checks(string pasted)
+    {
+        using var setup = new Setup();
+        var bare = new Backup { Name = "no-check-yet", CreatedUtc = DateTime.UtcNow, SkipNotificationGraceDays = 7 };
+        setup.Config.Update(c => c.Backups.Add(bare));
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var keys = new List<string>();
+        var server = Task.Run(async () =>
+        {
+            using var socket = await listener.AcceptTcpClientAsync();
+            using var stream = socket.GetStream();
+            var buffer = new byte[64 * 1024]; var read = 0; string text;
+            while (true)
+            {
+                read += await stream.ReadAsync(buffer.AsMemory(read));
+                text = System.Text.Encoding.ASCII.GetString(buffer, 0, read);
+                var end = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+                if (end < 0) continue;
+                // The JSON body is sent with a length or in chunks.
+                var length = System.Text.RegularExpressions.Regex.Match(text, @"Content-Length: (\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (length.Success ? read >= end + 4 + int.Parse(length.Groups[1].Value) : text.EndsWith("\r\n0\r\n\r\n", StringComparison.Ordinal)) break;
+            }
+            keys.Add(System.Text.RegularExpressions.Regex.Match(text, @"X-Api-Key: ([^\r]*)", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Groups[1].Value);
+            var body = "{\"ping_url\":\"https://hc-ping.com/11111111-2222-3333-4444-555555555555\"}";
+            var reply = System.Text.Encoding.ASCII.GetBytes($"HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n{body}");
+            await stream.WriteAsync(reply);
+        });
+        setup.Secrets.Set("hc-key", pasted);
+        setup.Config.Update(c => { c.Monitoring.HealthchecksEnabled = true; c.Monitoring.HealthchecksApiKeyRef = "hc-key"; c.Monitoring.HealthchecksBaseUrl = $"http://127.0.0.1:{port}"; });
+        using var client = new HttpClient();
+        var service = new HealthcheckService(setup.Config, setup.Secrets, client);
+        var made = await service.EnsureChecksAsync(default);
+        Assert.True(made == 1, "problem: " + service.LastProblem);
+        await server; listener.Stop();
+        Assert.Equal(new[] { "synthetic-key-123" }, keys);
+        Assert.Null(service.LastProblem);
+        Assert.Equal("11111111-2222-3333-4444-555555555555", setup.Config.Current.Backups.Single(b => b.Id == bare.Id).HealthcheckId);
+    }
+
+    [Fact]
+    public async Task A_key_that_is_not_a_key_says_so()
+    {
+        using var setup = new Setup();
+        setup.Config.Update(c => c.Backups.Add(new Backup { Name = "no-check-yet", CreatedUtc = DateTime.UtcNow, SkipNotificationGraceDays = 7 }));
+        setup.Secrets.Set("hc-key", "clé-synthétique");
+        // A server that accepts the connection: the key is refused while the request is written, as in the owner's log.
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var accepted = listener.AcceptTcpClientAsync();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        setup.Config.Update(c => { c.Monitoring.HealthchecksEnabled = true; c.Monitoring.HealthchecksApiKeyRef = "hc-key"; c.Monitoring.HealthchecksBaseUrl = $"http://127.0.0.1:{port}"; });
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        var service = new HealthcheckService(setup.Config, setup.Secrets, client);
+        Assert.Equal(0, await service.EnsureChecksAsync(default));
+        Assert.Equal("The API key contains characters a Healthchecks.io key never has. Copy it again from healthchecks.io and paste it here.", service.LastProblem);
+        listener.Stop(); try { (await accepted).Dispose(); } catch { }
+    }
+
     [Fact]
     public async Task Real_orchestrator_expired_grace_keeps_unmounted_drive_skipped()
     {

@@ -138,13 +138,20 @@ public static class BackupCheckHistory
             return $"{name} · {result} {Ago(nowUtc, latest.When)}" + (Overdue(backup, check, latest, nowUtc) ? " · due again" : "");
         }).Distinct().ToList();
 
-    public static BackupCheckState State(Backup backup, IReadOnlyList<BackupCheckEntry> entries, DateTime nowUtc)
+    /// <param name="nothingStored">No run of this backup has stored anything
+    /// yet: there is nothing to check (U200).</param>
+    public static BackupCheckState State(Backup backup, IReadOnlyList<BackupCheckEntry> entries, DateTime nowUtc, bool nothingStored = false)
     {
         var kinds = KindLines(backup, entries, nowUtc);
         if (entries.Count == 0)
             return backup.Checks.Count == 0
                 ? new("No checks set up", "never", "", "Add checks in this backup's settings, under Checks.") { Kinds = kinds }
-                : new("No checks recorded", "never", "", "The first scheduled check or Test restore will appear here.") { Kinds = kinds };
+                // Calm, not a warning: the backup itself is what needs
+                // attention, and Last backup already says so (U200).
+                : nothingStored
+                ? new("No checks yet: nothing backed up so far", "never", "",
+                    Hover("This backup has not stored anything yet, so there is nothing to check. Its checks start after its first backup that succeeds.", kinds)) { Kinds = kinds }
+                : new("No checks recorded", "never", "", Hover("The first scheduled check or Test restore will appear here.", kinds)) { Kinds = kinds };
         var latest = entries[0];
         // A shallower success does not erase a deeper failure. A full restore
         // can supersede a sample restore, but neither checks every old pack.

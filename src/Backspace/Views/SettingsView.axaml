@@ -612,6 +612,8 @@
               </TextBox>
               <TextBlock Classes="helper"
                          Text="Find this under your project’s Settings → API Access on healthchecks.io."/>
+              <TextBlock Name="HealthchecksStatusText" Classes="helper" TextWrapping="Wrap" Text="{Binding HealthchecksStatus}"
+                         IsVisible="{Binding HealthchecksStatus, Converter={x:Static vm:NotEmpty.To}}"/>
             </StackPanel>
             <StackPanel Grid.Column="2" Spacing="6">
               <TextBlock Classes="label-caps" Text="BASE URL (SELF-HOSTED ONLY)"/>

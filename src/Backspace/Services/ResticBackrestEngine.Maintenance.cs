@@ -29,8 +29,8 @@ public sealed partial class ResticBackrestEngine
 
     public Task<RunRecord> RunCheckOnlyAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        CancellationToken ct, Action<string>? lineSink = null) =>
-        RunDirectMaintenanceAsync(backup, sourcePath, destination, storageName, RunKind.Check, ct, lineSink);
+        CancellationToken ct, Action<string>? lineSink = null, Action<CheckStep, double>? progress = null) =>
+        RunDirectMaintenanceAsync(backup, sourcePath, destination, storageName, RunKind.Check, ct, lineSink, progress);
 
     /// <summary>The engine reads a check entry's data limit (U179): a data
     /// sample reads 1% of the stored data up to <see cref="Backup.DataCheckLimitBytes"/>
@@ -57,7 +57,7 @@ public sealed partial class ResticBackrestEngine
 
     private async Task<RunRecord> RunDirectMaintenanceAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
-        RunKind kind, CancellationToken ct, Action<string>? lineSink)
+        RunKind kind, CancellationToken ct, Action<string>? lineSink, Action<CheckStep, double>? progress = null)
     {
         var (restic, repoId, repository) = await PrepareDirectAsync(backup, destination, storageName,
             checkConnection: true, create: true, ct, lineSink).ConfigureAwait(false);
@@ -86,7 +86,7 @@ public sealed partial class ResticBackrestEngine
             (terminal, cleanup) = await RunDirectRetentionAsync(restic, repoId, repository, planId, backup, ct, lineSink, prune: true).ConfigureAwait(false);
             if (terminal.Status is BackrestStatus.Success || cleanup != default) Announce(cleanup.Recap(), lineSink);
         }
-        else terminal = await RunDirectCheckAsync(restic, repoId, repository, backup, ct, lineSink).ConfigureAwait(false);
+        else terminal = await RunDirectCheckAsync(restic, repoId, repository, backup, ct, lineSink, progress).ConfigureAwait(false);
         var status = StatusFromBackrestTerminal(terminal.Status);
         return new RunRecord
         {
@@ -108,20 +108,30 @@ public sealed partial class ResticBackrestEngine
     /// <summary>A check: <c>restic check</c>; with a data sample, <c>stats</c>
     /// for the stored size then <c>check --read-data-subset=&lt;bytes&gt;B</c>
     /// for 1% of it up to the entry's limit; a full data read
-    /// <c>check --read-data</c> (U179).</summary>
+    /// <c>check --read-data</c> (U179). With <paramref name="progress"/>,
+    /// restic writes its counts once a second and the check reports its
+    /// steps and its share done (U198).</summary>
     private async Task<DirectOutcome> RunDirectCheckAsync(string restic, string repoId, ResticRepository repository, Backup backup,
-        CancellationToken ct, Action<string>? lineSink)
+        CancellationToken ct, Action<string>? lineSink, Action<CheckStep, double>? progress = null)
     {
+        var reader = new CheckProgressReader(backup.CheckReadDataSample);
+        Action<ResticLine>? onLine = progress is null ? null : line =>
+        {
+            if (line.IsJson || line.StandardError) return;
+            if (reader.Read(ResticRunner.ResticOutput.Shown(line.Text))) progress(reader.Step, reader.Percent);
+        };
+        ResticCommand Check(IReadOnlyList<string> arguments) =>
+            new(restic, repository, arguments) { OutputToTranscript = true, ProgressFps = progress is null ? 0 : 1 };
+        progress?.Invoke(reader.Step, 0);
         if (!backup.CheckReadDataSample)
-            return Outcome(await RunResticAsync(repoId, new ResticCommand(restic, repository, ["check"]) { OutputToTranscript = true },
-                lineSink, ct).ConfigureAwait(false));
+            return Outcome(await RunResticAsync(repoId, Check(["check"]), lineSink, ct, onLine).ConfigureAwait(false));
         if (ReadsAllData(backup))
         {
             Announce("[backspace] Data check reads all stored data; this downloads the whole repository.", lineSink);
-            return Outcome(await RunResticAsync(repoId, new ResticCommand(restic, repository, DataCheckArguments(backup, null)) { OutputToTranscript = true },
-                lineSink, ct).ConfigureAwait(false));
+            return Outcome(await RunResticAsync(repoId, Check(DataCheckArguments(backup, null)), lineSink, ct, onLine).ConfigureAwait(false));
         }
         const int sizeLimit = 64 * 1024;
+        progress?.Invoke(new CheckStep("Measuring the stored data"), 0);
         var stats = await RunResticAsync(repoId, new ResticCommand(restic, repository, ["stats", "--mode", "raw-data", "--json"]) { CaptureOutput = sizeLimit + 1 },
             lineSink, ct).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
@@ -132,8 +142,7 @@ public sealed partial class ResticBackrestEngine
         // The entry's own limit (U179), 1 GiB when it has none.
         var sampleBytes = DataCheckSampleBytes(ParseStoredDataSize(stats.Output), backup.DataCheckLimitBytes);
         Announce($"[backspace] Data check targets {sampleBytes:N0} bytes per repository; whole-pack sampling, metadata and retries can change actual traffic.", lineSink);
-        return Outcome(await RunResticAsync(repoId, new ResticCommand(restic, repository, DataCheckArguments(backup, sampleBytes)) { OutputToTranscript = true },
-            lineSink, ct).ConfigureAwait(false));
+        return Outcome(await RunResticAsync(repoId, Check(DataCheckArguments(backup, sampleBytes)), lineSink, ct, onLine).ConfigureAwait(false));
     }
 
     /// <summary>restic's check for a data read: all of it, or the sample's

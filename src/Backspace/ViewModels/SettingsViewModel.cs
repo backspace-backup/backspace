@@ -44,11 +44,23 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     // immediate effect); the rest are covered here.
     partial void OnHealthchecksEnabledChanged(bool value)     => ScheduleAutoSave();
 
-    private static async Task EnsureHealthchecksAsync()
+    private async Task EnsureHealthchecksAsync()
     {
-        try { await ServiceLocator.Healthcheck.EnsureChecksAsync(System.Threading.CancellationToken.None); }
+        try
+        {
+            var made = await ServiceLocator.Healthcheck.EnsureChecksAsync(System.Threading.CancellationToken.None);
+            var problem = ServiceLocator.Healthcheck.LastProblem;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => HealthchecksStatus = problem is not null
+                ? "Checks could not be created: " + problem
+                : made > 0 ? $"Created a Healthchecks.io check for {made} backup{(made == 1 ? "" : "s")}." : HealthchecksStatus);
+        }
         catch (Exception ex) { AppLogger.For<SettingsViewModel>().Warning(ex, "Could not create the Healthchecks.io checks"); }
     }
+
+    /// <summary>What happened when Backspace last created the backups'
+    /// Healthchecks.io checks (U187): a problem stays shown until it is fixed.</summary>
+    [ObservableProperty] private string _healthchecksStatus = ServiceLocator.Healthcheck?.LastProblem is { } startupProblem
+        ? "Checks could not be created: " + startupProblem : "";
     partial void OnHealthchecksApiKeyChanged(string value)    => ScheduleAutoSave();
     partial void OnHealthchecksBaseUrlChanged(string value)   => ScheduleAutoSave();
     partial void OnMinimizeToTrayOnCloseChanged(bool value)

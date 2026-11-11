@@ -85,7 +85,8 @@ public interface IBackupEngine
         Destination destination,
         string storageName,
         CancellationToken ct,
-        Action<string>? lineSink = null);
+        Action<string>? lineSink = null,
+        Action<CheckStep, double>? progress = null);
 
     /// <summary>Remove every revision of a specific snapshot id and
     /// garbage-collect the chunks that only belonged to that chain.

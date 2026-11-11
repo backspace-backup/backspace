@@ -778,7 +778,16 @@ first, and backups wait for them on that destination. Each check's run in
 passed in 7 min 50 s". The backup card's **Backup health** line names the
 latest result by the same names ("Data sample passed · 4m ago"; a failure
 stays shown until that check passes again), and its hover lists each
-check's latest result. While a check runs, the card says "Checking".
+check's latest result. While a check runs, **Backup health** says so with a
+turning icon, such as "Checking · Structure + data sample (1 of 2) · 7 min",
+with a bar of how far it got and its step underneath ("Reading the data
+sample · 20 of 64 packs"). The bar follows restic's own counts (snapshots,
+then packs read), so it is approximate in time. Its hover has the check's
+full name and size, the destination, the time running, what the check does
+and the latest result. **Last backup** keeps showing the last backup's
+result meanwhile. A backup that has not stored anything yet says "No checks
+yet: nothing backed up so far": there is nothing to check until its first
+backup succeeds, and Last backup already says what needs attention.
 
 The data sample is an approximate budget: restic selects whole packs, at least one
 when data exists. Metadata and retries add traffic, and cloud providers may
@@ -984,6 +993,12 @@ Backspace --migrate <path>         # import an existing Duplicacy setup
 Backspace --version
 Backspace --help
 ```
+
+They print what they do and their result in the Command Prompt or
+PowerShell window they were started from. Backspace is a Windows program, so
+Command Prompt shows its prompt again at once and the result follows a moment
+later; to wait for it, use `start /wait Backspace --check <backup-name>`. In
+PowerShell, add `| Out-Host` to wait.
 
 With the background service set up, these commands run in it. After **Quit**
 they still run: the service starts for that command only, keeps scheduled

@@ -18,7 +18,7 @@ internal static class ServiceActivity
     internal sealed record Destination(string Name, double Percent);
     internal sealed record Progress(string BackupId, double Percent, string Queued,
         Source[] Sources, Destination[] Destinations, RunRecord? Result = null, string TranscriptTail = "", string? LogRunId = null, long TranscriptEnd = 0,
-        double QueuedSeconds = 0, string Activity = "");
+        double QueuedSeconds = 0, string Activity = "", string ActivityStep = "", string ActivityWhere = "", double ActivityPercent = -1);
     internal const int TranscriptCharacters = 32768;
     internal sealed record Snapshot(int Version, string? RunId, string State, string? BackupId,
         string? Operation, DateTime? StartedUtc, Progress? Progress, string? Error = null, Snapshot[]? Runs = null);
@@ -46,7 +46,8 @@ internal static class ServiceActivity
         return new(backupId, current?.OverallPercent ?? 0, queued,
             current?.Sources.Values.Select(s => new Source(s.SourcePath, s.PercentComplete, s.IsRunning, s.Detail, s.Phase)).ToArray() ?? [],
             current?.Destinations.Values.Select(d => new Destination(d.Name, d.PercentComplete)).ToArray() ?? [],
-            result is null ? null : Metadata(result), Activity: current?.Activity ?? "");
+            result is null ? null : Metadata(result), Activity: current?.Activity ?? "",
+            ActivityStep: current?.ActivityStep ?? "", ActivityWhere: current?.ActivityWhere ?? "", ActivityPercent: current?.ActivityPercent ?? -1);
     }
 
     private static RunRecord Metadata(RunRecord result)
@@ -76,6 +77,8 @@ internal static class ServiceActivity
     {
         if (p.BackupId != backupId || !Percent(p.Percent) || p.Queued is null || p.Queued.Length > 4096
             || !double.IsFinite(p.QueuedSeconds) || p.QueuedSeconds < 0
+            || p.Activity is null || p.Activity.Length > 4096 || p.ActivityStep is null || p.ActivityStep.Length > 4096
+            || p.ActivityWhere is null || p.ActivityWhere.Length > 4096 || !(p.ActivityPercent == -1 || Percent(p.ActivityPercent))
             || p.TranscriptTail is null || p.TranscriptTail.Length > TranscriptCharacters
             || p.TranscriptEnd < (p.TranscriptTail?.Length ?? 0)
             || (p.LogRunId is not null && !Guid.TryParseExact(p.LogRunId, "N", out _))

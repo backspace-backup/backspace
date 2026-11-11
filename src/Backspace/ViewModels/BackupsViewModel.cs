@@ -95,8 +95,11 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         // Carried by each pill so its button needs no ancestor lookup. A
         // failed $parent binding leaves Avalonia's button disabled.
         public IRelayCommand<string> Jump { get; }
-        public HealthBackupReference(string id, string name, string statusClass, IRelayCommand<string> jump)
-        { Id = id; Name = name; StatusClass = statusClass; Jump = jump; }
+        /// <summary>Why this backup is in the banner (U199), on hover.</summary>
+        public string Reason { get; }
+        public string Tooltip => Reason.Length > 0 ? $"{Reason}. Click to jump to this backup's card." : "Click to jump to this backup's card";
+        public HealthBackupReference(string id, string name, string statusClass, IRelayCommand<string> jump, string reason = "")
+        { Id = id; Name = name; StatusClass = statusClass; Jump = jump; Reason = reason; }
     }
 
     /// <summary>Coalesces a flurry of Config.Changed firings (e.g. add a
@@ -481,6 +484,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         var failedRuns = 0;
         var warned = new System.Collections.Generic.List<Backup>();
         var incompleteChecks = 0;
+        var reasons = new System.Collections.Generic.Dictionary<string, string>();
         var loadingChecks = 0;
         var runningCount = 0;
         var skipped = new System.Collections.Generic.List<Backup>();
@@ -498,6 +502,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             {
                 failed.Add(b);
                 failedChecks++;
+                reasons[b.Id] = "A saved check is failing";
             }
             else if (b.LastVerifyUtc is DateTime verifiedAt && b.LastVerifyPass == false)
             {
@@ -506,6 +511,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 // preserves the previous completed verification result.
                 failed.Add(b);
                 failedTestRestores++;
+                reasons[b.Id] = "Its test restore failed";
                 if (mostRecent is null || verifiedAt > mostRecent) mostRecent = verifiedAt;
             }
             else if (checkTone == "stale" && runStatus != BackupRunStatus.Failed)
@@ -515,12 +521,13 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 // as the higher-severity result.
                 warned.Add(b);
                 incompleteChecks++;
+                reasons[b.Id] = "A check is incomplete, overdue, or unavailable";
             }
             else switch (runStatus)
             {
-                case BackupRunStatus.Failed:  failed.Add(b);   break;
-                case BackupRunStatus.Warning: warned.Add(b);   break;
-                case BackupRunStatus.Skipped: skipped.Add(b);  break;
+                case BackupRunStatus.Failed:  failed.Add(b);  reasons[b.Id] = "Its last run failed"; break;
+                case BackupRunStatus.Warning: warned.Add(b);  reasons[b.Id] = "Its last run finished with warnings"; break;
+                case BackupRunStatus.Skipped: skipped.Add(b); reasons[b.Id] = "Its last run was skipped"; break;
                 case BackupRunStatus.Success:
                     if (checkTone == "loading") loadingChecks++; else okCount++;
                     break;
@@ -575,22 +582,24 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 HealthDetail = $"Last activity: {ago}";
             }
             foreach (var b in failed)
-                AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "fail", JumpToBackupCommand));
-            foreach (var b in warned)  AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "warn", JumpToBackupCommand));
-            foreach (var b in skipped) AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "skipped", JumpToBackupCommand));
+                AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "fail", JumpToBackupCommand, Reason(b)));
+            foreach (var b in warned)  AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "warn", JumpToBackupCommand, Reason(b)));
+            foreach (var b in skipped) AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "skipped", JumpToBackupCommand, Reason(b)));
         }
         else if (warned.Count > 0 || skipped.Count > 0)
         {
             HealthClass = "warn";
-            if (incompleteChecks > 0)
+            // Each reason with its own count (U199): a skipped backup is not
+            // a check that needs attention.
+            var warnedRuns = warned.Count - incompleteChecks;
+            var parts = new System.Collections.Generic.List<string>();
+            if (incompleteChecks > 0) parts.Add($"{incompleteChecks} with a check incomplete, overdue, or unavailable");
+            if (warnedRuns > 0) parts.Add($"{warnedRuns} finished with warnings");
+            if (skipped.Count > 0) parts.Add(skipped.Count == 1 ? "1 skipped on its last run" : $"{skipped.Count} skipped on their last run");
+            if (parts.Count > 1 || incompleteChecks > 0)
             {
                 var affected = warned.Count + skipped.Count;
                 HealthHeadline = affected == 1 ? "1 backup needs attention" : $"{affected} backups need attention";
-            }
-            else if (warned.Count > 0 && skipped.Count > 0)
-            {
-                var noun = (warned.Count + skipped.Count) == 1 ? "backup" : "backups";
-                HealthHeadline = $"{warned.Count + skipped.Count} {noun} need attention";
             }
             else if (warned.Count > 0)
             {
@@ -604,11 +613,11 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                     ? "1 backup was skipped on its last run"
                     : $"{skipped.Count} backups were skipped on their last run";
             }
-            HealthDetail = incompleteChecks > 0
-                ? "A check is incomplete, overdue, or unavailable."
+            HealthDetail = parts.Count > 1 ? string.Join(" · ", parts) + "."
+                : incompleteChecks > 0 ? (incompleteChecks == 1 ? "Its check is incomplete, overdue, or unavailable." : "Their checks are incomplete, overdue, or unavailable.")
                 : $"Last activity: {ago}";
-            foreach (var b in warned)  AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "warn", JumpToBackupCommand));
-            foreach (var b in skipped) AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "skipped", JumpToBackupCommand));
+            foreach (var b in warned)  AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "warn", JumpToBackupCommand, Reason(b)));
+            foreach (var b in skipped) AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "skipped", JumpToBackupCommand, Reason(b)));
         }
         else if (neverRun.Count > 0)
         {
@@ -617,7 +626,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 ? "1 backup hasn't run yet"
                 : $"{neverRun.Count} backups haven't run yet";
             HealthDetail = $"Last activity: {ago}";
-            foreach (var b in neverRun) AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "idle", JumpToBackupCommand));
+            foreach (var b in neverRun) AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "idle", JumpToBackupCommand, "It hasn't run yet"));
         }
         else if (loadingChecks > 0)
         {
@@ -649,6 +658,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             HealthClass = "idle";
         }
         HasHealthBanner = !string.IsNullOrEmpty(HealthHeadline);
+        string Reason(Backup b) => reasons.TryGetValue(b.Id, out var why) ? why : "";
     }
 
     /// <summary>Raised by a click on an AffectedBackups chip — the view

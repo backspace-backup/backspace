@@ -108,7 +108,7 @@
                           Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"
                           Classes.idle="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"
                           Margin="6,2,0,2"
-                          ToolTip.Tip="Click to jump to this backup's card"
+                          ToolTip.Tip="{Binding Tooltip}"
                           Command="{Binding Jump}"
                           CommandParameter="{Binding Id}">
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">

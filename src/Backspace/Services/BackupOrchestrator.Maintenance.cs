@@ -277,7 +277,8 @@ public sealed partial class BackupOrchestrator
                                 RepositoryAccess.Kind.Exclusive, linked.Token);
                             var cell = kind == RunKind.Prune
                                 ? await _engine.RunPruneOnlyAsync(engineBackup, src, dest, target.StorageName, linked.Token)
-                                : await _engine.RunCheckOnlyAsync(engineBackup, src, dest, target.StorageName, linked.Token);
+                                : await _engine.RunCheckOnlyAsync(engineBackup, src, dest, target.StorageName, linked.Token,
+                                    progress: CheckStepReporter(backup.Id, dest.Name, distinctTargets.IndexOf(target), distinctTargets.Count));
                             var status = cell.Status;
                             var summary = cell.Summary;
                             // An absent terminal result cannot establish that the
@@ -393,6 +394,37 @@ public sealed partial class BackupOrchestrator
             aggregate.Warnings.Add($"[{source} → {destination}] {summary}");
     }
 
+    /// <summary>Reports a restic check's steps for the card (U198): its share
+    /// done across the destinations this check runs on, one after another.</summary>
+    private Action<CheckStep, double> CheckStepReporter(string backupId, string destination, int index, int count)
+    {
+        var where = count > 1 ? $"{destination} ({index + 1} of {count})" : destination;
+        return (step, percent) => _progress.ReportActivityStep(backupId, step.Text, where,
+            (Math.Max(0, index) * 100 + percent) / Math.Max(1, count));
+    }
+
+    /// <summary>A sample test restore's progress, read once a second from its
+    /// session, until <paramref name="ct"/> ends it (U198).</summary>
+    private async Task WatchTestRestoreAsync(string backupId, string where, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                if (ServiceLocator.ActiveRestores.RunningTestFor(backupId) is { } session)
+                {
+                    var known = !session.IsProgressIndeterminate && session.TotalBytes > 0;
+                    _progress.ReportActivityStep(backupId,
+                        known ? $"Restoring and comparing files · {session.RestoredCount:N0} of {session.TotalFiles:N0} files" : "Preparing the files to restore",
+                        where, known ? session.PercentComplete * 100 : -1);
+                }
+                await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _log.Debug(ex, "Could not follow the test restore's progress"); }
+    }
+
     /// <summary>A sample test restore entry (U179): rebuilds files from the
     /// latest backup at each destination it can reach, holding each one alone
     /// meanwhile, so backups and other checks there wait. A destination that
@@ -429,7 +461,13 @@ public sealed partial class BackupOrchestrator
                 leases.Add(await AcquireRepositoryAsync(backup, aggregate, dest, target.StorageName, RepositoryAccess.Kind.Exclusive, linked.Token).ConfigureAwait(false));
             var view = System.Text.Json.JsonSerializer.Deserialize<Backup>(System.Text.Json.JsonSerializer.Serialize(backup))!;
             view.Targets = reachable.Select(r => r.Target).ToList();
-            var outcome = await ServiceLocator.TestRestores.RunScheduledAsync(view, check.RestoreOptions(), linked.Token, maintenanceLeaseHeld: true).ConfigureAwait(false);
+            // Its progress, once a second, for the card (U198).
+            var where = reachable.Count == 1 ? reachable[0].Destination.Name : $"{reachable.Count} destinations";
+            using var watching = new CancellationTokenSource();
+            var watch = WatchTestRestoreAsync(backup.Id, where, watching.Token);
+            VerifyOutcome outcome;
+            try { outcome = await ServiceLocator.TestRestores.RunScheduledAsync(view, check.RestoreOptions(), linked.Token, maintenanceLeaseHeld: true).ConfigureAwait(false); }
+            finally { watching.Cancel(); await watch.ConfigureAwait(false); }
             var status = outcome.OverallPass ? BackupRunStatus.Success : BackupRunStatus.Failed;
             foreach (var (target, dest) in reachable)
                 AddOutcome(aggregate, source, dest.Name, target.StorageName, status, outcome.Summary);

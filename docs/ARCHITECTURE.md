@@ -285,6 +285,15 @@ full data read runs `check --read-data`, recorded as `CheckDepth.AllData`
 or unavailable size fails the check; it never falls back to an unlimited
 download.
 
+A check's progress (U198): its restic commands run with
+`RESTIC_PROGRESS_FPS=1`, and `CheckProgressReader` turns restic's plain lines
+("load indexes", "[0:05] 33.33%  1 / 3 packs") into a step and a share done,
+reported through `RunCheckOnlyAsync`'s `progress` callback to
+`BackupProgressService.ReportActivityStep` (step, destination, percent), and from
+the service through its activity report (`ActivityStep`, `ActivityWhere`,
+`ActivityPercent`). A sample test restore's progress is read from its session
+once a second. The run's log keeps only restic's finished counts (100%).
+
 This is an approximate sampling target, not a network quota. Restic converts
 the byte target to a fraction of pack count, with a minimum of one pack.
 Unequal packs, metadata, compression and retries affect traffic. A check

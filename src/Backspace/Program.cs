@@ -594,7 +594,9 @@ internal static class Program
         Console.WriteLine($"  {bin} --help | -h | /?   Show this help.");
         Console.WriteLine();
         Console.WriteLine("Notes:");
-        Console.WriteLine($"  • Config + logs live under {AppPaths.ConfigRoot}");
+        Console.WriteLine($"  - Config + logs live under {AppPaths.ConfigRoot}");
+        Console.WriteLine("  - Command Prompt shows its prompt again at once and the result follows; to wait for it,");
+        Console.WriteLine($"    use: start /wait {bin} --check <name>. In PowerShell, add | Out-Host to wait.");
         return exitCode;
     }
 

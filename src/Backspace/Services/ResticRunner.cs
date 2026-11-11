@@ -518,7 +518,10 @@ internal static class ResticRunner
                     else if (document is not null) write("[restic] " + text);
                     else if (shown.Length > 0) write(TranscriptLine("debug", shown));
                 }
-                else if (command.OutputToTranscript && document is null && shown.Length > 0)
+                // A check's progress lines (U198) feed the card; the log keeps
+                // only the finished counts (100%), not one line per second.
+                else if (command.OutputToTranscript && document is null && shown.Length > 0
+                    && !(command.ProgressFps > 0 && CheckProgressReader.IsProgressLine(shown) && !shown.Contains("100.00%", StringComparison.Ordinal)))
                     write(TranscriptLine("debug", shown));
                 onLine?.Invoke(new ResticLine(text, standardError, type, json, cut));
             }

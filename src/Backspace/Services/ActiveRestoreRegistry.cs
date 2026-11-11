@@ -32,6 +32,10 @@ public sealed class ActiveRestoreRegistry
         return session;
     }
 
+    /// <summary>The test restore running for this backup, if any (U198).</summary>
+    public ActiveRestoreSession? RunningTestFor(string backupId)
+        => _running.Values.FirstOrDefault(s => s.BackupId == backupId && s.IsTestRestore && s.IsRunning);
+
     public void Describe(ActiveRestoreSession session, string detail) => MarshalToUi(() => { session.Detail = detail; session.RaiseChanged(); });
 
     public ActiveRestoreSession Begin(Backup backup, RestoreRequest request, Action? cancel = null, RestoreControl? control = null)
