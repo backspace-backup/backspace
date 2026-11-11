@@ -136,8 +136,8 @@ public sealed class S99_ChecksList : ScenarioBase
         await ctx.Driver.PumpAsync(150);
         var sentence = easy.FindControl<TextBlock>("EasyChecksSentence")!;
         Assert.True(sentence.IsEffectivelyVisible);
-        Assert.Equal("Every week Backspace removes old copies it no longer needs to keep, checks that the backup is complete "
-            + "and reads back 1 GiB of the stored data to make sure it is undamaged; every month it restores a few files as a test "
+        Assert.Equal("Every week Backspace removes old copies it no longer needs to keep and checks that the backup is complete, "
+            + "reading back 1 GiB of the stored data to make sure it is undamaged; every month it restores a few files as a test "
             + "to prove they come back.", sentence.Text);
         Assert.DoesNotContain(easy.GetVisualDescendants().OfType<Button>(), b => b.Name?.StartsWith("Add") == true && b.Name.Contains("Check"));
         ctx.Snapshot(easy, "easy mode sentence", "Easy mode, step 3: under the schedule, one plain sentence says what Backspace does by itself every week and every month. No check settings.");

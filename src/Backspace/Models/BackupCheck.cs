@@ -143,7 +143,7 @@ public sealed class BackupCheck
             Add(check.Schedule, check.Kind switch
             {
                 CheckKind.Structure => "checks that the backup is complete",
-                CheckKind.DataSample => $"reads back {Size(check.MaximumBytes)} of the stored data to make sure it is undamaged",
+                CheckKind.DataSample => $"checks that the backup is complete, reading back {Size(check.MaximumBytes)} of the stored data to make sure it is undamaged",
                 CheckKind.TestRestore => "restores a few files as a test to prove they come back",
                 _ => "reads back all the stored data to make sure it is undamaged",
             });

@@ -18,7 +18,7 @@ internal static class ServiceActivity
     internal sealed record Destination(string Name, double Percent);
     internal sealed record Progress(string BackupId, double Percent, string Queued,
         Source[] Sources, Destination[] Destinations, RunRecord? Result = null, string TranscriptTail = "", string? LogRunId = null, long TranscriptEnd = 0,
-        double QueuedSeconds = 0);
+        double QueuedSeconds = 0, string Activity = "");
     internal const int TranscriptCharacters = 32768;
     internal sealed record Snapshot(int Version, string? RunId, string State, string? BackupId,
         string? Operation, DateTime? StartedUtc, Progress? Progress, string? Error = null, Snapshot[]? Runs = null);
@@ -46,7 +46,7 @@ internal static class ServiceActivity
         return new(backupId, current?.OverallPercent ?? 0, queued,
             current?.Sources.Values.Select(s => new Source(s.SourcePath, s.PercentComplete, s.IsRunning, s.Detail, s.Phase)).ToArray() ?? [],
             current?.Destinations.Values.Select(d => new Destination(d.Name, d.PercentComplete)).ToArray() ?? [],
-            result is null ? null : Metadata(result));
+            result is null ? null : Metadata(result), Activity: current?.Activity ?? "");
     }
 
     private static RunRecord Metadata(RunRecord result)

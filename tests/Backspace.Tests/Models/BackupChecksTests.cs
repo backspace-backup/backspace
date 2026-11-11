@@ -114,13 +114,13 @@ public sealed class BackupChecksTests
         BackupMaintenanceDefaults.ApplyTo(backup);
         Assert.Equal(ScheduleFrequency.Weekly, backup.PruneSchedule!.Frequency);
         Assert.Equal(0b0000_0001, backup.PruneSchedule.WeeklyDaysBitmask); // Once a week, not every day.
-        Assert.Equal(new[] { CheckKind.Structure, CheckKind.DataSample, CheckKind.TestRestore }, backup.Checks.Select(c => c.Kind));
+        // No separate structure check: the data sample checks the structure too.
+        Assert.Equal(new[] { CheckKind.DataSample, CheckKind.TestRestore }, backup.Checks.Select(c => c.Kind));
         Assert.Equal(ScheduleFrequency.Weekly, backup.Checks[0].Schedule!.Frequency);
-        Assert.Equal(ScheduleFrequency.Weekly, backup.Checks[1].Schedule!.Frequency);
+        Assert.Equal(BackupCheck.OneGiB, backup.Checks[0].MaximumBytes);
+        Assert.Equal(ScheduleFrequency.Monthly, backup.Checks[1].Schedule!.Frequency);
+        Assert.Equal(1, backup.Checks[1].SamplePercent);
         Assert.Equal(BackupCheck.OneGiB, backup.Checks[1].MaximumBytes);
-        Assert.Equal(ScheduleFrequency.Monthly, backup.Checks[2].Schedule!.Frequency);
-        Assert.Equal(1, backup.Checks[2].SamplePercent);
-        Assert.Equal(BackupCheck.OneGiB, backup.Checks[2].MaximumBytes);
         Assert.DoesNotContain(backup.Checks, c => c.Kind == CheckKind.FullDataRead);
         Assert.All(backup.Checks, c => Assert.Equal(TimeSpan.FromHours(3), c.Schedule!.TimeOfDay));
     }
@@ -130,8 +130,8 @@ public sealed class BackupChecksTests
     {
         var backup = new Backup();
         BackupMaintenanceDefaults.ApplyTo(backup);
-        Assert.Equal("Every week Backspace removes old copies it no longer needs to keep, checks that the backup is complete "
-            + "and reads back 1 GiB of the stored data to make sure it is undamaged; every month it restores a few files as a test "
+        Assert.Equal("Every week Backspace removes old copies it no longer needs to keep and checks that the backup is complete, "
+            + "reading back 1 GiB of the stored data to make sure it is undamaged; every month it restores a few files as a test "
             + "to prove they come back.", BackupCheck.Sentence(backup));
         backup.PruneSchedule = null;
         backup.Checks = [new BackupCheck { Kind = CheckKind.Structure }];
@@ -189,6 +189,7 @@ public sealed class BackupChecksTests
         var now = new DateTime(2026, 11, 10, 12, 0, 0, DateTimeKind.Utc);
         var backup = new Backup { Id = "b", Enabled = true, CreatedUtc = now.AddDays(-30) };
         BackupMaintenanceDefaults.ApplyTo(backup);
+        backup.Checks.Insert(0, new BackupCheck { Kind = CheckKind.Structure, Schedule = backup.Checks[0].Schedule });
         var entries = new[]
         {
             new BackupCheckEntry("1", now.AddMinutes(-90), BackupRunStatus.Success, CheckDepth.SavedDataSample, ""),
@@ -202,5 +203,12 @@ public sealed class BackupChecksTests
         Assert.Equal("Structure check · passed 20d ago · due again", BackupCheckHistory.KindLines(backup, old, now)[0]);
         Assert.Equal("Data sample · not run yet", BackupCheckHistory.KindLines(backup, old, now)[1]);
         Assert.Equal(lines, BackupCheckHistory.State(backup, entries, now).Kinds);
+        // One line on the card in the Checks list's names; a failure wins over a later pass; each check in the hover.
+        var state = BackupCheckHistory.State(backup, entries, now);
+        Assert.Equal("Sample test restore failed · 3h ago", state.Label);
+        Assert.EndsWith("Each check:\n" + string.Join("\n", lines), state.Details);
+        backup.Checks.RemoveAll(c => c.Kind == CheckKind.TestRestore);
+        var ok = BackupCheckHistory.State(backup, new[] { entries[0] }, now);
+        Assert.Equal(("Data sample passed · 1h ago", "ok"), (ok.Label, ok.Tone));
     }
 }

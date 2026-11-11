@@ -123,6 +123,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// <summary>A backup is running: only then do the progress bar and the
     /// sources' percentages mean something (a check reads the storage).</summary>
     public bool IsBackingUp => IsRunning && RunningOperation == "backup";
+    /// <summary>Which check runs now ("Sample test restore (2 of 2)"), U183.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(RunningLabel))] private string _runningActivity = "";
     [ObservableProperty] private bool _isVerifying;
     /// <summary>True while the run is registered (IsRunning) but
     /// parked on the orchestrator's per-destination queue waiting
@@ -364,6 +366,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         get
         {
             var what = RunningOperation switch { "check" => "Checking", "prune" => "Cleaning up", _ => "Running" };
+            if (RunningOperation != "backup" && RunningActivity.Length > 0) what += " · " + RunningActivity;
             return RunStartedUtc is { } started ? what + " · " + Elapsed(UtcNow() - started - QueuedTime()) : what;
         }
     }
@@ -923,6 +926,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         {
             BackgroundRunId = activity.RunId;
             SetRunning(activity.StartedUtc, activity.Operation is "check" or "prune" ? activity.Operation : "backup");
+            RunningActivity = activity.Progress?.Activity ?? "";
             _reportedQueued = TimeSpan.FromSeconds(activity.Progress?.QueuedSeconds ?? 0);
             SetQueuedReason(activity.Progress?.Queued ?? "");
             if (activity.State == "stopping") LastRunLabel = "Stopping background backup…";

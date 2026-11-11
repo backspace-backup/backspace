@@ -417,6 +417,8 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
                     BackupName = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == current.BackupId)?.Name ?? current.BackupId,
                     StartedUtc = current.StartedUtc.Value, Status = BackupRunStatus.Running, TriggeredAutomatically = true,
                     Kind = current.Operation == "check" ? RunKind.Check : current.Operation == "prune" ? RunKind.Prune : RunKind.Backup };
+            // Which check runs now, so the live row says what the finished rows beside it are part of (U183).
+            if (current.Operation == "check") _serviceRun.Summary = current.Progress?.Activity is { Length: > 0 } now ? "Running: " + now : "";
         }
         else if (current is { BackupId: not null, RunId: not null, StartedUtc: not null }
             && current.State is "failed" or "failed-to-start" or "interrupted")

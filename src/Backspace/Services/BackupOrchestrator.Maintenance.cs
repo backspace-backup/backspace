@@ -40,11 +40,17 @@ public sealed partial class BackupOrchestrator
             ? BackupCheck.InRunOrder(backup.Checks).ToList()
             : [new BackupCheck { Kind = CheckKind.Structure }];
         var records = new List<RunRecord>();
-        foreach (var check in checks)
+        try
         {
-            if (ct.IsCancellationRequested) break;
-            records.Add(await RunCheckAsync(backup, check, ct, onlyTargets).ConfigureAwait(false));
+            for (var i = 0; i < checks.Count; i++)
+            {
+                if (ct.IsCancellationRequested) break;
+                // Says which check runs now: the card and Activity show it (U183).
+                _progress.ReportActivity(backup.Id, checks.Count > 1 ? $"{checks[i].Title} ({i + 1} of {checks.Count})" : checks[i].Title);
+                records.Add(await RunCheckAsync(backup, checks[i], ct, onlyTargets).ConfigureAwait(false));
+            }
         }
+        finally { _progress.ReportActivity(backup.Id, ""); }
         return CheckRunWording.Combine(backup, records);
     }
 

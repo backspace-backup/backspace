@@ -759,8 +759,8 @@ own setting above, under **Cleanup**. There are four kinds:
 - **Full data read**: downloads all the stored data and checks every piece.
   The most thorough check of the storage, and the slowest. Off by default.
 
-New backups get a weekly cleanup, a weekly structure check, a weekly 1 GiB
-data sample and a monthly sample test restore (1%, at most 1 GiB), at 3 AM
+New backups get a weekly cleanup, a weekly 1 GiB data sample (which checks
+the structure too, so no separate structure check) and a monthly sample test restore (1%, at most 1 GiB), at 3 AM
 (Sunday for the weekly ones, the 1st for the monthly one). Easy mode shows
 this as one sentence and no settings. Backups set up before checks were a
 list keep what they had: a monthly check with a data sample and a test

@@ -489,6 +489,14 @@ public sealed class BackupProgressService
         Raise(backupId);
     }
 
+    /// <summary>Says what a check run is doing now (U183); empty to clear.</summary>
+    public void ReportActivity(string backupId, string text)
+    {
+        var p = _state.GetOrAdd(backupId, _ => new BackupProgress(backupId));
+        lock (p.Gate) p.Activity = text;
+        try { Updated?.Invoke(backupId); } catch (Exception ex) { _log.Warning(ex, "A progress listener failed"); }
+    }
+
     public void ReportRunFinished(string backupId)
     {
         // Purge tracked state ~5s after end so a fast re-trigger doesn't
@@ -614,6 +622,9 @@ public sealed class BackupProgressService
         /// </summary>
         public Dictionary<string, DestinationProgress> Destinations { get; } = new(StringComparer.OrdinalIgnoreCase);
         public string? CurrentSourcePath { get; set; }
+        /// <summary>What a check run is doing now, such as "Sample test restore
+        /// (2 of 2)" (U183); empty for a backup.</summary>
+        public string Activity { get; set; } = "";
         /// <summary>Aggregate 0..100. Computed as the average of
         /// every (source × destination) cell percent, so a backup with
         /// 2 sources and 2 destinations needs all four cells at 100%
@@ -755,6 +766,7 @@ public sealed class BackupProgressService
             {
                 CurrentSourcePath = CurrentSourcePath,
                 OverallPercent = OverallPercent,
+                Activity = Activity,
             };
             foreach (var (k, v) in Sources)
             {

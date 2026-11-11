@@ -29,10 +29,10 @@ public static class BackupMaintenanceDefaults
         b.Checks = Checks(b.Schedule);
     }
 
-    /// <summary>The recommended checks (U179).</summary>
+    /// <summary>The recommended checks (U179). No separate structure check:
+    /// restic's data sample checks the structure too (owner, 10 November 2026).</summary>
     public static List<BackupCheck> Checks(BackupSchedule main) =>
     [
-        new() { Kind = CheckKind.Structure, Schedule = BuildSchedule(main, ScheduleFrequency.Weekly) },
         new() { Kind = CheckKind.DataSample, Schedule = BuildSchedule(main, ScheduleFrequency.Weekly), MaximumBytes = BackupCheck.OneGiB },
         new() { Kind = CheckKind.TestRestore, Schedule = BuildSchedule(main, ScheduleFrequency.Monthly), SamplePercent = 1, MaximumBytes = BackupCheck.OneGiB },
     ];
