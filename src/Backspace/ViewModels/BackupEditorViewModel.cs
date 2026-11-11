@@ -152,8 +152,6 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         }
     }
 
-    /// <summary>The data sample and the test restore, side by side.</summary>
-    public string ChecksCompared => "So the data sample guards the storage, and the test restore guards the result.";
 
     /// <summary>A full data read needs an engine that reads all the data (U179).</summary>
     public bool FullDataReadAvailable => ServiceLocator.Initialized && ServiceLocator.Engine.HonoursDataCheckLimit;

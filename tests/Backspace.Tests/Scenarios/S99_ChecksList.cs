@@ -111,7 +111,7 @@ public sealed class S99_ChecksList : ScenarioBase
         // The explanations the owner asked for.
         var texts = win.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text ?? "").ToList();
         Assert.Contains(texts, t => t.Contains("never tested first, then those tested longest ago"));
-        Assert.Contains(texts, t => t == "So the data sample guards the storage, and the test restore guards the result.");
+        Assert.DoesNotContain(texts, t => t.Contains("guards the"));
         win.Close();
 
         // Dark mode: the converted list again.

@@ -721,8 +721,6 @@
                   <TextBlock Name="ChecksSentence" Text="{Binding ChecksSentence}" TextWrapping="Wrap"
                              Foreground="{DynamicResource BS.Brush.AccentTintFg}"/>
                 </Border>
-                <TextBlock Text="{Binding ChecksCompared}" TextWrapping="Wrap" FontSize="13"
-                           Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
                 <TextBlock Classes="dim" IsVisible="{Binding !HasChecks}" TextWrapping="Wrap"
                            Text="No checks. Nothing confirms that this backup can be restored until you add one."/>
 
