@@ -371,14 +371,19 @@ progress line; **Stop** ends it. The result:
   many files it holds and their size, never its contents; a file alone only
   when its folder is kept. Each row names the rule responsible (the last one
   that matched). Click the rule to see it selected on the **Rules** tab.
-- A total ("5 items (16 files), 5.3 MB left out") and a search box for paths
-  and rules. There is no cap: folders are collapsed, so even a whole drive
-  gives a short list.
-- **By rule** groups the same result per rule, with what each leaves out.
 - Items of one folder left out by the same rule share a row: a rule such as
   `?:/Users/*/Dropbox/*` leaves out what Dropbox holds but keeps the folder
   itself, so the row reads "Dropbox\…: 14 folders and 3 files inside, the
   folder itself kept". **Show** lists them one by one, each with Keep this.
+  Folders like that gather in turn: with `?:/Program Files*/*/*`, Program
+  Files is one row ("What 80 folders inside hold, those folders kept") and
+  Program Files (x86) another. Rows share a row only where the rule takes any
+  name at that level (a lone `*`); `*.tmp` or `Program Files*` name what they
+  take, so their matches stay one row each.
+- A total ("5 items (16 files), 5.3 MB left out") and a search box for paths
+  and rules. There is no cap: folders are collapsed, so even a whole drive
+  gives a short list.
+- **By rule** groups the same result per rule, with what each leaves out.
 - **Keep this** adds an exception (`!` and the item's full path) at the end of
   the rules, so the backup keeps it whatever rule left it out. Like any edit,
   Save keeps it.
