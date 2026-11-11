@@ -168,10 +168,6 @@
                          Classes.stale="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stale}"
                          Classes.never="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=never}"/>
             </Grid>
-            <!-- Each check's latest result (U179). -->
-            <TextBlock Name="CheckKinds" Text="{Binding CheckKindsText}" Margin="24,0,0,0" FontSize="12" LineHeight="17"
-                       TextWrapping="Wrap" Foreground="{DynamicResource BS.Brush.FgSecondary}"
-                       IsVisible="{Binding CheckKindsText, Converter={x:Static vm:NotEmpty.To}}"/>
 
             </StackPanel>
           </Border>
@@ -205,7 +201,7 @@
                           <Border.IsVisible>
                             <MultiBinding Converter="{x:Static vm:BoolAnd.To}">
                               <Binding Path="$parent[ItemsControl].((vm:BackupCardViewModel)DataContext).ShowProgress"/>
-                              <Binding Path="$parent[ItemsControl].((vm:BackupCardViewModel)DataContext).IsRunning"/>
+                              <Binding Path="$parent[ItemsControl].((vm:BackupCardViewModel)DataContext).IsBackingUp"/>
                             </MultiBinding>
                           </Border.IsVisible>
                         </Border>
@@ -233,7 +229,7 @@
                                      Text="{Binding SizeLabel, StringFormat='({0})'}"/>
                           <TextBlock Grid.Column="3" FontSize="12"
                                      Margin="8,0,0,0"
-                                     IsVisible="{Binding $parent[ItemsControl].((vm:BackupCardViewModel)DataContext).IsRunning}"
+                                     IsVisible="{Binding $parent[ItemsControl].((vm:BackupCardViewModel)DataContext).IsBackingUp}"
                                      VerticalAlignment="Center"
                                      Foreground="{DynamicResource BS.Brush.FgSecondary}"
                                      Text="{Binding PercentComplete, StringFormat='{}{0:0}%'}"/>
@@ -312,7 +308,7 @@
 
           <!-- Overall progress strip — only while running. -->
           <Grid ColumnDefinitions="10,14,*,Auto,Auto"
-                IsVisible="{Binding IsRunning}">
+                IsVisible="{Binding IsBackingUp}">
             <Border Grid.Column="0" Classes="status-badge running"/>
             <ProgressBar Grid.Column="2" Minimum="0" Maximum="100"
                          Value="{Binding OverallPercent}"

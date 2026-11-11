@@ -160,8 +160,8 @@ public sealed class TestRestoreJournalTests
     [Fact]
     public void Batches_limit_both_file_count_and_temporary_bytes()
     {
-        var files = Enumerable.Range(0, 300).Select(i => new RevisionFile("file-" + i, 1, DateTime.UnixEpoch)).ToArray();
-        Assert.Equal(new[] { 128, 128, 44 }, BackupVerifier.VerificationBatches(files).Select(b => b.Length));
+        var files = Enumerable.Range(0, 2_100).Select(i => new RevisionFile("file-" + i, 1, DateTime.UnixEpoch)).ToArray();
+        Assert.Equal(new[] { 1024, 1024, 52 }, BackupVerifier.VerificationBatches(files).Select(b => b.Length));
         var large = new[] { new RevisionFile("a", 200_000_000, DateTime.UnixEpoch), new RevisionFile("b", 200_000_000, DateTime.UnixEpoch), new RevisionFile("c", 1_000_000_000, DateTime.UnixEpoch) };
         Assert.Equal(new[] { 1, 1, 1 }, BackupVerifier.VerificationBatches(large).Select(b => b.Length));
     }

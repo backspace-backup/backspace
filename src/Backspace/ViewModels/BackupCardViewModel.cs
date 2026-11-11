@@ -102,8 +102,6 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _verifyClass = "never";
     [ObservableProperty] private string _verifyDetails = "The first scheduled check or Test restore will appear here.";
     [ObservableProperty] private string _checkScopeLabel = "";
-    /// <summary>Each check's latest result, one per line (U179).</summary>
-    [ObservableProperty] private string _checkKindsText = "";
     private IReadOnlyList<BackupCheckEntry> _checkEntries = Array.Empty<BackupCheckEntry>();
     private IReadOnlyList<RunRecord> _checkRuns = Array.Empty<RunRecord>();
     private bool _checkHistoryLoaded;
@@ -118,7 +116,13 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// glance without parsing the value text.
     /// </summary>
     [ObservableProperty] private string _nextRunClass = "scheduled";
-    [ObservableProperty] private bool _isRunning;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsBackingUp))] private bool _isRunning;
+    /// <summary>What the running operation is: "backup", "check" or
+    /// "prune" (a check run through the background service, U183).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsBackingUp), nameof(RunningLabel))] private string _runningOperation = "backup";
+    /// <summary>A backup is running: only then do the progress bar and the
+    /// sources' percentages mean something (a check reads the storage).</summary>
+    public bool IsBackingUp => IsRunning && RunningOperation == "backup";
     [ObservableProperty] private bool _isVerifying;
     /// <summary>True while the run is registered (IsRunning) but
     /// parked on the orchestrator's per-destination queue waiting
@@ -355,9 +359,14 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// (U155, 7 November 2026), for desktop and background runs alike. Time
     /// spent queued, waiting for another backup, doesn't count (U156): the
     /// clock stands still while the card says "Queued: …".</summary>
-    public string RunningLabel => RunStartedUtc is { } started
-        ? "Running · " + Elapsed(UtcNow() - started - QueuedTime())
-        : "Running";
+    public string RunningLabel
+    {
+        get
+        {
+            var what = RunningOperation switch { "check" => "Checking", "prune" => "Cleaning up", _ => "Running" };
+            return RunStartedUtc is { } started ? what + " · " + Elapsed(UtcNow() - started - QueuedTime()) : what;
+        }
+    }
 
     /// <summary>"40 s", "12 min", "1 h 05 min".</summary>
     internal static string Elapsed(TimeSpan time) =>
@@ -724,14 +733,14 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         }
         VerifyLabel = state.Label; VerifyClass = state.Tone;
         CheckScopeLabel = state.Scope; VerifyDetails = state.Details;
-        CheckKindsText = string.Join("\n", state.Kinds);
     }
 
     /// <param name="startedUtc">When the run started, if known (the
     /// background service's activity); otherwise the orchestrator's run, or
     /// the time already shown, or now.</param>
-    public void SetRunning(DateTime? startedUtc = null)
+    public void SetRunning(DateTime? startedUtc = null, string operation = "backup")
     {
+        RunningOperation = operation;
         RunStartedUtc = startedUtc
             ?? (ServiceLocator.Orchestrator.TryGetRunningInfo(Id, out var started) ? started : (DateTime?)null)
             ?? (IsRunning ? RunStartedUtc : null)
@@ -913,7 +922,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if (activity.State is "starting" or "running" or "stopping" or "unknown")
         {
             BackgroundRunId = activity.RunId;
-            SetRunning(activity.StartedUtc);
+            SetRunning(activity.StartedUtc, activity.Operation is "check" or "prune" ? activity.Operation : "backup");
             _reportedQueued = TimeSpan.FromSeconds(activity.Progress?.QueuedSeconds ?? 0);
             SetQueuedReason(activity.Progress?.Queued ?? "");
             if (activity.State == "stopping") LastRunLabel = "Stopping background backup…";

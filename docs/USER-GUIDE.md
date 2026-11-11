@@ -771,8 +771,10 @@ the same time.
 Checks due at the same time run one after another, never together, cheapest
 first, and backups wait for them on that destination. Each check's run in
 **Activity** says what happened in plain words, such as "Data sample (1 GiB)
-passed in 7 min 50 s", and the backup card lists each check's latest result
-under its health line.
+passed in 7 min 50 s". The backup card's **Backup health** line names the
+latest result by the same names ("Data sample passed · 4m ago"; a failure
+stays shown until that check passes again), and its hover lists each
+check's latest result. While a check runs, the card says "Checking".
 
 The data sample is an approximate budget: restic selects whole packs, at least one
 when data exists. Metadata and retries add traffic, and cloud providers may

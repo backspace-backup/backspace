@@ -805,13 +805,19 @@ public sealed class BackupVerifier
         return results;
     }
 
+    /// <summary>Files per restic restore. Each restore opens the storage again
+    /// (about 45 s on the owner's Google Drive), so 128 per call made a
+    /// 5,209-file sample take about 35 minutes (U183). The patterns go in an
+    /// include file, so a longer list costs no command-line length.</summary>
+    internal const int MaxFilesPerBatch = 1024;
+
     internal static IEnumerable<RevisionFile[]> VerificationBatches(IEnumerable<RevisionFile> files)
     {
         const long limit = 256L * 1024 * 1024;
         var batch = new List<RevisionFile>(); long bytes = 0;
         foreach (var file in files)
         {
-            if (batch.Count > 0 && (batch.Count >= 128 || file.SizeBytes > limit - bytes))
+            if (batch.Count > 0 && (batch.Count >= MaxFilesPerBatch || file.SizeBytes > limit - bytes))
             { yield return batch.ToArray(); batch.Clear(); bytes = 0; }
             batch.Add(file); bytes = checked(bytes + Math.Max(0, file.SizeBytes));
         }

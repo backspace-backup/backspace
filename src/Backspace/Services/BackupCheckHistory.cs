@@ -154,27 +154,33 @@ public static class BackupCheckHistory
                 && !(e.Depth is CheckDepth.RestoreSample or CheckDepth.RestoreUnspecified && entries.Any(x => x.Depth == CheckDepth.RestoreAllFiles && x.Status == BackupRunStatus.Success && x.When > e.When)));
         var ago = Ago(nowUtc, latest.When);
         if (unresolved is not null)
-            return new($"Check needs attention · {ago}", "fail", latest.Scope,
-                $"Latest check: {latest.Summary}\n\nUnresolved failed check: {unresolved.Scope}\n{unresolved.Summary}") { Kinds = kinds };
+            return new($"{DepthName(unresolved.Depth)} failed · {Ago(nowUtc, unresolved.When)}", "fail", unresolved.Scope,
+                Hover($"Unresolved failed check: {unresolved.Scope}\n{unresolved.Summary}\n\nLatest check: {latest.Summary}", kinds)) { Kinds = kinds };
         if (latest.Status != BackupRunStatus.Success)
-            return new($"Check incomplete · {ago}", "stale", latest.Scope, latest.Summary) { Kinds = kinds };
+            return new($"{DepthName(latest.Depth)} incomplete · {ago}", "stale", latest.Scope, Hover(latest.Summary, kinds)) { Kinds = kinds };
         {
             var overdue = BackupCheck.InRunOrder(backup.Checks)
                 .FirstOrDefault(c => Overdue(backup, c, entries.FirstOrDefault(e => Answers(c.Kind, e.Depth)), nowUtc));
             if (overdue is not null)
                 return new($"{BackupCheck.Name(overdue.Kind)} overdue · {ago}", "stale", latest.Scope,
-                    latest.Summary + $"\nThe {BackupCheck.Name(overdue.Kind).ToLowerInvariant()} is due. Another kind of check does not replace it.") { Kinds = kinds };
+                    Hover(latest.Summary + $"\nThe {BackupCheck.Name(overdue.Kind).ToLowerInvariant()} is due. Another kind of check does not replace it.", kinds)) { Kinds = kinds };
         }
-        var reassurance = latest.Depth switch
-        {
-            CheckDepth.RepositoryStructure => "Backup records intact",
-            CheckDepth.SavedDataSample => "Saved data sample intact",
-            CheckDepth.AllData => "All saved data intact",
-            CheckDepth.RestoreSample => "Sample recovery tested",
-            CheckDepth.RestoreAllFiles => "Full recovery tested",
-            CheckDepth.RestoreUnspecified => "Recovery tested",
-            _ => "Recorded check passed",
-        };
-        return new($"{reassurance} · {ago}", "ok", latest.Scope, latest.Scope + "\n" + latest.Summary) { Kinds = kinds };
+        return new($"{DepthName(latest.Depth)} passed · {ago}", "ok", latest.Scope, Hover(latest.Scope + "\n" + latest.Summary, kinds)) { Kinds = kinds };
     }
+
+    /// <summary>A recorded check by the name the Checks list uses (U179).</summary>
+    internal static string DepthName(CheckDepth depth) => depth switch
+    {
+        CheckDepth.RepositoryStructure => "Structure check",
+        CheckDepth.SavedDataSample => "Data sample",
+        CheckDepth.AllData => "Full data read",
+        CheckDepth.RestoreSample => "Sample test restore",
+        CheckDepth.RestoreAllFiles => "Full test restore",
+        CheckDepth.RestoreUnspecified => "Test restore",
+        _ => "Check",
+    };
+
+    /// <summary>The card's hover: the result, then each check's latest result.</summary>
+    private static string Hover(string text, IReadOnlyList<string> kinds)
+        => kinds.Count == 0 ? text : text + "\n\nEach check:\n" + string.Join("\n", kinds);
 }
