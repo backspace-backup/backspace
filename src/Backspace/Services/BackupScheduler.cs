@@ -361,9 +361,11 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         // that had just finished when the condition began runs once more.
         var cutByCondition = ran && !stop.IsCancellationRequested
             && (plan.Schedule.StopOnBattery && options.OnBattery()
-                || plan.Backup.AbortOnMeteredNetwork && options.Metered?.Invoke() == true);
+                || plan.Backup.AbortOnMeteredNetwork && options.Metered?.Invoke() == true
+                // The connection went away during a check or cleanup (U185).
+                || plan.Kind != ScheduledTaskKind.Backup && options.Blocked(plan) is "no network connection");
         if (cutByCondition)
-            Log.Information("The scheduled {Kind} for {Name} stopped for its conditions (battery or metered connection); it runs again once they are met", plan.Kind, plan.Backup.Name);
+            Log.Information("The scheduled {Kind} for {Name} stopped for its conditions (battery, metered connection or no connection); it runs again once they are met", plan.Kind, plan.Backup.Name);
         lock (_sync)
         {
             var after = ScheduleState.Load(options.StatePath);

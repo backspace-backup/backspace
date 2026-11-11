@@ -144,6 +144,26 @@ public sealed class MaintenanceOutcomeTests
         Assert.Equal("(missing)", result.Cells[1].DestinationName);
     }
 
+    /// <summary>U185: a check or cleanup whose connection went away mid-run is
+    /// skipped (it runs again once the connection is back), not failed; with
+    /// the connection still there, the same failure stays a failure.</summary>
+    [Theory]
+    [InlineData(RunKind.Check)]
+    [InlineData(RunKind.Prune)]
+    public async Task A_connection_lost_mid_run_skips_instead_of_failing(RunKind kind)
+    {
+        using var fixture = new Fixture(1);
+        fixture.Config.Update(c => { var d = c.Destinations.Single(); d.Kind = DestinationKind.GoogleDrive; });
+        fixture.Engine.Result = (_, _) => new RunRecord { Status = BackupRunStatus.Failed, Summary = "dial tcp: no such host", StartedUtc = DateTime.UtcNow, EndedUtc = DateTime.UtcNow };
+        fixture.Orchestrator.NetworkAvailableOverride = () => false;
+        var lost = await fixture.Run(kind);
+        Assert.Equal(BackupRunStatus.Skipped, lost.Status);
+        Assert.StartsWith("The connection was lost; it runs again once the connection is back.", Assert.Single(lost.Cells).Summary);
+        fixture.Orchestrator.NetworkAvailableOverride = () => true;
+        var real = await fixture.Run(kind);
+        Assert.Equal(BackupRunStatus.Failed, real.Status);
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly TempWorkspace _workspace = new();

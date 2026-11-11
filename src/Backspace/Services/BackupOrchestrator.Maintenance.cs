@@ -294,6 +294,26 @@ public sealed partial class BackupOrchestrator
                 }
             }
 
+            // The connection went away (or became metered) during a check or
+            // cleanup: it didn't fail, it was stopped by its conditions. It is
+            // skipped quietly and the schedule runs it again once they are met,
+            // as for a backup (U185, owner, 11 November 2026).
+            var networkGone = !NetworkAvailableNow();
+            foreach (var cell in aggregate.Cells.Where(c => c.Status == BackupRunStatus.Failed))
+            {
+                var dest = _config.Current.Destinations.FirstOrDefault(d => string.Equals(d.Name, cell.DestinationName, StringComparison.OrdinalIgnoreCase));
+                if (dest is null || !UsesNetwork(dest)) continue;
+                if (networkGone)
+                {
+                    cell.Status = BackupRunStatus.Skipped;
+                    cell.Summary = "The connection was lost; it runs again once the connection is back. (" + cell.Summary + ")";
+                }
+                else if (meteredAborted)
+                {
+                    cell.Status = BackupRunStatus.Skipped;
+                    cell.Summary = "Stopped because the connection became metered; it runs again once it isn't. (" + cell.Summary + ")";
+                }
+            }
             aggregate.EndedUtc = DateTime.UtcNow;
             aggregate.Status = CheckRunWording.StatusOf(aggregate.Cells);
             aggregate.Summary = check is null
@@ -326,6 +346,14 @@ public sealed partial class BackupOrchestrator
             return aggregate;
         }
     }
+
+    /// <summary>Set by tests; the real check asks Windows.</summary>
+    internal Func<bool>? NetworkAvailableOverride { get; set; }
+    private bool NetworkAvailableNow() => NetworkAvailableOverride?.Invoke() ?? ScheduleConditions.NetworkAvailable();
+
+    private static bool UsesNetwork(Destination d) =>
+        d.Kind is not (DestinationKind.LocalFolder or DestinationKind.ExternalDrive)
+        || (d.PathOrSubpath ?? "").StartsWith(@"\\", StringComparison.Ordinal);
 
     private static void AddOutcome(RunRecord aggregate, string source, string destination, string storage, BackupRunStatus status, string summary, RunRecord? result = null)
     {
