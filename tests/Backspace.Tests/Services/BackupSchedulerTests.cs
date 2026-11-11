@@ -20,7 +20,7 @@ public sealed class BackupSchedulerTests : IDisposable
 {
     private readonly string _state = Path.Combine(Path.GetTempPath(), "backspace-schedule-" + Guid.NewGuid().ToString("N") + ".json");
     private DateTime _now = new DateTime(2026, 11, 4, 19, 0, 0, DateTimeKind.Local).ToUniversalTime(); // Wednesday 19:00
-    private bool _battery, _offline, _admit = true;
+    private bool _battery, _offline, _metered, _admit = true;
     private string? _blocked;
     private readonly List<(string Name, ScheduledTaskKind Kind, DateTime At)> _runs = [];
     private Func<CancellationToken, Task> _work = _ => Task.CompletedTask;
@@ -43,7 +43,7 @@ public sealed class BackupSchedulerTests : IDisposable
             return true;
         },
         plan => _blocked ?? ScheduleConditions.Blocked(plan, [], () => _battery, () => !_offline),
-        () => _battery, () => _now, TimeSpan.FromMinutes(1), TimeSpan.FromMilliseconds(20)));
+        () => _battery, () => _now, TimeSpan.FromMinutes(1), TimeSpan.FromMilliseconds(20), Metered: () => _metered));
 
     private static DateTime Local(int day, int hour, int minute = 0, int second = 0)
         => new DateTime(2026, 11, day, hour, minute, second, DateTimeKind.Local).ToUniversalTime();
@@ -62,6 +62,56 @@ public sealed class BackupSchedulerTests : IDisposable
         await loop.TickAsync(default);
         Assert.Single(_runs);
         Assert.Equal(Local(4, 20), _runs[0].At);
+    }
+
+    [Fact]
+    public async Task A_run_stopped_by_a_metered_connection_or_battery_runs_again_once_the_condition_ends()
+    {
+        // U185 (owner, 11 November 2026): stop a check mid-run on battery or a
+        // metered connection, then relaunch it once the conditions are met.
+        var backup = Daily();
+        var loop = Loop(backup);
+        await loop.TickAsync(default);
+        _now = Local(4, 20, 0);
+        _work = _ => { _metered = true; _blocked = "the connection is metered"; return Task.CompletedTask; };
+        await loop.TickAsync(default);
+        Assert.Single(_runs);
+        _work = _ => Task.CompletedTask;
+        _now = Local(4, 20, 30);
+        await loop.TickAsync(default); // still metered: waits
+        Assert.Single(_runs);
+        _metered = false; _blocked = null;
+        _now = Local(4, 21, 0);
+        await loop.TickAsync(default); // unmetered: the same slot runs again
+        Assert.Equal(2, _runs.Count);
+        await loop.TickAsync(default); // finished normally: not again
+        Assert.Equal(2, _runs.Count);
+
+        // Battery the same way, with "stop if the computer switches to battery".
+        _now = Local(5, 20, 0);
+        _work = _ => { _battery = true; return Task.CompletedTask; };
+        await loop.TickAsync(default);
+        Assert.Equal(3, _runs.Count);
+        _work = _ => Task.CompletedTask;
+        _now = Local(5, 20, 10);
+        await loop.TickAsync(default);
+        Assert.Equal(3, _runs.Count); // on battery: waits
+        _battery = false;
+        await loop.TickAsync(default);
+        Assert.Equal(4, _runs.Count);
+    }
+
+    [Fact]
+    public void A_backup_that_stops_on_a_metered_connection_does_not_start_on_one()
+    {
+        var cloud = new Destination { Kind = DestinationKind.GoogleDrive, Name = "Drive" };
+        var backup = Daily();
+        backup.Targets.Add(new BackupTarget { DestinationId = cloud.Id });
+        var plan = SchedulePlan.From(new AppConfig { Backups = [backup], Destinations = [cloud] }).Single(p => p.Kind == ScheduledTaskKind.Backup);
+        Assert.Equal("the connection is metered", ScheduleConditions.Blocked(plan, [cloud], () => false, () => true, () => true));
+        Assert.Null(ScheduleConditions.Blocked(plan, [cloud], () => false, () => true, () => false));
+        backup.AbortOnMeteredNetwork = false;
+        Assert.Null(ScheduleConditions.Blocked(plan, [cloud], () => false, () => true, () => true));
     }
 
     [Fact]

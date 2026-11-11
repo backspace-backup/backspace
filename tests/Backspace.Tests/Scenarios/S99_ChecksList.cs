@@ -91,7 +91,7 @@ public sealed class S99_ChecksList : ScenarioBase
         Click(win, sampleRemove);
         await ctx.Driver.PumpAsync(150);
         Assert.DoesNotContain(vm.Checks, c => c.Kind == CheckKind.DataSample);
-        Assert.DoesNotContain(win.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text?.StartsWith("Data sample (") == true);
+        Assert.DoesNotContain(win.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text?.StartsWith("Structure check + data sample (") == true);
 
         // An invalid limit can't be saved.
         var restore = vm.Checks.Single(c => c.Kind == CheckKind.TestRestore);

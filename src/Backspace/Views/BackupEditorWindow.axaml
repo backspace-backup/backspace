@@ -660,9 +660,9 @@
 
                 <!-- Start / skip conditions first — these decide
                      whether the run starts at all. -->
-                <CheckBox IsChecked="{Binding SkipOnBattery}"      Content="Skip runs when on battery"
+                <CheckBox IsChecked="{Binding SkipOnBattery}"      Content="Start only on AC power (waits while on battery)"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                <CheckBox IsChecked="{Binding RequireNetwork}"     Content="Skip run if no internet connection"
+                <CheckBox IsChecked="{Binding RequireNetwork}"     Content="Wait for an internet connection"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
                 <CheckBox IsChecked="{Binding CatchUpMissed}"      Content="Run missed scheduled backups as soon as possible"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
@@ -673,8 +673,10 @@
                 <Border Classes="rule" Margin="0,4"/>
                 <CheckBox IsChecked="{Binding StopOnBattery}"      Content="Stop mid-run if the computer switches to battery"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                <CheckBox IsChecked="{Binding AbortOnMeteredNetwork}" Content="Stop mid-run if the connection becomes metered"
+                <CheckBox IsChecked="{Binding AbortOnMeteredNetwork}" Content="Don't run on a metered connection (waits, and stops mid-run if it becomes metered)"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                <TextBlock Classes="helper" TextWrapping="Wrap"
+                           Text="These apply to the backup and to its checks and cleanup. A run stopped by them starts again once they are met."/>
 
                 <!-- ===== Grace period for skipped runs =====
                      Always visible in Advanced mode so power users can
@@ -802,7 +804,7 @@
                             <TextBlock Text="Also compare with today's originals (a difference can't tell which copy changed)" TextWrapping="Wrap"/>
                           </CheckBox>
                           <WrapPanel IsVisible="{Binding ShowsTime}">
-                            <CheckBox IsChecked="{Binding SkipOnBattery}" Content="Skip on battery" Margin="0,0,18,0"/>
+                            <CheckBox IsChecked="{Binding SkipOnBattery}" Content="Start only on AC power" Margin="0,0,18,0"/>
                             <CheckBox IsChecked="{Binding RequireNetwork}" Content="Wait for a network connection" Margin="0,0,18,0"/>
                             <CheckBox IsChecked="{Binding CatchUpMissed}" Content="Run a missed check later"/>
                           </WrapPanel>
@@ -817,7 +819,7 @@
                   <Button Name="AddStructureCheck" Classes="ghost" Content="+ Structure check" Margin="0,0,8,8"
                           Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.Structure}"
                           ToolTip.Tip="Checks the backup's records and that every piece of data is there. Quick; reads no file contents."/>
-                  <Button Name="AddDataSample" Classes="ghost" Content="+ Data sample" Margin="0,0,8,8"
+                  <Button Name="AddDataSample" Classes="ghost" Content="+ Data sample (with structure check)" Margin="0,0,8,8"
                           Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.DataSample}"
                           ToolTip.Tip="Downloads part of the stored data and checks it against its fingerprints."/>
                   <Button Name="AddTestRestore" Classes="ghost" Content="+ Sample test restore" Margin="0,0,8,8"

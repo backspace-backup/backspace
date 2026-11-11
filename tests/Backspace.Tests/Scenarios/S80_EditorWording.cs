@@ -131,12 +131,12 @@ public sealed class S80_EditorWording : ScenarioBase
         win.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
         ctx.Driver.Pump();
         var stops = win.GetVisualDescendants().OfType<CheckBox>()
-            .Where(c => c.Content is string s && s.StartsWith("Stop mid-run if ")).ToList();
-        Assert.Equal(new[] { "Stop mid-run if the computer switches to battery", "Stop mid-run if the connection becomes metered" },
+            .Where(c => c.Content is string s && (s.StartsWith("Stop mid-run if ") || s.StartsWith("Don't run on a metered"))).ToList();
+        Assert.Equal(new[] { "Stop mid-run if the computer switches to battery", "Don't run on a metered connection (waits, and stops mid-run if it becomes metered)" },
             stops.Select(c => (string)c.Content!));
         stops.Last().BringIntoView();
         ctx.Driver.Pump();
-        ctx.Snapshot(win, "stop conditions", "Schedule: the two stopping rules read 'Stop mid-run if the computer switches to battery' and 'Stop mid-run if the connection becomes metered'.");
+        ctx.Snapshot(win, "stop conditions", "Schedule: the two stopping rules read 'Stop mid-run if the computer switches to battery' and 'Don't run on a metered connection (waits, and stops mid-run if it becomes metered)'.");
         win.Close();
         vm.Dispose();
 

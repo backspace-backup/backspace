@@ -56,11 +56,11 @@ public sealed class BackupCheck
     /// <summary>The test restore this entry asks for.</summary>
     public Services.TestRestoreOptions RestoreOptions() => new(Full: false, SamplePercent, MaximumBytes, CompareOriginals);
 
-    /// <summary>"Structure check", "Data sample (1 GiB)", "Test restore (1%, at most 1 GiB)".</summary>
+    /// <summary>"Structure check", "Structure check + data sample (1 GiB)", "Test restore (1%, at most 1 GiB)".</summary>
     public string Title => Kind switch
     {
         CheckKind.Structure => "Structure check",
-        CheckKind.DataSample => $"Data sample ({Size(MaximumBytes)})",
+        CheckKind.DataSample => $"Structure check + data sample ({Size(MaximumBytes)})",
         CheckKind.TestRestore => MaximumBytes > 0
             ? $"Sample test restore ({SamplePercent:0.##}%, at most {Size(MaximumBytes)})"
             : $"Sample test restore ({SamplePercent:0.##}%)",
@@ -71,7 +71,7 @@ public sealed class BackupCheck
     public static string Name(CheckKind kind) => kind switch
     {
         CheckKind.Structure => "Structure check",
-        CheckKind.DataSample => "Data sample",
+        CheckKind.DataSample => "Structure check + data sample",
         CheckKind.TestRestore => "Sample test restore",
         _ => "Full data read",
     };

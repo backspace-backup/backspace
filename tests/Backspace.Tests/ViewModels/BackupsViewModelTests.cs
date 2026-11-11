@@ -314,7 +314,7 @@ public class BackupsViewModelTests
         // The detail line carries the ok count as plain typography
         // (no chrome) — pin its presence so the count doesn't silently
         // fall out of the banner if okTail logic regresses.
-        Assert.Contains("1 ok", vm.HealthDetail);
+        Assert.DoesNotContain(" ok", vm.HealthDetail); // Only the problems are mentioned (U186).
 
         // The skipped backup IS surfaced — but only in the chips list,
         // tagged with its status class so the pill picks the right tone.
@@ -418,7 +418,7 @@ public class BackupsViewModelTests
         Assert.Equal("2 backups need attention", vm.HealthHeadline);
         Assert.Equal(2, vm.AffectedBackups.Count);
         Assert.Equal(2, vm.AffectedBackups.Select(b => b.Id).Distinct().Count());
-        Assert.Contains("1 ok", vm.HealthDetail);
+        Assert.DoesNotContain(" ok", vm.HealthDetail); // Only the problems are mentioned (U186).
     }
 
     private static void WaitForCheckHistory(BackupsViewModel vm)

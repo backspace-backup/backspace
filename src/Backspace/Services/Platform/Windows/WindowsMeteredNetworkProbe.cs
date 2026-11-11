@@ -112,6 +112,17 @@ internal static class WindowsMeteredNetworkProbe
         }
     }
 
+    /// <summary>One sample now, for the schedule's conditions (U185); false when it can't be told.</summary>
+    internal static bool MeteredNow()
+    {
+        try
+        {
+            using var network = new NetworkInformation();
+            return SampleMetered(network, includeBackgroundRestricted: true).metered;
+        }
+        catch (Exception) { return false; }
+    }
+
     internal static (bool metered, string detail) SampleMetered(NetworkInformation network, bool includeBackgroundRestricted)
     {
         bool any = false;

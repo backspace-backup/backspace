@@ -38,7 +38,7 @@ internal static class DesktopSchedule
         if (_loop is not null) return;
         // Due backups start together; the limits decide who waits (U156).
         _loop = new ScheduleLoop(new(StatePath, Plans, RunAsync, Blocked, ScheduleConditions.OnBattery,
-            MaxParallel: () => Models.BackupLimits.Maximum));
+            MaxParallel: () => Models.BackupLimits.Maximum, Metered: ScheduleConditions.Metered));
         TaskSchedulerService.Changed += _loop.Wake;
         ServiceLocator.Config.Changed += (_, _) => _loop.Wake();
         _ = Task.Run(() => _loop.RunAsync(_stop.Token));
@@ -104,7 +104,7 @@ internal static class DesktopSchedule
         if (ServiceLocator.Orchestrator.IsRunning(plan.Backup.Id)) return "it is already running";
         if (VaultBlocked() is { } locked) return locked;
         return ScheduleConditions.Blocked(plan, ServiceLocator.Config.Current.Destinations,
-            ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable);
+            ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable, ScheduleConditions.Metered);
     }
 
     private static int _vaultAlertSent;

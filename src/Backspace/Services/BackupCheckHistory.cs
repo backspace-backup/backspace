@@ -12,7 +12,7 @@ public sealed record BackupCheckEntry(string RunId, DateTime When, BackupRunStat
 }
 
 /// <param name="Kinds">One line per check of the backup, with its latest
-/// result: "Data sample · passed 2d ago" (U179).</param>
+/// result: "Structure check + data sample · passed 2d ago" (U179).</param>
 public sealed record BackupCheckState(string Label, string Tone, string Scope, string Details)
 {
     public IReadOnlyList<string> Kinds { get; init; } = [];
@@ -24,7 +24,7 @@ public static class BackupCheckHistory
     public static string Describe(CheckDepth depth) => depth switch
     {
         CheckDepth.RepositoryStructure => "Structure check · stored data not read",
-        CheckDepth.SavedDataSample => "Data sample · part of the stored data read and checked",
+        CheckDepth.SavedDataSample => "Structure check + data sample · part of the stored data read and checked",
         CheckDepth.AllData => "Full data read · all stored data read and checked",
         CheckDepth.RestoreSample => "Sample test restore · files rebuilt from the latest backup",
         CheckDepth.RestoreAllFiles => "Full test restore · every file rebuilt from the latest backup",
@@ -172,7 +172,7 @@ public static class BackupCheckHistory
     internal static string DepthName(CheckDepth depth) => depth switch
     {
         CheckDepth.RepositoryStructure => "Structure check",
-        CheckDepth.SavedDataSample => "Data sample",
+        CheckDepth.SavedDataSample => "Structure check + data sample",
         CheckDepth.AllData => "Full data read",
         CheckDepth.RestoreSample => "Sample test restore",
         CheckDepth.RestoreAllFiles => "Full test restore",

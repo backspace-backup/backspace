@@ -542,10 +542,6 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         // A backup running now is the latest activity (4 November 2026: the
         // banner said "Last activity: 19m ago" while local_c was running).
         var ago = runningCount > 0 ? "now" : mostRecent is DateTime when ? HumanFormat.Ago(when) : "never";
-        // Sub-line carries last-activity + an "ok N" tail when there
-        // are healthy backups to mention. Stays calm + typographic;
-        // the chips below carry the actionable info.
-        var okTail = okCount > 0 ? $" · {okCount} ok" : "";
 
         AffectedBackups.Clear();
         // Headlines are count-based ONLY — they never name a specific
@@ -568,15 +564,15 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                     ? failed.Count == 1 ? "Test restore failed for 1 backup" : $"Test restore failed for {failed.Count} backups"
                     : failed.Count == 1 ? "1 backup needs attention" : $"{failed.Count} backups need attention";
                 HealthDetail = failedRuns == 0
-                    ? $"Open an affected backup to review its test result. Last activity: {ago}{okTail}"
-                    : $"A backup run or Test restore failed. Last activity: {ago}{okTail}";
+                    ? $"Open an affected backup to review its test result. Last activity: {ago}"
+                    : $"A backup run or Test restore failed. Last activity: {ago}";
             }
             else
             {
                 HealthHeadline = failed.Count == 1
                     ? "1 backup failed on its last run and needs attention"
                     : $"{failed.Count} backups failed on their last run and need attention";
-                HealthDetail = $"Last activity: {ago}{okTail}";
+                HealthDetail = $"Last activity: {ago}";
             }
             foreach (var b in failed)
                 AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "fail", JumpToBackupCommand));
@@ -609,8 +605,8 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                     : $"{skipped.Count} backups were skipped on their last run";
             }
             HealthDetail = incompleteChecks > 0
-                ? $"A check is incomplete, overdue, or unavailable. Review the affected backup's check status below.{okTail}"
-                : $"Last activity: {ago}{okTail}";
+                ? "A check is incomplete, overdue, or unavailable."
+                : $"Last activity: {ago}";
             foreach (var b in warned)  AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "warn", JumpToBackupCommand));
             foreach (var b in skipped) AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "skipped", JumpToBackupCommand));
         }
@@ -620,7 +616,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             HealthHeadline = neverRun.Count == 1
                 ? "1 backup hasn't run yet"
                 : $"{neverRun.Count} backups haven't run yet";
-            HealthDetail = $"Last activity: {ago}{okTail}";
+            HealthDetail = $"Last activity: {ago}";
             foreach (var b in neverRun) AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "idle", JumpToBackupCommand));
         }
         else if (loadingChecks > 0)

@@ -178,7 +178,9 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         TimeSpan? MaxSleep = null,
         TimeSpan? PowerCheck = null,
         // Plans started at once; one when not given.
-        Func<int>? MaxParallel = null);
+        Func<int>? MaxParallel = null,
+        // True while the connection is metered; null where it can't be told.
+        Func<bool>? Metered = null);
 
     private readonly SemaphoreSlim _wake = new(0, 1);
     // Guards the saved state file and the two dictionaries: parallel runs end
@@ -351,10 +353,22 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         }
         if (run.IsCancellationRequested && !stop.IsCancellationRequested && !watching.IsCancellationRequested)
             Log.Warning("Stopped the scheduled {Kind} for {Name}: it reached its time limit or the computer went on battery", plan.Kind, plan.Backup.Name);
+        // Stopped (or found stopped) by its own conditions: on battery with
+        // "stop if the computer switches to battery", or a metered connection
+        // with "stop if the connection becomes metered". It stays due and runs
+        // again once they are met (U185, owner, 11 November 2026: "stop any
+        // check mid run ... and relaunch once all conditions are met"). A run
+        // that had just finished when the condition began runs once more.
+        var cutByCondition = ran && !stop.IsCancellationRequested
+            && (plan.Schedule.StopOnBattery && options.OnBattery()
+                || plan.Backup.AbortOnMeteredNetwork && options.Metered?.Invoke() == true);
+        if (cutByCondition)
+            Log.Information("The scheduled {Kind} for {Name} stopped for its conditions (battery or metered connection); it runs again once they are met", plan.Kind, plan.Backup.Name);
         lock (_sync)
         {
             var after = ScheduleState.Load(options.StatePath);
             if (!ran) after.Set(plan.Key, previous);
+            else if (cutByCondition) after.Set(plan.Key, previous with { ResumeDue = true, RunningSlotUtc = null, Resuming = false });
             // Backspace itself stopping (Quit, Windows shutting down or
             // restarting) cut the run short: it stays marked, and is resumed
             // when the schedule starts again, a resume included.
@@ -420,12 +434,25 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
 /// <summary>Conditions shared by the tray app and the background service.</summary>
 internal static class ScheduleConditions
 {
-    internal static string? Blocked(SchedulePlan plan, IEnumerable<Destination> destinations, Func<bool> onBattery, Func<bool> networkAvailable)
+    internal static string? Blocked(SchedulePlan plan, IEnumerable<Destination> destinations, Func<bool> onBattery, Func<bool> networkAvailable,
+        Func<bool>? metered = null)
     {
         if (plan.Schedule.SkipOnBattery && onBattery()) return "the computer is on battery";
         if (plan.Schedule.RequireNetwork && plan.Backup.NeedsNetwork(destinations) && !networkAvailable())
             return "no network connection";
+        // A run that would stop on a metered connection doesn't start on one (U185).
+        if (plan.Backup.AbortOnMeteredNetwork && plan.Backup.NeedsNetwork(destinations) && metered?.Invoke() == true)
+            return "the connection is metered";
         return null;
+    }
+
+    /// <summary>True while Windows reports the connection as metered.</summary>
+    internal static bool Metered()
+    {
+#if WINDOWS
+        if (OperatingSystem.IsWindows()) return Platform.Windows.WindowsMeteredNetworkProbe.MeteredNow();
+#endif
+        return false;
     }
 
     internal static bool NetworkAvailable()

@@ -230,8 +230,8 @@ internal sealed class SystemBackupService : ServiceBase
     // Due plans start together (U156); the limits decide who waits.
     private Task ScheduleAsync() => new ScheduleLoop(new(Path.Combine(_binding.DataDirectory, "schedule-state.json"),
         SchedulePlans, RunScheduledAsync, plan => ScheduleConditions.Blocked(plan, _scheduleDestinations,
-            ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable), ScheduleConditions.OnBattery,
-        MaxParallel: () => MaxWorkers)).RunAsync(_stop.Token);
+            ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable, ScheduleConditions.Metered), ScheduleConditions.OnBattery,
+        MaxParallel: () => MaxWorkers, Metered: ScheduleConditions.Metered)).RunAsync(_stop.Token);
 
     /// <summary>Started for the owner's command after Quit (U180): no schedule.
     /// Stops once the command's runs are over and nothing ran for a moment.

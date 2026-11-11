@@ -158,14 +158,20 @@ shows why the storage doesn’t only grow.
 Each schedule has conditions. New cleanup and checks take the backup's; each
 check can then change its own ([Checks](#checks)):
 
-- **Skip on battery** and **stop on battery**.
+- **Start only on AC power** (a run due on battery waits until the computer
+  is plugged in) and **stop mid-run if the computer switches to battery**.
+- **Don't run on a metered connection**: a run waits while the connection
+  is metered and stops if it becomes metered mid-run (set per backup, it
+  applies to its checks and cleanup too).
 - **Require a network connection**, for backups that send data over the
   network. Backups to a local folder or external drive run offline.
 - **Catch up missed runs.** A run missed while the computer was off, asleep or
   signed out happens once, as soon as Backspace is running again. With this
   off, a run more than 10 minutes late is skipped.
 
-A run that is due but waiting for power or a network starts as soon as the
+A run that is due but waiting for power, a network or an unmetered
+connection starts as soon as the condition is met. A scheduled run stopped by
+one of them (battery, metered connection) is due again and starts once the
 condition is met. A backup never overlaps itself: if it is still running when
 its next run is due, the next is skipped.
 
