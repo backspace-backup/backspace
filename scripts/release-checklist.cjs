@@ -86,10 +86,10 @@ async function main(args) {
     const tag = tagIndex < 0 ? '' : args[tagIndex + 1];
     if (publish && !/^v\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(tag || '')) throw Error('Publishing requires --tag vX.Y.Z.');
     cp.execFileSync('gh', ['workflow', 'run', 'release-checks.yml', '--ref', 'main', '--json'],
-      { cwd: root, input: JSON.stringify({ publish: String(publish), tag, checklist: JSON.stringify(record) }), stdio: ['pipe', 'inherit', 'inherit'] });
+      { cwd: root, input: JSON.stringify({ publish: String(publish), tag, full_checks: String(args.includes('--full-checks')), checklist: JSON.stringify(record) }), stdio: ['pipe', 'inherit', 'inherit'] });
     return;
   }
-  throw Error('Usage: node scripts/release-checklist.cjs create | validate <file> <commit> | dispatch <file> [--publish --tag vX.Y.Z]');
+  throw Error('Usage: node scripts/release-checklist.cjs create | validate <file> <commit> | dispatch <file> [--publish --tag vX.Y.Z] [--full-checks]');
 }
 module.exports = { create, validate, templateHash };
 if (require.main === module) main(process.argv.slice(2)).catch(e => { console.error(e.message); process.exitCode = 1; });

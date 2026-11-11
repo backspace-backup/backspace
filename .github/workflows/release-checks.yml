@@ -11,6 +11,10 @@ on:
         description: 'New release tag, e.g. v1.0.0 (required only when publishing)'
         type: string
         default: ''
+      full_checks:
+        description: 'Run the interface suite, the 20,000-file round trip and the update-package test before publishing (off at the owner request of 11 November 2026, U189; U190 re-enables)'
+        type: boolean
+        default: false
       checklist:
         description: 'Exact JSON from release-checks/<commit>.json, completed using the current template'
         type: string
@@ -69,16 +73,19 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File src/Backspace/fetch-engines.ps1 -ResticOutPath src/Backspace/Assets/restic.exe -RcloneOutPath src/Backspace/Assets/rclone.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run unit and interface checks
+        if: ${{ inputs.full_checks }}
         shell: pwsh
         run: |
           dotnet test tests/Backspace.Tests -m:1 --filter "FullyQualifiedName!~E2E" --logger "trx;LogFileName=interface.trx" --results-directory release-evidence
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check Release service and credential boundaries
+        if: ${{ inputs.full_checks }}
         shell: pwsh
         run: |
           dotnet test tests/Backspace.Tests -c Release -f net10.0-windows -m:1 -p:SkipEngineDownload=true --filter "FullyQualifiedName~ServiceMigrationProtocolTests|FullyQualifiedName~ServiceSetupTests|FullyQualifiedName~ServiceScheduledRunTests|FullyQualifiedName~Secrets" --logger "trx;LogFileName=release-service.trx" --results-directory release-evidence
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Back up and restore 20,000 files and 2 GiB with the real engine
+        if: ${{ inputs.full_checks }}
         shell: pwsh
         env:
           BACKSPACE_E2E_SCALE: huge
@@ -110,7 +117,7 @@ jobs:
           Revision: ${{ github.sha }}. Publish requested: ${{ inputs.publish }}.
           The completed agent checklist is included in release-evidence-${{ github.sha }}.
           Every required box, its findings, the exact revision and the template fingerprint were checked.
-          This run separately executes the interface tests, real 20,000-file round trip and update-package checks.
+          Full automated checks (interface tests, real 20,000-file round trip, update package): ${{ inputs.full_checks }}.
           Documentation and screenshot accuracy are the agent's recorded review; no human approval is required.
           "@ | Add-Content $env:GITHUB_STEP_SUMMARY
       - name: Build the Windows release candidate
@@ -134,6 +141,7 @@ jobs:
           Copy-Item release-candidate/Backspace.exe update-candidate/
           foreach ($e in "restic.exe", "rclone.exe") { Copy-Item "src/Backspace/Assets/$e" update-candidate/ }
       - name: Verify the actual Windows update bundle and rollback
+        if: ${{ inputs.full_checks }}
         shell: pwsh
         timeout-minutes: 5
         run: |

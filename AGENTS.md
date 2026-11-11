@@ -285,6 +285,13 @@ Never bypass the workflow or reuse a checklist after the commit or template
 changes. Do not claim the gate is enforced until its repository settings
 and both passing and rejecting workflow paths have actually been exercised.
 
+**Expedited releases (owner request of 11 November 2026, U189).** The release
+workflow publishes without rerunning the test suite on GitHub: the full
+checks run only with `dispatch ... --full-checks`. Run the relevant tests
+locally before releasing and record them in the checklist. Planned item U190
+makes the full checks required again once the owner comments there that
+stability is good enough; do not re-enable them before that.
+
 These rules exist because they were learned the hard way during prior
 sessions. Read them once and treat them as load-bearing.
 
