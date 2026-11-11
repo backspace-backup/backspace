@@ -96,16 +96,15 @@ public sealed class RealEngineFixture : IAsyncDisposable
         var previousOverride = ServiceLocator.EngineOverride;
         var previousActiveEngine = ServiceLocator.Engine;
 
-        // Fresh sidecar per fixture so the on-disk data dir doesn't
-        // bleed state between scenarios. Lives under TEMP; cleaned
-        // up on dispose.
+        // The engine runs restic directly (U175): Backrest is never
+        // started for it. A fresh, unstarted sidecar per fixture serves the
+        // scenarios that still start Backrest themselves (the snapshot
+        // browser); its folder lives under TEMP and is removed on dispose.
         var dataDir = Path.Combine(Path.GetTempPath(),
             "backspace-real-engine-" + Guid.NewGuid().ToString("N"));
         var sidecar = new BackrestSidecar(
             AppPaths.BackrestBinary, AppPaths.ResticBinary, dataDir);
         var engine = new ResticBackrestEngine(sidecar, ServiceLocator.Secrets);
-
-        await sidecar.StartAsync(ct).ConfigureAwait(false);
 
         // Reach into the locator, swap the engine pointer, and
         // rebuild every service that captured the old engine
@@ -119,7 +118,7 @@ public sealed class RealEngineFixture : IAsyncDisposable
         SwapActiveEngine(engine);
         ServiceLocator.RebuildEngineDependents();
 
-        log.WriteLine($"RealEngineFixture: sidecar listening on 127.0.0.1:{sidecar.Port}");
+        log.WriteLine("RealEngineFixture: the engine runs restic directly; Backrest is not started.");
         return new RealEngineFixture(log, sidecar, engine, previousOverride, previousActiveEngine);
     }
 

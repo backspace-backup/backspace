@@ -1,5 +1,6 @@
 using System.IO;
 using System.Threading.Tasks;
+using Backspace.Models;
 using Backspace.Services;
 using Xunit;
 
@@ -26,22 +27,28 @@ public sealed class StreamingRestoreProcessTests
         Assert.Equal(0, progress.FilesRestored);
     }
 
+    /// <summary>The restore restic runs itself (U175): each path one
+    /// argument, the snapshot after "--" (a name never read as an option), the
+    /// backup's limit among the repository's options, the password and the
+    /// destination's settings only in its environment, progress twice a
+    /// second, whatever this process inherited notwithstanding.</summary>
     [Fact]
     public void CommandKeepsPathsAsSingleArgumentsAndUsesTheRequestedLimitAndRepositoryEnvironment()
     {
-        var repo = new BackrestRepo { Uri = "rclone:review:path with spaces", Password = "fixture-password",
-            Flags = { "--no-cache", "--limit-download=4096" },
-            Env = { "RCLONE_CONFIG=C:/review/specific destination.conf", "RESTIC_PROGRESS_FPS=0" } };
-        var start = ResticBackrestEngine.BuildStreamingRestoreStartInfo("C:/review/restic.exe", repo,
-            "snapshot:/C/source [2026]", "C:/review/output folder", "C:/review/include file.txt", 512);
-        Assert.Contains("C:/review/include file.txt", start.ArgumentList);
-        Assert.Contains("snapshot:/C/source [2026]", start.ArgumentList);
-        Assert.DoesNotContain("--quiet", start.ArgumentList);
-        Assert.Equal("512", start.ArgumentList[^1]);
-        Assert.Equal("--limit-download", start.ArgumentList[^2]);
+        var repository = new ResticRepository("rclone:review:path with spaces", "fixture-password",
+            ["RCLONE_CONFIG=C:/review/specific destination.conf"], ResticBackrestEngine.BuildRepoFlagsForBackup(new Backup { BandwidthLimitKBps = 512 }));
+        var start = ResticBackrestEngine.BuildStreamingRestoreStartInfo("C:/review/restic.exe", repository,
+            "snapshot:/C/source [2026]", "C:/review/output folder", "C:/review/include file.txt");
+        Assert.Equal(new[] { "restore", "--json", "--target", "C:/review/output folder", "--include-file", "C:/review/include file.txt",
+            "--limit-upload", "512", "--limit-download", "512", "-o", "sftp.args=-oBatchMode=yes", "--", "snapshot:/C/source [2026]" }, start.ArgumentList);
+        Assert.DoesNotContain("fixture-password", string.Join(' ', start.ArgumentList));
         Assert.Equal("fixture-password", start.Environment["RESTIC_PASSWORD"]);
+        Assert.Equal("rclone:review:path with spaces", start.Environment["RESTIC_REPOSITORY"]);
         Assert.Equal("2", start.Environment["RESTIC_PROGRESS_FPS"]);
         Assert.Equal("C:/review/specific destination.conf", start.Environment["RCLONE_CONFIG"]);
+        // The whole source: no selection at all.
+        Assert.DoesNotContain("--include-file", ResticBackrestEngine.BuildStreamingRestoreStartInfo("C:/review/restic.exe", repository,
+            "snapshot:/C/source", "C:/review/output", null).ArgumentList);
     }
 
     [Fact]

@@ -15,11 +15,11 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// U125 (4 November 2026): "make sure that restic and backrest and rclone
 /// processes are no longer running once all backups are done (otherwise they
 /// can use a lot of RAM for nothing)". The open app kept its engine running
-/// for as long as it was open. Since U175 a backup runs restic directly and
-/// never starts Backrest; nothing of a backup is left running once it is done.
-/// Backrest still serves browsing and restores: started by one, it is stopped
-/// once idle with everything it started, not while it is needed, and a later
-/// backup does not start it again.
+/// for as long as it was open. Since U175 backups, browsing and restores run
+/// restic directly and never start Backrest; nothing of them is left running
+/// once they are done. Backrest, started only for the snapshot browser until
+/// step 4, is stopped once idle with everything it started, not while it is
+/// needed, and a later backup does not start it again.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
@@ -63,9 +63,7 @@ public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
         ServiceLocator.Config.Update(cfg => { cfg.Destinations.Add(destination); cfg.Backups.Add(backup); });
         var idleAfter = EngineIdleStop.IdleAfter;
         var self = Environment.ProcessId;
-        // Start from no daemon: the fixture starts one for the scenarios that
-        // browse or restore.
-        await fixture.Sidecar.StopAsync();
+        // No daemon: the engine never starts one (U175).
         Assert.False(fixture.Sidecar.IsRunning);
         try
         {
@@ -91,8 +89,25 @@ public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
             Assert.Empty(Children(self, "backrest"));
             ctx.Report.RecordNote("Backup without Backrest", "The backup ran restic directly; Backrest was not started, and no restic or rclone was left running.");
 
-            // Browsing the backup starts Backrest (until step 3 of U175).
-            Assert.NotEmpty(await ServiceLocator.Revisions.ListRevisionsAsync(backup, source, destination, "default", CancellationToken.None));
+            // Browsing and restoring run restic directly too: still no daemon,
+            // and nothing left running.
+            var revisions = await ServiceLocator.Revisions.ListRevisionsAsync(backup, source, destination, "default", CancellationToken.None);
+            var files = await ServiceLocator.Revisions.ListFilesAsync(backup, source, destination, "default", revisions[0].Number, CancellationToken.None);
+            var target = ctx.MakeRestoreTarget("browse-restore");
+            var picked = files.First(f => f.Path.All(c => char.IsAsciiLetterOrDigit(c) || c is '/' or '.' or '_' or '-')).Path;
+            var restored = await ServiceLocator.Restore.RunAsync(new RestoreRequest { Backup = backup, SourcePath = source, Destination = destination,
+                StorageName = "default", Revision = revisions[0].Number, Files = new[] { picked }, IncludePatterns = new[] { picked },
+                TargetPath = target }, CancellationToken.None);
+            Assert.True(restored.TerminalStatus == RestoreTerminalStatus.Success, restored.ErrorMessage);
+            Assert.Equal(System.IO.File.ReadAllBytes(System.IO.Path.Combine(source, picked)), System.IO.File.ReadAllBytes(System.IO.Path.Combine(target, picked)));
+            Assert.False(fixture.Sidecar.IsRunning, "Browsing or a restore started Backrest.");
+            Assert.Empty(Children(self, "restic"));
+            Assert.Empty(Children(self, "rclone"));
+            Assert.Empty(Children(self, "backrest"));
+            ctx.Report.RecordNote("Browsing without Backrest", $"Listing the snapshots ({revisions.Count}) and files ({files.Count}) and restoring {picked} ran restic directly; Backrest was not started, and no restic or rclone was left running.");
+
+            // Backrest, started for the snapshot browser (until step 4).
+            await fixture.Sidecar.StartAsync(CancellationToken.None);
             Assert.True(fixture.Sidecar.IsRunning);
             var engineId = fixture.Sidecar.ProcessId!.Value;
 
@@ -113,7 +128,7 @@ public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
             Assert.True(Process.GetProcesses().All(p => p.Id != engineId || p.HasExited), "Backrest is still running.");
             Assert.Empty(Children(engineId, "restic"));
             Assert.Empty(Children(engineId, "rclone"));
-            ctx.Report.RecordNote("Idle engine", $"Backrest (process {engineId}), started for browsing, stopped once idle; no restic or rclone left.");
+            ctx.Report.RecordNote("Idle engine", $"Backrest (process {engineId}), started for the snapshot browser, stopped once idle; no restic or rclone left.");
             Output.WriteLine($"Idle engine: Backrest (process {engineId}) stopped; restic left: {Children(engineId, "restic").Length}, rclone left: {Children(engineId, "rclone").Length}");
 
             // The next backup does not start it again.

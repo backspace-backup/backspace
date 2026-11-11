@@ -63,13 +63,12 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
             cfg.Limits = new BackupLimits { PerDestination = 2, Total = 2 };
         });
 
-        // A second engine with its own Backrest folder: what a second
-        // background worker has (EngineSlot).
+        // A second engine: what a second background worker has. It runs
+        // restic directly (U175); its Backrest is never started.
         var secondDir = Path.Combine(Path.GetTempPath(), "backspace-e64-second-" + Guid.NewGuid().ToString("N"));
         var secondSidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, secondDir);
         try
         {
-            await secondSidecar.StartAsync(CancellationToken.None);
             var secondEngine = new ResticBackrestEngine(secondSidecar, ServiceLocator.Secrets);
             var second = new BackupOrchestrator(ServiceLocator.Config, ServiceLocator.Secrets, secondEngine, ServiceLocator.Logs,
                 ServiceLocator.Healthcheck, ServiceLocator.Mail, ServiceLocator.Notifier, new BackupProgressService());
@@ -113,7 +112,7 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
             var overlap = (Min(pa.End!.Value, pb.End!.Value) - Max(pa.Start, pb.Start)).TotalSeconds;
             var report = Path.Combine(ctx.ScreenshotsDir, "part1-two-per-destination.txt");
             File.WriteAllText(report,
-                $"Per destination 2, total 2. Two engines (own Backrest folders), one local repository.\n" +
+                $"Per destination 2, total 2. Two engines (each runs restic itself), one local repository.\n" +
                 $"A backup phase: {pa.Start:HH:mm:ss.fff} to {pa.End:HH:mm:ss.fff} UTC\n" +
                 $"B backup phase: {pb.Start:HH:mm:ss.fff} to {pb.End:HH:mm:ss.fff} UTC\n" +
                 $"Backed up together for {overlap:F1} s.\n" +

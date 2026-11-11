@@ -404,17 +404,14 @@ The [follow-up exact-match fix](https://github.com/garethgeorge/backrest/pull/14
 was submitted on 12 October with real-restic regression tests. It is not
 part of bundled Backrest 1.14.1; keep that distinction when describing
 which engine protection the app currently relies on.
-Backspace uses native Restore for a single selected file or folder when no
-per-backup bandwidth limit is set. Its target must not exist and its plan ID
-must be supplied. The output is still staged and filtered before publication;
-native progress comes from the operation's structured status. Scattered
-selections, per-backup bandwidth limits and significant whitespace use one
-owned bundled restic process with repository credentials read from Backrest.
-Its output is consumed continuously: progress is forwarded and discarded,
-while only the latest summary and a bounded diagnostic tail are retained.
-These restores appear in Backspace, but not in Backrest's operation history.
-Native Restore cannot accept several paths or a per-request bandwidth limit.
-Both paths keep staging and the repository lease until engine exit is confirmed.
+Every restore runs one owned bundled restic process (U175 step 3; Backrest's
+native Restore is no longer used): `restore <id>:/<source>`, the selection in
+an include file with each opening bracket escaped, none for the whole source,
+and the backup's download limit among the repository's options. The output is
+staged and filtered before publication. It is consumed continuously: progress
+is forwarded and discarded, while only the latest summary and a bounded
+diagnostic tail are retained. Staging and the repository lease are kept until
+restic's exit is confirmed.
 The proposed [restic literal include flag](https://github.com/restic/restic/pull/21872)
 was still open, awaiting review, when checked on October 12, 2026. The bundled
 restic v0.19.1 does not have that proposed flag. It is not required to match
@@ -484,9 +481,10 @@ move): the task is cancelled and the run fails with
 cost another hour at once. If cancellation can't be confirmed, the usual
 fail-closed block applies.
 
-Backups, their cleanup, checks and the erase tools run restic directly
-(U175), so the notes above about Backrest's tasks apply to the rest (lists,
-browsing, restore); `ProgressStallLimit` also stops a direct backup.
+Since U175 step 3 every operation runs restic directly (backups, their
+cleanup, checks, the erase tools, lists, browsing and restores), so the notes
+above about Backrest's tasks no longer apply to any of them;
+`ProgressStallLimit` also stops a direct backup.
 A direct command stops in two steps (`ResticRunner.StopAsync`): Ctrl+Break to
 restic's own process group, then, after `GentleStopWait` (3 s), the end of its
 whole job, rclone included, and a wait for the exit. restic is started in a new
@@ -533,15 +531,13 @@ disappearing lock file on a cloud backend (U012 in the local Review desk holds
 the measured cloud evidence).
 
 Until U175, Backspace waited after each saved backup for Backrest's
-`index_snapshots` counter and the snapshot's index record. Backups now run
-restic directly, Backrest indexes nothing after them, and that wait was
-removed. Backrest still indexes a repository it adds with `AddRepo` (one
-this computer's backups have not used yet; see "Backrest re-init contract"):
-`ListSnapshotsSortedAsync` retries a listing that meets the index's lock. A
-direct cleanup meeting it (exit code 11) gets the usual one
-`restic unlock`, which leaves a live lock, and one retry; if the index still
-holds the repository, the run ends with a cleanup warning and the next
-backup's cleanup catches up.
+`index_snapshots` counter and the snapshot's index record. Backups, checks,
+lists and restores now run restic directly; Backrest adds no repository and
+indexes nothing, and those waits were removed. A listing takes no lock
+(`snapshots --no-lock`), so it never meets one. A cleanup meeting another
+program's lock (exit code 11) gets the usual one `restic unlock`, which leaves
+a live lock, and one retry; if the lock is still held, the run ends with a
+cleanup warning and the next backup's cleanup catches up.
 
 ## A stopped Windows service and Fast Startup
 

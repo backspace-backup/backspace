@@ -10,13 +10,12 @@ namespace Backspace.Services;
 /// <summary>
 /// Backend-agnostic contract for the bytes-on-disk part of a backup engine.
 /// The live implementation is <see cref="ResticBackrestEngine"/>, which
-/// drives a bundled Backrest daemon (which in turn drives restic +
-/// rclone) over Connect-Go RPC.
+/// runs the bundled restic (and, for cloud destinations, rclone) directly
+/// (U175).
 ///
 /// The surface is deliberately narrow: every method here has at least
-/// one live call site in the app. Engine-specific helpers (RPC plumbing,
-/// error translation, snapshot-id minting, restic URI shaping,
-/// JsonExtensionData round-trip) stay on the concrete
+/// one live call site in the app. Engine-specific helpers (command lines,
+/// error translation, snapshot-id minting, restic URI shaping) stay on the concrete
 /// <see cref="ResticBackrestEngine"/> — they're engine details, not
 /// part of the contract.
 /// </summary>
@@ -141,7 +140,7 @@ public interface IBackupEngine
         int revision,
         CancellationToken ct, string? expectedSnapshotId = null);
 
-    /// <summary>Lazy single-directory listing — one RPC, immediate
+    /// <summary>Lazy single-directory listing — one restic listing, immediate
     /// children only, no recursion. Drives the WinFSP snapshot mount
     /// (which can't tolerate enumerating the entire tree upfront
     /// because that's O(N) round-trips and stalls the kernel
@@ -161,10 +160,9 @@ public interface IBackupEngine
 
     /// <summary>Bulk recursive snapshot tree — returns EVERY file and
     /// directory in the snapshot in one call. This is the fast-path
-    /// for warming a WinFSP mount: the previous per-directory RPC
-    /// walk costs ~500 ms per call (each Backrest RPC fork+execs
-    /// restic, restic loads the repo, dumps one dir's children, exits
-    /// — totally dominated by spawn overhead). Issuing
+    /// for warming a WinFSP mount: a per-directory walk costs ~500 ms per
+    /// folder (each listing starts restic, which loads the repo, dumps one
+    /// dir's children and exits — totally dominated by spawn overhead). Issuing
     /// <c>restic ls --json &lt;snap&gt;</c> ONCE returns the same
     /// information for ~1 second total, regardless of depth or count
     /// (benchmarked on a real 2579-entry snapshot:
@@ -211,9 +209,8 @@ public interface IBackupEngine
     /// <see cref="RestoreSelectionMinimizer.Compute"/> to derive the
     /// minimal cover when the user picked whole folders.
     ///
-    /// Matches Backrest's native restore semantics: overall progress
-    /// (total / restored counts, bytes) is the only payload — no
-    /// per-file results. <paramref name="onProgress"/> fires for each
+    /// Overall progress (total / restored counts, bytes) is the only
+    /// payload — no per-file results. <paramref name="onProgress"/> fires for each
     /// progress update emitted by restic's stdout. The returned task
     /// completes once the restic process reaches a terminal status;
     /// the returned <see cref="RestoreOpResult"/> carries the final
@@ -252,10 +249,10 @@ public interface IBackupEngine
         CancellationToken ct, string? expectedSnapshotId = null)
         => Task.FromResult(false);
 
-    /// <summary>Initialize the per-(backup,source) repo state on disk if
-    /// it doesn't already exist, including registering the destination
-    /// under <paramref name="storageName"/>. Cheap when already initialized;
-    /// every operation that touches a storage calls this first.</summary>
+    /// <summary>Prepares what the engine keeps for this (backup, source,
+    /// destination) before it is read. The restic engine keeps nothing
+    /// (each command carries the repository) and never creates a repository
+    /// by looking; the in-memory test engine creates its state here.</summary>
     Task EnsureInitializedAsync(
         Backup backup,
         string sourcePath,
@@ -276,11 +273,9 @@ public interface IBackupEngine
 }
 
 /// <summary>
-/// Final summary of a restore operation, mirroring Backrest's
-/// <c>RestoreProgressEntry</c>: overall numbers only, plus a
+/// Final summary of a restore operation: overall numbers only, plus a
 /// terminal-status field carrying restic's exit verdict and any error
-/// message. See AGENT.md design principle 1: "Backrest owns its own
-/// state" — Backrest doesn't synthesize per-file results, and neither
+/// message. restic's restore reports no per-file results, and neither
 /// do we.
 /// </summary>
 public sealed record RestoreOpResult(

@@ -60,15 +60,17 @@ another account could take it in between: before the first password is sent,
 `LoopbackPortOwner` confirms that the process listening on that port is the
 engine Backspace started, and startup stops otherwise (U152).
 
-## Backups run restic directly (U175)
+## Backups, checks and restores run restic directly (U175)
 
 Backups, and the cleanup that follows them, run the bundled restic without
 Backrest (`ResticBackrestEngine.Direct.cs`): a backup started from the window,
 by the schedule or by the background service's worker never starts Backrest.
 Since step 2 so do checks (entries of their own since U179, run after the
 backup or on their schedule through `RunCheckOnlyAsync`), the stand-alone
-cleanup and the erase tools (`ResticBackrestEngine.Maintenance.cs`). Backrest
-still serves snapshot lists, browsing, restore and mounting until step 3.
+cleanup and the erase tools (`ResticBackrestEngine.Maintenance.cs`), and since
+step 3 snapshot lists, folder listings, the mounted drive's reads and every
+restore (`ResticBackrestEngine.cs`, below). Backrest is started only for
+Browse snapshots in browser, until step 4 removes it.
 Each restic command goes through `ResticRunner`:
 
 - The password reaches restic only in its environment (`RESTIC_PASSWORD`);
@@ -121,14 +123,16 @@ Each restic command goes through `ResticRunner`:
   7 days. It takes the repository alone, as before (U156). The engine runs no
   check inside a backup (U179).
 - In one process, backups to one destination still run one after the other
-  (a gate per repository, shared with Backrest's tasks); backups to different
-  destinations run at once.
-- Backrest learns of a destination and a backup's plan when it is first asked
-  about them: a snapshot listing it answers with "not found" adds them, and
-  "What this backup added" brings its settings up to date first, as Restore
-  does. A repository this computer's backups use is added with restic's own
-  id for it (`KnownRepositories`), without `AddRepo` (see GOTCHAS, "Backrest
-  re-init contract").
+  (a gate per repository, which checks, cleanups and the erase tools take
+  too); backups to different destinations run at once. Reads (lists,
+  folders, a file's bytes) take no gate and no lock.
+- Snapshot lists are `snapshots --json --no-lock` with the plan's two labels;
+  no repository at the address yet is no snapshot (looking creates nothing),
+  but a local destination whose folder is missing is an error. File lists and
+  the mounted drive's tree are `ls --json --no-lock --recursive`, one folder
+  `ls --json --no-lock` of that folder, one file `dump --no-lock`; a restore
+  is `restore <id>:/<source> --target <staging>`, its selection in an include
+  file (none for the whole source). The snapshot and paths follow `--`.
 
 The file maintenance.json in the configuration folder holds what Backrest's
 operation history told before: per repository `lastFullPruneUtc`, per plan
@@ -379,15 +383,13 @@ a pending save cannot be reported as a successful save.
 
 `RestoreControl` stops and awaits the owned restic child before acknowledging
 Pause. Resume reuses the same staging folder and immutable snapshot; the
-repository read lease remains held throughout. Resumable UI requests use this
-owned process because Backrest's native Restore endpoint rejects an existing
-target. Ordinary file restores resume only within the current application
-session. Test restore saves its plan and completed batches across launches.
+repository read lease remains held throughout. Every restore uses this
+owned process (U175). Ordinary file restores resume only within the current
+application session. Test restore saves its plan and completed batches across launches.
 
 `IBackupEngine.RestoreFilesAsync` reports the `.backspace-restore-*` staging
-folder through `onStaging` once it exists (the owned path creates it; Backrest's
-native Restore creates it itself, so it is reported at the first poll that finds
-it) and reports `null` after cleanup. `RestoreEngine` raises `StagingChanged`
+folder through `onStaging` once it exists (the restore creates it before
+restic starts) and reports `null` after cleanup. `RestoreEngine` raises `StagingChanged`
 for the wizard and sets `ActiveRestoreSession.StagingPath`, which the progress
 card shows with **Open folder** while the session runs (U154). Test restores
 run without a registry session for their batches, so they never show it.
@@ -639,25 +641,19 @@ only those files has no vault, and the first save asks for a password.
 
 ## Design principles (stick to these)
 
-1. **Backrest owns its own state.** We do not reach into Backrest's
-   config DB or operation history directly. Every read goes through
-   `GetConfig` / `GetOperationEvents` / `ListSnapshots` /
-   `ListSnapshotFiles`, every write through `SetConfig` / `Forget` /
-   `DoRepoTask` / `Restore` / `RunCommand`. Backups, with their cleanup and
-   check, run restic directly and are not in Backrest's operation history
-   (U175, "Backups run restic directly" above). Single-path restores
-   use native Backrest Restore when it can express the request. Scattered
-   selections, per-backup bandwidth limits and significant whitespace use
-   one owned bundled restic process, with Backrest's repository configuration.
-   It streams bounded progress and retains the caller's repository lease
-   until exit is confirmed. These restores appear in Backspace, but not in
-   Backrest's operation history. Password changes and complete snapshot-tree
-   listings also invoke bundled restic directly. Tree listings use one recursive
+1. **restic owns the repository; Backspace keeps the rest.** Every
+   operation runs the bundled restic directly (U175, "Backups, checks and
+   restores run restic directly" above); no other program holds Backspace's
+   settings or passwords. What Backspace needs to know about a repository
+   beyond what restic answers is in its own records (maintenance.json,
+   repositories.json). Each restore is one owned restic process: it streams
+   bounded progress and retains the caller's repository lease until exit is
+   confirmed. Password changes run restic too. Tree listings use one recursive
    request for local and cloud repositories, with the destination's own rclone
-   environment. Invalid or incomplete output falls back to Backrest's directory
-   requests. A bounded, in-memory cache remembers immutable snapshot membership
-   for the current repository, plan and daemon configuration revision. It avoids
-   a second repository listing before each read. Complete file metadata is also
+   environment; invalid or incomplete output gives no tree, and the mounted
+   drive then lists one folder at a time. A bounded, in-memory cache remembers
+   immutable snapshot membership for the current repository address and plan.
+   It avoids a second repository listing before each read. Complete file metadata is also
    retained for at most eight snapshots and 65,536 nodes in total, so reopening
    a small tree does not start another engine process. These caches do not hold
    file contents or prove that a snapshot still exists. Refreshing the snapshot list always

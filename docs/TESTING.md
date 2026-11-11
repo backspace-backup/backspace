@@ -356,11 +356,11 @@ executable remains in place throughout replacement and rollback.
 
 ### Cleanup, restore and truthful results
 
-`SnapshotReadEfficiencyTests` checks that known immutable selections avoid repeated
-repository listings, while changed configurations, different plans, missing IDs
-and refreshed deletions require fresh validation. It also rejects incomplete
-tree output and excludes similarly named sibling paths. These protocol and parser
-tests supplement the real-engine E44 deleted-selection check and E42/E49 restore
+`DirectReadAndRestoreTests` checks that known immutable selections avoid
+repeated repository listings, while another address, different plans, missing
+IDs and refreshed deletions require fresh validation (real restic).
+`SnapshotReadEfficiencyTests` rejects incomplete tree output and excludes
+similarly named sibling paths. These tests supplement the real-engine E44 deleted-selection check and E42/E49 restore
 scenarios; they are not evidence of live cloud speed. Performance comparisons
 must time the real engine and verify restored bytes, with cold startup and
 optional maintenance reported separately.
@@ -433,13 +433,20 @@ requiring attention. View-model tests also cover overdue checks, fresh passing
 retries, and retaining a failed backup's higher severity.
 
 `BackrestRpcModelsTests` checks the pinned 1.14.1 request and response
-fields. `RestoreSafetyRegressionTests` supplies delayed scheduling replies
-and a misleading second operation: Backspace must wait for its returned ID
-and cancel only that operation. The native restore case also requires
-temporary output to remain until the daemon acknowledges cancellation.
-These are controlled protocol tests. E01, E40–E42 and E44–E47 exercise the
-production adapter with the actual bundled engines; record their binary
-versions with `scripts/record-engine-versions.ps1` when upgrading.
+fields. `DirectReadAndRestoreTests` (U175 step 3) runs the bundled restic
+against a real repository with a Backrest that is never started: snapshot
+lists (newest first, restic's file counts, the plan's labels, no lock),
+source-relative file lists, one folder at a time ("no such folder" for a
+missing path or a file), one file's bytes, which snapshot ids are read without
+listing again (and which are not: a position, an unknown id, another address,
+plan or source, a removed snapshot), no repository yet as no snapshot but a
+missing folder as an error, a selected restore that promotes only the asked
+files beside a bracket overmatch, a whole-source restore with its empty folder,
+nothing restored as an error and part of it as a warning, and a damaged
+repository and a cancelled restore that both keep the original. E01, E40–E42
+and E44–E47 exercise the production adapter with the actual bundled engines;
+record their binary versions with `scripts/record-engine-versions.ps1` when
+upgrading.
 
 `E48_EngineUpgradeContinuity` creates two encrypted backup versions with
 Backrest 1.13.0 and restic 0.18.1, then starts the current bundled engines
@@ -586,15 +593,18 @@ an exact-file list and checks that a deceptive sibling's existing contents stay
 unchanged. Six single-file restores cover paired brackets, multiple pairs and
 an unmatched opening bracket, each with a deceptive sibling in the backup.
 They prove that an absent sibling stays absent and an existing sibling stays
-unchanged even with replacement enabled. The daemon's operation records confirm
-these requests used its native Restore API. A two-file restore exercises the
-direct restic path and verifies that a third file does not appear. This tests
+unchanged even with replacement enabled. Each restore's restic command is
+checked: restic ran it itself, its selection in an include file with the
+opening brackets escaped (U175 step 3). A two-file restore verifies that a
+third file does not appear. This tests
 the production selection and restore services; it does not click the wizard's
 folder checkbox or establish that every possible filename has been tested.
 
-`E41_NativeRestoreProgress` restores 128 MiB of incompressible data through
-the bundled Backrest native Restore API. A limit on its disposable repository
-makes intermediate progress observable; the screenshot records a live percentage.
+`E41_NativeRestoreProgress` restores 128 MiB of incompressible data, the
+whole source, with restic run directly and given no selection (Backrest's
+native Restore until U175 step 3, hence the name). The backup's own download
+limit makes intermediate progress observable; the screenshot records a live
+percentage.
 It compares the recovered contents and verifies that cancelling a second restore
 preserves an existing destination file and cleans up its staging directory.
 This tests real engine cancellation through the session action; it does not
@@ -869,8 +879,8 @@ older scenario comments that describe broader coverage.
 | Restore long include list (CreateProcess ceiling) | `E34_RestoreLongIncludeList` | ✅ |
 | Restore over slow network (retries) | — | ⛔ deferred: needs network-shaping infra |
 | Restore with bandwidth limit applied | `E42_StreamingRestoreProgress` applies the production per-backup limit to a real local restore; it does not measure throughput on a cloud connection. | 🟡 local only |
-| Cancel a running restore | `E41_NativeRestoreProgress` cancels real native work through the session action; E42 and E52 click Cancel during real owned-process work. Existing files survive. `RestoreSafetyRegressionTests` covers native acknowledgement failures with a controlled daemon. | ✅ bounded local checks |
-| Live-tail restore progress | E41 captures real native progress; E42 covers scattered selections and a per-backup limit, including a completed 100% bar. | ✅ bounded local checks |
+| Cancel a running restore | `E41_NativeRestoreProgress` cancels a real whole-source restore through the session action; E42 and E52 click Cancel during real restic work; `DirectReadAndRestoreTests` cancels one and runs a cleanup right after it. Existing files survive. | ✅ bounded local checks |
+| Live-tail restore progress | E41 captures real whole-source progress; E42 covers scattered selections and a per-backup limit, including a completed 100% bar. | ✅ bounded local checks |
 
 ### Mount/Browse snapshots
 
@@ -952,7 +962,7 @@ older scenario comments that describe broader coverage.
 | Action | Scenario(s) | Status |
 |---|---|---|
 | Unicode names (emoji, RTL, CJK, NFD) | `E11_EdgeCaseFixture` + peculiarity set in every E01 size | ✅ |
-| Brackets in filenames (`[draft]`) | E01 matrix plus `RestoreSafetyRegressionTests`: private staging, literal requested-output promotion, unrelated target-file preservation; no target-wide deletion sweep | ✅ |
+| Brackets in filenames (`[draft]`) | E01 matrix, E40 and `DirectReadAndRestoreTests`: private staging, literal requested-output promotion beside a real overmatch, unrelated target-file preservation; no target-wide deletion sweep | ✅ |
 | Zero-byte / leading/trailing space / dotfiles | peculiarity set | ✅ |
 | Compound extensions, long names | peculiarity set, `S18_LongNamesOverflow` | ✅ |
 | Future mtimes | peculiarity set | ✅ |

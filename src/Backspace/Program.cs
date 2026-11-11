@@ -355,19 +355,12 @@ internal static class Program
     }
 
     /// <summary>
-    /// Stub-extract + scheduler-task re-upsert + missed-run check +
-    /// eager Backrest sidecar boot. Runs after first paint so a slow
-    /// path (user moved the exe → N schtasks.exe spawns) doesn't
-    /// freeze the splash. Idempotent and failure-tolerant; the GUI
-    /// is never blocked on this.
-    ///
-    /// Eager sidecar start: the SnapshotBrowser and SnapshotMounts
-    /// commands need <c>BackrestSidecar.IsRunning == true</c> to
-    /// not surface "isn't ready yet" the first time the user clicks
-    /// them — lazy on-first-engine-RPC was correct for headless test
-    /// scenarios but a poor user experience in the GUI. Boots the
-    /// sidecar on the background thread so the splash isn't blocked
-    /// on the ~1-2s readiness probe.
+    /// Stub-extract + scheduler-task re-upsert + missed-run check. Runs
+    /// after first paint so a slow path (user moved the exe → N
+    /// schtasks.exe spawns) doesn't freeze the splash. Idempotent and
+    /// failure-tolerant; the GUI is never blocked on this. Backrest is no
+    /// longer started here: backups, lists, restores and the mounted drive
+    /// run restic directly (U175); only the snapshot browser starts it.
     /// </summary>
     private static void RunDeferredStartupHousekeeping()
     {
@@ -381,29 +374,6 @@ internal static class Program
                 catch (Exception ex) { AppLogger.For("Program").Debug(ex, "Leaving {File} in place", leftover); }
             }
             RemovePrePortableLeftovers();
-
-            // Sidecar bootstrap. Best-effort: a missing binary, port
-            // conflict, or AV interference logs a warning and the
-            // first engine RPC will retry. Subscribing commands
-            // (Browse / Mount) check IsRunning themselves so they
-            // can render a friendly toast if the boot failed.
-            try
-            {
-                using var startupCancellation = new System.Threading.CancellationTokenSource();
-                using var startupLease = ServiceLocator.Maintenance.AcquireReadAsync(
-                    startupCancellation.Token, startupCancellation.Cancel).GetAwaiter().GetResult();
-                ServiceLocator.BackrestSidecar
-                    .EnsureStartedAsync(startupCancellation.Token)
-                    .GetAwaiter().GetResult();
-                AppLogger.For("Program").Information(
-                    "Backrest sidecar ready at {Url}",
-                    ServiceLocator.BackrestSidecar.WebUiUrl);
-            }
-            catch (Exception ex)
-            {
-                AppLogger.For("Program").Warning(ex,
-                    "Backrest sidecar didn't start at app startup; first engine RPC will retry");
-            }
         }
         catch (Exception ex)
         {

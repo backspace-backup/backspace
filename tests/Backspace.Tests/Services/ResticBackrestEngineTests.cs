@@ -216,12 +216,7 @@ public class ResticBackrestEngineTests
         // Revision number convention: 1 = oldest, N = newest. The
         // input list is sorted newest-first by the caller, so revision
         // N maps to index 0 and revision 1 maps to the last entry.
-        var sorted = new[]
-        {
-            new ResticSnapshotDto { Id = "newest", UnixTimeMs = 3000 },
-            new ResticSnapshotDto { Id = "middle", UnixTimeMs = 2000 },
-            new ResticSnapshotDto { Id = "oldest", UnixTimeMs = 1000 },
-        };
+        var sorted = new[] { Snapshot("newest", 3000), Snapshot("middle", 2000), Snapshot("oldest", 1000) };
 
         Assert.Equal("newest", ResticBackrestEngine.PickSnapshotIdForRevision(sorted, revision: 3));
         Assert.Equal("middle", ResticBackrestEngine.PickSnapshotIdForRevision(sorted, revision: 2));
@@ -235,11 +230,7 @@ public class ResticBackrestEngineTests
         // for a revision that's been pruned. We surface the chain's
         // current size in the message so the caller can render a
         // useful error.
-        var sorted = new[]
-        {
-            new ResticSnapshotDto { Id = "a", UnixTimeMs = 1000 },
-            new ResticSnapshotDto { Id = "b", UnixTimeMs = 2000 },
-        };
+        var sorted = new[] { Snapshot("a", 1000), Snapshot("b", 2000) };
 
         var lo = Assert.Throws<ArgumentOutOfRangeException>(
             () => ResticBackrestEngine.PickSnapshotIdForRevision(sorted, revision: 0));
@@ -254,11 +245,12 @@ public class ResticBackrestEngineTests
     public void PickSnapshotIdForRevision_EmptyChainAlwaysThrows()
     {
         // No snapshots = no revisions; every call must throw rather
-        // than handing back a "" snapshot id that the RPC layer would
-        // then send to Backrest.
+        // than handing back a "" snapshot id that would then go to restic.
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => ResticBackrestEngine.PickSnapshotIdForRevision(System.Array.Empty<ResticSnapshotDto>(), revision: 1));
+            () => ResticBackrestEngine.PickSnapshotIdForRevision(System.Array.Empty<ResticBackrestEngine.PlanSnapshot>(), revision: 1));
     }
+
+    private static ResticBackrestEngine.PlanSnapshot Snapshot(string id, long unixMs) => new(id, unixMs, 0, 0, []);
 
     [Fact]
     public void BuildBackupFlags_addsLimitUpload_whenBandwidthSet()

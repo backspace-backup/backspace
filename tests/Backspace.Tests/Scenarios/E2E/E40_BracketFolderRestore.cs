@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -55,6 +57,9 @@ public sealed class E40_BracketFolderRestore : BackupE2EBase
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } } };
         ServiceLocator.Config.Update(c => { c.Destinations.Add(dest); c.Backups.Add(backup); });
+        // Each restore's restic command and the selection it was given (U175).
+        var restores = new ConcurrentQueue<(IReadOnlyList<string> Arguments, IReadOnlyList<string>? Include)>();
+        fixture.Engine.RestoreStarted += (arguments, include) => restores.Enqueue((arguments, include));
         var view = new BackupsView { DataContext = new BackupsViewModel() };
         var host = new Window { Width = 1100, Height = 760, Content = view };
         ctx.Driver.Show(host);
@@ -85,11 +90,11 @@ public sealed class E40_BracketFolderRestore : BackupE2EBase
         Assert.False(Directory.Exists(Path.Combine(target, "Photos x2026x")));
         Assert.Equal("Keep this original", File.ReadAllText(Path.Combine(target, "existing.txt")));
         Assert.Equal(2398, Directory.GetFiles(target, "*", SearchOption.AllDirectories).Length);
-        await AssertNativeRestoreAsync(fixture, target);
+        Assert.Equal(new[] { "/Photos [[]2026]" }, RestoreRan(restores, target));
         ctx.Report.RecordNote("Whole folder with brackets",
             "2,397 selected files became one folder pattern. All 2,397 restored files match their original bytes. " +
             "The similarly named Photos x2026x folder was excluded; an existing destination file was unchanged. " +
-            "The daemon's saved operation confirms that this used Backrest's native Restore API.");
+            "restic ran the restore itself, its selection /Photos [[]2026] in an include file: the opening bracket escaped, so the pattern means that folder alone.");
 
         // Mounted browsing and whole-folder requests may not provide a leaf
         // list. Their safety must come from literal folder matching itself.
@@ -108,9 +113,9 @@ public sealed class E40_BracketFolderRestore : BackupE2EBase
         Assert.Equal("Keep the user's existing sibling file", File.ReadAllText(occupiedSibling));
         Assert.Equal(2398, Directory.GetFiles(folderOnlyTarget, "*", SearchOption.AllDirectories).Length);
         Assert.False(Directory.Exists(Path.Combine(folderOnlyTarget, "Exact [names]")));
-        await AssertNativeRestoreAsync(fixture, folderOnlyTarget);
+        Assert.Equal(new[] { "/Photos [[]2026]" }, RestoreRan(restores, folderOnlyTarget));
         ctx.Report.RecordNote("Whole folder without an exact-file list",
-            "A second native restore supplied only the Photos [2026] folder name. All 2,397 files match the originals. " +
+            "A second restore supplied only the Photos [2026] folder name. All 2,397 files match the originals. " +
             "The existing Photos x2026x/unselected.txt kept its original contents, even though different contents " +
             "for that same sibling file exist in the backup. No other folder was created.");
 
@@ -141,10 +146,10 @@ public sealed class E40_BracketFolderRestore : BackupE2EBase
                 else
                     Assert.False(File.Exists(deceptiveTarget));
                 Assert.Equal(occupied ? 2 : 1, Directory.GetFiles(singleTarget, "*", SearchOption.AllDirectories).Length);
-                await AssertNativeRestoreAsync(fixture, singleTarget);
+                Assert.Equal(new[] { "/" + ResticBackrestEngine.EscapeBracketsForResticPattern(pickedRelative) }, RestoreRan(restores, singleTarget));
             }
             ctx.Report.RecordNote($"Single file: {names.Picked}",
-                $"Both real native restores recovered the selected file byte-for-byte. Its deceptive sibling, {names.Deceptive}, " +
+                $"Both real restores recovered the selected file byte-for-byte. Its deceptive sibling, {names.Deceptive}, " +
                 "also exists in the backup: it was absent after restoring to an empty target, and its original target contents " +
                 "were unchanged after restoring with Replace existing files enabled. The ancestor folder also contains brackets.");
         }
@@ -164,17 +169,23 @@ public sealed class E40_BracketFolderRestore : BackupE2EBase
         ctx.Report.RecordNote("Partial selection stays partial",
             "Selecting only two files keeps two patterns. Exactly those two files restored byte-for-byte; the third selected-folder file is absent.");
         ctx.Snapshot(host, "after real bracket-name restores",
-            "The encrypted backup and nine restores completed. The report records byte comparisons, native operation checks, " +
+            "The encrypted backup and nine restores completed. The report records byte comparisons, the restore commands' escaped selections, " +
             "excluded sibling files, and existing files that stayed unchanged.");
     }
 
-    private static async Task AssertNativeRestoreAsync(RealEngineFixture fixture, string target)
+    /// <summary>The selection the one restore into <paramref name="target"/>
+    /// gave restic: restic ran it itself, into a staging folder there.</summary>
+    private static IReadOnlyList<string> RestoreRan(
+        ConcurrentQueue<(IReadOnlyList<string> Arguments, IReadOnlyList<string>? Include)> restores, string target)
     {
-        var operations = await fixture.Sidecar.Client!.CallAsync<GetOperationsRequest, BackrestOperationList>(
-            "/v1.Backrest/GetOperations", new GetOperationsRequest { LastN = 256 }, CancellationToken.None);
-        var operation = Assert.Single(operations.Operations!.Where(op => op.OperationRestore is { } restore &&
-            string.Equals(Path.GetDirectoryName(restore.Target), target,
-                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)));
-        Assert.Equal("STATUS_SUCCESS", operation.Status);
+        var restore = Assert.Single(restores, r =>
+        {
+            var at = r.Arguments.ToList().IndexOf("--target");
+            return at >= 0 && string.Equals(Path.GetDirectoryName(r.Arguments[at + 1]), target,
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        });
+        Assert.Equal("restore", restore.Arguments[0]);
+        Assert.Contains("--include-file", restore.Arguments);
+        return restore.Include!;
     }
 }

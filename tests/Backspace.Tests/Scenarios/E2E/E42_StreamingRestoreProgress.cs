@@ -49,10 +49,6 @@ public sealed class E42_StreamingRestoreProgress : BackupE2EBase
         ctx.Driver.Show(new Window { Width = 1100, Height = 760, Content = view });
         Assert.Equal(BackupRunStatus.Success, (await RunBackupViaUiAsync(ctx, backup, view, default)).Status);
         var revision = (await ServiceLocator.Revisions.ListRevisionsAsync(backup, source, dest, "default", default))[0].Number;
-        var client = fixture.Sidecar.Client!;
-        var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>("/v1.Backrest/GetConfig", new(), default);
-        config.Repos.Single().Flags.Add("--no-cache");
-        await client.CallVoidAsync("/v1.Backrest/SetConfig", config, default);
         backup.BandwidthLimitKBps = 1024; // The production per-backup limit, not a synthetic progress source.
         var main = ctx.Driver.Show(new MainWindow { DataContext = new MainWindowViewModel { SelectedNav = NavItem.ActiveRestores } });
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
@@ -146,7 +142,7 @@ public sealed class E42_StreamingRestoreProgress : BackupE2EBase
         // A real restic error must not turn temporary/preallocated output into
         // recovered data. Corrupt only large content packs in this disposable
         // test repository; tree metadata remains available for browsing.
-        var dataRoot = Path.Combine(config.Repos.Single().Uri, "data");
+        var dataRoot = Path.Combine(dest.PathOrSubpath, "data");
         var packs = Directory.GetFiles(dataRoot, "*", SearchOption.AllDirectories)
             .Where(p => new FileInfo(p).Length > 1024 * 1024).ToArray();
         Assert.NotEmpty(packs);
@@ -171,7 +167,7 @@ public sealed class E42_StreamingRestoreProgress : BackupE2EBase
         Assert.False(ServiceLocator.Maintenance.HasReaders);
         ctx.Driver.Pump();
         ctx.Report.RecordNote("Real failure control", "After the successful/cancelled cases, the fixture deliberately damaged the large content packs in its own disposable repository. Restic reported an error, zero files were promoted, both existing target files stayed unchanged, and the repository read lease was released only after the process stopped.");
-        ctx.Report.RecordNote("Scope", "Real bundled Backrest created the encrypted snapshot and supplied its configuration. An owned bundled restic process restored the scattered selection with a per-backup limit. Every selected file matched; an overmatching bracket sibling and another unselected file were excluded. A real headless pointer click on Cancel cancelled the second run. No live cloud account was used.");
+        ctx.Report.RecordNote("Scope", "The bundled restic, run directly (U175), created the encrypted snapshot and restored the scattered selection with a per-backup limit; Backrest was not involved. Every selected file matched; an overmatching bracket sibling and another unselected file were excluded. A real headless pointer click on Cancel cancelled the second run. No live cloud account was used.");
 
         async Task<ActiveRestoreSession> WaitForProgress(Task<RestoreOutcome> task, string output)
         {

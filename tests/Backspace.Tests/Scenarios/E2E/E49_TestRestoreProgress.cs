@@ -52,14 +52,9 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         Assert.True(label.Bounds.Width >= label.TextLayout.WidthIncludingTrailingWhitespace - 1);
         Assert.True(label.Bounds.Height >= label.TextLayout.Height - 1);
         ctx.Snapshot(main, "readable-status-at-1024", "No checks set up is fully visible at a 1024 × 768 window size; the text can wrap instead of being cropped.");
+        // The backup's own limit slows the test restores' reads (restic's
+        // --limit-download), so their progress can be seen.
         ServiceLocator.Config.Update(c => c.Backups.Single(b => b.Id == backup.Id).BandwidthLimitKBps = 1024);
-        // Backups run restic directly (U175): Backrest, which still serves
-        // restores, learns of the destination when it is first used.
-        await fixture.Engine.EnsureInitializedAsync(backup, source, destination, "default", default);
-        var client = fixture.Sidecar.Client!;
-        var engineConfig = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>("/v1.Backrest/GetConfig", new(), default);
-        engineConfig.Repos.Single().Flags.Add("--no-cache");
-        await client.CallVoidAsync("/v1.Backrest/SetConfig", engineConfig, default);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
 
         async Task<ActiveRestoreSession> Start(bool full)

@@ -83,9 +83,6 @@ internal static class RunChanges
         string storageName, string snapshotPrefix, IProgress<string>? progress, CancellationToken ct)
     {
         progress?.Report("Finding this backup's snapshot…");
-        // Backups no longer pass through Backrest (U175), so its settings for
-        // this destination are brought up to date here, as Restore does.
-        await engine.EnsureInitializedAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
         var snapshots = await engine.ListSnapshotsAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
         var index = -1;
         for (var i = 0; i < snapshots.Count; i++)

@@ -420,17 +420,6 @@ public sealed class BackupLiveProgressTests
     }
 
     [Fact]
-    public void The_file_list_runs_restic_directly_with_the_repository_settings()
-    {
-        var repo = new BackrestRepo { Uri = "rclone:gd:backups", Password = "fixture-password", Flags = { "-o", "rclone.program=rclone.exe" },
-            Env = { "RCLONE_CONFIG=C:\\cfg\\rclone.conf" } };
-        var start = ResticBackrestEngine.BuildResticStartInfo("C:/engines/restic.exe", repo, "diff", "--no-lock", "aaaa", "bbbb");
-        Assert.Equal(new[] { "-r", "rclone:gd:backups", "-o", "rclone.program=rclone.exe", "diff", "--no-lock", "aaaa", "bbbb" }, start.ArgumentList);
-        Assert.Equal("fixture-password", start.Environment["RESTIC_PASSWORD"]);
-        Assert.Equal("C:\\cfg\\rclone.conf", start.Environment["RCLONE_CONFIG"]);
-    }
-
-    [Fact]
     public void The_opening_lines_say_what_the_backup_starts_from()
     {
         var backup = new Backspace.Models.Backup { FiltersText = "-*.tmp\n-*.log", UseVss = true };

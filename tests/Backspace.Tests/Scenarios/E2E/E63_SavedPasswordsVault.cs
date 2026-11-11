@@ -180,8 +180,8 @@ internal sealed class VaultScenario : IAsyncDisposable
 
 /// <summary>
 /// U153: the first credential asks for a password, the backup runs, and no
-/// storage password is readable anywhere under Backspace.config (checked
-/// byte by byte, with a positive control on this computer's engine files).
+/// storage password is readable anywhere under Backspace.config or in this
+/// computer's engine folder (checked byte by byte, with a positive control).
 /// Then a second computer: the banner says the passwords are locked, Run now
 /// asks once, a wrong password is refused, the right one runs against the
 /// same repository, the earlier run is in the history, and Settings → Saved
@@ -230,18 +230,29 @@ public sealed class E63_SavedPasswordsVault : BackupE2EBase
 
         // Falsifiable: the storage password is nowhere under Backspace.config,
         // byte by byte (run history, transcripts and Backspace's maintenance
-        // records included), while this computer's engine files do hold it
-        // (the scan finds it there, so it would find it in the folder too).
-        // A backup runs restic directly and writes it nowhere (U175); Backrest
-        // gets it in its settings when it is first asked to browse.
+        // records included), nor in this computer's engine folder: a backup
+        // and browsing run restic directly, which gets it in its environment
+        // only (U175). Positive control: the same scan finds it in a file
+        // written with it, in both encodings it looks for.
         Assert.NotEmpty(await ServiceLocator.Revisions.ListRevisionsAsync(backup, backup.SourcePaths[0], destination,
             backup.Targets[0].StorageName, CancellationToken.None));
         var inConfig = VaultScenario.FilesContaining(AppPaths.ConfigRoot, storagePassword);
         Assert.True(inConfig.Count == 0, "Found the storage password in: " + string.Join(", ", inConfig));
         Assert.True(File.Exists(MaintenanceRecords.OwnFile), "The backup kept its maintenance record in the configuration folder.");
-        Assert.NotEmpty(VaultScenario.FilesContaining(fixture.Sidecar.DataDir, storagePassword));
+        var inEngine = Directory.Exists(EngineWorkPaths.Root) ? VaultScenario.FilesContaining(EngineWorkPaths.Root, storagePassword) : new();
+        Assert.True(inEngine.Count == 0, "Found the storage password in: " + string.Join(", ", inEngine));
+        var control = Path.Combine(Path.GetTempPath(), "backspace-e63-control-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(control);
+        try
+        {
+            File.WriteAllText(Path.Combine(control, "utf8.json"), "{\"password\":\"" + storagePassword + "\"}");
+            File.WriteAllText(Path.Combine(control, "utf16.txt"), storagePassword, Encoding.Unicode);
+            File.WriteAllText(Path.Combine(control, "other.txt"), "nothing here");
+            Assert.Equal(2, VaultScenario.FilesContaining(control, storagePassword).Count);
+        }
+        finally { Directory.Delete(control, recursive: true); }
         Assert.True(File.Exists(AppPaths.VaultFile));
-        ctx.Report.RecordNote("byte scan", $"{AppPaths.ConfigRoot}: 0 files contain the storage password; positive control: it is found in this computer engine folder.");
+        ctx.Report.RecordNote("byte scan", $"{AppPaths.ConfigRoot} and this computer's engine folder: 0 files contain the storage password; positive control: the scan finds it in a file written with it, as UTF-8 and UTF-16.");
         hostA.Close();
 
         // Computer B: the same folder, no key yet.

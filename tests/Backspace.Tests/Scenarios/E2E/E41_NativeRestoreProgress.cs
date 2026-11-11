@@ -14,6 +14,10 @@ using Xunit;
 
 namespace Backspace.Tests.Scenarios.E2E;
 
+/// <summary>A whole-source restore with live progress, its temporary folder on
+/// the card, then a cancelled one. Until U175 step 3 this went through
+/// Backrest's native Restore (hence the name); restic now runs it directly,
+/// with no selection for the whole source.</summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E41_NativeRestoreProgress : BackupE2EBase
 {
@@ -48,18 +52,12 @@ public sealed class E41_NativeRestoreProgress : BackupE2EBase
         Assert.Equal(BackupRunStatus.Success, (await RunBackupViaUiAsync(ctx, backup, view, default)).Status);
         var revision = (await ServiceLocator.Revisions.ListRevisionsAsync(backup, source, dest, "default", default))[0].Number;
 
-        // Throttle only this disposable engine's repository. This is real restic
-        // I/O and real native RPC progress, not injected status messages.
-        var client = fixture.Sidecar.Client!;
-        var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>("/v1.Backrest/GetConfig", new(), default);
-        config.Repos.Single().Flags.Add("--limit-download=4096");
-        config.Repos.Single().Flags.Add("--no-cache");
-        await client.CallVoidAsync("/v1.Backrest/SetConfig", config, default);
-        // Backrest can retain an existing repository orchestrator after a
-        // configuration update. Restart this owned test daemon so the limit
-        // is active before measuring progress, not eventually applied later.
-        await fixture.Sidecar.StopAsync();
-        await fixture.Sidecar.StartAsync(default);
+        // Throttle this backup's reads with its own setting (restic's
+        // --limit-download). This is real restic I/O and progress, not
+        // injected status messages.
+        backup.BandwidthLimitKBps = 4096;
+        var restores = new System.Collections.Concurrent.ConcurrentQueue<(System.Collections.Generic.IReadOnlyList<string> Arguments, System.Collections.Generic.IReadOnlyList<string>? Include)>();
+        fixture.Engine.RestoreStarted += (arguments, include) => restores.Enqueue((arguments, include));
         var mainVm = new MainWindowViewModel { SelectedNav = NavItem.ActiveRestores };
         var main = new MainWindow { DataContext = mainVm };
         ctx.Driver.Show(main);
@@ -72,12 +70,11 @@ public sealed class E41_NativeRestoreProgress : BackupE2EBase
             Files = selectedFiles.Append("small.txt").ToArray(), IncludePatterns = new[] { "/" }, TargetPath = target }, deadline.Token);
         var live = await WaitForLiveProgress(run, target, ctx, deadline.Token);
         Assert.False(live.IsProgressIndeterminate);
-        // U154: Backrest's native Restore creates the staging folder itself;
-        // the card names it once it exists.
+        // U154: the card names the restore's temporary folder once it exists.
         Assert.True(live.HasStagingFolder);
         Assert.StartsWith(Path.Combine(target, ".backspace-restore-"), live.StagingPath);
         Assert.True(Directory.Exists(live.StagingPath));
-        ctx.Snapshot(main, "real restore in progress", $"Live progress from bundled Backrest/restic: {live.StatusLabel}. The restore has not finished. The card names the native restore's temporary folder with Open folder (U154).");
+        ctx.Snapshot(main, "real restore in progress", $"Live progress from the bundled restic: {live.StatusLabel}. The restore has not finished. The card names the restore's temporary folder with Open folder (U154).");
         ctx.Report.RecordNote("Live progress", $"Observed {live.BytesRestored:N0} of {live.TotalBytes:N0} bytes before completion. No simulated progress was supplied.");
         var result = await run;
         Assert.True(result.TerminalStatus == RestoreTerminalStatus.Success, result.ErrorMessage);
@@ -89,6 +86,12 @@ public sealed class E41_NativeRestoreProgress : BackupE2EBase
         Assert.Equal(File.ReadAllText(Path.Combine(source, "small.txt")), File.ReadAllText(Path.Combine(target, "small.txt")));
         Assert.Equal("Keep original", File.ReadAllText(Path.Combine(target, "existing.txt")));
         Assert.Equal(18, Directory.GetFiles(target, "*", SearchOption.AllDirectories).Length);
+        // The whole source: restic was given no selection at all.
+        var whole = Assert.Single(restores);
+        Assert.Equal("restore", whole.Arguments[0]);
+        Assert.Null(whole.Include);
+        Assert.DoesNotContain("--include-file", whole.Arguments);
+        Assert.Contains("--limit-download", whole.Arguments);
 
         var cancelledTarget = ctx.MakeRestoreTarget("cancelled-file");
         Directory.CreateDirectory(Path.Combine(cancelledTarget, "nested"));
