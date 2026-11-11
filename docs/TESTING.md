@@ -734,7 +734,9 @@ the test pipeline so an agent (or CI) can:
 2. **Generate dummy source data** under
    `%TEMP%/backspace-scenarios/<name>-<unique-id>/sources/...`
    via `SyntheticFileTree.Generate(...)`. Keep totals small (≤ a few MB
-   per scenario) so the suite stays fast.
+   per scenario) so the suite stays fast. The folder is deleted when the
+   scenario ends (junctions are removed, never followed); set
+   `BACKSPACE_KEEP_SCENARIO_DIRS=1` to keep it for debugging.
 3. **Drive each scenario** through scripted UI interactions — show
    MainWindow, click buttons, fill text, navigate the wizard, run the
    backup, restore, verify. Each step renders a PNG under
