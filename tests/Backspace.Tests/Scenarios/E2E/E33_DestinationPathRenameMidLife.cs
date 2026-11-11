@@ -110,10 +110,10 @@ public sealed class E33_DestinationPathRenameMidLife : BackupE2EBase
         // This is external fixture preparation, not the app's locate action.
         // Completed engine work and filesystem filters can release handles a
         // moment later. Bound that settling period; a persistent holder fails.
-        // The engine is still running here: nothing of it keeps the backup
-        // folder open between tasks, so the move works at once (U152,
-        // 7 November 2026: the holds that blocked it were removed).
-        Assert.True(fixture.Sidecar.IsRunning, "The engine should still be running after the backup.");
+        // Nothing keeps the backup folder open between tasks, so the move
+        // works at once (U152, 7 November 2026: the holds that blocked it
+        // were removed). Backups run restic directly (U175): each restic run
+        // has ended before the backup call returns.
         var renameDeadline = DateTime.UtcNow.AddSeconds(2);
         var renameWaits = 0;
         while (true)

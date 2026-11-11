@@ -33,12 +33,11 @@ public interface IBackupEngine
     /// the live-tail.</summary>
     void RaiseLineWritten(string line);
 
-    /// <summary>Per-cell backup. The implementation runs prune and/or
-    /// check inline when <see cref="Backup.PruneSchedule"/> /
-    /// <see cref="Backup.CheckSchedule"/> are null (i.e. the user picked
-    /// "After each backup" rather than a standalone cadence). Whether
-    /// those are folded into a single CLI invocation or sequenced
-    /// separately is the implementation's choice.</summary>
+    /// <summary>Per-cell backup. The implementation runs the cleanup
+    /// (forget and prune) inline when <see cref="Backup.PruneSchedule"/> is
+    /// null (the user picked "After each backup" rather than a standalone
+    /// cadence). Checks are entries of their own (U179), run through
+    /// <see cref="RunCheckOnlyAsync"/>, never inside a backup.</summary>
     Task<RunRecord> BackupPruneCheckAsync(
         Backup backup,
         string sourcePath,

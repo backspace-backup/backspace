@@ -70,7 +70,8 @@ public sealed class E57_ProgressOfTheChanges : BackupE2EBase
             // U142: the run records what it added, from restic's summary.
             Assert.Equal(1, second.FilesNew);
             Assert.True(second.BytesUploaded > 0, second.BytesUploaded.ToString()); // compressed and deduplicated: less than the 400 MiB read
-            var log = File.ReadAllLines(second.Cells.Single().LogPath);
+            // Saved lines start with the time they were written (U176).
+            var log = File.ReadAllLines(second.Cells.Single().LogPath).Select(LogLineStamp.Strip).ToArray();
             var progress = log.Where(l => l.StartsWith(BackupLiveProgress.Prefix, StringComparison.Ordinal)).ToArray();
             ctx.Report.RecordNote("Progress lines of the second backup", string.Join(Environment.NewLine, progress));
             Assert.Contains(progress, l => l.Contains(" of ~400 MB changed files backed up"));

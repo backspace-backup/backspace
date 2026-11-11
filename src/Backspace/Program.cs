@@ -126,6 +126,9 @@ internal static class Program
                 // updates. The shared lease survives engine disposal in finally.
                 if (!new SessionTaskControl().TryBeginUnattended(out scheduledSession, async () =>
                 {
+                    // Force quit: restic run directly (backups, U175) ends at
+                    // once with what it started, not after its gentle stop.
+                    ResticRunner.EndAll();
                     if (ServiceLocator.Initialized)
                         await ServiceLocator.BackrestSidecar.StopAsync(TimeSpan.Zero).WaitAsync(TimeSpan.FromSeconds(2));
                 }))

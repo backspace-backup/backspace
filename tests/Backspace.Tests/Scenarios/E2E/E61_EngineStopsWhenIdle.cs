@@ -15,9 +15,11 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// U125 (4 November 2026): "make sure that restic and backrest and rclone
 /// processes are no longer running once all backups are done (otherwise they
 /// can use a lot of RAM for nothing)". The open app kept its engine running
-/// for as long as it was open. Real engine: after a backup, an idle engine
-/// is stopped with everything it started, not while a run needs it, and the
-/// next backup starts it again.
+/// for as long as it was open. Since U175 a backup runs restic directly and
+/// never starts Backrest; nothing of a backup is left running once it is done.
+/// Backrest still serves browsing and restores: started by one, it is stopped
+/// once idle with everything it started, not while it is needed, and a later
+/// backup does not start it again.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
@@ -60,6 +62,11 @@ public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
         };
         ServiceLocator.Config.Update(cfg => { cfg.Destinations.Add(destination); cfg.Backups.Add(backup); });
         var idleAfter = EngineIdleStop.IdleAfter;
+        var self = Environment.ProcessId;
+        // Start from no daemon: the fixture starts one for the scenarios that
+        // browse or restore.
+        await fixture.Sidecar.StopAsync();
+        Assert.False(fixture.Sidecar.IsRunning);
         try
         {
             // The live view receives each line once (4 November 2026: every
@@ -76,6 +83,16 @@ public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
             Assert.Equal(setup.Count, setup.Distinct().Count());
             Assert.Single(live, l => l.StartsWith("[orchestrator] attempt 1 starting"));
             Output.WriteLine($"Live lines heard once each: {setup.Count} setup/recap lines, {live.Count} lines in all");
+            // The backup ran restic itself, and nothing of it is left running.
+            Assert.Contains(live, l => l.Contains("\tinfo\tcommand: ", StringComparison.Ordinal) && l.Contains(" backup --json ", StringComparison.Ordinal));
+            Assert.False(fixture.Sidecar.IsRunning, "A backup started Backrest.");
+            Assert.Empty(Children(self, "restic"));
+            Assert.Empty(Children(self, "rclone"));
+            Assert.Empty(Children(self, "backrest"));
+            ctx.Report.RecordNote("Backup without Backrest", "The backup ran restic directly; Backrest was not started, and no restic or rclone was left running.");
+
+            // Browsing the backup starts Backrest (until step 3 of U175).
+            Assert.NotEmpty(await ServiceLocator.Revisions.ListRevisionsAsync(backup, source, destination, "default", CancellationToken.None));
             Assert.True(fixture.Sidecar.IsRunning);
             var engineId = fixture.Sidecar.ProcessId!.Value;
 
@@ -96,16 +113,16 @@ public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
             Assert.True(Process.GetProcesses().All(p => p.Id != engineId || p.HasExited), "Backrest is still running.");
             Assert.Empty(Children(engineId, "restic"));
             Assert.Empty(Children(engineId, "rclone"));
-            ctx.Report.RecordNote("Idle engine", $"Backrest (process {engineId}) stopped after the backup; no restic or rclone left.");
+            ctx.Report.RecordNote("Idle engine", $"Backrest (process {engineId}), started for browsing, stopped once idle; no restic or rclone left.");
             Output.WriteLine($"Idle engine: Backrest (process {engineId}) stopped; restic left: {Children(engineId, "restic").Length}, rclone left: {Children(engineId, "rclone").Length}");
 
-            // The next backup starts it again.
+            // The next backup does not start it again.
             System.IO.File.WriteAllText(System.IO.Path.Combine(source, "after-idle.txt"), "second run");
             var second = await Task.Run(() => ServiceLocator.Orchestrator.RunBackupAsync(backup, CancellationToken.None));
             Assert.True(second.Status is BackupRunStatus.Success or BackupRunStatus.Warning, string.Join(" | ", second.Errors));
-            Assert.True(fixture.Sidecar.IsRunning);
-            Assert.NotEqual(engineId, fixture.Sidecar.ProcessId);
-            Output.WriteLine($"Second backup after the stop: {second.Status}, new engine process {fixture.Sidecar.ProcessId}");
+            Assert.False(fixture.Sidecar.IsRunning);
+            Assert.Empty(Children(self, "restic"));
+            Output.WriteLine($"Second backup after the stop: {second.Status}, Backrest still stopped");
         }
         finally { EngineIdleStop.IdleAfter = idleAfter; }
     }

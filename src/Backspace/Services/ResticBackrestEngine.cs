@@ -34,7 +34,7 @@ namespace Backspace.Services;
 /// in a read-modify-write loop keyed on <c>Config.modno</c>. Concurrent
 /// modifications retry; that matches Backrest's own UI's pattern.
 /// </summary>
-public sealed class ResticBackrestEngine : IBackupEngine
+public sealed partial class ResticBackrestEngine : IBackupEngine
 {
     private static ILogger _log => AppLogger.For<ResticBackrestEngine>();
 
@@ -150,181 +150,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
 
     // ---- operations that map cleanly to Backrest's RPC ----
 
-    public async Task<RunRecord> BackupPruneCheckAsync(
-        Backup backup, string sourcePath, Destination destination, string storageName,
-        CancellationToken ct, Action<string>? lineSink = null)
-    {
-        var client = await EnsureClientAsync(ct).ConfigureAwait(false);
-        var repoId = MakeRepoId(destination, storageName);
-        var planId = MakePlanId(backup, sourcePath, destination, storageName);
-        await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
-        // The repository exists now: another backup to it may prepare (U156).
-        RepositoryAccess.SetupDone();
-        var started = DateTime.UtcNow;
-        var indexBefore = await client.ReadIndexCountersAsync(repoId, ct).ConfigureAwait(false);
-        var previous = await PreviousSnapshotAsync(client, repoId, planId, ct).ConfigureAwait(false);
-        foreach (var setup in SetupLines(backup, sourcePath, destination, previous))
-        {
-            RaiseLineWritten(setup); lineSink?.Invoke(setup);
-        }
-        // What this backup will read, compared with the last one's listing (U144).
-        var changes = ChangePlanner.Start(ChangePlanStore.ForOwner(), planId, sourcePath, SourceSizeRules.For(backup), previous?.Id, ct);
-        var liveProgress = new BackupLiveProgress(ExpectedSize(backup, sourcePath, ct), SentBytesMeter(destination), changes);
-        BackrestOperation terminal;
-        // One Windows snapshot made at a time across Backspace (U156): held
-        // until restic reads files, or the engine holds the backup back.
-        using var snapshotTurn = backup.UseVss && Platform.PlatformInfo.IsWindows
-            ? await VssSnapshotGate.AcquireAsync(backup.Name, reason =>
-                { if (reason.Length > 0) RepositoryAccess.Waiting(reason); else RepositoryAccess.NotWaiting(); }, ct).ConfigureAwait(false)
-            : null;
-        liveProgress.Reading = () => snapshotTurn?.Dispose();
-        liveProgress.HeldBack = () => snapshotTurn?.Dispose();
-        try
-        {
-            terminal = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/Backup",
-                new BackupRequest { Value = planId }, op => op.PlanId == planId && op.OperationBackup is not null,
-                ct, lineSink, liveProgress).ConfigureAwait(false);
-        }
-        catch (BackrestRpcException ex) when (IsMissingPlanOrRepo(ex))
-        {
-            // Backrest 1.14.1 can save a new plan that its scheduler has not
-            // loaded: on a fresh install the first backup kept failing with
-            // "plan not found" until another backup's settings were written
-            // (VM, 31 October 2026). The request was refused before any work
-            // started, so writing the same settings again and retrying once is safe.
-            _log.Warning("Backrest did not find plan {PlanId} it had saved; applying its settings again", planId);
-            await ReapplyConfigAsync(client, ct).ConfigureAwait(false);
-            terminal = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/Backup",
-                new BackupRequest { Value = planId }, op => op.PlanId == planId && op.OperationBackup is not null,
-                ct, lineSink, liveProgress).ConfigureAwait(false);
-        }
-        snapshotTurn?.Dispose();
-        if (BackupLiveProgress.Recap(terminal.OperationBackup) is { } recap)
-        {
-            RaiseLineWritten(recap); lineSink?.Invoke(recap);
-        }
-        // Backspace's restic skips online-only files quietly and does not
-        // count them (U168): this run's own listing of the source does. ARM64
-        // builds run official restic, which reports Dropbox's as errors.
-        long cloudOnlySkipped = 0;
-        if (backup.ExcludeCloudFiles && Platform.PlatformInfo.IsWindows
-            && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture != System.Runtime.InteropServices.Architecture.Arm64
-            && terminal.Status is BackrestStatus.Success or BackrestStatus.Warning
-            && await changes.CloudOnlySkippedAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false) is { } skippedCount
-            && CloudFileBehavior.SkippedPhrase(skippedCount) is { } skippedPhrase)
-        {
-            cloudOnlySkipped = skippedCount;
-            var line = $"[backspace] {skippedPhrase}: kept only in the cloud, not downloaded and not in this backup";
-            RaiseLineWritten(line); lineSink?.Invoke(line);
-        }
-        if (IsValidBackrestGuid(terminal.SnapshotId))
-        {
-            // Backrest 1.14.1's automatic index task has no pending operation.
-            // Wait for both its finished counter and this exact snapshot's
-            // index record before another read can race its repository locks.
-            var line = "[backspace] Finishing snapshot history";
-            RaiseLineWritten(line); lineSink?.Invoke(line);
-            var repoGuid = await ResolveRepoGuidAsync(client, repoId, CancellationToken.None).ConfigureAwait(false);
-            await BackrestIndexCompletion.WaitAsync(client, repoId, repoGuid, terminal.SnapshotId,
-                indexBefore, ServiceLocator.Maintenance, ct,
-                schedulingUncertain: terminal.Status is not (BackrestStatus.Success or BackrestStatus.Warning)).ConfigureAwait(false);
-            // Before retention can remove the previous snapshot.
-            if (terminal.Status is BackrestStatus.Success or BackrestStatus.Warning
-                && VerboseLogFilter.IsVerboseOn() && !ct.IsCancellationRequested)
-                await WriteChangedFilesAsync(client, repoId, previous?.Id, terminal.SnapshotId, ct, lineSink).ConfigureAwait(false);
-        }
-        var status = StatusFromBackrestTerminal(terminal.Status);
-        var details = terminal.DisplayMessage;
-        if (status is BackupRunStatus.Success or BackupRunStatus.Warning && IsValidBackrestGuid(terminal.SnapshotId))
-            await changes.SaveAsync(terminal.SnapshotId, liveProgress.MeasuredPace).ConfigureAwait(false);
-        var checks = new List<BackupCheckResult>();
-        CleanupResult cleanup = default;
-        if (status is BackupRunStatus.Success or BackupRunStatus.Warning && !ct.IsCancellationRequested)
-        {
-            // Restic lets backups share a repository but needs it alone for
-            // forget, prune and check: wait here for the other backups on
-            // this destination ("Queued: … before cleanup and checks", U156).
-            if (backup.PruneSchedule is null || backup.CheckSchedule is null && sourcePath == backup.SourcePaths.LastOrDefault())
-                await RepositoryAccess.ExclusiveAsync(ct).ConfigureAwait(false);
-            async Task RunCleanup()
-            {
-                // Never while a snapshot here is mounted or restored (U159):
-                // the backup itself only added a snapshot; cleanup catches up
-                // after a later backup.
-                using var change = SnapshotReaders.TryBeginChange(destination, storageName, out var inUse);
-                if (change is null)
-                {
-                    var skipped = "[backspace] " + SnapshotReaders.CleanupSkipped(inUse);
-                    RaiseLineWritten(skipped); lineSink?.Invoke(skipped);
-                    details += " " + SnapshotReaders.CleanupSkipped(inUse);
-                    return;
-                }
-                try
-                {
-                    Announce(LogSection.Line(backup.Name, "cleanup", destination.Name), lineSink);
-                    var prune = await NeedsPruneAsync(client, repoId, planId, started, ct).ConfigureAwait(false);
-                    (var result, cleanup) = await RunRetentionAsync(client, repoId, planId, backup, ct, lineSink, prune).ConfigureAwait(false);
-                    if (result.Status is BackrestStatus.Success || cleanup != default)
-                    {
-                        var recap = cleanup.Recap();
-                        RaiseLineWritten(recap); lineSink?.Invoke(recap);
-                    }
-                    if (result.Status is not BackrestStatus.Success)
-                    {
-                        status = BackupRunStatus.Warning;
-                        details += $" Backup content completed; maintenance reported {result.Status}: {result.DisplayMessage}";
-                    }
-                }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex)
-                {
-                    if (ServiceLocator.Maintenance.IsBlocked) throw;
-                    status = BackupRunStatus.Warning;
-                    details += " Backup content completed; maintenance failed: " + ex.Message;
-                }
-            }
-            if (backup.PruneSchedule is null)
-                await RunCleanup().ConfigureAwait(false);
-            if (backup.CheckSchedule is null && !ct.IsCancellationRequested &&
-                sourcePath == backup.SourcePaths.LastOrDefault())
-            {
-                try
-                {
-                    Announce(LogSection.Line(backup.Name, "check", destination.Name), lineSink);
-                    var check = await RunRepositoryCheckAsync(client, repoId, backup, ct, lineSink).ConfigureAwait(false);
-                    checks.Add(CheckResult(backup, destination, storageName, StatusFromBackrestTerminal(check.Status), check.DisplayMessage));
-                    details += " " + RepositoryCheckDescription(backup);
-                    if (check.Status is not BackrestStatus.Success)
-                    {
-                        status = BackupRunStatus.Warning;
-                        details += $" Backup content completed; check reported {check.Status}: {check.DisplayMessage}";
-                    }
-                }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex)
-                {
-                    if (ServiceLocator.Maintenance.IsBlocked) throw;
-                    checks.Add(CheckResult(backup, destination, storageName, BackupRunStatus.Failed, ex.Message));
-                    status = BackupRunStatus.Warning;
-                    details += " Backup content completed; check failed: " + ex.Message;
-                }
-            }
-        }
-        var stats = BackupLiveProgress.Stats(terminal.OperationBackup);
-        return new RunRecord
-        {
-            BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Backup,
-            StartedUtc = started, EndedUtc = DateTime.UtcNow, Status = status,
-            FilesNew = stats?.New ?? 0, FilesModified = stats?.Changed ?? 0, BytesUploaded = stats?.Added ?? 0,
-            SnapshotsRemoved = cleanup.SnapshotsRemoved, BytesFreed = cleanup.BytesFreed,
-            CloudOnlySkipped = cloudOnlySkipped,
-            Summary = $"Backup result: {terminal.Status}. {details}".Trim(),
-            Checks = checks,
-            Errors = status == BackupRunStatus.Failed
-                ? new() { string.IsNullOrWhiteSpace(details) ? $"Backup result: {terminal.Status}." : details }
-                : new(),
-        };
-    }
+    // BackupPruneCheckAsync runs restic directly: ResticBackrestEngine.Direct.cs (U175).
 
     public Task<RunRecord> RunPruneOnlyAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
@@ -389,22 +215,50 @@ public sealed class ResticBackrestEngine : IBackupEngine
         };
     }
 
-    private static string RepositoryCheckDescription(Backup backup) => backup.CheckReadDataSample
-        ? "Check scope: repository structure and a sample of saved data. The sample targets 1%, up to 1 GiB; whole packs and metadata can change actual traffic. This is not a full-data check."
-        : "Check scope: repository structure. Saved file contents were not downloaded for a data-integrity check.";
+    /// <summary>The engine reads a check entry's data limit (U179): a data
+    /// sample reads 1% of the stored data up to <see cref="Backup.DataCheckLimitBytes"/>
+    /// (1 GiB when unset), and <see cref="long.MaxValue"/> reads all of it.</summary>
+    public bool HonoursDataCheckLimit => true;
+
+    /// <summary>A check of every piece of stored data (<c>check --read-data</c>).</summary>
+    internal static bool ReadsAllData(Backup backup) => backup.CheckReadDataSample && backup.DataCheckLimitBytes == long.MaxValue;
+
+    internal static string RepositoryCheckDescription(Backup backup) =>
+        ReadsAllData(backup)
+            ? "Check scope: repository structure and every piece of saved data, downloaded and checked against its fingerprint."
+        : backup.CheckReadDataSample
+            ? $"Check scope: repository structure and a sample of saved data. The sample targets 1%, up to {BackupCheck.Size(backup.DataCheckLimitBytes ?? BackupCheck.OneGiB)}; whole packs and metadata can change actual traffic. This is not a full-data check."
+            : "Check scope: repository structure. Saved file contents were not downloaded for a data-integrity check.";
 
     private static BackupCheckResult CheckResult(Backup backup, Destination destination, string storage,
         BackupRunStatus status, string detail) => new()
     {
-        Depth = backup.CheckReadDataSample ? CheckDepth.SavedDataSample : CheckDepth.RepositoryStructure,
+        Depth = ReadsAllData(backup) ? CheckDepth.AllData
+            : backup.CheckReadDataSample ? CheckDepth.SavedDataSample : CheckDepth.RepositoryStructure,
         Status = status, EndedUtc = DateTime.UtcNow, TargetKey = destination.Id + "/" + storage,
         DestinationName = destination.Name, Summary = RepositoryCheckDescription(backup) + " " + detail,
     };
 
-    internal static long DataCheckSampleBytes(long storedBytes)
+    /// <summary>The bytes a data sample reads: 1% of the stored data, at least
+    /// one byte, at most <paramref name="limit"/> (1 GiB when null).</summary>
+    internal static long DataCheckSampleBytes(long storedBytes, long? limit = null)
     {
         if (storedBytes < 0) throw new InvalidDataException("The engine reported an invalid stored-data size.");
-        return Math.Min(1L << 30, Math.Max(1, storedBytes / 100));
+        if (limit is < 1) throw new ArgumentOutOfRangeException(nameof(limit), "A data sample's limit is at least one byte.");
+        return Math.Min(limit ?? BackupCheck.OneGiB, Math.Max(1, storedBytes / 100));
+    }
+
+    /// <summary>restic's check for a data read: all of it, or the sample's
+    /// size (the B suffix: an unadorned integer would be read as an n/t
+    /// bucket selection), with the backup's download limit.</summary>
+    internal static string DataCheckCommand(Backup backup, long? sampleBytes)
+    {
+        var command = sampleBytes is { } bytes
+            ? "check --read-data-subset=" + bytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + "B"
+            : "check --read-data";
+        if (backup.BandwidthLimitKBps > 0)
+            command += " --limit-download=" + backup.BandwidthLimitKBps.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return command;
     }
 
     internal static long ParseStoredDataSize(string output)
@@ -468,6 +322,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
             result = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
                 new RunCommandRequest { RepoId = repoId, Command = PruneCommand },
                 op => op.OperationRunCommand?.Command == PruneCommand, ct, lineSink).ConfigureAwait(false);
+            // The cleanup after a backup reads when the last full prune ran
+            // from Backspace's own record (U175), whichever path ran it.
+            if (result.Status is BackrestStatus.Success) MaintenanceRecords.FullPruneDone(repoId, DateTime.UtcNow, ct);
             cleanup = cleanup.Plus(await CleanupOfAsync(client, result, ct).ConfigureAwait(false));
             return (result, cleanup);
         }
@@ -506,37 +363,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
     internal const string PruneCommand = "prune";
 
     /// <summary>How often a repository gets a full prune at the latest, for
-    /// leftovers this engine's history can't see (a backup cut short while the
-    /// other Backspace process ran it).</summary>
+    /// leftovers no record shows (a backup cut short where nothing recorded it).</summary>
     internal static readonly TimeSpan PruneAtLeastEvery = TimeSpan.FromDays(7);
-
-    /// <summary>Whether a full prune is due after this backup: the plan's
-    /// previous backup did not finish (it may have left data behind), or no
-    /// prune has run here for <see cref="PruneAtLeastEvery"/>.</summary>
-    internal static bool NeedsPrune(IReadOnlyList<BackrestOperation> operations, string planId, long beforeMs, DateTime nowUtc)
-    {
-        var previous = operations.Where(op => op.PlanId == planId && op.OperationBackup is not null && op.UnixTimeStartMs < beforeMs)
-            .MaxBy(op => op.UnixTimeStartMs);
-        if (previous is not null && previous.Status is not (BackrestStatus.Success or BackrestStatus.Warning)) return true;
-        var lastPrune = operations.Where(op => op.OperationRunCommand?.Command == PruneCommand && op.Status == BackrestStatus.Success)
-            .Select(op => (long?)op.UnixTimeStartMs).Max();
-        return lastPrune is not { } at || nowUtc - DateTimeOffset.FromUnixTimeMilliseconds(at).UtcDateTime >= PruneAtLeastEvery;
-    }
-
-    private async Task<bool> NeedsPruneAsync(BackrestClient client, string repoId, string planId, DateTime startedUtc, CancellationToken ct)
-    {
-        try
-        {
-            var repoGuid = await ResolveRepoGuidAsync(client, repoId, ct).ConfigureAwait(false);
-            var operations = await GetRepoOperationsAsync(client, repoGuid, ct).ConfigureAwait(false);
-            return NeedsPrune(operations, planId, new DateTimeOffset(startedUtc).ToUnixTimeMilliseconds(), DateTime.UtcNow);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _log.Debug(ex, "Could not read the engine history to decide on a prune");
-            return false;
-        }
-    }
 
     internal static bool IsConfirmedLockFailure(BackrestOperation result) =>
         result.Status == BackrestStatus.Error &&
@@ -569,65 +397,28 @@ public sealed class ResticBackrestEngine : IBackupEngine
     /// plan carries Backrest's keep-all retention, so Backrest's own
     /// after-backup forget never removes anything (U172).</summary>
     internal static string? BuildRetentionCommand(string planId, string instance, IReadOnlyList<string> keepOptions)
+        => RetentionArguments(planId, instance, keepOptions) is null ? null
+            : "forget --tag " + QuoteArg("plan:" + planId + ",created-by:" + instance) + " --group-by= " + string.Join(' ', keepOptions);
+
+    /// <summary>The same forget as <see cref="BuildRetentionCommand"/>, as
+    /// restic's arguments (run directly, U175), or null when the policy keeps
+    /// everything.</summary>
+    internal static List<string>? RetentionArguments(string planId, string instance, IReadOnlyList<string> keepOptions)
     {
         // An empty policy must never delete history: restic refuses a forget
         // without keep options, and Backspace never sends one.
         if (keepOptions.Count == 0) return null;
         // Match Backrest's own snapshot-list scope: AND the plan and instance
         // tags. Never change the shared plan temporarily while a browser may
-        // also be reading it. RunCommand retains a terminal ownership record.
+        // also be reading it.
         if (string.IsNullOrWhiteSpace(planId) || string.IsNullOrWhiteSpace(instance) ||
             planId.Contains(',') || instance.Contains(',') || planId.Any(char.IsControl) || instance.Any(char.IsControl))
             throw new InvalidOperationException("The backup engine could not identify this backup's cleanup scope. Nothing was removed.");
         if (keepOptions.Any(o => !o.StartsWith("--keep-", StringComparison.Ordinal) || o.Any(c => char.IsWhiteSpace(c) || c is '\'' or '"')))
             throw new InvalidOperationException("The retention policy produced an unexpected engine option. Nothing was removed.");
-        return "forget --tag " + QuoteArg("plan:" + planId + ",created-by:" + instance)
-            + " --group-by= " + string.Join(' ', keepOptions);
-    }
-
-    /// <summary>The latest snapshot this plan made, or null for a first
-    /// backup: from the repository's own snapshot list, the one Backrest
-    /// reads to pass restic its --parent. Backrest's operation history only
-    /// covers what this engine instance ran: the service's engine had none of
-    /// the app's backups, so the log said "No earlier backup" above a backup
-    /// that used one as its parent (U173). The history is the fallback when
-    /// the list can't be read. Used for the log, the change plan and the
-    /// changed-files list; a failure just leaves it out.</summary>
-    private async Task<(string Id, DateTime When)?> PreviousSnapshotAsync(BackrestClient client, string repoId, string planId, CancellationToken ct)
-    {
-        try
-        {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromMinutes(2));
-            var listed = await client.CallAsync<ListSnapshotsRequest, ResticSnapshotList>("/v1.Backrest/ListSnapshots",
-                new ListSnapshotsRequest { RepoId = repoId, PlanId = planId }, timeout.Token).ConfigureAwait(false);
-            return LatestSnapshot(listed.Snapshots);
-        }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
-        {
-            _log.Debug(ex, "Could not list the repository's snapshots; using the engine history for the previous backup");
-        }
-        try
-        {
-            var repoGuid = await ResolveRepoGuidAsync(client, repoId, ct).ConfigureAwait(false);
-            var latest = (await GetRepoOperationsAsync(client, repoGuid, ct).ConfigureAwait(false))
-                .Where(op => op.PlanId == planId && IsValidBackrestGuid(op.SnapshotId))
-                .MaxBy(op => op.UnixTimeStartMs);
-            return latest is null ? null : (latest.SnapshotId, DateTimeOffset.FromUnixTimeMilliseconds(latest.UnixTimeStartMs).UtcDateTime);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _log.Debug(ex, "Could not read the previous snapshot for the log");
-            return null;
-        }
-    }
-
-    /// <summary>The newest valid snapshot of a plan's list, or null when it
-    /// has none.</summary>
-    internal static (string Id, DateTime When)? LatestSnapshot(IEnumerable<ResticSnapshotDto>? snapshots)
-    {
-        var latest = (snapshots ?? []).Where(s => IsValidBackrestGuid(s.Id)).MaxBy(s => s.UnixTimeMs);
-        return latest is null ? null : (latest.Id, DateTimeOffset.FromUnixTimeMilliseconds(latest.UnixTimeMs).UtcDateTime);
+        var arguments = new List<string> { "forget", "--tag", "plan:" + planId + ",created-by:" + instance, "--group-by=" };
+        arguments.AddRange(keepOptions);
+        return arguments;
     }
 
     /// <summary>The size a backup of <paramref name="sourcePath"/> is
@@ -667,16 +458,6 @@ public sealed class ResticBackrestEngine : IBackupEngine
         return () => counted.IsCompletedSuccessfully ? counted.Result : 0;
     }
 
-    /// <summary>What the engine has stored so far, when Windows can tell (U124).</summary>
-    private Func<long?>? SentBytesMeter(Destination destination)
-    {
-#if WINDOWS
-        return _sidecar.ProcessId is { } engine ? () => Platform.Windows.EngineTransfer.SentBytes(engine, direct: destination.Kind == DestinationKind.S3Compatible) : null;
-#else
-        return null;
-#endif
-    }
-
     /// <summary>What a backup starts from, like the opening lines of a
     /// Duplicacy log (U115): the previous backup, the exclusion rules and
     /// whether a shadow copy is used.</summary>
@@ -692,45 +473,6 @@ public sealed class ResticBackrestEngine : IBackupEngine
         yield return Services.Platform.PlatformInfo.IsWindows && backup.UseVss
             ? "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive."
             : "[setup] Shadow copy off: files another program keeps locked may be skipped.";
-    }
-
-    /// <summary>With Verbose on, lists the files this backup added, changed
-    /// or removed (U115), like Duplicacy's "Uploaded" lines: restic diff
-    /// against the previous snapshot, or every file of a first backup. Both
-    /// read the snapshots' file lists (cached locally), not file data. restic
-    /// runs directly, streamed line by line, because Backrest keeps only the
-    /// first 2 MB of a command's output; the list is not capped. A failure
-    /// only leaves the list out.</summary>
-    private async Task WriteChangedFilesAsync(BackrestClient client, string repoId, string? parentId, string snapshotId,
-        CancellationToken ct, Action<string>? lineSink)
-    {
-        void Write(string line) { RaiseLineWritten(line); lineSink?.Invoke(line); }
-        if (parentId == snapshotId) return;
-        try
-        {
-            var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
-                "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
-            var repo = config.Repos.SingleOrDefault(r => r.Id == repoId)
-                ?? throw new IOException("The backup engine could not identify this repository.");
-            // Snapshots never change, so no repository lock is needed to read them.
-            var start = parentId is null
-                ? BuildResticStartInfo(_sidecar.ResticBinaryPath, repo, "ls", "--json", "--no-lock", snapshotId)
-                : BuildResticStartInfo(_sidecar.ResticBinaryPath, repo, "diff", "--no-lock", parentId, snapshotId);
-            var result = await StreamingRestoreProcess.RunAsync(start, raw =>
-            {
-                if ((parentId is null ? BackupLiveProgress.ListedFileLine(raw) : BackupLiveProgress.FileLine(raw)) is { } line) Write(line);
-            }, ct, "file list", includeStandardOutput: true).ConfigureAwait(false);
-            ct.ThrowIfCancellationRequested();
-            if (result.ExitCode != 0)
-                Write("[backspace] The list of changed files is incomplete: restic stopped with code " + result.ExitCode + ".");
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            if (ServiceLocator.Maintenance.IsBlocked) throw;
-            _log.Debug(ex, "Could not list the changed files");
-            Write("[backspace] The list of changed files couldn't be made: " + ex.Message);
-        }
     }
 
     /// <summary>restic run directly against a configured repository, with the
@@ -761,6 +503,15 @@ public sealed class ResticBackrestEngine : IBackupEngine
             return await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/DoRepoTask",
                 new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskCheck },
                 op => op.OperationCheck is not null, ct, lineSink).ConfigureAwait(false);
+        if (ReadsAllData(backup))
+        {
+            // A full data read (U179): every pack, no size needed first.
+            var all = DataCheckCommand(backup, null);
+            Announce("[backspace] Data check reads all stored data; this downloads the whole repository.", lineSink);
+            return await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
+                new RunCommandRequest { RepoId = repoId, Command = all },
+                op => op.OperationRunCommand?.Command == all, ct, lineSink).ConfigureAwait(false);
+        }
 
         // Backrest's native CheckPolicy only accepts a percentage. Its tracked
         // RunCommand path lets the bundled restic apply a size target too,
@@ -784,12 +535,9 @@ public sealed class ResticBackrestEngine : IBackupEngine
             bytes.Write(chunk.Value);
         }
         var storedBytes = ParseStoredDataSize(System.Text.Encoding.UTF8.GetString(bytes.ToArray()));
-        var sampleBytes = DataCheckSampleBytes(storedBytes);
-        // An unadorned integer is parsed as an invalid n/t bucket selection.
-        // The B suffix explicitly selects restic's byte-size syntax.
-        var command = "check --read-data-subset=" + sampleBytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + "B";
-        if (backup.BandwidthLimitKBps > 0)
-            command += " --limit-download=" + backup.BandwidthLimitKBps.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        // The entry's own limit (U179), 1 GiB when it has none.
+        var sampleBytes = DataCheckSampleBytes(storedBytes, backup.DataCheckLimitBytes);
+        var command = DataCheckCommand(backup, sampleBytes);
         var description = $"[backspace] Data check targets {sampleBytes:N0} bytes per repository; whole-pack sampling, metadata and retries can change actual traffic.";
         RaiseLineWritten(description); lineSink?.Invoke(description);
         return await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
@@ -2347,18 +2095,21 @@ public sealed class ResticBackrestEngine : IBackupEngine
         await new CloudDestinationPreflight(_secrets).CheckAsync(destination, ct).ConfigureAwait(false);
         var before = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
             "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
+        // Backups run restic directly (U175), so Backrest may not know this
+        // destination or plan yet (a backup made since, a new computer): it
+        // learns of them when it answers that it does not, then lists again.
+        var registered = false;
+        var reapplied = false;
+        var lockedRetries = 0;
 
         // ListSnapshots invokes restic directly via Backrest. Backrest's
-        // auto-scheduled IndexSnapshots task that fires after every
-        // backup holds restic's exclusive repo lock for a few seconds;
-        // a ListSnapshots that races it gets "exit status 11" (repo
-        // already locked). Retry with WaitForRepoIdle in between so the
-        // caller sees a clean answer instead of a transient failure.
-        // The race is unavoidable from the caller's side — Backup's
-        // /Backup RPC returns when the backup itself terminates, NOT
-        // when the post-backup index task does.
+        // auto-scheduled IndexSnapshots task, after a repository is added,
+        // holds restic's exclusive repo lock for a few seconds; a
+        // ListSnapshots that races it gets "exit status 11" (repo already
+        // locked). Retry with WaitForRepoIdle in between so the caller
+        // sees a clean answer instead of a transient failure.
         ResticSnapshotList resp;
-        for (int attempt = 0; ; attempt++)
+        while (true)
         {
             try
             {
@@ -2368,12 +2119,30 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     ct).ConfigureAwait(false);
                 break;
             }
-            catch (BackrestRpcException ex) when (attempt < 2 && IsRepoLockedExit11(ex))
+            catch (BackrestRpcException ex) when (lockedRetries < 2 && IsRepoLockedExit11(ex))
             {
+                lockedRetries++;
                 _log.Information(
                     "ListSnapshots hit restic exit-11 (repo locked) on attempt {Attempt} — waiting for repo idle before retry",
-                    attempt + 1);
+                    lockedRetries);
                 await WaitForRepoIdleAsync(client, repoId, ct).ConfigureAwait(false);
+            }
+            catch (BackrestRpcException ex) when (!registered && IsMissingPlanOrRepo(ex))
+            {
+                _log.Information("Backrest does not know plan {PlanId} yet; adding it before listing again", planId);
+                await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct, checkConnection: false).ConfigureAwait(false);
+                before = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
+                    "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
+                registered = true;
+            }
+            catch (BackrestRpcException ex) when (registered && !reapplied && IsMissingPlanOrRepo(ex))
+            {
+                // Backrest 1.14.1 can save a new plan that it has not loaded
+                // (U048): writing the same settings again makes it load them.
+                // The refused request started no work; retried once.
+                _log.Warning("Backrest did not find plan {PlanId} it had saved; applying its settings again", planId);
+                reapplied = true;
+                await ReapplyConfigAsync(client, ct).ConfigureAwait(false);
             }
         }
 
@@ -3004,7 +2773,26 @@ public sealed class ResticBackrestEngine : IBackupEngine
             existingRepo = null;
         }
 
-        if (existingRepo is null)
+        // Backups run restic directly (U175): Backrest can meet a repository
+        // this computer's backups have used for a long time. It is added with
+        // restic's own id for it (KnownRepositories), the guid AddRepo would
+        // have read, without running restic: AddRepo runs cat config, then
+        // init, so a password that no longer opens the repository would read
+        // as another program's repository (U045) instead of a wrong password.
+        // Only at the address where restic gave that id: a destination moved
+        // since then is added the usual way, which reads the id there.
+        BackrestRepo? knownRepo = null;
+        if (existingRepo is null && !needsReAdd)
+        {
+            var stanza = BuildRepoFromDestination(repoId, destination, backup);
+            if (KnownRepositories.ResticId(repoId, stanza.Uri, ct) is { } knownGuid)
+            {
+                stanza.Guid = knownGuid;
+                knownRepo = stanza;
+                _log.Information("EnsurePlanAndRepo: adding repo {RepoId}, which this computer's backups use, with restic's id {Guid}", repoId, knownGuid);
+            }
+        }
+        if (existingRepo is null && knownRepo is null)
         {
             if (!connectionChecked)
                 await new CloudDestinationPreflight(_secrets).CheckAsync(destination, ct).ConfigureAwait(false);
@@ -3042,6 +2830,8 @@ public sealed class ResticBackrestEngine : IBackupEngine
             var cfg = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
                 "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), ct).ConfigureAwait(false);
             var liveRepo = cfg.Repos.FirstOrDefault(r => r.Id == repoId);
+            var addingKnownRepo = liveRepo is null && knownRepo is not null;
+            if (addingKnownRepo) cfg.Repos.Add(liveRepo = knownRepo!);
             var existingPlan = cfg.Plans.FirstOrDefault(p => p.Id == planId);
             _log.Debug(
                 "EnsurePlanAndRepo: GetConfig modno={Modno} repos={RepoCount} plans={PlanCount}; want repo={RepoId} (found={RepoFound}, guid={Guid}) plan={PlanId} (found={PlanFound})",
@@ -3122,7 +2912,7 @@ public sealed class ResticBackrestEngine : IBackupEngine
             // separate cleanup schedule, and duplicates inline cleanup.
             wantedPlan.Retention = new() { PolicyKeepAll = true };
             var planChanged = existingPlan is not null && ApplyPlanSettings(existingPlan, wantedPlan);
-            if (existingPlan is not null && !planChanged && flagsMatch && passwordMatch && uriMatch && envMatch && !liveRepo.AutoUnlock)
+            if (existingPlan is not null && !addingKnownRepo && !planChanged && flagsMatch && passwordMatch && uriMatch && envMatch && !liveRepo.AutoUnlock)
                 return; // nothing to do
 
             // Recover only after a confirmed lock failure. An unconditional
@@ -3253,24 +3043,13 @@ public sealed class ResticBackrestEngine : IBackupEngine
     internal static Exception TranslateRpcError(BackrestRpcException ex, string context)
     {
         if (ex.Endpoint == "/v1.Backrest/AddRepo" && HasInterruptedInitializationError(ex.Message))
-        {
-            return new EngineRepositoryInitializationException(
-                "This destination contains encryption keys from an unfinished repository setup. " +
-                "Backspace has stopped instead of repeating setup or replacing those files. " +
-                "Keep the existing folder for recovery and choose a new empty folder for a new backup. " +
-                "Details: " + ex.Message, ex);
-        }
+            return new EngineRepositoryInitializationException(UnfinishedSetupMessage + ex.Message, ex);
         // U045: the folder already holds a backup, for example one made by
         // another Backspace copy or another program, with a password this
         // backup does not have. Refusing is right; repeating it four times
         // with restic's wording was not.
         if (ex.Endpoint == "/v1.Backrest/AddRepo" && ex.Message.Contains("config file already exists", StringComparison.OrdinalIgnoreCase))
-        {
-            return new EngineRepositoryInitializationException(
-                "This folder already holds another backup, made by another copy of Backspace or another program. " +
-                "Backspace leaves it untouched. Choose an empty folder for this backup, or a new subfolder of this one. " +
-                "Details: " + ex.Message, ex);
-        }
+            return new EngineRepositoryInitializationException(AnotherBackupMessage + ex.Message, ex);
         if (IsMissingPlanOrRepo(ex))
         {
             return new EngineConfigOutOfSyncException(
@@ -3300,6 +3079,18 @@ public sealed class ResticBackrestEngine : IBackupEngine
         return ex;
     }
 
+    /// <summary>An interrupted repository setup left keys without a
+    /// configuration: setup stops, never repeated or replaced.</summary>
+    internal const string UnfinishedSetupMessage =
+        "This destination contains encryption keys from an unfinished repository setup. " +
+        "Backspace has stopped instead of repeating setup or replacing those files. " +
+        "Keep the existing folder for recovery and choose a new empty folder for a new backup. Details: ";
+
+    /// <summary>U045: a repository this backup's password does not open.</summary>
+    internal const string AnotherBackupMessage =
+        "This folder already holds another backup, made by another copy of Backspace or another program. " +
+        "Backspace leaves it untouched. Choose an empty folder for this backup, or a new subfolder of this one. Details: ";
+
     private static bool HasInterruptedInitializationError(string message)
     {
         // Require restic's structured terminal error, not a matching filename or
@@ -3315,13 +3106,18 @@ public sealed class ResticBackrestEngine : IBackupEngine
                     root.TryGetProperty("message_type", out var type) && type.ValueKind == JsonValueKind.String &&
                     type.GetString() == "exit_error" &&
                     root.TryGetProperty("message", out var detail) && detail.ValueKind == JsonValueKind.String &&
-                    detail.GetString()!.EndsWith(": repository already contains keys", StringComparison.Ordinal))
+                    IsInterruptedInitialization(detail.GetString()))
                     return true;
             }
             catch (JsonException) { }
         }
         return false;
     }
+
+    /// <summary>restic's closing message for an init that found keys without
+    /// a configuration (its exit_error message).</summary>
+    internal static bool IsInterruptedInitialization(string? exitMessage)
+        => exitMessage?.EndsWith(": repository already contains keys", StringComparison.Ordinal) == true;
 
     internal BackrestRepo BuildRepoFromDestination(string repoId, Destination destination, Backup? backup = null)
     {

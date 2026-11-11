@@ -25,6 +25,9 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// Part 2, the defaults (1 per destination, 2 in total): a second backup to
 /// the same destination is queued naming the first, then runs; a backup to
 /// another destination runs alongside; a third waits for the total.
+///
+/// Part 3, one process (the window), two destinations: both run at once
+/// (restic run directly, U175; Backrest made one wait for the other).
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
@@ -44,7 +47,7 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
     private static Backup Backup(string name, string source, Destination destination, bool inlineMaintenance) => new()
     {
         Name = name, SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false, Threads = 2,
-        PruneSchedule = inlineMaintenance ? null : new BackupSchedule(), CheckSchedule = inlineMaintenance ? null : new BackupSchedule(),
+        PruneSchedule = inlineMaintenance ? null : new BackupSchedule(),
         Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } },
     };
 
@@ -72,16 +75,20 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
                 ServiceLocator.Healthcheck, ServiceLocator.Mail, ServiceLocator.Notifier, new BackupProgressService());
             var first = ServiceLocator.Orchestrator;
 
-            // When each engine backed up: from its first line to "Finishing
-            // snapshot history", which follows restic's backup.
+            // When each engine backed up: from its first line to the end of
+            // restic's backup (it runs restic directly, U175).
             var phases = new ConcurrentDictionary<string, (DateTime Start, DateTime? End)>();
             void Track(IBackupEngine engine, string who) => engine.LineWritten += line =>
             {
                 phases.AddOrUpdate(who, _ => (DateTime.UtcNow, null), (_, p) => p);
-                if (line.Contains("Finishing snapshot history", StringComparison.Ordinal))
+                if (line.Contains("\tbackup finished: ", StringComparison.Ordinal))
                     phases.AddOrUpdate(who, _ => (DateTime.UtcNow, DateTime.UtcNow), (_, p) => (p.Start, p.End ?? DateTime.UtcNow));
             };
             Track(fixture.Engine, "A"); Track(secondEngine, "B");
+            // Each cleanup after a backup needs the repository alone (U156).
+            var forgets = new ConcurrentQueue<string>();
+            fixture.Engine.ResticCommandFinished += (command, result) => { if (command.Arguments[0] == "forget" && result.Succeeded) forgets.Enqueue("A"); };
+            secondEngine.ResticCommandFinished += (command, result) => { if (command.Arguments[0] == "forget" && result.Succeeded) forgets.Enqueue("B"); };
             var reasons = new ConcurrentQueue<string>();
             first.RunQueuedReasonChanged += (_, r) => { if (r.Length > 0) reasons.Enqueue("A: " + r); };
             second.RunQueuedReasonChanged += (_, r) => { if (r.Length > 0) reasons.Enqueue("B: " + r); };
@@ -95,7 +102,7 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
             Assert.True(pa.End is not null && pb.End is not null, "Both engines backed up.");
             var together = pa.Start < pb.End && pb.Start < pa.End;
             Assert.True(together, $"The backups overlapped: A {pa.Start:O}–{pa.End:O}, B {pb.Start:O}–{pb.End:O}.");
-            Assert.All(both, r => Assert.NotEmpty(r.Checks)); // each ran its inline check
+            Assert.Equal(new[] { "A", "B" }, forgets.Distinct().Order()); // each ran its cleanup after its backup
 
             // Afterwards, the repository checks out, and holds both backups.
             var check = await first.RunCheckAsync(a, CancellationToken.None);
@@ -128,6 +135,9 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
         var d = Backup("local_d (E64)", ctx.MakeSource("local-d", seed: 644, targetBytes: 2_000_000), drive, inlineMaintenance: false);
         var photos = Backup("photos (E64)", ctx.MakeSource("photos", seed: 645, targetBytes: 40_000_000), nas, inlineMaintenance: false);
         var music = Backup("music (E64)", ctx.MakeSource("music", seed: 646, targetBytes: 2_000_000), usb, inlineMaintenance: false);
+        // restic run directly (U175) backs 40 MB up in about a second: slowed
+        // down, local_c and photos still run when the others arrive.
+        c.BandwidthLimitKBps = 4_000; photos.BandwidthLimitKBps = 8_000;
         ServiceLocator.Config.Update(cfg =>
         {
             cfg.Destinations.Add(drive); cfg.Destinations.Add(nas); cfg.Destinations.Add(usb);
@@ -166,39 +176,38 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
         Output.WriteLine(File.ReadAllText(report2));
 
         // ---- Part 3: the window alone, two destinations, one engine ----
-        // Does one Backrest run two allowed backups at once? Whatever it does,
-        // a backup it holds back must say "Queued", not "Running".
+        // Backrest ran one task at a time, so one of two allowed backups in one
+        // process waited ("Queued: waiting for the backup engine to finish
+        // another backup"). Since U175 the window runs restic itself: both
+        // run at once, neither is held back.
         var x = Backup("window X (E64)", ctx.MakeSource("window-x", seed: 647, targetBytes: 30_000_000), drive, inlineMaintenance: false);
         var y = Backup("window Y (E64)", ctx.MakeSource("window-y", seed: 648, targetBytes: 30_000_000), nas, inlineMaintenance: false);
+        // Slow enough to see them overlap.
+        x.BandwidthLimitKBps = 8_000; y.BandwidthLimitKBps = 8_000;
         ServiceLocator.Config.Update(cfg => { cfg.Backups.Add(x); cfg.Backups.Add(y); });
-        var ops = new ConcurrentQueue<(DateTime At, string Line)>();
-        fixture.Engine.LineWritten += line => { if (line.StartsWith("[backrest] op=", StringComparison.Ordinal)) ops.Enqueue((DateTime.UtcNow, line)); };
+        var spans = new ConcurrentDictionary<string, (DateTime Start, DateTime? End)>();
+        var planOf = new[] { x, y }.ToDictionary(b => ResticBackrestEngine.MakePlanId(b, b.SourcePaths[0], b == x ? drive : nas, "default"), b => b.Name);
+        fixture.Engine.ResticCommandFinished += (command, result) =>
+        {
+            if (command.Arguments[0] != "backup" || planOf.Keys.FirstOrDefault(id => command.Trailing!.Contains("plan:" + id)) is not { } plan) return;
+            spans[planOf[plan]] = (DateTime.UtcNow - result.Elapsed, DateTime.UtcNow);
+        };
         var windowEvents = new ConcurrentQueue<(string Id, string Reason)>();
         orchestrator.RunQueuedReasonChanged += (id, r) => { if (id == x.Id || id == y.Id) windowEvents.Enqueue((id, r)); };
         var pair = await Task.WhenAll(Task.Run(() => orchestrator.RunBackupAsync(x, CancellationToken.None)),
             Task.Run(() => orchestrator.RunBackupAsync(y, CancellationToken.None))).WaitAsync(TimeSpan.FromMinutes(8));
         Assert.All(pair, r => Assert.Equal(BackupRunStatus.Success, r.Status));
-        // Each operation's time in progress, from Backrest's own status changes.
-        var spans = ops.Select(o => (o.At, Id: o.Line.Split(' ')[1], Status: o.Line.Split(' ')[2]))
-            .GroupBy(o => o.Id).Select(g => (Id: g.Key,
-                Start: g.Where(o => o.Status == "status=STATUS_INPROGRESS").Select(o => (DateTime?)o.At).FirstOrDefault(),
-                End: g.Where(o => o.Status is "status=STATUS_SUCCESS" or "status=STATUS_WARNING").Select(o => (DateTime?)o.At).FirstOrDefault()))
-            .Where(s => s.Start is not null && s.End is not null).OrderBy(s => s.Start).ToList();
-        // Held back: one operation waited STATUS_PENDING until the other ended.
-        var parallel = spans.Count >= 2 && !ops.Any(o => o.Line.Contains("status=STATUS_PENDING", StringComparison.Ordinal));
-        var heldBack = windowEvents.Where(e => e.Reason == RepositoryAccess.EngineQueueReason).ToList();
+        var sx = spans[x.Name]; var sy = spans[y.Name];
+        var windowOverlap = (Min(sx.End!.Value, sy.End!.Value) - Max(sx.Start, sy.Start)).TotalSeconds;
         var report3 = Path.Combine(ctx.ScreenshotsDir, "part3-window-one-engine.txt");
         File.WriteAllText(report3, "The window alone, two backups to two destinations, one engine (defaults).\n"
-            + string.Join("\n", ops.Select(o => $"{o.At:HH:mm:ss.fff} {o.Line}")) + "\n"
-            + string.Join("\n", windowEvents.Select(e => $"{(e.Id == x.Id ? x.Name : y.Name)}: {(e.Reason.Length == 0 ? "runs" : "Queued: " + e.Reason)}")) + "\n"
-            + $"Backrest ran them {(parallel ? "at the same time" : "one after the other")}.\n");
+            + $"{x.Name}: restic backup {sx.Start:HH:mm:ss.fff} to {sx.End:HH:mm:ss.fff} UTC\n"
+            + $"{y.Name}: restic backup {sy.Start:HH:mm:ss.fff} to {sy.End:HH:mm:ss.fff} UTC\n"
+            + $"Backed up together for {windowOverlap:F1} s.\n"
+            + string.Join("\n", windowEvents.Select(e => $"{(e.Id == x.Id ? x.Name : y.Name)}: {(e.Reason.Length == 0 ? "runs" : "Queued: " + e.Reason)}")) + "\n");
         Output.WriteLine(File.ReadAllText(report3));
-        // Held back by the engine: the card said so, then ran.
-        if (!parallel)
-        {
-            Assert.NotEmpty(heldBack);
-            Assert.Equal("", windowEvents.Last(e => e.Id == heldBack[0].Id).Reason);
-        }
+        Assert.True(windowOverlap > 0, $"The two backups did not run at the same time ({windowOverlap:F1} s).");
+        Assert.DoesNotContain(windowEvents, e => e.Reason is RepositoryAccess.EngineQueueReason or RepositoryAccess.EngineRepositoryReason);
     }
 
     private static DateTime Min(DateTime x, DateTime y) => x < y ? x : y;

@@ -270,15 +270,18 @@ public sealed class SessionTaskControlTests
         var error = process.StandardError.ReadToEndAsync();
         try
         {
+            // The backup runs restic itself (U175): each restic it starts is
+            // recorded with its owner (OwnedProcessRegistry).
             OwnedProcessRegistry.Ownership? engine = null;
             var deadline = DateTime.UtcNow.AddSeconds(60);
-            var engineRoot = Path.Combine(ws.ConfigRoot, "engine", "engine-runs"); // this computer's working files (U153)
+            var owners = Path.Combine(ws.ConfigRoot, "process-owners");
             var locks = Path.Combine(destination.PathOrSubpath, "locks");
             while (DateTime.UtcNow < deadline && !process.HasExited)
             {
-                if (Directory.Exists(engineRoot))
-                    engine = Directory.GetFiles(engineRoot, "sidecar.pid", SearchOption.AllDirectories)
-                        .Select(OwnedProcessRegistry.Read).FirstOrDefault(x => x?.Owner.Pid == process.Id);
+                if (Directory.Exists(owners))
+                    engine = Directory.GetFiles(owners, "*.json").Select(OwnedProcessRegistry.Read)
+                        .FirstOrDefault(x => x?.Owner.Pid == process.Id && x.Child.BinaryPath.EndsWith("restic.exe", StringComparison.OrdinalIgnoreCase)
+                            && OwnedProcessRegistry.Inspect(x.Child) == OwnedProcessRegistry.Presence.Matching);
                 if (engine is not null && Directory.Exists(locks) && Directory.GetFiles(locks).Length > 0) break;
                 await Task.Delay(50, TestContext.Current.CancellationToken);
             }
@@ -287,6 +290,8 @@ public sealed class SessionTaskControlTests
             Assert.NotNull(engine);
             Assert.True(Directory.Exists(locks) && Directory.GetFiles(locks).Length > 0, "A real restic repository operation must have started before Quit.");
             Assert.Equal(OwnedProcessRegistry.Presence.Matching, OwnedProcessRegistry.Inspect(engine.Child));
+            // No Backrest: a scheduled backup never starts it (U175).
+            Assert.False(Directory.Exists(Path.Combine(ws.ConfigRoot, "engine", "engine-runs")));
             // Keep the controller on the same disposable config as the child.
             // The default constructor can resolve a registered desktop service
             // and would otherwise read or pause a different task set.
@@ -299,6 +304,11 @@ public sealed class SessionTaskControlTests
             Assert.Contains(OwnedProcessRegistry.Inspect(engine.Child), new[] { OwnedProcessRegistry.Presence.Missing, OwnedProcessRegistry.Presence.Different });
             Assert.False(control.TryBeginUnattended(out _));
             Assert.DoesNotContain(": Success -", await output);
+            // An ordinary Quit asks restic to stop (Ctrl+Break, sent from a
+            // program without a console of its own, as the app and the
+            // service's workers are): restic removes its own lock. Force quit
+            // ends it at once; its lock is cleared by the next unlock.
+            if (!force) Assert.Empty(Directory.GetFiles(locks));
         }
         finally
         {

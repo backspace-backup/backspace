@@ -17,15 +17,16 @@ public sealed class RunDetailsTests
         // The service's engine had no history of the app's backups, so the
         // log said "No earlier backup" although restic used a --parent.
         var at = new DateTimeOffset(2026, 11, 9, 10, 34, 34, TimeSpan.Zero);
-        var latest = ResticBackrestEngine.LatestSnapshot(new[]
+        var latest = ResticBackrestEngine.LatestOf(new[]
         {
-            new ResticSnapshotDto { Id = Id('a'), UnixTimeMs = at.AddDays(-1).ToUnixTimeMilliseconds() },
-            new ResticSnapshotDto { Id = Id('b'), UnixTimeMs = at.ToUnixTimeMilliseconds() },
-            new ResticSnapshotDto { Id = "not-a-snapshot-id", UnixTimeMs = at.AddDays(1).ToUnixTimeMilliseconds() },
+            (Id('a'), at.AddDays(-1).ToUnixTimeMilliseconds()),
+            (Id('b'), at.ToUnixTimeMilliseconds()),
+            ("not-a-snapshot-id", at.AddDays(1).ToUnixTimeMilliseconds()),
         });
         Assert.Equal((Id('b'), at.UtcDateTime), latest);
-        Assert.Null(ResticBackrestEngine.LatestSnapshot(Array.Empty<ResticSnapshotDto>()));
-        Assert.Null(ResticBackrestEngine.LatestSnapshot(null));
+        Assert.Null(ResticBackrestEngine.LatestOf(Array.Empty<(string, long)>()));
+        // Equal times: restic's order decides, the last one (as Backrest's stable sort).
+        Assert.Equal(Id('d'), ResticBackrestEngine.LatestOf(new[] { (Id('c'), 5L), (Id('d'), 5L) })!.Value.Id);
 
         var dest = new Destination { Name = "Local" };
         var lines = string.Join("\n", ResticBackrestEngine.SetupLines(new Backup(), @"C:\src", dest, latest));

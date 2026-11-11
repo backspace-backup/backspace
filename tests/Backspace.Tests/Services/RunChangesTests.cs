@@ -21,6 +21,11 @@ public sealed class RunChangesTests
         // The previous backup named in the setup line is not this one's.
         Assert.Null(RunChanges.SnapshotOf("[setup] Previous backup to «Drive»: 2026-11-04 20:00, snapshot 11111111."));
         Assert.Null(RunChanges.SnapshotOf(""));
+        // Saved lines start with the time they were written (U176), Windows line ends included.
+        var stamped = string.Join("\r\n", log.TrimEnd('\n').Split('\n')
+            .Select((line, i) => LogLineStamp.Stamp(line, new DateTime(2026, 11, 10, 6, 0, i, DateTimeKind.Utc)))) + "\r\n";
+        Assert.Equal("a4042f53", RunChanges.SnapshotOf(stamped));
+        Assert.Null(RunChanges.SnapshotOf(LogLineStamp.Stamp("[setup] Previous backup: snapshot 11111111.", DateTime.UtcNow)));
     }
 
     [Fact]

@@ -46,7 +46,9 @@ public sealed class E56_ConcurrentLiveAndSavedLogs(ITestOutputHelper output) : B
         using var vm = new LogsViewModel();
         var view = new LogsView { DataContext = vm };
         var window = ctx.Driver.Show(new Window { Content = view, Width = 1180, Height = 840 });
-        static string[] OperationIds(string text) => Regex.Matches(text, @"\[backrest\] op=(\d+)")
+        // Each run's own label: restic's command lines (shown, not detail)
+        // carry its backup's plan (U175; Backrest's operation ids before).
+        static string[] OperationIds(string text) => Regex.Matches(text, @"--tag plan:([\w-]+)")
             .Select(m => m.Groups[1].Value).Distinct().ToArray();
         var runs = backups.Select(b => Task.Run(() => ServiceLocator.Orchestrator.RunBackupAsync(b, deadline.Token))).ToArray();
         string live;
@@ -93,9 +95,9 @@ public sealed class E56_ConcurrentLiveAndSavedLogs(ITestOutputHelper output) : B
             Assert.DoesNotContain(backups[1].Name, vm.DisplayText);
             Assert.All(ids[1], id => Assert.DoesNotContain(id, OperationIds(vm.DisplayText)));
             Assert.False(view.FindControl<TextBlock>("CombinedOutputHint")!.IsEffectivelyVisible);
-            ctx.Snapshot(window, "completed-run-is-isolated", "After selecting Documents with the actual picker, LIVE disappears and the saved output contains only that run’s operation IDs. Photos remains in its own saved log.");
-            ctx.Report.RecordNote("Real concurrent engines", "Both production backup operations overlapped. Their actual operation IDs appeared in the live display, but the two saved logs had no operation IDs in common. Selecting a completed run excluded the other run’s output.");
-            ctx.Report.RecordNote("Limits", "Real local Backrest/restic, encrypted repositories and production log routing. The view and keyboard input use headless Avalonia; native Windows pointer input and display scaling remain unverified. Bandwidth was deliberately limited to keep both operations observable; this is not a speed test.");
+            ctx.Snapshot(window, "completed-run-is-isolated", "After selecting Documents with the actual picker, LIVE disappears and the saved output contains only that run’s restic command lines. Photos remains in its own saved log.");
+            ctx.Report.RecordNote("Real concurrent engines", "Both production backups overlapped. Their restic command lines (each with its own backup's label) appeared in the live display, but the two saved logs had none in common. Selecting a completed run excluded the other run’s output.");
+            ctx.Report.RecordNote("Limits", "Real local restic, encrypted repositories and production log routing. The view and keyboard input use headless Avalonia; native Windows pointer input and display scaling remain unverified. Bandwidth was deliberately limited to keep both operations observable; this is not a speed test.");
         }
         finally
         {

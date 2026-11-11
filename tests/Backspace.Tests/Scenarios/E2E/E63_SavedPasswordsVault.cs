@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -228,10 +229,16 @@ public sealed class E63_SavedPasswordsVault : BackupE2EBase
             "After choosing the password, the backup ran on computer A. No saved-passwords banner: the vault is open here.");
 
         // Falsifiable: the storage password is nowhere under Backspace.config,
-        // byte by byte, while this computer's engine files do hold it (the
-        // scan finds it there, so it would find it in the folder too).
+        // byte by byte (run history, transcripts and Backspace's maintenance
+        // records included), while this computer's engine files do hold it
+        // (the scan finds it there, so it would find it in the folder too).
+        // A backup runs restic directly and writes it nowhere (U175); Backrest
+        // gets it in its settings when it is first asked to browse.
+        Assert.NotEmpty(await ServiceLocator.Revisions.ListRevisionsAsync(backup, backup.SourcePaths[0], destination,
+            backup.Targets[0].StorageName, CancellationToken.None));
         var inConfig = VaultScenario.FilesContaining(AppPaths.ConfigRoot, storagePassword);
         Assert.True(inConfig.Count == 0, "Found the storage password in: " + string.Join(", ", inConfig));
+        Assert.True(File.Exists(MaintenanceRecords.OwnFile), "The backup kept its maintenance record in the configuration folder.");
         Assert.NotEmpty(VaultScenario.FilesContaining(fixture.Sidecar.DataDir, storagePassword));
         Assert.True(File.Exists(AppPaths.VaultFile));
         ctx.Report.RecordNote("byte scan", $"{AppPaths.ConfigRoot}: 0 files contain the storage password; positive control: it is found in this computer engine folder.");

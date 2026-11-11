@@ -134,16 +134,21 @@ request. Restic writes its lock, index and snapshot files one at a time, so
 batching added about 10 seconds to every backup in October 2026 measurements,
 without making large uploads faster. Each restic command on Dropbox still pays
 several seconds of fixed round trips (starting rclone, reading the key,
-locking), and Backrest 1.14.1 runs `restic snapshots` before each backup and
-again afterwards to index it. Those extra commands are most of the remaining
-difference from tools that make a single connection.
+locking). Backrest 1.14.1 ran `restic snapshots` before each backup and again
+afterwards to index it. Since U175 a backup runs restic itself: before it, one
+`restic snapshots --json --no-lock <id>` reads the remembered previous snapshot
+(no lock, no list of the others), nothing runs afterwards, and `restic cat
+config` runs only the first time this computer uses the repository. These extra
+commands are most of the remaining difference from tools that make a single
+connection.
 
 Backrest's working directory is its data directory; a portable install does
 not put rclone on the system PATH. Before starting Backrest, prepend the
 absolute bundled-engine directory to that child process's PATH. Its restic
 children then find the bundled rclone during `AddRepo` and every later
 operation. Direct password changes need the same child environment; direct
-restores already include the bundled directory. Do not put the executable
+restores and `ResticRunner` (backups and their cleanup) already include the
+bundled directory. Do not put the executable
 path into repository flags: Backrest reparses each flag with shell-style
 quoting before restic parses its own options. Paths with spaces, backslashes
 or punctuation must survive without relying on those extra parsing layers.
@@ -217,6 +222,14 @@ must replace them deliberately and verify the versions in the test output
 directory as well as in the source assets. Run real backup, restore,
 cancellation and maintenance checks against those binaries.
 
+Since U175 Backspace reads restic's backup output itself, so a restic upgrade
+must also pass `ResticRunnerTests` and `DirectBackupTests` with the new binary:
+the JSON messages (`status`, `summary`, `error`, `exit_error`), the exit codes
+(3, 10, 11, 12, 130), the "signal interrupt received, cleaning up" line after
+Ctrl+Break, and `snapshots --json <id>` answering a missing or unreadable
+snapshot with `[]` and exit code 0 (the remembered parent's check relies on
+it).
+
 ## Backrest 1.13.0+ `SetConfig` guid contract
 
 Plan backup options must use the explicit JSON name `backup_flags`, not
@@ -235,10 +248,12 @@ legacy-guid drop in `EnsurePlanAndRepoCoreAsync`.
 A plan written right after `AddRepo` can be saved but not loaded: on a fresh
 setup in the lab VM (31 October 2026, U048) the first backup was refused with
 "plan not found" on every retry while the plan sat in Backrest's config file,
-until another settings write. `BackupPruneCheckAsync` therefore writes
-Backrest's settings back unchanged once and retries. The refused request has
-started no work. Remove this recovery only after a Backrest release fixes the
-race and a fresh-setup first backup passes without it.
+until another settings write. Backups no longer go through Backrest (U175):
+the snapshot listing that first registers a backup's plan with Backrest
+(`ListSnapshotsSortedAsync`) therefore writes Backrest's settings back
+unchanged once and retries. The refused request has started no work. Remove
+this recovery only after a Backrest release fixes the race and a fresh-setup
+first listing passes without it.
 
 ## Backrest re-init contract
 
@@ -248,6 +263,16 @@ guid by adopting the on-disk restic repo (or initialising one).
 Subsequent `SetConfig` passes leave the existing repo stanza alone.
 Never round-trip our own deterministic guid through `SetConfig` —
 restic's actual config-id is the source of truth.
+
+Since backups run restic directly (U175), Backrest often meets a
+repository this computer's backups have used for a long time. That one is
+added through `SetConfig` with restic's own id for it, read by `cat config`
+or `init --json` and kept in `KnownRepositories`, not through `AddRepo`:
+`AddRepo` runs `cat config` then `init`, so a password that no longer opens
+the repository came back as "config file already exists", which reads as
+another program's repository (U045) instead of a wrong password.
+`CompletedEngineFailureTests` checks the wrong-password message after a
+direct backup.
 
 An interrupted repository initialization can leave encryption keys without a
 usable repository configuration. If `AddRepo` returns the structured terminal
@@ -459,6 +484,24 @@ move): the task is cancelled and the run fails with
 cost another hour at once. If cancellation can't be confirmed, the usual
 fail-closed block applies.
 
+Backups and their cleanup run restic directly (U175), so the notes above
+about Backrest's tasks apply to the rest (checks, lists, browsing, restore, the
+cleanup schedule); `ProgressStallLimit` also stops a direct backup.
+A direct command stops in two steps (`ResticRunner.StopAsync`): Ctrl+Break to
+restic's own process group, then, after `GentleStopWait` (3 s), the end of its
+whole job, rclone included, and a wait for the exit. restic is started in a new
+process group so the break reaches it and not Backspace; restic starts rclone
+in a group of its own, so rclone does not get it. On the break restic logs
+"signal interrupt received, cleaning up", removes its lock and exits with 130.
+A backup held up by `--limit-upload` may not exit within the 3 s and is ended,
+its lock removed already on a local repository; a lock left through rclone is
+stale (its process is gone) and goes at the next command's one `restic unlock`.
+The window and the service's worker are Windows applications without a console:
+to send the break, `ConsoleBreak` attaches to restic's console, then detaches.
+A test host has a console and shares it with restic. The guard handler that
+ignores Ctrl+Break in Backspace itself must stay installed: without it, a
+break that reaches Backspace would end it. Unix has no gentle step yet.
+
 ## Password changes and test restore
 
 Password changes require exclusive repository ownership. Never force-remove
@@ -482,22 +525,23 @@ on the next launch. Sample success is not a full-restore guarantee.
 
 ## Backrest's background snapshot index
 
-Backrest 1.14.1 schedules an index after saving a snapshot, but that task has
-no pending operation record. An empty pending-operation query therefore does
-not establish that the repository is idle. A second reader can overlap the
-index and encounter a disappearing lock file on a cloud backend.
+Backrest 1.14.1 schedules an index after the operations it runs (a backup, a
+forget, adding a repository), and that task has no pending operation record.
+An empty pending-operation query therefore does not establish that the
+repository is idle. A second reader can overlap the index and encounter a
+disappearing lock file on a cloud backend (U012 in the local Review desk holds
+the measured cloud evidence).
 
-Backspace waits for two signals: an increased successful `index_snapshots`
-counter at the authenticated `/metrics` endpoint, and an index record for the
-exact saved snapshot. Neither signal alone is sufficient. An indexing failure
-or loss of confirmation during cancellation keeps further work blocked until
-the owned daemon is stopped. A saved snapshot still needs this handling when
-cancellation or an end hook changes its final operation status.
-
-On a Backrest upgrade, exercise E54/E55 and the delayed/negative completion
-tests against the actual new binary. Do not remove this compatibility handling
-until the bundled daemon supplies a tested, cancellable completion record for
-its index task. U012 in the local Review desk holds the measured cloud evidence.
+Until U175, Backspace waited after each saved backup for Backrest's
+`index_snapshots` counter and the snapshot's index record. Backups now run
+restic directly, Backrest indexes nothing after them, and that wait was
+removed. Backrest still indexes a repository it adds with `AddRepo` (one
+this computer's backups have not used yet; see "Backrest re-init contract"):
+`ListSnapshotsSortedAsync` retries a listing that meets the index's lock. A
+direct cleanup meeting it (exit code 11) gets the usual one
+`restic unlock`, which leaves a live lock, and one retry; if the index still
+holds the repository, the run ends with a cleanup warning and the next
+backup's cleanup catches up.
 
 ## A stopped Windows service and Fast Startup
 
@@ -747,8 +791,17 @@ backup sends that data again, and `restic check` reports "additional files ...
 likely contain duplicate data". Only `restic prune` deletes them (local_c had 652
 such files after several interruptions). The cleanup after each backup therefore
 runs `forget … --prune`, and a full `prune` after a backup whose previous run did
-not finish, or when Backrest's history shows no successful prune for 7 days.
+not finish, or when the repository has had no successful full prune for 7 days.
 Before 1.1.10, cleanup ran `forget` alone, so storage never shrank.
+
+Both answers come from Backspace's own records since U175 (maintenance.json,
+`MaintenanceRecords`): a plan whose `lastBackupStartedUtc` is later than its
+`lastBackupFinishedUtc` did not finish, and `lastFullPruneUtc` is written by a
+successful full prune after a backup or on the cleanup schedule. Backrest's
+operation history answered before, and each Backrest instance (the window's,
+each service worker's) had its own. The records were not converted: a
+repository with no `lastFullPruneUtc` gets a full prune at its next cleanup
+after a backup.
 
 ## Retention: Duplicacy rules on restic (U172)
 

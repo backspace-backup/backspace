@@ -41,8 +41,8 @@ Exclusion scope is checked against the real engine in E06 and E30. E06 saves
 the Advanced editor's recommended filters and restores its source from beneath
 a `temp` ancestor. E30 checks a source beneath an excluded ancestor, literal
 brackets in the source name, and a root-only exclusion with a nested namesake
-that must survive. E54 confirms that an edited exclusion reaches an existing
-Backrest plan and does not change older snapshots. Restic gets the Filters
+that must survive. E54 confirms that an edited exclusion reaches the next
+backup and does not change older snapshots. Restic gets the Filters
 text unchanged as its exclude file, and the preview reads it the same way, on
 full paths (U151).
 
@@ -328,8 +328,10 @@ the real Windows session API and launches the actual Backspace CLI for all four 
 paused, those child processes must exit before reading deliberately invalid
 configuration. After reopening, the same invocation must reach normal config
 loading. Two additional native checks interrupt an actual encrypted local
-backup through ordinary Quit and Force quit, verify that its engine process
-has stopped, and reject another run while the pause remains in effect.
+backup through ordinary Quit and Force quit, verify that its restic process
+has stopped (and, for Quit, that restic removed its own lock after Ctrl+Break
+sent from a program without a console), that Backrest was never started, and
+reject another run while the pause remains in effect.
 `S60_ReviewFeedback` clicks the close-to-tray setting and the quit
 dialogs. These checks do not log the user out or reboot the computer; actual
 before-sign-in execution and live cloud access need separate acceptance proof.
@@ -366,24 +368,53 @@ optional maintenance reported separately.
 `E54_PlanUpdatesAndCleanupSchedule` uses a real encrypted repository to verify
 that editing exclusions affects the next backup, old snapshots remain intact,
 independent cleanup does not run during backup, and explicit cleanup uses the
-latest retention setting. It counts actual daemon cleanup operations to catch
-duplicate inline work and verifies that another backup's snapshots survive.
+latest retention setting. It counts the actual cleanup commands (restic's,
+run directly after a backup, and Backrest's on the schedule) to catch duplicate
+inline work, checks the backup's command line (exclude file, upload limit), and
+verifies that another backup's snapshots survive.
 `PlanSettingsTests` also checks that removing settings
 clears earlier values without dropping unknown daemon fields.
 
 `E55_OnDemandLockRecovery` uses a real restic child waiting on standard input.
-Cleanup must preserve its live lock and both snapshots. After the child exits
-and the test releases its Windows process handle, ordinary stale-lock recovery
-must allow cleanup; force removal is forbidden. Healthy backups issue no recovery
-command. `BackrestIndexCompletionTests` delays completion independently of the
-snapshot record and rejects unrelated records, failed indexing and unconfirmed
-cancellation. The real E54/E55 backups also exercise the bundled daemon's metrics
-endpoint and actual index-record format.
+The cleanup after a backup (restic run directly) meets its live lock: one
+ordinary `restic unlock`, one retry, the backup saved with a cleanup warning,
+the live lock and both snapshots kept. Backrest's stand-alone cleanup is
+refused too. After the child exits and the test releases its Windows process
+handle, the next cleanup's one unlock removes the stale lock and it succeeds;
+force removal is forbidden. Healthy backups issue no recovery command.
+
+`ResticRunnerTests` (U175 step 0) checks the runner with recorded restic output
+and real processes: the password only in the environment (inherited password
+file and command variables removed, never on the command line or in the
+transcript), each JSON message type, cut and unfinished lines, bounded error
+text, every documented exit code, and stopping: Ctrl+Break that makes a real
+restic remove its lock, the end of the whole tree when a program ignores it,
+and both with rclone in the tree. `DirectBackupTests` (step 1) compares the
+direct command lines with Backrest's, option for option, and with the owner's
+transcript; maps every backup exit code to the status history reads; and runs
+real restic with a Backrest that is never started: backups with their
+cleanup and no check inside them (checks are entries of their own, U179), the
+remembered parent (used without a list when restic confirms it;
+missing, another plan's, another folder's, unreadable, none remembered or an
+unfinished previous run fall back to the plan's latest), exit code 3, a wrong
+password, a live lock, a stopped backup and the full prune after it.
+`A_scheduled_backup_never_starts_Backrest` runs `Backspace.exe --run` twice and
+watches every process under it: restic appears, backrest.exe never does, and
+Backrest's folders are never made. `BackupFixedCostBenchmark` (opt-in:
+`BACKSPACE_FIXED_COST_BENCH=<folder>`, `BACKSPACE_FIXED_COST_BENCH_RUNS`,
+`BACKSPACE_FIXED_COST_BENCH_LABEL`) times unchanged backups end to end and
+splits each into the time before restic's backup starts, the backup and the
+time after it. `DataCheckLimitTests` checks the engine's reading of a check
+entry's data limit (U179): 1% of the stored data up to the limit (1 GiB
+without one), the command for a sample and for a full read, the recorded
+depth, and, with the real engine, a full data read that runs
+`check --read-data` (recorded as all data) and a 4 KiB sample that reads
+4 KiB.
 
 `E56_ConcurrentLiveAndSavedLogs` starts two real encrypted local backups with a
 deliberate bandwidth limit so they overlap long enough to inspect. Their actual
-operation IDs must appear in the combined live display, while their saved logs
-must contain no operation IDs in common. Keyboard selection of a completed run
+restic command lines (each carrying its backup's label) must appear in the
+combined live display, while their saved logs must have none in common. Keyboard selection of a completed run
 must hide LIVE and exclude the other run's output. This closes the injected-log
 coverage gap; it still uses headless Avalonia rather than native Windows input.
 
@@ -819,7 +850,7 @@ older scenario comments that describe broader coverage.
 | Require-network → run skips when offline | Actual unregistered Windows task network setting both on/off; no machine connectivity change or registered-task execution | ⛔ OS acceptance |
 | Metered-network watchdog stops mid-run | `RuntimeGuardCoverageTests`: actual backup/prune/check orchestration, injected metered signal after first cell starts, cancellation/persistence and opt-out negatives. `WindowsMeteredNetworkProbeTests` reads the real Windows network cost API (every connected profile must parse to a valid cost type) and checks that the change subscription is released when the watchdog stops. A real metered connection is not exercised automatically | ✅ injected signal + real API read |
 | Catch-up missed runs after sleep | `BackupSchedulerTests` with a fake clock, catch-up on and off and across restarts; no real sleep/resume or reboot | ⛔ OS acceptance |
-| Headless `--run <name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): existing option-shaped name `-h`, real snapshot and both files verified by SHA-256; missing backup exits 2 | ✅ isolated local repository |
+| Headless `--run <name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): existing option-shaped name `-h`, real snapshot and both files verified by SHA-256; missing backup exits 2. `DirectBackupTests.A_scheduled_backup_never_starts_Backrest`: two runs with cleanup and check, no backrest.exe under Backspace (U175) | ✅ isolated local repository |
 | Headless `--run-all` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): both enabled/unpaused backups run; paused and disabled repositories remain untouched | ✅ isolated local repositories |
 | Schedule fires at the configured time | `BackupSchedulerTests` and `RuntimeGuardCoverageTests`: daily, hourly, weekly and monthly next times, per-kind runs and conditions with a fake clock; real timing is the VM's check | ⛔ OS acceptance |
 
@@ -855,7 +886,7 @@ older scenario comments that describe broader coverage.
 |---|---|---|
 | Prune after backup (inline) | `E14_PruneAfterBackupRealEngine` | ✅ |
 | Standalone prune (cadence) | `RuntimeGuardCoverageTests` verifies actual unregistered weekly trigger/action and real orchestration cancellation/opt-out; `S39` covers fake-engine invocation. OS due-time firing unexercised | ⛔ OS acceptance |
-| Check after backup (inline) | `E15_CheckAfterBackupRealEngine` | ✅ |
+| Check after each backup (an entry of its own, U179) | `E15_CheckAfterBackupRealEngine`: the backup runs restic and no check, then the structure check runs as its own run (Backrest's OperationCheck) | ✅ |
 | Standalone check (cadence) | Actual unregistered monthly trigger/action and real orchestration cancellation/opt-out; `S39` covers fake-engine invocation. OS due-time firing unexercised | ⛔ OS acceptance |
 | Test-restore drill | `E16_TestRestoreVerifyDrill`: actual button pointer clicks in headless Avalonia; real Backrest/restic, two sources, an empty file, all file counts, persisted runs, and a second-source same-size mismatch that must fail. Screenshots show the result beside the button. | ✅ |
 | Drill skips mid-flight-edited files | E16 deliberately retains the source modification time to test byte mismatch detection; it does not simulate a concurrent edit. `BackupVerifierMidFlightDirtyTests` covers record state and retry replacement only. | 🟡 |

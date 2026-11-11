@@ -81,6 +81,9 @@ public sealed class E14_PruneAfterBackupRealEngine : BackupE2EBase
         var view = new BackupsView { DataContext = new BackupsViewModel() };
         var host = new Window { Width = 1100, Height = 760, Content = view };
         ctx.Driver.Show(host);
+        // Backups and their cleanup run restic directly (U175).
+        var commands = new System.Collections.Concurrent.ConcurrentQueue<ResticCommand>();
+        fixture.Engine.ResticCommandFinished += (command, result) => { if (result.Succeeded) commands.Enqueue(command); };
 
         // Three runs; mutate source between them so each run is a
         // real new revision rather than a noop "nothing changed".
@@ -106,22 +109,17 @@ public sealed class E14_PruneAfterBackupRealEngine : BackupE2EBase
         var revisions = await ServiceLocator.Revisions.ListRevisionsAsync(
             backup, source, dest, "default", CancellationToken.None);
         Assert.Single(revisions);
-        var client = fixture.Sidecar.Client!;
-        var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
-            "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), CancellationToken.None);
-        var repo = Assert.Single(config.Repos);
-        var operations = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
-            "/v1.Backrest/GetOperations", new GetOperationsRequest { Selector = new OpSelector { RepoGuid = repo.Guid } }, CancellationToken.None);
-        var forgets = operations.Operations!.Where(op => op.OperationRunCommand?.Command.StartsWith("forget --tag ", StringComparison.Ordinal) == true).ToArray();
+        var planId = ResticBackrestEngine.MakePlanId(backup, source, dest, "default");
+        var forgets = commands.Where(c => c.Arguments[0] == "forget").ToArray();
         Assert.Equal(3, forgets.Length);
-        Assert.All(forgets, op => Assert.Equal("STATUS_SUCCESS", op.Status));
-        Assert.DoesNotContain(operations.Operations, op => op.OperationForget is not null);
+        Assert.All(forgets, c => Assert.Equal(new[] { "forget", "--tag", $"plan:{planId},created-by:backspace", "--group-by=", "--keep-last=1" },
+            c.Arguments.Take(5)));
         // U131: the first cleanup is a full prune (none had run in this
         // storage); later ones remove what the forgotten snapshots used.
-        var prunes = operations.Operations!.Where(op => op.OperationRunCommand?.Command == "prune").ToArray();
-        Assert.Equal("STATUS_SUCCESS", Assert.Single(prunes).Status);
-        Assert.Equal(2, forgets.Count(op => op.OperationRunCommand!.Command.EndsWith(" --prune", StringComparison.Ordinal)));
-        ctx.Report.RecordNote("Real retention operations", $"{forgets.Length} successful forget operations, the last two with --prune, and one full prune; exactly one revision remains and is byte-compared below.");
+        Assert.Single(commands, c => c.Arguments.SequenceEqual(["prune"]));
+        Assert.Equal(2, forgets.Count(c => c.Arguments[^1] == "--prune"));
+        Assert.DoesNotContain(commands, c => c.Arguments[0] == "unlock");
+        ctx.Report.RecordNote("Real retention operations", $"{forgets.Length} successful forget commands (scoped to this backup's plan and instance labels), the last two with --prune, and one full prune; exactly one revision remains and is byte-compared below.");
 
         var outcome = await RestoreEverythingAsync(
             backup, source, dest, "default", restoreDir, CancellationToken.None);

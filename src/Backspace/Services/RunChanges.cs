@@ -23,13 +23,18 @@ internal readonly record struct ChangedFile(string Path, long Size, bool IsNew);
 internal static class RunChanges
 {
     /// <summary>The snapshot a backup made, from the recap at the end of its
-    /// log ("· snapshot a4042f53"), or null.</summary>
+    /// log ("· snapshot a4042f53"), or null. Saved lines start with the time
+    /// they were written since U176 (<see cref="LogLineStamp"/>).</summary>
     internal static string? SnapshotOf(string? logText)
     {
         if (string.IsNullOrEmpty(logText)) return null;
-        var matches = Regex.Matches(logText, @"^\[recap\] Backup complete: [^\n]*· snapshot (\S+)\s*$", RegexOptions.Multiline);
-        return matches.Count == 0 ? null : matches[^1].Groups[1].Value;
+        string? found = null;
+        foreach (var line in logText.Split('\n'))
+            if (Recap.Match(LogLineStamp.Strip(line.TrimEnd('\r'))) is { Success: true } match) found = match.Groups[1].Value;
+        return found;
     }
+
+    private static readonly Regex Recap = new(@"^\[recap\] Backup complete: .*· snapshot (\S+)\s*$", RegexOptions.CultureInvariant);
 
     /// <summary>The snapshot a run made of one source to one destination, from
     /// that cell's log (the app's own, or the background service's).</summary>
@@ -78,6 +83,9 @@ internal static class RunChanges
         string storageName, string snapshotPrefix, IProgress<string>? progress, CancellationToken ct)
     {
         progress?.Report("Finding this backup's snapshot…");
+        // Backups no longer pass through Backrest (U175), so its settings for
+        // this destination are brought up to date here, as Restore does.
+        await engine.EnsureInitializedAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
         var snapshots = await engine.ListSnapshotsAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
         var index = -1;
         for (var i = 0; i < snapshots.Count; i++)

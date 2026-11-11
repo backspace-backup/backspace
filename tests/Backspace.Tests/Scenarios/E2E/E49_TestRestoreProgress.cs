@@ -39,7 +39,7 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
             PathOrSubpath = ctx.MakeLocalDestination("repo"), Encrypted = true,
             StoragePasswordRef = ServiceLocator.Secrets.PutNew("e49", Guid.NewGuid().ToString("N")) };
         var backup = new Backup { Name = "Family files", SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
-            CheckSchedule = new BackupSchedule(), PruneSchedule = new BackupSchedule(),
+            PruneSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
         ServiceLocator.Config.Update(c => { c.Destinations.Add(destination); c.Backups.Add(backup); });
         using var vm = new MainWindowViewModel();
@@ -47,11 +47,15 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         var backupsView = main.GetVisualDescendants().OfType<BackupsView>().Single();
         Assert.Equal(BackupRunStatus.Success, (await RunBackupViaUiAsync(ctx, backup, backupsView, default)).Status);
         await ctx.Driver.PumpAsync(200);
-        var label = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "No checks recorded");
+        // A backup without check entries (U179) says so on its card.
+        var label = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "No checks set up");
         Assert.True(label.Bounds.Width >= label.TextLayout.WidthIncludingTrailingWhitespace - 1);
         Assert.True(label.Bounds.Height >= label.TextLayout.Height - 1);
-        ctx.Snapshot(main, "readable-status-at-1024", "No checks recorded is fully visible at a 1024 × 768 window size; the text can wrap instead of being cropped.");
+        ctx.Snapshot(main, "readable-status-at-1024", "No checks set up is fully visible at a 1024 × 768 window size; the text can wrap instead of being cropped.");
         ServiceLocator.Config.Update(c => c.Backups.Single(b => b.Id == backup.Id).BandwidthLimitKBps = 1024);
+        // Backups run restic directly (U175): Backrest, which still serves
+        // restores, learns of the destination when it is first used.
+        await fixture.Engine.EnsureInitializedAsync(backup, source, destination, "default", default);
         var client = fixture.Sidecar.Client!;
         var engineConfig = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>("/v1.Backrest/GetConfig", new(), default);
         engineConfig.Repos.Single().Flags.Add("--no-cache");

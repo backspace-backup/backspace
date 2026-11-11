@@ -108,10 +108,13 @@ switching the computer on after **Shut down**, Fast Startup included). Sleep,
 hibernation and locking the screen don't bring it back.
 
 Backspace registers no Windows scheduled task. Between runs it only waits for
-the next due time, so it uses no CPU while idle. The backup engine (Backrest, and the
-restic and rclone it starts) runs only while needed: the background service
-stops it when each run ends, and the open app after 5 minutes without use. The
-next action starts it again, which takes a few seconds.
+the next due time, so it uses no CPU while idle. The backup engine runs only
+while needed. A backup, with its cleanup, runs restic (and rclone, for a
+cloud destination), which end with it. Backrest, which Backspace still uses
+for checks, to list, browse and restore backups, and for cleanup on its own
+schedule, starts when one of those needs it: the background service stops
+it when each run ends, and the open app after 5 minutes without use. The next
+action starts it again, which takes a few seconds.
 
 After each backup (or on its own schedule, if the backup has one), the
 cleanup removes the snapshots its keep policy no longer
@@ -190,12 +193,13 @@ wait briefly for "another backup's Windows snapshot": Windows makes one
 snapshot at a time, and each backup that uses Windows snapshots waits for its
 own rather than back up without one.
 
-Backups run from the window share one backup engine, which runs one backup
-at a time: a second backup the limits allow says "Queued: waiting for the
-backup engine to finish another backup" until the engine starts it. With
-administrator access, the background service runs each backup in its own
-engine, so they do run together. Backups with
-several destinations take their turn for each destination in order.
+Backups run from the window to different destinations run together, up to
+the limits. Two backups to the same destination take turns in the window even
+when the per-destination limit allows more ("Queued: waiting for the backup
+engine to finish another task on this destination"). With administrator
+access, the background service runs each backup on its own, so those run
+together too. Backups with several destinations take their turn for each
+destination in order.
 
 The limits apply to backups run from the window, scheduled backups and, with
 administrator access, backups the background service runs, together. Cleanup

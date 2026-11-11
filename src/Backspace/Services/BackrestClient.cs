@@ -53,26 +53,6 @@ internal sealed class BackrestClient
 
     public BackrestClient(HttpClient http) => _http = http;
 
-    internal async Task<BackrestIndexCounters> ReadIndexCountersAsync(string repoId, CancellationToken ct)
-    {
-        using var response = await _http.GetAsync("/metrics", HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        var mediaType = response.Content.Headers.ContentType?.MediaType;
-        if (mediaType is not ("text/plain" or "application/openmetrics-text"))
-            throw new System.IO.InvalidDataException("The backup engine did not return its task counters.");
-        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        using var bytes = new System.IO.MemoryStream();
-        var buffer = new byte[8192];
-        int read;
-        while ((read = await stream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
-        {
-            if (bytes.Length + read > 4 * 1024 * 1024)
-                throw new System.IO.InvalidDataException("The backup engine's task counters were unexpectedly large.");
-            bytes.Write(buffer, 0, read);
-        }
-        return BackrestIndexCounters.Parse(System.Text.Encoding.UTF8.GetString(bytes.ToArray()), repoId);
-    }
-
     public void SetBearerToken(string jwt)
     {
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", jwt);

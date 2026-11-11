@@ -46,25 +46,31 @@ public sealed class PlanSettingsTests
     public void A_prune_follows_a_backup_cut_short_and_runs_at_least_weekly()
     {
         var now = new System.DateTime(2026, 11, 5, 12, 0, 0, System.DateTimeKind.Utc);
-        long Ms(System.DateTime at) => new System.DateTimeOffset(at).ToUnixTimeMilliseconds();
-        var backup = JsonDocument.Parse("{}").RootElement;
-        BackrestOperation Backup(string plan, string status, double hoursAgo) =>
-            new() { PlanId = plan, Status = status, UnixTimeStartMs = Ms(now.AddHours(-hoursAgo)), OperationBackup = backup };
-        BackrestOperation Prune(double daysAgo, string status = "STATUS_SUCCESS") =>
-            new() { Status = status, UnixTimeStartMs = Ms(now.AddDays(-daysAgo)), OperationRunCommand = new() { Command = "prune" } };
-        var before = Ms(now.AddMinutes(-90)); // when this backup started
-
         // Previous run finished, pruned two days ago: nothing to do.
-        Assert.False(ResticBackrestEngine.NeedsPrune([Backup("p", "STATUS_SUCCESS", 24), Prune(2)], "p", before, now));
-        // Previous run cut short (error, cancelled by Windows or by the user): prune.
-        foreach (var status in new[] { "STATUS_ERROR", "STATUS_SYSTEM_CANCELLED", "STATUS_USER_CANCELLED" })
-            Assert.True(ResticBackrestEngine.NeedsPrune([Backup("p", "STATUS_SUCCESS", 48), Backup("p", status, 3), Prune(2)], "p", before, now));
-        // Only the previous run of this plan counts, not this run or another plan's.
-        Assert.False(ResticBackrestEngine.NeedsPrune([Backup("p", "STATUS_SUCCESS", 24), Backup("p", "STATUS_INPROGRESS", 1), Backup("q", "STATUS_ERROR", 3), Prune(2)], "p", before, now));
-        // Never pruned, or more than a week ago, or the last attempt failed: prune.
-        Assert.True(ResticBackrestEngine.NeedsPrune([Backup("p", "STATUS_SUCCESS", 24)], "p", before, now));
-        Assert.True(ResticBackrestEngine.NeedsPrune([Backup("p", "STATUS_SUCCESS", 24), Prune(8)], "p", before, now));
-        Assert.True(ResticBackrestEngine.NeedsPrune([Backup("p", "STATUS_SUCCESS", 24), Prune(1, "STATUS_ERROR"), Prune(9)], "p", before, now));
+        Assert.False(ResticBackrestEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-2), now));
+        Assert.False(ResticBackrestEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-6.9), now));
+        // Previous run cut short (an error, a stop, a crash): prune.
+        Assert.True(ResticBackrestEngine.NeedsPrune(previousUnfinished: true, now.AddDays(-2), now));
+        // Never pruned (as far as Backspace's records say), or a week ago or more: prune.
+        Assert.True(ResticBackrestEngine.NeedsPrune(previousUnfinished: false, null, now));
+        Assert.True(ResticBackrestEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-7), now));
+        Assert.True(ResticBackrestEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-9), now));
+    }
+
+    /// <summary>U175: the forget run directly is the same command as the one
+    /// Backrest ran (its string, split as Backrest split it).</summary>
+    [Theory]
+    [InlineData("0:365 30:180 7:90 1:14")]
+    [InlineData("2")]
+    [InlineData("0:365 30:90 7:30 1:7")]
+    public void The_direct_forget_is_the_command_Backrest_ran(string policy)
+    {
+        var options = KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse(policy));
+        var planId = ResticBackrestEngine.MakePlanId(new Backup { Id = "b" }, @"C:\Users\me", new Destination { Id = "d" }, "default");
+        var command = ResticBackrestEngine.BuildRetentionCommand(planId, ResticBackrestEngine.InstanceTag, options)!;
+        Assert.Equal(DirectBackupTests.ShellSplit(command), ResticBackrestEngine.RetentionArguments(planId, ResticBackrestEngine.InstanceTag, options));
+        Assert.Null(ResticBackrestEngine.RetentionArguments(planId, ResticBackrestEngine.InstanceTag, []));
+        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.RetentionArguments("a,b", ResticBackrestEngine.InstanceTag, options));
     }
 
     [Theory]

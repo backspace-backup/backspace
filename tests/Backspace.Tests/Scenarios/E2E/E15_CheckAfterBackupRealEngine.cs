@@ -15,12 +15,11 @@ using Xunit;
 namespace Backspace.Tests.Scenarios.E2E;
 
 /// <summary>
-/// Inline check lifecycle against the real Backrest sidecar.
-/// BackupLifecycleTests.CheckAfterBackup_Runs exercises this against
-/// the in-memory fake which can't actually run restic check; this
-/// scenario hits the real DoRepoTask(TaskCheck) RPC and asserts the
-/// backup still reaches Success — the check's exit status is part
-/// of the run record.
+/// A check that runs after each backup, against the real engine. Checks are
+/// entries of their own (U179): the backup (restic run directly, U175) ends,
+/// then the orchestrator runs the structure check as its own run, through
+/// Backrest's DoRepoTask(TaskCheck) until step 2 of U175. The backup runs no
+/// check itself.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E15_CheckAfterBackupRealEngine : BackupE2EBase
@@ -50,9 +49,10 @@ public sealed class E15_CheckAfterBackupRealEngine : BackupE2EBase
             Name = "Docs (E15)",
             SourcePaths = { source },
             UseVss = false, VssDisabledAcknowledged = true,
-            // PruneSchedule sentinel suppresses inline prune;
-            // CheckSchedule null = inline check (the focus of this scenario).
+            // PruneSchedule sentinel suppresses inline prune; the structure
+            // check runs after each backup (the focus of this scenario).
             PruneSchedule = new BackupSchedule(),
+            Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = null } },
             Threads = 2,
             Targets = { new BackupTarget { DestinationId = dest.Id, StorageName = "default" } },
         };
@@ -66,11 +66,25 @@ public sealed class E15_CheckAfterBackupRealEngine : BackupE2EBase
         var host = new Window { Width = 1100, Height = 760, Content = view };
         ctx.Driver.Show(host);
 
+        // The backup itself runs no check (restic directly, U175).
+        var direct = new System.Collections.Concurrent.ConcurrentQueue<ResticCommand>();
+        fixture.Engine.ResticCommandFinished += (command, _) => direct.Enqueue(command);
         var record = await RunBackupViaUiAsync(ctx, backup, view, CancellationToken.None);
         ctx.Snapshot(host, $"after run {record.Status}",
-            $"Backup ran with inline check; status={record.Status}.");
+            $"Backup ran, then its check after each backup; status={record.Status}.");
 
         Assert.Equal(BackupRunStatus.Success, record.Status);
+        Assert.Empty(record.Checks);
+        Assert.Contains(direct, c => c.Arguments[0] == "backup");
+        Assert.DoesNotContain(direct, c => c.Arguments[0] == "check");
+        // The check's own run, right after the backup.
+        var checkRun = Assert.Single(ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id), r => r.Kind == RunKind.Check);
+        Assert.Equal(backup.Checks[0].Id, checkRun.CheckId);
+        Assert.True(checkRun.Status == BackupRunStatus.Success, checkRun.Summary);
+        Assert.True(checkRun.StartedUtc >= record.EndedUtc!.Value.AddSeconds(-1), "The check ran after the backup.");
+        var saved = Assert.Single(checkRun.Checks);
+        Assert.Equal(BackupRunStatus.Success, saved.Status);
+        Assert.Equal(CheckDepth.RepositoryStructure, saved.Depth);
         var client = fixture.Sidecar.Client!;
         var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
             "/v1.Backrest/GetConfig", new BackrestSidecar.EmptyRequest(), CancellationToken.None);
@@ -78,9 +92,9 @@ public sealed class E15_CheckAfterBackupRealEngine : BackupE2EBase
         var operations = await client.CallAsync<GetOperationsRequest, BackrestOperationList>(
             "/v1.Backrest/GetOperations", new GetOperationsRequest { Selector = new OpSelector { RepoGuid = repo.Guid } }, CancellationToken.None);
         var checks = operations.Operations!.Where(op => op.OperationCheck is not null).ToArray();
-        Assert.NotEmpty(checks);
-        Assert.All(checks, check => Assert.Equal("STATUS_SUCCESS", check.Status));
-        ctx.Report.RecordNote("Real integrity-check operation", $"OperationCheck #{checks[^1].Id} reached {checks[^1].Status}. A snapshot-index operation does not satisfy this assertion.");
+        Assert.Single(checks);
+        Assert.Equal("STATUS_SUCCESS", checks[0].Status);
+        ctx.Report.RecordNote("Real integrity check", $"The backup ran restic directly and no check; then its structure check ran as its own run ({checkRun.Summary}), as Backrest OperationCheck #{checks[0].Id}, {checks[0].Status}.");
 
         // Round-trip the latest revision. A check that incorrectly
         // ate the repo would surface here, not just as a wrong
