@@ -106,6 +106,7 @@ jobs:
         timeout-minutes: 3
         run: |
           Write-Host 'Saving revision and documentation'
+          New-Item -ItemType Directory -Force release-evidence | Out-Null
           git rev-parse HEAD | Out-File release-evidence/commit.txt -Encoding utf8
           Copy-Item docs/RELEASING.md release-evidence/RELEASING.md
           Copy-Item README.md, DESIGN.md release-evidence/
