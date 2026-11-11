@@ -27,7 +27,7 @@ public sealed class FileAccessRetryTests
         var path = operation switch
         {
             "progress" => Path.Combine(workspace.Root, "progress.json"),
-            "exclude" => ResticBackrestEngine.ExcludeFilePath("long-wait-plan"),
+            "exclude" => ResticEngine.ExcludeFilePath("long-wait-plan"),
             "cleanup" => Path.Combine(stage, "temporary.txt"),
             _ => PreparePause(tasks, workspace.ConfigRoot)
         };
@@ -44,8 +44,8 @@ public sealed class FileAccessRetryTests
             switch (operation)
             {
                 case "progress": TestRestoreContext.WriteAtomic(path, new { Saved = true }, stop.Token); break;
-                case "exclude": ResticBackrestEngine.WriteExcludeFile("long-wait-plan", "*.tmp", stop.Token); break;
-                case "cleanup": ResticBackrestEngine.DeleteRestoreStaging(stage, stop.Token); break;
+                case "exclude": ResticEngine.WriteExcludeFile("long-wait-plan", "*.tmp", stop.Token); break;
+                case "cleanup": ResticEngine.DeleteRestoreStaging(stage, stop.Token); break;
                 default: tasks.PauseForCurrentSession(ct: stop.Token); break;
             }
         });

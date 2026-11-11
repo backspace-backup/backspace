@@ -192,7 +192,7 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         var run = await RunBackupViaUiAsync(ctx, backup, view);
         Assert.True(run.Status is BackupRunStatus.Success or BackupRunStatus.Warning, run.Summary);
         // The engine handed restic the text itself, unchanged.
-        var planFiles = Directory.GetFiles(Path.GetDirectoryName(ResticBackrestEngine.ExcludeFilePath("x"))!, "*.txt");
+        var planFiles = Directory.GetFiles(Path.GetDirectoryName(ResticEngine.ExcludeFilePath("x"))!, "*.txt");
         Assert.Contains(planFiles, f => File.ReadAllText(f) == filters);
 
         var target = ctx.MakeRestoreTarget("recovered-" + Path.GetFileName(source));

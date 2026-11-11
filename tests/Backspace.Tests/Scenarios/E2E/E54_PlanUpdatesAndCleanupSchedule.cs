@@ -56,8 +56,8 @@ public sealed class E54_PlanUpdatesAndCleanupSchedule(ITestOutputHelper output) 
         backup.FiltersText = "excluded.txt";
         backup.KeepPolicy = "2";
         backup.BandwidthLimitKBps = 512;
-        var planId = ResticBackrestEngine.MakePlanId(backup, source, destination, "default");
-        var excludeFile = ResticBackrestEngine.ExcludeFilePath(planId);
+        var planId = ResticEngine.MakePlanId(backup, source, destination, "default");
+        var excludeFile = ResticEngine.ExcludeFilePath(planId);
         if (OperatingSystem.IsWindows())
         {
             // Another program holding the exclude file (a scanner, Dropbox):

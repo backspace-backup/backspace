@@ -62,7 +62,7 @@ public sealed class KeepPolicyRulesTests
         Assert.False(parsed.Valid);
         Assert.False(string.IsNullOrWhiteSpace(parsed.Error));
         Assert.Empty(KeepPolicyRules.ResticOptions(parsed));
-        Assert.Null(ResticBackrestEngine.RetentionArguments("plan", "instance", KeepPolicyRules.ResticOptions(parsed)));
+        Assert.Null(ResticEngine.RetentionArguments("plan", "instance", KeepPolicyRules.ResticOptions(parsed)));
         Assert.False(KeepPolicyHumanizer.Describe(policy).Valid);
     }
 

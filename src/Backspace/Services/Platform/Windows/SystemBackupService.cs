@@ -618,6 +618,9 @@ internal sealed class SystemBackupService : ServiceBase
             lock (_gate) try { run.Worker?.StandardInput.WriteLine("cancel"); run.Worker?.StandardInput.Flush(); } catch (Exception) { }
         }))
             await exited.ConfigureAwait(false);
+        // The worker succeeded: not run again for a condition that began
+        // after it (U185).
+        lock (_gate) if (run.Result == 0) ScheduleLoop.ReportCompleted();
         return true;
     }
 

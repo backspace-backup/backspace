@@ -75,7 +75,7 @@ public static class ServiceLocator
     /// <summary>
     /// Optional override for the <see cref="IBackupEngine"/> created
     /// during <see cref="InitializeCore"/>. Production code leaves this
-    /// alone — the default is a real <see cref="ResticBackrestEngine"/>.
+    /// alone — the default is a real <see cref="ResticEngine"/>.
     /// Tests set this BEFORE <see cref="InitializeCore"/> runs to
     /// substitute an in-memory engine so orchestrator-touching tests
     /// don't need restic on disk. Visible only via
@@ -109,7 +109,7 @@ public static class ServiceLocator
 
         Secrets = secrets ?? new SecretsStore();
         Engine = EngineOverride?.Invoke(Secrets)
-            ?? new ResticBackrestEngine(Secrets);
+            ?? new ResticEngine(Secrets);
         Logs = new LogStore();
         Healthcheck = new HealthcheckService(Config, Secrets);
         Mail = new MailService(Config, Secrets);
@@ -161,7 +161,7 @@ public static class ServiceLocator
     /// <summary>
     /// Rebuild every service that captured the previous <see cref="Engine"/>
     /// reference, after a test fixture has swapped Engine for a different
-    /// concrete (e.g. <c>InMemoryBackupEngine</c> → <c>ResticBackrestEngine</c>).
+    /// concrete (e.g. <c>InMemoryBackupEngine</c> → <c>ResticEngine</c>).
     ///
     /// Why this exists: the orchestrator + filters + restore engine +
     /// revision browser + storage cleaner + verifier all take an

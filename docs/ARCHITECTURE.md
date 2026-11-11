@@ -51,12 +51,12 @@ configuration's engine folder, never through a link).
 ## Backups, checks and restores run restic directly (U175)
 
 Backups, and the cleanup that follows them, run the bundled restic
-(`ResticBackrestEngine.Direct.cs`), whether started from the window, by the
+(`ResticEngine.Direct.cs`), whether started from the window, by the
 schedule or by the background service's worker. So do checks (entries of their own since U179, run after the backup or on
 their schedule through `RunCheckOnlyAsync`), the stand-alone cleanup and the
-erase tools (`ResticBackrestEngine.Maintenance.cs`), snapshot lists, folder
+erase tools (`ResticEngine.Maintenance.cs`), snapshot lists, folder
 listings, the mounted drive's reads and every restore
-(`ResticBackrestEngine.cs`, below). The class keeps its name from the Backrest
+(`ResticEngine.cs`, below). The class keeps its name from the Backrest
 engine it replaced. Each restic command goes through `ResticRunner`:
 
 - The password reaches restic only in its environment (`RESTIC_PASSWORD`);
@@ -943,12 +943,12 @@ only those files has no vault, and the first save asks for a password.
   See the unattended-access limitations
   in [GOTCHAS.md](GOTCHAS.md#unattended-windows-access). The task-pause policy
   controls whether work starts; it does not grant additional access.
-- `ResticBackrestEngine.IsValidBackrestGuid` is the check for a restic id
+- `ResticEngine.IsValidSnapshotId` is the check for a restic id
   (64 hex characters): a snapshot id read from restic's output, the
   remembered parent, an id the window passes back. Don't loosen it: an id
   that is not one never reaches a restic command line.
 - A backup's Filters text is restic's exclude file (U151). The engine writes it
-  unchanged (`ResticBackrestEngine.WriteExcludeFile`) and the backup passes it
+  unchanged (`ResticEngine.WriteExcludeFile`) and the backup passes it
   with `--iexclude-file` on Windows, `--exclude-file` elsewhere
   (`FilterTranslator.ExcludeFileFlag`); no rule is ever a command-line
   argument. Never rewrite, bind or append rules on the way: restic expands
@@ -1048,7 +1048,7 @@ snapshot's size.
   by local date and time (`2026-11-05 09-12`, seconds added when two share a
   minute); several sources: a folder per source, the same rule inside. The
   revisions' file count and size come from restic's snapshot summary when the
-  snapshot has one. `ResticBackrestEngine.TreeListingStarted` reports each tree
+  snapshot has one. `ResticEngine.TreeListingStarted` reports each tree
   read from the repository; E65 counts them.
 - **Tree.** `ListSnapshotTreeAsync` reads the whole tree with
   `restic ls --json --recursive` and reports its progress. restic walks one

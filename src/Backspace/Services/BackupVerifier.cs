@@ -677,7 +677,7 @@ public sealed class BackupVerifier
             {
                 if (ServiceLocator.Maintenance.IsBlocked)
                     throw new IOException("The backup engine has not confirmed that it stopped. Restart Backspace before removing these files.");
-                await Task.Run(() => ResticBackrestEngine.DeleteRestoreStaging(verifyRoot)).ConfigureAwait(false);
+                await Task.Run(() => ResticEngine.DeleteRestoreStaging(verifyRoot)).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1098,7 +1098,7 @@ public sealed class BackupVerifier
     internal static string SafeVerificationPath(string root, string relative)
     {
         if (Path.IsPathRooted(relative)) throw new InvalidOperationException("Snapshot paths must be relative to the source.");
-        relative = ResticBackrestEngine.NormalizeRestoreRelativePath(relative);
+        relative = ResticEngine.NormalizeRestoreRelativePath(relative);
         var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
         var full = Path.GetFullPath(Path.Combine(fullRoot, relative));
         if (!full.StartsWith(fullRoot + Path.DirectorySeparatorChar,

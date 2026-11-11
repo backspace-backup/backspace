@@ -15,13 +15,13 @@ public sealed class StreamingRestoreProcessTests
     [InlineData("{\"message_type\":\"error\",\"error\":\"not progress\"}")]
     public void UnrelatedJsonDiagnosticsAreNotProgressAndDoNotInterruptRestore(string line)
     {
-        Assert.False(ResticBackrestEngine.TryParseRestoreProgress(line, out _));
+        Assert.False(ResticEngine.TryParseRestoreProgress(line, out _));
     }
 
     [Fact]
     public void UnexpectedProgressFieldTypesDoNotInterruptRestoreOrOverflowTheFileCount()
     {
-        Assert.True(ResticBackrestEngine.TryParseRestoreProgress(
+        Assert.True(ResticEngine.TryParseRestoreProgress(
             "{\"message_type\":\"status\",\"total_files\":4294967296,\"files_restored\":\"unknown\",\"percent_done\":null}", out var progress));
         Assert.Equal(int.MaxValue, progress.TotalFiles);
         Assert.Equal(0, progress.FilesRestored);
@@ -36,8 +36,8 @@ public sealed class StreamingRestoreProcessTests
     public void CommandKeepsPathsAsSingleArgumentsAndUsesTheRequestedLimitAndRepositoryEnvironment()
     {
         var repository = new ResticRepository("rclone:review:path with spaces", "fixture-password",
-            ["RCLONE_CONFIG=C:/review/specific destination.conf"], ResticBackrestEngine.BuildRepoFlagsForBackup(new Backup { BandwidthLimitKBps = 512 }));
-        var start = ResticBackrestEngine.BuildStreamingRestoreStartInfo("C:/review/restic.exe", repository,
+            ["RCLONE_CONFIG=C:/review/specific destination.conf"], ResticEngine.BuildRepoFlagsForBackup(new Backup { BandwidthLimitKBps = 512 }));
+        var start = ResticEngine.BuildStreamingRestoreStartInfo("C:/review/restic.exe", repository,
             "snapshot:/C/source [2026]", "C:/review/output folder", "C:/review/include file.txt");
         Assert.Equal(new[] { "restore", "--json", "--target", "C:/review/output folder", "--include-file", "C:/review/include file.txt",
             "--limit-upload", "512", "--limit-download", "512", "-o", "sftp.args=-oBatchMode=yes", "--", "snapshot:/C/source [2026]" }, start.ArgumentList);
@@ -47,7 +47,7 @@ public sealed class StreamingRestoreProcessTests
         Assert.Equal("2", start.Environment["RESTIC_PROGRESS_FPS"]);
         Assert.Equal("C:/review/specific destination.conf", start.Environment["RCLONE_CONFIG"]);
         // The whole source: no selection at all.
-        Assert.DoesNotContain("--include-file", ResticBackrestEngine.BuildStreamingRestoreStartInfo("C:/review/restic.exe", repository,
+        Assert.DoesNotContain("--include-file", ResticEngine.BuildStreamingRestoreStartInfo("C:/review/restic.exe", repository,
             "snapshot:/C/source", "C:/review/output", null).ArgumentList);
     }
 

@@ -66,14 +66,14 @@ public sealed class SnapshotTreeTests
     public void Folders_are_shared_out_in_turn_and_long_command_lines_are_split()
     {
         var folders = Enumerable.Range(0, 10).Select(i => "/C/folder " + i).ToArray();
-        var groups = ResticBackrestEngine.ShareOut(folders, 4);
+        var groups = ResticEngine.ShareOut(folders, 4);
         Assert.Equal(4, groups.Count);
         Assert.Equal(new[] { "/C/folder 0", "/C/folder 4", "/C/folder 8" }, groups[0]);
         Assert.Equal(folders.OrderBy(f => f), groups.SelectMany(g => g).OrderBy(f => f));
-        Assert.Equal(2, ResticBackrestEngine.ShareOut(folders.Take(2).ToArray(), 8).Count);
-        Assert.Empty(ResticBackrestEngine.ShareOut(Array.Empty<string>(), 8));
+        Assert.Equal(2, ResticEngine.ShareOut(folders.Take(2).ToArray(), 8).Count);
+        Assert.Empty(ResticEngine.ShareOut(Array.Empty<string>(), 8));
         var longNames = Enumerable.Range(0, 400).Select(i => "/C/" + new string('x', 200) + i).ToArray();
-        var split = ResticBackrestEngine.ShareOut(longNames, 2);
+        var split = ResticEngine.ShareOut(longNames, 2);
         Assert.True(split.Count > 2);
         Assert.All(split, g => Assert.True(g.Sum(f => f.Length + 3) < 20_000));
         Assert.Equal(400, split.Sum(g => g.Count));

@@ -56,7 +56,7 @@ internal sealed class VaultScenario : IAsyncDisposable
     private void Swap(SecretsStore store)
     {
         typeof(ServiceLocator).GetProperty(nameof(ServiceLocator.Secrets))!.SetMethod!.Invoke(null, new object[] { store });
-        var engine = new ResticBackrestEngine(store);
+        var engine = new ResticEngine(store);
         typeof(ServiceLocator).GetProperty(nameof(ServiceLocator.Engine))!.SetMethod!.Invoke(null, new object[] { engine });
         ServiceLocator.RebuildEngineDependents();
     }

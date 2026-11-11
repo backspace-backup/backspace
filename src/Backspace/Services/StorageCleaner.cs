@@ -83,7 +83,7 @@ public sealed class StorageCleaner
     ///     bucket (real backup name, or the <c>[Destinations]</c>
     ///     sentinel for destination-wide wipes);
     ///   • captures every line of engine stdout/stderr the
-    ///     <c>ResticBackrestEngine</c> emits while the operation
+    ///     <c>ResticEngine</c> emits while the operation
     ///     runs;
     ///   • appends a structured <see cref="RunRecord"/> to the
     ///     store on completion so the Activity &amp; Logs view's RUN
@@ -125,7 +125,7 @@ public sealed class StorageCleaner
 
     /// <summary>
     /// One Erase / Wipe operation's transcript on disk. Hooks
-    /// <c>ResticBackrestEngine.LineWritten</c> so every line of
+    /// <c>ResticEngine.LineWritten</c> so every line of
     /// engine stdout/stderr lands in the log alongside our own
     /// status messages. Disposing detaches the hook and finalises the
     /// log header — the caller then constructs a

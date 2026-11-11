@@ -24,7 +24,7 @@ public class ReviewRound2RegressionTests
     public void BuildRepoFlagsForBackup_emits_upload_and_download_when_bandwidth_set()
     {
         var b = new Backup { BandwidthLimitKBps = 512 };
-        var flags = ResticBackrestEngine.BuildRepoFlagsForBackup(b);
+        var flags = ResticEngine.BuildRepoFlagsForBackup(b);
         // The upload limit first, then the download limit.
         Assert.Equal(new[] { "--limit-upload", "512", "--limit-download", "512" }, flags);
     }
@@ -33,8 +33,8 @@ public class ReviewRound2RegressionTests
     public void BuildRepoFlagsForBackup_emits_empty_when_unlimited()
     {
         var b = new Backup { BandwidthLimitKBps = 0 };
-        Assert.Empty(ResticBackrestEngine.BuildRepoFlagsForBackup(b));
-        Assert.Empty(ResticBackrestEngine.BuildRepoFlagsForBackup(null));
+        Assert.Empty(ResticEngine.BuildRepoFlagsForBackup(b));
+        Assert.Empty(ResticEngine.BuildRepoFlagsForBackup(null));
     }
 
     [Theory]
@@ -44,10 +44,10 @@ public class ReviewRound2RegressionTests
     [InlineData(DestinationKind.GoogleDrive)]
     public void CloudRepoFlags_carryNoExecutablePaths(DestinationKind kind)
     {
-        var flags = ResticBackrestEngine.BuildRepoFlagsForBackup(null, new Destination { Kind = kind, Encrypted = true });
+        var flags = ResticEngine.BuildRepoFlagsForBackup(null, new Destination { Kind = kind, Encrypted = true });
         Assert.Empty(flags);
-        Assert.Empty(ResticBackrestEngine.BuildRepoFlagsForBackup(null, new Destination { Kind = DestinationKind.LocalFolder, Encrypted = true }));
-        Assert.Empty(ResticBackrestEngine.BuildRepoFlagsForBackup(null, new Destination { Kind = DestinationKind.S3Compatible, Encrypted = true }));
+        Assert.Empty(ResticEngine.BuildRepoFlagsForBackup(null, new Destination { Kind = DestinationKind.LocalFolder, Encrypted = true }));
+        Assert.Empty(ResticEngine.BuildRepoFlagsForBackup(null, new Destination { Kind = DestinationKind.S3Compatible, Encrypted = true }));
     }
 
     // ---- ConfigStore Save_NoLock refuses while _loaded=false ----

@@ -17,23 +17,23 @@ public sealed class RunDetailsTests
         // The service's engine had no history of the app's backups, so the
         // log said "No earlier backup" although restic used a --parent.
         var at = new DateTimeOffset(2026, 11, 9, 10, 34, 34, TimeSpan.Zero);
-        var latest = ResticBackrestEngine.LatestOf(new[]
+        var latest = ResticEngine.LatestOf(new[]
         {
             (Id('a'), at.AddDays(-1).ToUnixTimeMilliseconds()),
             (Id('b'), at.ToUnixTimeMilliseconds()),
             ("not-a-snapshot-id", at.AddDays(1).ToUnixTimeMilliseconds()),
         });
         Assert.Equal((Id('b'), at.UtcDateTime), latest);
-        Assert.Null(ResticBackrestEngine.LatestOf(Array.Empty<(string, long)>()));
+        Assert.Null(ResticEngine.LatestOf(Array.Empty<(string, long)>()));
         // Equal times: restic's order decides, the last one (as Backrest's stable sort).
-        Assert.Equal(Id('d'), ResticBackrestEngine.LatestOf(new[] { (Id('c'), 5L), (Id('d'), 5L) })!.Value.Id);
+        Assert.Equal(Id('d'), ResticEngine.LatestOf(new[] { (Id('c'), 5L), (Id('d'), 5L) })!.Value.Id);
 
         var dest = new Destination { Name = "Local" };
-        var lines = string.Join("\n", ResticBackrestEngine.SetupLines(new Backup(), @"C:\src", dest, latest));
+        var lines = string.Join("\n", ResticEngine.SetupLines(new Backup(), @"C:\src", dest, latest));
         Assert.Contains("Previous backup to «Local»", lines);
         Assert.Contains("snapshot bbbbbbbb", lines);
         Assert.DoesNotContain("No earlier backup", lines);
-        Assert.Contains("No earlier backup", string.Join("\n", ResticBackrestEngine.SetupLines(new Backup(), @"C:\src", dest, null)));
+        Assert.Contains("No earlier backup", string.Join("\n", ResticEngine.SetupLines(new Backup(), @"C:\src", dest, null)));
     }
 
     [Fact]

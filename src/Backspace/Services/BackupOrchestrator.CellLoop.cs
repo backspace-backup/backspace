@@ -67,7 +67,7 @@ public sealed partial class BackupOrchestrator
             return final;
         }
 
-        if (_engine is ResticBackrestEngine && OperatingSystem.IsWindows()
+        if (_engine is ResticEngine && OperatingSystem.IsWindows()
             && !backup.UseVss && !backup.VssDisabledAcknowledged)
         {
             final.EndedUtc = DateTime.UtcNow;
@@ -275,7 +275,7 @@ public sealed partial class BackupOrchestrator
                     RepositoryAccess access;
                     try
                     {
-                        var elevated = _engine is ResticBackrestEngine && VssElevationPolicy.Evaluate(backup).RequiresElevation
+                        var elevated = _engine is ResticEngine && VssElevationPolicy.Evaluate(backup).RequiresElevation
                             && VssElevationPolicy.PromptAllowed;
                         access = await AcquireRepositoryAsync(backup, final, dest, target.StorageName,
                             elevated ? RepositoryAccess.Kind.ExclusiveBackup : RepositoryAccess.Kind.Backup, linked.Token).ConfigureAwait(false);
@@ -341,7 +341,7 @@ public sealed partial class BackupOrchestrator
                         // finally block, leaving the user staring at
                         // "0%" with no signs of life.
                         // Not twice: the engine has often just announced it.
-                        if (!ResticBackrestEngine.AlreadyAnnounced(line))
+                        if (!ResticEngine.AlreadyAnnounced(line))
                             try { _engine.RaiseLineWritten(line); } catch { /* live-tail listener failure can't escape */ }
                         if (cellLogWriter is null) return;
                         // Lock so the engine emitting from multiple
@@ -547,7 +547,7 @@ public sealed partial class BackupOrchestrator
 
             try
             {
-                var needsElevation = _engine is ResticBackrestEngine && VssElevationPolicy.Evaluate(backup).RequiresElevation;
+                var needsElevation = _engine is ResticEngine && VssElevationPolicy.Evaluate(backup).RequiresElevation;
                 var skipVss = needsElevation && !VssElevationPolicy.PromptAllowed;
                 var skippedWarning = skipVss ? VssElevationPolicy.SkippedWarning() : "";
                 if (skipVss) lineSink?.Invoke("[orchestrator] " + skippedWarning);
@@ -744,7 +744,7 @@ public sealed partial class BackupOrchestrator
                 // in words, not with the engine's own status and command
                 // line, which the card showed (4 November 2026). The engine's
                 // text stays in the run log.
-                cell.Summary = ct.IsCancellationRequested || ResticBackrestEngine.WasStoppedOnRequest(lastRun)
+                cell.Summary = ct.IsCancellationRequested || ResticEngine.WasStoppedOnRequest(lastRun)
                     ? ResolveCancelReason(backup.Id) : lastRun.Summary;
                 cell.Duration = DateTime.UtcNow - started;
                 cell.LogPath = lastRun.LogPath ?? "";

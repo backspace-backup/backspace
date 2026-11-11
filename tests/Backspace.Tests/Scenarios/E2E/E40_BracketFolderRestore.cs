@@ -146,7 +146,7 @@ public sealed class E40_BracketFolderRestore : BackupE2EBase
                 else
                     Assert.False(File.Exists(deceptiveTarget));
                 Assert.Equal(occupied ? 2 : 1, Directory.GetFiles(singleTarget, "*", SearchOption.AllDirectories).Length);
-                Assert.Equal(new[] { "/" + ResticBackrestEngine.EscapeBracketsForResticPattern(pickedRelative) }, RestoreRan(restores, singleTarget));
+                Assert.Equal(new[] { "/" + ResticEngine.EscapeBracketsForResticPattern(pickedRelative) }, RestoreRan(restores, singleTarget));
             }
             ctx.Report.RecordNote($"Single file: {names.Picked}",
                 $"Both real restores recovered the selected file byte-for-byte. Its deceptive sibling, {names.Deceptive}, " +

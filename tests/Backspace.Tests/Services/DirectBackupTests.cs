@@ -63,19 +63,19 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
     private static List<string> BackrestBackupArguments(Backup backup, Destination destination, string source, string planId, string? parent)
     {
         var arguments = new List<string> { "backup", "--json", source };
-        foreach (var flag in ResticBackrestEngine.BuildRepoFlagsForBackup(backup, destination)) arguments.AddRange(ShellSplit(flag));
+        foreach (var flag in ResticEngine.BuildRepoFlagsForBackup(backup, destination)) arguments.AddRange(ShellSplit(flag));
         arguments.AddRange(["-o", "sftp.args=-oBatchMode=yes", "--exclude-caches", "--tag", "plan:" + planId, "--tag", "created-by:backspace"]);
         if (parent is not null) arguments.AddRange(["--parent", parent]);
         // Backrest's plan options: the backup's own options, then the exclude
         // file, its path single-quoted for Backrest's shell-style split.
-        foreach (var flag in ResticBackrestEngine.BuildBackupFlags(backup)) arguments.AddRange(ShellSplit(flag));
-        arguments.AddRange(ShellSplit(FilterTranslator.ExcludeFileFlag + " '" + ResticBackrestEngine.ExcludeFilePath(planId) + "'"));
+        foreach (var flag in ResticEngine.BuildBackupFlags(backup)) arguments.AddRange(ShellSplit(flag));
+        arguments.AddRange(ShellSplit(FilterTranslator.ExcludeFileFlag + " '" + ResticEngine.ExcludeFilePath(planId) + "'"));
         return arguments;
     }
 
     private static IReadOnlyList<string> DirectBackupArguments(Backup backup, Destination destination, string source, string planId, string? parent) =>
-        ResticRunner.Arguments(new ResticCommand("restic.exe", new ResticRepository("u", "", [], ResticBackrestEngine.BuildRepoFlagsForBackup(backup, destination)),
-            ResticBackrestEngine.BackupArguments(source), ResticBackrestEngine.BackupTrailing(backup, planId, parent)));
+        ResticRunner.Arguments(new ResticCommand("restic.exe", new ResticRepository("u", "", [], ResticEngine.BuildRepoFlagsForBackup(backup, destination)),
+            ResticEngine.BackupArguments(source), ResticEngine.BackupTrailing(backup, planId, parent)));
 
     [Theory]
     [InlineData(true, true, 0, true, true)]
@@ -86,7 +86,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         var backup = new Backup { Id = "b1", UseVss = vss, ExcludeCloudFiles = cloudFiles, BandwidthLimitKBps = limit };
         var destination = new Destination { Id = "d1", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"D:\Backups",
             Encrypted = encrypted, StoragePasswordRef = encrypted ? "ref" : null };
-        var planId = ResticBackrestEngine.MakePlanId(backup, @"D:\", destination, "default");
+        var planId = ResticEngine.MakePlanId(backup, @"D:\", destination, "default");
         var parentId = parent ? new string('c', 64) : null;
         var direct = DirectBackupArguments(backup, destination, @"D:\", planId, parentId);
         Assert.Equal(BackrestBackupArguments(backup, destination, @"D:\", planId, parentId), direct);
@@ -97,7 +97,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         Assert.Equal(parent, direct.Contains("--parent"));
         if (parent) Assert.Equal(parentId, direct[direct.ToList().IndexOf("--parent") + 1]);
         Assert.Equal(!encrypted, direct.Contains("--insecure-no-password"));
-        Assert.Equal(ResticBackrestEngine.ExcludeFilePath(planId), direct[^1]);
+        Assert.Equal(ResticEngine.ExcludeFilePath(planId), direct[^1]);
     }
 
     /// <summary>The owner's local_d command line of 10 November (Appendix C of
@@ -107,10 +107,10 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
     {
         var backup = new Backup { Id = "b2", UseVss = true, ExcludeCloudFiles = true };
         var destination = new Destination { Id = "d2", Kind = DestinationKind.GoogleDrive, Encrypted = true, StoragePasswordRef = "ref" };
-        var planId = ResticBackrestEngine.MakePlanId(backup, @"D:\", destination, "target-952aab70");
+        var planId = ResticEngine.MakePlanId(backup, @"D:\", destination, "target-952aab70");
         var parent = new string('6', 64);
         var expected = $"backup --json D:\\ -o sftp.args=-oBatchMode=yes --exclude-caches --tag plan:{planId} --tag created-by:backspace --parent {parent} " +
-            $"--no-scan --use-fs-snapshot -o vss.timeout=30m --exclude-cloud-files --iexclude-file {ResticBackrestEngine.ExcludeFilePath(planId)}";
+            $"--no-scan --use-fs-snapshot -o vss.timeout=30m --exclude-cloud-files --iexclude-file {ResticEngine.ExcludeFilePath(planId)}";
         Assert.Equal(expected, string.Join(' ', DirectBackupArguments(backup, destination, @"D:\", planId, parent)));
     }
 
@@ -128,7 +128,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         ((string Id, DateTime When)? Snapshot, string? Problem) Check(string answer, string source = @"D:\", string host = "pc-1")
         {
             using var json = JsonDocument.Parse(answer);
-            return ResticBackrestEngine.CheckRemembered(json.RootElement, Id, Plan, source, host);
+            return ResticEngine.CheckRemembered(json.RootElement, Id, Plan, source, host);
         }
         var ok = Check(Answer());
         Assert.Equal((Id, new DateTime(2026, 11, 10, 16, 0, 0, 500, DateTimeKind.Utc)), ok.Snapshot);
@@ -143,8 +143,8 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         Assert.Equal("could not be read", Check("{}").Problem);
         // The same folder as restic writes it: case and a trailing separator aside.
         Assert.NotNull(Check(Answer(paths: [@"C:\Users\Me\Docs"]), source: @"c:\users\me\docs\").Snapshot);
-        Assert.True(ResticBackrestEngine.SamePath(@"D:\", @"D:\"));
-        Assert.False(ResticBackrestEngine.SamePath(@"D:\a", @"D:\ab"));
+        Assert.True(ResticEngine.SamePath(@"D:\", @"D:\"));
+        Assert.False(ResticEngine.SamePath(@"D:\a", @"D:\ab"));
     }
 
     // ---- restic's exit codes in Backrest's words ----
@@ -156,34 +156,34 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
     private static readonly ResticBackupSummary NothingSaved = new(0, 0, 0, 0, 0, 0, 1, null);
 
     /// <summary>restic's exit codes become Backrest's words, which run
-    /// history, the card and <see cref="ResticBackrestEngine.WasStoppedOnRequest"/>
+    /// history, the card and <see cref="ResticEngine.WasStoppedOnRequest"/>
     /// read. The negative cases matter as much: no summary is no success.</summary>
     [Fact]
     public void Every_backup_exit_code_maps_to_the_status_history_reads()
     {
-        Assert.Equal(("STATUS_SUCCESS", ""), ResticBackrestEngine.BackupOutcome(Result(0), Saved));
-        Assert.Equal("STATUS_ERROR", ResticBackrestEngine.BackupOutcome(Result(0), null).Status);
-        Assert.Equal(("STATUS_WARNING", "Partial backup, some files may not have been read completely."), ResticBackrestEngine.BackupOutcome(Result(3), Saved));
-        Assert.Equal("STATUS_ERROR", ResticBackrestEngine.BackupOutcome(Result(3), null).Status);
-        Assert.Equal("STATUS_ERROR", ResticBackrestEngine.BackupOutcome(Result(3), NothingSaved).Status);
-        var missing = ResticBackrestEngine.BackupOutcome(Result(10, error: "Fatal: repository does not exist: unable to open config file"), null);
+        Assert.Equal(("STATUS_SUCCESS", ""), ResticEngine.BackupOutcome(Result(0), Saved));
+        Assert.Equal("STATUS_ERROR", ResticEngine.BackupOutcome(Result(0), null).Status);
+        Assert.Equal(("STATUS_WARNING", "Partial backup, some files may not have been read completely."), ResticEngine.BackupOutcome(Result(3), Saved));
+        Assert.Equal("STATUS_ERROR", ResticEngine.BackupOutcome(Result(3), null).Status);
+        Assert.Equal("STATUS_ERROR", ResticEngine.BackupOutcome(Result(3), NothingSaved).Status);
+        var missing = ResticEngine.BackupOutcome(Result(10, error: "Fatal: repository does not exist: unable to open config file"), null);
         Assert.Equal("STATUS_ERROR", missing.Status);
         Assert.True(EngineErrorClassifier.IsMissingRepositoryFailure(missing.Details));
-        var password = ResticBackrestEngine.BackupOutcome(Result(12, error: "Fatal: wrong password or no key found"), null);
+        var password = ResticEngine.BackupOutcome(Result(12, error: "Fatal: wrong password or no key found"), null);
         Assert.Equal("STATUS_ERROR", password.Status);
         Assert.True(EngineErrorClassifier.IsAuthenticationFailure(password.Details));
-        Assert.Equal("STATUS_ERROR", ResticBackrestEngine.BackupOutcome(Result(11, error: "unable to create lock"), null).Status);
-        Assert.Equal("STATUS_ERROR", ResticBackrestEngine.BackupOutcome(Result(2, error: "panic"), null).Status);
+        Assert.Equal("STATUS_ERROR", ResticEngine.BackupOutcome(Result(11, error: "unable to create lock"), null).Status);
+        Assert.Equal("STATUS_ERROR", ResticEngine.BackupOutcome(Result(2, error: "panic"), null).Status);
         // Stopped: by Backspace (Stop, Quit, the service stopping), or by
         // someone else (Windows shutting down).
-        var stopped = ResticBackrestEngine.BackupOutcome(Result(130, cancelled: true), null);
+        var stopped = ResticEngine.BackupOutcome(Result(130, cancelled: true), null);
         Assert.Equal("STATUS_USER_CANCELLED", stopped.Status);
-        Assert.True(ResticBackrestEngine.WasStoppedOnRequest(new Backspace.Models.RunRecord { Summary = $"Backup result: {stopped.Status}. {stopped.Details}" }));
-        Assert.Equal("STATUS_USER_CANCELLED", ResticBackrestEngine.BackupOutcome(Result(1, cancelled: true), null).Status);
-        Assert.Equal("STATUS_SYSTEM_CANCELLED", ResticBackrestEngine.BackupOutcome(Result(130), null).Status);
-        Assert.Equal(Backspace.Models.BackupRunStatus.Skipped, ResticBackrestEngine.StatusFromBackrestTerminal("STATUS_SYSTEM_CANCELLED"));
+        Assert.True(ResticEngine.WasStoppedOnRequest(new Backspace.Models.RunRecord { Summary = $"Backup result: {stopped.Status}. {stopped.Details}" }));
+        Assert.Equal("STATUS_USER_CANCELLED", ResticEngine.BackupOutcome(Result(1, cancelled: true), null).Status);
+        Assert.Equal("STATUS_SYSTEM_CANCELLED", ResticEngine.BackupOutcome(Result(130), null).Status);
+        Assert.Equal(Backspace.Models.BackupRunStatus.Skipped, ResticEngine.StatusFromTerminal("STATUS_SYSTEM_CANCELLED"));
         // A backup that completed as the stop arrived keeps its result.
-        Assert.Equal("STATUS_SUCCESS", ResticBackrestEngine.BackupOutcome(Result(0, cancelled: true), Saved).Status);
+        Assert.Equal("STATUS_SUCCESS", ResticEngine.BackupOutcome(Result(0, cancelled: true), Saved).Status);
     }
 
     // ---- real restic, no Backrest ----
@@ -196,7 +196,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         public readonly Backup Backup;
         public readonly string Source;
         public readonly string Password = Guid.NewGuid().ToString("N");
-        public readonly ResticBackrestEngine Engine;
+        public readonly ResticEngine Engine;
         public readonly ConcurrentQueue<(ResticCommand Command, ResticResult Result)> Commands = new();
         public readonly ConcurrentQueue<string> Log = new();
 
@@ -213,12 +213,12 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
                 VssDisabledAcknowledged = true, KeepPolicy = "2",
                 PruneSchedule = inline ? null : new BackupSchedule(),
                 Targets = { new BackupTarget { DestinationId = "dest-" + label, StorageName = "default" } } };
-            Engine = new ResticBackrestEngine(Secrets);
+            Engine = new ResticEngine(Secrets);
             Engine.ResticCommandFinished += (command, result) => Commands.Enqueue((command, result));
         }
 
-        public string PlanId => ResticBackrestEngine.MakePlanId(Backup, Source, Destination, "default");
-        public string RepoId => ResticBackrestEngine.MakeRepoId(Destination, "default");
+        public string PlanId => ResticEngine.MakePlanId(Backup, Source, Destination, "default");
+        public string RepoId => ResticEngine.MakeRepoId(Destination, "default");
 
         public Task<RunRecord> BackUpAsync(CancellationToken ct = default) =>
             Engine.BackupPruneCheckAsync(Backup, Source, Destination, "default", ct, Log.Enqueue);
@@ -309,8 +309,8 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         Assert.Contains(rig.Log, l => l.StartsWith("[setup] Previous backup to «", StringComparison.Ordinal) && l.Contains(snapshot1.Id[..8]));
         Assert.Contains(rig.Log, l => l.StartsWith(BackupLiveProgress.RecapPrefix, StringComparison.Ordinal));
 
-        // The log shows each command, never the password.
-        Assert.Contains(rig.Log, l => l.Contains("\tinfo\tcommand: ", StringComparison.Ordinal) && l.Contains(" backup --json ", StringComparison.Ordinal));
+        // The log shows each command (as Verbose detail, U196), never the password.
+        Assert.Contains(rig.Log, l => l.Contains("\tdebug\tcommand: ", StringComparison.Ordinal) && l.Contains(" backup --json ", StringComparison.Ordinal));
         Assert.DoesNotContain(rig.Log, l => l.Contains(rig.Password, StringComparison.Ordinal));
     }
 
@@ -364,7 +364,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
                 // Damaged in the repository, and not in restic's own cache
                 // (which restic would read instead): restic cannot read it,
                 // and lists the others.
-                var repositoryId = ResticBackrestEngine.RepositoryId((await rig.ResticAsync("cat", "config")).Output)!;
+                var repositoryId = ResticEngine.RepositoryId((await rig.ResticAsync("cat", "config")).Output)!;
                 File.WriteAllBytes(Path.Combine(rig.Destination.PathOrSubpath!, "snapshots", latest), RandomNumberGenerator.GetBytes(300));
                 var cached = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "restic", repositoryId, "snapshots", latest[..2], latest);
                 if (File.Exists(cached)) File.Delete(cached);
@@ -492,7 +492,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         var stopped = await rig.BackUpAsync(stop.Token).WaitAsync(TimeSpan.FromMinutes(3));
         await watch;
         Assert.Equal(BackupRunStatus.Skipped, stopped.Status);
-        Assert.True(ResticBackrestEngine.WasStoppedOnRequest(stopped), stopped.Summary);
+        Assert.True(ResticEngine.WasStoppedOnRequest(stopped), stopped.Summary);
         Assert.NotEqual(ResticStop.None, Assert.Single(rig.Ran("backup")).Result.Stop);
         Assert.Contains(rig.Log, l => l.EndsWith("\tdebug\tsignal interrupt received, cleaning up", StringComparison.Ordinal));
         Assert.Empty(Directory.GetFiles(Path.Combine(rig.Destination.PathOrSubpath!, "locks")));
@@ -573,10 +573,10 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         // repository holds both backups; the second one's parent is the first.
         var history = new LogStore().LoadHistory(backup.Name);
         Assert.Equal(2, history.Count(r => r.Status == BackupRunStatus.Success));
-        var planId = ResticBackrestEngine.MakePlanId(backup, source, destination, "default");
+        var planId = ResticEngine.MakePlanId(backup, source, destination, "default");
         var remembered = MaintenanceRecords.RememberedSnapshot(planId);
         Assert.NotNull(remembered);
-        Assert.NotNull(MaintenanceRecords.LastFullPrune(ResticBackrestEngine.MakeRepoId(destination, "default")));
+        Assert.NotNull(MaintenanceRecords.LastFullPrune(ResticEngine.MakeRepoId(destination, "default")));
         var listed = await ResticRunner.RunAsync(new ResticCommand(AppPaths.ResticBinary,
             new ResticRepository(destination.PathOrSubpath!, password, [], []), ["snapshots", "--json"]) { CaptureOutput = 1 << 20 },
             null, null, CancellationToken.None);

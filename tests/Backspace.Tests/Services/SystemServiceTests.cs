@@ -275,6 +275,6 @@ public sealed class SystemServiceTests
         var loaded = System.Text.Json.JsonSerializer.Deserialize<AppConfig>(withArguments, ServiceRunAuthorization.Json)!;
         Assert.True(ServiceCommandLineRun.RunsInService(loaded, "b1"));
         Assert.DoesNotContain("password-command", System.Text.Json.JsonSerializer.Serialize(loaded, ServiceRunAuthorization.Json));
-        Assert.DoesNotContain("password-command", string.Join(" ", ResticBackrestEngine.BuildBackupFlags(loaded.Backups[0])));
+        Assert.DoesNotContain("password-command", string.Join(" ", ResticEngine.BuildBackupFlags(loaded.Backups[0])));
     }
 }

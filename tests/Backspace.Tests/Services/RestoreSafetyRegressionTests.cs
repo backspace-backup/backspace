@@ -24,7 +24,7 @@ public sealed class RestoreSafetyRegressionTests
         var sibling = Path.Combine(workspace.Root, "keep.txt");
         File.WriteAllText(sibling, "unrelated original");
         using var held = new FileStream(item, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var cleanup = Task.Run(() => ResticBackrestEngine.DeleteRestoreStaging(stage), TestContext.Current.CancellationToken);
+        var cleanup = Task.Run(() => ResticEngine.DeleteRestoreStaging(stage), TestContext.Current.CancellationToken);
         await Task.Delay(250, TestContext.Current.CancellationToken);
         Assert.False(cleanup.IsCompleted);
         held.Dispose();
@@ -43,7 +43,7 @@ public sealed class RestoreSafetyRegressionTests
         File.WriteAllText(item, "still locked");
         using var held = new FileStream(item, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
-        Assert.ThrowsAny<OperationCanceledException>(() => ResticBackrestEngine.DeleteRestoreStaging(stage, stop.Token));
+        Assert.ThrowsAny<OperationCanceledException>(() => ResticEngine.DeleteRestoreStaging(stage, stop.Token));
         Assert.True(File.Exists(item));
         Assert.Equal("still locked", File.ReadAllText(item));
     }
@@ -70,7 +70,7 @@ public sealed class RestoreSafetyRegressionTests
         }
         try
         {
-            var engine = new ResticBackrestEngine(new SecretsStore(), Path.Combine(workspace.Root, "no-restic.exe"));
+            var engine = new ResticEngine(new SecretsStore(), Path.Combine(workspace.Root, "no-restic.exe"));
             var commands = 0;
             engine.ResticCommandFinished += (_, _) => commands++;
             var target = nestedTarget ? Path.Combine(junction, "new-child") : junction;
@@ -81,7 +81,7 @@ public sealed class RestoreSafetyRegressionTests
             Assert.Equal("UNTOUCHED", File.ReadAllText(Path.Combine(outside, "keep.txt")));
             Assert.False(Directory.Exists(Path.Combine(outside, "new-child")));
             Assert.Empty(Directory.GetDirectories(outside, ".backspace-restore-*"));
-            ResticBackrestEngine.ValidateRestoreTarget(Path.Combine(workspace.Root, "ordinary", "new-child"));
+            ResticEngine.ValidateRestoreTarget(Path.Combine(workspace.Root, "ordinary", "new-child"));
         }
         finally { Directory.Delete(junction); }
     }
@@ -92,23 +92,23 @@ public sealed class RestoreSafetyRegressionTests
     [InlineData("C:/outside.txt")]
     [InlineData("file.txt\n/other.txt")]
     public void UnsafeSnapshotPaths_AreRejected(string relative)
-        => Assert.Throws<InvalidOperationException>(() => ResticBackrestEngine.NormalizeRestoreRelativePath(relative));
+        => Assert.Throws<InvalidOperationException>(() => ResticEngine.NormalizeRestoreRelativePath(relative));
 
     [Fact]
     public void LiveProgress_UsesBytesAndSkippedCounts()
     {
-        Assert.True(ResticBackrestEngine.TryParseRestoreProgress(
+        Assert.True(ResticEngine.TryParseRestoreProgress(
             "{\"message_type\":\"status\",\"total_files\":8,\"files_restored\":2,\"files_skipped\":1,\"total_bytes\":100,\"bytes_restored\":40,\"percent_done\":0.4}", out var progress));
         Assert.Equal(8, progress.TotalFiles);
         Assert.Equal(3, progress.FilesRestored);
         Assert.Equal(40, progress.BytesRestored);
-        Assert.False(ResticBackrestEngine.TryParseRestoreProgress("not a progress line", out _));
+        Assert.False(ResticEngine.TryParseRestoreProgress("not a progress line", out _));
     }
 
     [Fact]
     public void RestoreCompletion_RejectsErroredLeaf()
     {
-        var complete = ResticBackrestEngine.ParseCompletedRestoreLeaves(
+        var complete = ResticEngine.ParseCompletedRestoreLeaves(
             "{\"message_type\":\"verbose_status\",\"action\":\"restored\",\"item\":\"/good.txt\"}\n" +
             "{\"message_type\":\"verbose_status\",\"action\":\"restored\",\"item\":\"/bad.txt\"}\n" +
             "{\"message_type\":\"error\",\"item\":\"/bad.txt\",\"error\":{\"message\":\"write failed\"}}\n");

@@ -109,7 +109,7 @@ public sealed class E14_PruneAfterBackupRealEngine : BackupE2EBase
         var revisions = await ServiceLocator.Revisions.ListRevisionsAsync(
             backup, source, dest, "default", CancellationToken.None);
         Assert.Single(revisions);
-        var planId = ResticBackrestEngine.MakePlanId(backup, source, dest, "default");
+        var planId = ResticEngine.MakePlanId(backup, source, dest, "default");
         var forgets = commands.Where(c => c.Arguments[0] == "forget").ToArray();
         Assert.Equal(3, forgets.Length);
         Assert.All(forgets, c => Assert.Equal(new[] { "forget", "--tag", $"plan:{planId},created-by:backspace", "--group-by=", "--keep-last=1" },

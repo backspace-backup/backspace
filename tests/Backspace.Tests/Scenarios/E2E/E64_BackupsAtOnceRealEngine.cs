@@ -66,7 +66,7 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
         // A second engine: what a second background worker has. It runs
         // restic directly (U175).
         {
-            var secondEngine = new ResticBackrestEngine(ServiceLocator.Secrets);
+            var secondEngine = new ResticEngine(ServiceLocator.Secrets);
             var second = new BackupOrchestrator(ServiceLocator.Config, ServiceLocator.Secrets, secondEngine, ServiceLocator.Logs,
                 ServiceLocator.Healthcheck, ServiceLocator.Mail, ServiceLocator.Notifier, new BackupProgressService());
             var first = ServiceLocator.Orchestrator;
@@ -177,7 +177,7 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
         x.BandwidthLimitKBps = 8_000; y.BandwidthLimitKBps = 8_000;
         ServiceLocator.Config.Update(cfg => { cfg.Backups.Add(x); cfg.Backups.Add(y); });
         var spans = new ConcurrentDictionary<string, (DateTime Start, DateTime? End)>();
-        var planOf = new[] { x, y }.ToDictionary(b => ResticBackrestEngine.MakePlanId(b, b.SourcePaths[0], b == x ? drive : nas, "default"), b => b.Name);
+        var planOf = new[] { x, y }.ToDictionary(b => ResticEngine.MakePlanId(b, b.SourcePaths[0], b == x ? drive : nas, "default"), b => b.Name);
         fixture.Engine.ResticCommandFinished += (command, result) =>
         {
             if (command.Arguments[0] != "backup" || planOf.Keys.FirstOrDefault(id => command.Trailing!.Contains("plan:" + id)) is not { } plan) return;

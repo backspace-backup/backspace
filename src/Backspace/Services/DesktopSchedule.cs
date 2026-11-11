@@ -151,6 +151,8 @@ internal static class DesktopSchedule
             };
             if (record is not null)
                 AppLogger.For(nameof(DesktopSchedule)).Information("Scheduled {Kind} for {Name}: {Status}", plan.Kind, backup.Name, record.Status);
+            // Completed: not run again for a condition that began after it (U185).
+            if (record?.Status is Models.BackupRunStatus.Success or Models.BackupRunStatus.Warning) ScheduleLoop.ReportCompleted();
         }
         return true;
     }

@@ -17,8 +17,9 @@ namespace Backspace.Tests.Scenarios;
 /// screenshots. A running check shows under Backup health with the turning
 /// icon, its name in short, a bar of how far it got and its step; the hover
 /// has everything; Last backup keeps the last backup's result (U197, U198).
-/// The banner says each reason with its own count: a skipped backup is not
-/// a check issue (U199). A backup that has stored nothing yet says why it
+/// With several kinds of problem the banner says only "N backups need
+/// attention" and each pill's hover says why: a skipped backup is not a
+/// check issue (U199). A backup that has stored nothing yet says why it
 /// has no checks, calmly (U200).
 /// </summary>
 [Collection(ScenarioCollection.Name)]
@@ -70,7 +71,9 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         // U199: each reason with its own count.
         Assert.Equal("stale", Card(localC).VerifyClass);
         Assert.True(vm.HealthHeadline == "2 backups need attention", string.Join(" | ", vm.Cards.Select(c => $"{c.Name}: {c.VerifyClass} {c.VerifyLabel} / {c.StatusClass} {c.DisplayedRunStatus}")) + " :: " + vm.HealthDetail);
-        Assert.Equal("1 with a check incomplete, overdue, or unavailable · 1 skipped on its last run.", vm.HealthDetail);
+        // Only the headline and the pills: each pill says why on hover; the
+        // reasons beside the headline wrapped onto a second line.
+        Assert.Equal("", vm.HealthDetail);
         Assert.Equal("A check is incomplete, overdue, or unavailable. Click to jump to this backup's card.", vm.AffectedBackups.Single(a => a.Name == "local_c").Tooltip);
         Assert.Equal("Its last run was skipped. Click to jump to this backup's card.", vm.AffectedBackups.Single(a => a.Name == "local_dropbox").Tooltip);
         // U200: nothing stored yet, so nothing to check: calm, with the reason.
@@ -80,7 +83,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         // A backup that has stored data keeps its plain wording.
         Assert.Equal("ok", Card(localD).VerifyClass);
         ctx.Snapshot(host, "banner and no checks yet",
-            "The banner: \"2 backups need attention · 1 with a check incomplete, overdue, or unavailable · 1 skipped on its last run.\" Each pill's hover says why. local_dropbox, never backed up because M:\\ is not mounted, says \"No checks yet: nothing backed up so far\" in grey.");
+            "The banner: \"2 backups need attention\" on one line with the local_c and local_dropbox pills; each pill's hover says why (a check incomplete, overdue, or unavailable; its last run was skipped). local_dropbox, never backed up because M:\\ is not mounted, says \"No checks yet: nothing backed up so far\" in grey.");
 
         // U197/U198: local_d's data sample runs, as the orchestrator reports it.
         var progress = ServiceLocator.Progress;

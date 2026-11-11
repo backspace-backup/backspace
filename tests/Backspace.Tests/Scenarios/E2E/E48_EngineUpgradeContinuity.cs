@@ -53,7 +53,7 @@ public sealed class E48_EngineUpgradeContinuity : ScenarioBase
             PruneSchedule = new(), CheckSchedule = new(),
             Targets = { new() { DestinationId = destination.Id, StorageName = "default" } },
         };
-        var planId = ResticBackrestEngine.MakePlanId(backup, source, destination, "default");
+        var planId = ResticEngine.MakePlanId(backup, source, destination, "default");
         var oldResticVersion = await ReadVersion(legacyRestic, ct, "version");
         var newResticVersion = await ReadVersion(AppPaths.ResticBinary, ct, "version");
         Assert.Contains("0.18.1", oldResticVersion);
@@ -62,7 +62,7 @@ public sealed class E48_EngineUpgradeContinuity : ScenarioBase
 
         var versions = Enumerable.Range(1, 3).ToDictionary(v => v, ContentsForVersion);
         var snapshotIds = new Dictionary<int, string>();
-        var old = new ResticBackrestEngine(secrets, legacyRestic);
+        var old = new ResticEngine(secrets, legacyRestic);
         for (var version = 1; version <= 2; version++)
         {
             WriteSource(source, versions[version], version);
@@ -78,7 +78,7 @@ public sealed class E48_EngineUpgradeContinuity : ScenarioBase
         // Nothing remembered, as on a computer that only ran the old version:
         // the first backup's parent comes from the plan's snapshot list.
         File.Delete(MaintenanceRecords.OwnFile);
-        var engine = new ResticBackrestEngine(secrets);
+        var engine = new ResticEngine(secrets);
         var inherited = await engine.ListSnapshotsAsync(backup, source, destination, "default", ct);
         Assert.Equal(2, inherited.Count);
         Assert.All(snapshotIds.Values, id => Assert.Contains(inherited, snapshot => snapshot.SnapshotId == id));
@@ -134,7 +134,7 @@ public sealed class E48_EngineUpgradeContinuity : ScenarioBase
         }
     }
 
-    private static async Task RestoreAndCompare(ResticBackrestEngine engine, Backup backup, string source,
+    private static async Task RestoreAndCompare(ResticEngine engine, Backup backup, string source,
         Destination destination, string snapshotId, int revision, string target,
         IReadOnlyDictionary<string, byte[]> expected, CancellationToken ct)
     {

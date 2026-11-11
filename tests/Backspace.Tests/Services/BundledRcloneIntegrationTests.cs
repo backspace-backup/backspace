@@ -91,8 +91,8 @@ public class BundledRcloneIntegrationTests
                 null, null, timeout.Token);
             Assert.True(result.Succeeded, result.ErrorText);
             Assert.True(File.Exists(Path.Combine(root, "repository", "config")));
-            Assert.Equal(64, ResticBackrestEngine.RepositoryId(result.Output)?.Length);
+            Assert.Equal(64, ResticEngine.RepositoryId(result.Output)?.Length);
         }
-        finally { ResticBackrestEngine.DeleteRestoreStaging(root); }
+        finally { ResticEngine.DeleteRestoreStaging(root); }
     }
 }

@@ -13,7 +13,7 @@ namespace Backspace.Tests.E2E;
 /// <summary>
 /// Same shape as LocalBackupRestoreTests but with storage encryption on.
 /// Proves the full password-bearing pipeline: secrets-store round-trip,
-/// RESTIC_PASSWORD env-var plumbing through ResticBackrestEngine, repo
+/// RESTIC_PASSWORD env-var plumbing through ResticEngine, repo
 /// init with encryption, restore reading back the encrypted chunks.
 ///
 /// Why this test matters separately: encrypted storage is the *default*

@@ -8,20 +8,20 @@ using Xunit;
 namespace Backspace.Tests.Services;
 
 /// <summary>
-/// Verifies the parts of <see cref="ResticBackrestEngine"/> that don't
+/// Verifies the parts of <see cref="ResticEngine"/> that don't
 /// need restic: deterministic ID generation, the command lines built from
 /// a Backspace Backup/Destination, restore output parsing, and a missing
 /// restic reported as a missing component.
 /// </summary>
-public class ResticBackrestEngineTests
+public class ResticEngineTests
 {
     [Fact]
     public void MakeRepoId_IsDeterministicForSameDestinationAndStorage()
     {
         var dest = new Destination { Id = "dest-1", Name = "Primary", Kind = DestinationKind.LocalFolder, PathOrSubpath = "C:/tmp/x" };
 
-        var a = ResticBackrestEngine.MakeRepoId(dest, "default");
-        var b = ResticBackrestEngine.MakeRepoId(dest, "default");
+        var a = ResticEngine.MakeRepoId(dest, "default");
+        var b = ResticEngine.MakeRepoId(dest, "default");
 
         Assert.Equal(a, b);
     }
@@ -31,8 +31,8 @@ public class ResticBackrestEngineTests
     {
         var dest = new Destination { Id = "dest-1", Name = "Primary", Kind = DestinationKind.LocalFolder, PathOrSubpath = "C:/tmp/x" };
 
-        var a = ResticBackrestEngine.MakeRepoId(dest, "default");
-        var b = ResticBackrestEngine.MakeRepoId(dest, "alternate");
+        var a = ResticEngine.MakeRepoId(dest, "default");
+        var b = ResticEngine.MakeRepoId(dest, "alternate");
 
         Assert.NotEqual(a, b);
     }
@@ -42,8 +42,8 @@ public class ResticBackrestEngineTests
     {
         var dest = new Destination { Id = "d", Name = "x", Kind = DestinationKind.LocalFolder, PathOrSubpath = "/tmp" };
 
-        var named = ResticBackrestEngine.MakeRepoId(dest, "default");
-        var empty = ResticBackrestEngine.MakeRepoId(dest, "");
+        var named = ResticEngine.MakeRepoId(dest, "default");
+        var empty = ResticEngine.MakeRepoId(dest, "");
 
         Assert.Equal(named, empty);
     }
@@ -55,7 +55,7 @@ public class ResticBackrestEngineTests
         // logs and key the repository's turn): lower-kebab, no spaces,
         // no slashes.
         var dest = new Destination { Id = "DEST 1 / awkward", Name = "X", Kind = DestinationKind.LocalFolder, PathOrSubpath = "/tmp" };
-        var id = ResticBackrestEngine.MakeRepoId(dest, "DEFAULT");
+        var id = ResticEngine.MakeRepoId(dest, "DEFAULT");
 
         Assert.DoesNotContain(' ', id);
         Assert.DoesNotContain('/', id);
@@ -69,8 +69,8 @@ public class ResticBackrestEngineTests
         var backup = new Backup { Id = "bk-1", Name = "Photos" };
         var dest = new Destination { Id = "dest-1", Name = "Primary", Kind = DestinationKind.LocalFolder, PathOrSubpath = "/tmp" };
 
-        var a = ResticBackrestEngine.MakePlanId(backup, "C:/Users/me/Photos", dest, "default");
-        var b = ResticBackrestEngine.MakePlanId(backup, "C:/Users/me/Documents", dest, "default");
+        var a = ResticEngine.MakePlanId(backup, "C:/Users/me/Photos", dest, "default");
+        var b = ResticEngine.MakePlanId(backup, "C:/Users/me/Documents", dest, "default");
 
         Assert.NotEqual(a, b);
     }
@@ -81,15 +81,15 @@ public class ResticBackrestEngineTests
         var backup = new Backup { Id = "bk-1", Name = "Photos" };
         var dest = new Destination { Id = "dest-1", Name = "Primary", Kind = DestinationKind.LocalFolder, PathOrSubpath = "/tmp" };
 
-        var a = ResticBackrestEngine.MakePlanId(backup, "C:/Users/me/Photos", dest, "default");
-        var b = ResticBackrestEngine.MakePlanId(backup, "C:/Users/me/Photos", dest, "default");
+        var a = ResticEngine.MakePlanId(backup, "C:/Users/me/Photos", dest, "default");
+        var b = ResticEngine.MakePlanId(backup, "C:/Users/me/Photos", dest, "default");
 
         Assert.Equal(a, b);
     }
 
     [Fact]
     public void The_backup_command_holds_the_one_source_path()
-        => Assert.Equal(new[] { "backup", "--json", "/data/photos" }, ResticBackrestEngine.BackupArguments("/data/photos"));
+        => Assert.Equal(new[] { "backup", "--json", "/data/photos" }, ResticEngine.BackupArguments("/data/photos"));
 
     [Fact]
     public void The_filters_text_reaches_restic_as_an_exclude_file()
@@ -103,10 +103,10 @@ public class ResticBackrestEngineTests
             FiltersText = "*.tmp\nnode_modules/\n# comment\n\n",
         };
 
-        var trailing = ResticBackrestEngine.BackupTrailing(backup, "p", null);
+        var trailing = ResticEngine.BackupTrailing(backup, "p", null);
 
         Assert.DoesNotContain(trailing, t => t.Contains("node_modules", System.StringComparison.Ordinal));
-        Assert.Equal(new[] { FilterTranslator.ExcludeFileFlag, ResticBackrestEngine.ExcludeFilePath("p") }, trailing.TakeLast(2));
+        Assert.Equal(new[] { FilterTranslator.ExcludeFileFlag, ResticEngine.ExcludeFilePath("p") }, trailing.TakeLast(2));
     }
 
     /// <summary>U133: restic gets the rules as written. A repeated rule is
@@ -116,10 +116,10 @@ public class ResticBackrestEngineTests
     [Fact]
     public void Repeated_rules_are_sent_once_at_their_last_place()
     {
-        Assert.Equal(["!b", "a"], ResticBackrestEngine.WithoutRepeats(["a", "!b", "a"]));
-        Assert.Equal(["a", "!b"], ResticBackrestEngine.WithoutRepeats(["a", "a", "!b"]));
-        Assert.Equal(["C:/**/*.tmp", "c:/**/*.TMP"], ResticBackrestEngine.WithoutRepeats(["C:/**/*.tmp", "c:/**/*.TMP"]));
-        Assert.NotEqual(["a", "!b"], ResticBackrestEngine.WithoutRepeats(["a", "!b", "a"]));
+        Assert.Equal(["!b", "a"], ResticEngine.WithoutRepeats(["a", "!b", "a"]));
+        Assert.Equal(["a", "!b"], ResticEngine.WithoutRepeats(["a", "a", "!b"]));
+        Assert.Equal(["C:/**/*.tmp", "c:/**/*.TMP"], ResticEngine.WithoutRepeats(["C:/**/*.tmp", "c:/**/*.TMP"]));
+        Assert.NotEqual(["a", "!b"], ResticEngine.WithoutRepeats(["a", "!b", "a"]));
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public class ResticBackrestEngineTests
     {
         // Restic's local-filesystem repo URI IS the path; no scheme.
         var dest = new Destination { Id = "d", Kind = DestinationKind.LocalFolder, PathOrSubpath = "C:/Backups/me" };
-        Assert.Equal("C:/Backups/me", ResticBackrestEngine.ResticUriFor(dest));
+        Assert.Equal("C:/Backups/me", ResticEngine.ResticUriFor(dest));
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public class ResticBackrestEngineTests
         // URIs via ResticUriResolver. Pin the shape here; the
         // resolver's own tests cover the wire-format details.
         var dest = new Destination { Id = "abcdef01", Kind = DestinationKind.DropboxAppScoped, PathOrSubpath = "Apps/backspace" };
-        var uri = ResticBackrestEngine.ResticUriFor(dest);
+        var uri = ResticEngine.ResticUriFor(dest);
         Assert.StartsWith("rclone:dropbox-app-", uri);
         Assert.EndsWith(":Apps/backspace", uri);
     }
@@ -157,7 +157,7 @@ public class ResticBackrestEngineTests
             "{\"message_type\":\"verbose_status\",\"action\":\"restored\",\"item\":\"/file1\"}",
             "{\"message_type\":\"summary\",\"seconds_elapsed\":3,\"total_files\":42,\"files_restored\":42,\"files_skipped\":0,\"total_bytes\":1024,\"bytes_restored\":1024,\"errors\":0}",
         });
-        ResticBackrestEngine.ParseResticRestoreSummary(output,
+        ResticEngine.ParseResticRestoreSummary(output,
             out var filesRestored, out var bytesRestored,
             out var totalFiles, out var totalBytes, out var errors);
         Assert.Equal(42, filesRestored);
@@ -171,7 +171,7 @@ public class ResticBackrestEngineTests
     public void ParseResticRestoreSummary_ReportsErrorsCountWhenNonZero()
     {
         var output = "{\"message_type\":\"summary\",\"total_files\":10,\"files_restored\":7,\"errors\":3}";
-        ResticBackrestEngine.ParseResticRestoreSummary(output,
+        ResticEngine.ParseResticRestoreSummary(output,
             out var filesRestored, out var _, out var totalFiles, out var _, out var errors);
         Assert.Equal(7, filesRestored);
         Assert.Equal(10, totalFiles);
@@ -184,7 +184,7 @@ public class ResticBackrestEngineTests
         // No summary line in the captured output -> every out param
         // stays -1 so the caller falls back to its pattern-count
         // approximation.
-        ResticBackrestEngine.ParseResticRestoreSummary("not-json\n{\"message_type\":\"status\"}",
+        ResticEngine.ParseResticRestoreSummary("not-json\n{\"message_type\":\"status\"}",
             out var filesRestored, out var bytesRestored, out var totalFiles,
             out var totalBytes, out var errors);
         Assert.Equal(-1, filesRestored);
@@ -202,9 +202,9 @@ public class ResticBackrestEngineTests
         // N maps to index 0 and revision 1 maps to the last entry.
         var sorted = new[] { Snapshot("newest", 3000), Snapshot("middle", 2000), Snapshot("oldest", 1000) };
 
-        Assert.Equal("newest", ResticBackrestEngine.PickSnapshotIdForRevision(sorted, revision: 3));
-        Assert.Equal("middle", ResticBackrestEngine.PickSnapshotIdForRevision(sorted, revision: 2));
-        Assert.Equal("oldest", ResticBackrestEngine.PickSnapshotIdForRevision(sorted, revision: 1));
+        Assert.Equal("newest", ResticEngine.PickSnapshotIdForRevision(sorted, revision: 3));
+        Assert.Equal("middle", ResticEngine.PickSnapshotIdForRevision(sorted, revision: 2));
+        Assert.Equal("oldest", ResticEngine.PickSnapshotIdForRevision(sorted, revision: 1));
     }
 
     [Fact]
@@ -217,11 +217,11 @@ public class ResticBackrestEngineTests
         var sorted = new[] { Snapshot("a", 1000), Snapshot("b", 2000) };
 
         var lo = Assert.Throws<ArgumentOutOfRangeException>(
-            () => ResticBackrestEngine.PickSnapshotIdForRevision(sorted, revision: 0));
+            () => ResticEngine.PickSnapshotIdForRevision(sorted, revision: 0));
         Assert.Contains("2 revision", lo.Message);
 
         var hi = Assert.Throws<ArgumentOutOfRangeException>(
-            () => ResticBackrestEngine.PickSnapshotIdForRevision(sorted, revision: 3));
+            () => ResticEngine.PickSnapshotIdForRevision(sorted, revision: 3));
         Assert.Contains("2 revision", hi.Message);
     }
 
@@ -231,10 +231,10 @@ public class ResticBackrestEngineTests
         // No snapshots = no revisions; every call must throw rather
         // than handing back a "" snapshot id that would then go to restic.
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => ResticBackrestEngine.PickSnapshotIdForRevision(System.Array.Empty<ResticBackrestEngine.PlanSnapshot>(), revision: 1));
+            () => ResticEngine.PickSnapshotIdForRevision(System.Array.Empty<ResticEngine.PlanSnapshot>(), revision: 1));
     }
 
-    private static ResticBackrestEngine.PlanSnapshot Snapshot(string id, long unixMs) => new(id, unixMs, 0, 0, []);
+    private static ResticEngine.PlanSnapshot Snapshot(string id, long unixMs) => new(id, unixMs, 0, 0, []);
 
     [Fact]
     public void BuildBackupFlags_addsLimitUpload_whenBandwidthSet()
@@ -242,11 +242,11 @@ public class ResticBackrestEngineTests
         // restic --limit-upload <KiB/s> — surfaces BandwidthLimitKBps.
         // 0 = unlimited; never emit the flag (positive-int required).
         var b = new Backspace.Models.Backup { BandwidthLimitKBps = 1024 };
-        var flags = ResticBackrestEngine.BuildBackupFlags(b);
+        var flags = ResticEngine.BuildBackupFlags(b);
         Assert.Contains("--limit-upload", flags);
         Assert.Contains("1024", flags);
 
-        var unlimited = ResticBackrestEngine.BuildBackupFlags(
+        var unlimited = ResticEngine.BuildBackupFlags(
             new Backspace.Models.Backup { BandwidthLimitKBps = 0 });
         Assert.DoesNotContain("--limit-upload", unlimited);
     }
@@ -264,7 +264,7 @@ public class ResticBackrestEngineTests
         System.IO.File.WriteAllText(f, "hi");
         try
         {
-            var found = ResticBackrestEngine.FindRestoredFile(
+            var found = ResticEngine.FindRestoredFile(
                 targetPath: tmpRoot, sourcePath: "/data/originals", relativePath: "sub/hello.txt");
             Assert.Equal(f, found);
         }
@@ -286,7 +286,7 @@ public class ResticBackrestEngineTests
         System.IO.File.WriteAllText(f, "hi");
         try
         {
-            var found = ResticBackrestEngine.FindRestoredFile(
+            var found = ResticEngine.FindRestoredFile(
                 targetPath: tmpRoot, sourcePath: "/data/originals", relativePath: "sub/hello.txt");
             Assert.Equal(f, found);
         }
@@ -308,7 +308,7 @@ public class ResticBackrestEngineTests
         System.IO.File.WriteAllText(f, "hi");
         try
         {
-            var found = ResticBackrestEngine.FindRestoredFile(
+            var found = ResticEngine.FindRestoredFile(
                 targetPath: tmpRoot, sourcePath: @"\\server\share", relativePath: "sub/hello.txt");
             Assert.Equal(f, found);
         }
@@ -322,7 +322,7 @@ public class ResticBackrestEngineTests
         System.IO.Directory.CreateDirectory(tmpRoot);
         try
         {
-            Assert.Null(ResticBackrestEngine.FindRestoredFile(
+            Assert.Null(ResticEngine.FindRestoredFile(
                 targetPath: tmpRoot, sourcePath: "/x", relativePath: "no/such/file.txt"));
         }
         finally { try { System.IO.Directory.Delete(tmpRoot, recursive: true); } catch { } }
@@ -373,7 +373,7 @@ public class ResticBackrestEngineTests
             Uri: "s3:s3.us-east-1.amazonaws.com/mybucket/path",
             Env: new[] { "AWS_ACCESS_KEY_ID=AKIAX", "AWS_SECRET_ACCESS_KEY=secret" });
 
-        var env = ResticBackrestEngine.BuildResticPasswordChangeEnv(resticEnv, oldPassword: "hunter2");
+        var env = ResticEngine.BuildResticPasswordChangeEnv(resticEnv, oldPassword: "hunter2");
 
         Assert.Equal("s3:s3.us-east-1.amazonaws.com/mybucket/path", env["RESTIC_REPOSITORY"]);
         Assert.Equal("hunter2",                                     env["RESTIC_PASSWORD"]);
@@ -391,7 +391,7 @@ public class ResticBackrestEngineTests
             Uri: "rclone:dropbox:store",
             Env: new[] { "RCLONE_TOKEN={\"refresh_token\":\"abc==\"}" });
 
-        var env = ResticBackrestEngine.BuildResticPasswordChangeEnv(resticEnv, "p");
+        var env = ResticEngine.BuildResticPasswordChangeEnv(resticEnv, "p");
 
         Assert.Equal("{\"refresh_token\":\"abc==\"}", env["RCLONE_TOKEN"]);
     }
@@ -427,9 +427,9 @@ public class ResticBackrestEngineTests
     [InlineData("a3b1c2d4e5f60123456789abcdef0123456789abcdef0123456789abcdef012",    false)] // 63
     [InlineData("a3b1c2d4e5f60123456789abcdef0123456789abcdef0123456789abcdef01234",  false)] // 65
     [InlineData("z3b1c2d4e5f60123456789abcdef0123456789abcdef0123456789abcdef0123",   false)] // non-hex
-    public void IsValidBackrestGuid_acceptsOnly64CharLowerOrMixedHex(string guid, bool expected)
+    public void IsValidSnapshotId_acceptsOnly64CharLowerOrMixedHex(string guid, bool expected)
     {
-        Assert.Equal(expected, ResticBackrestEngine.IsValidBackrestGuid(guid));
+        Assert.Equal(expected, ResticEngine.IsValidSnapshotId(guid));
     }
 
     /// <summary>
@@ -445,13 +445,13 @@ public class ResticBackrestEngineTests
     [InlineData("",                      Backspace.Models.BackupRunStatus.Failed)]
     [InlineData("STATUS_UNKNOWN",        Backspace.Models.BackupRunStatus.Failed)]
     [InlineData("something_weird",       Backspace.Models.BackupRunStatus.Failed)]
-    public void StatusFromBackrestTerminal_unknownOrEmpty_defaultsToFailed(string input, Backspace.Models.BackupRunStatus expected)
+    public void StatusFromTerminal_unknownOrEmpty_defaultsToFailed(string input, Backspace.Models.BackupRunStatus expected)
     {
-        Assert.Equal(expected, ResticBackrestEngine.StatusFromBackrestTerminal(input));
+        Assert.Equal(expected, ResticEngine.StatusFromTerminal(input));
     }
 
     // ---- helpers ----
 
-    private static ResticBackrestEngine MakeEngineWithoutSidecar()
+    private static ResticEngine MakeEngineWithoutSidecar()
         => new(new SecretsStore(), resticBinary: "/nonexistent/restic");
 }

@@ -20,7 +20,7 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// Rotate a destination's storage password and prove the chain
 /// stays usable. Path:
 ///   1. Run a backup with password P1.
-///   2. Call <see cref="ResticBackrestEngine.ChangeStoragePasswordAsync"/>
+///   2. Call <see cref="ResticEngine.ChangeStoragePasswordAsync"/>
 ///      with (P1 → P2). This is the same primitive the
 ///      ChangeStoragePasswordWindow uses; the dialog adds UX
 ///      around it but the engine surface is identical.

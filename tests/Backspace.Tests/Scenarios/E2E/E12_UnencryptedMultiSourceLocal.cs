@@ -29,7 +29,7 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// memory state never carries our plan and the very next Backup
 /// RPC fails. Fix moved new-repo registration to /v1.Backrest/AddRepo
 /// which runs `restic init` and stamps the canonical 64-char Guid in
-/// a single atomic step (see ResticBackrestEngine.EnsurePlanAndRepoCoreAsync).
+/// a single atomic step (see ResticEngine.EnsurePlanAndRepoCoreAsync).
 ///
 /// E01 already covers single-source local round-trip with a password,
 /// E03 covers two concurrent backups. Neither hit this code path

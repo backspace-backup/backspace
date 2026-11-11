@@ -16,7 +16,7 @@ namespace Backspace.Services;
 /// background service. Checks are entries of their own since U179, run after
 /// the backup or on their schedule through <see cref="RunCheckOnlyAsync"/>,
 /// which runs restic directly too, as do the stand-alone cleanup and the
-/// erase tools (step 2, ResticBackrestEngine.Maintenance.cs).
+/// erase tools (step 2, ResticEngine.Maintenance.cs).
 ///
 /// <para>Everything Backrest added to a backup is kept, so repositories,
 /// snapshots, their labels and the run history carry on unchanged:
@@ -27,7 +27,7 @@ namespace Backspace.Services;
 /// (<c>Backup result: STATUS_…</c>), which history and
 /// <see cref="WasStoppedOnRequest"/> read.</para>
 /// </summary>
-public sealed partial class ResticBackrestEngine
+public sealed partial class ResticEngine
 {
     /// <summary>The instance label every snapshot Backspace made carries
     /// (<c>created-by:backspace</c>, Backrest's instance name before U175).</summary>
@@ -74,8 +74,8 @@ public sealed partial class ResticBackrestEngine
         snapshotTurn?.Dispose();
         if (summary is not null) Announce(BackupLiveProgress.RecapOf(summary), lineSink);
         var snapshotId = summary?.SnapshotId;
-        var status = StatusFromBackrestTerminal(terminalStatus);
-        var saved = status is BackupRunStatus.Success or BackupRunStatus.Warning && IsValidBackrestGuid(snapshotId);
+        var status = StatusFromTerminal(terminalStatus);
+        var saved = status is BackupRunStatus.Success or BackupRunStatus.Warning && IsValidSnapshotId(snapshotId);
         // The next backup's parent, and proof this one finished (U175). A
         // completed backup that made no snapshot left nothing behind either;
         // the next one then lists the plan's snapshots for its parent.
@@ -87,7 +87,7 @@ public sealed partial class ResticBackrestEngine
         long cloudOnlySkipped = 0;
         if (backup.ExcludeCloudFiles && Platform.PlatformInfo.IsWindows
             && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture != System.Runtime.InteropServices.Architecture.Arm64
-            && terminalStatus is BackrestStatus.Success or BackrestStatus.Warning
+            && terminalStatus is TerminalStatus.Success or TerminalStatus.Warning
             && await changes.CloudOnlySkippedAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false) is { } skippedCount
             && CloudFileBehavior.SkippedPhrase(skippedCount) is { } skippedPhrase)
         {
@@ -123,8 +123,8 @@ public sealed partial class ResticBackrestEngine
                     Announce(LogSection.Line(backup.Name, "cleanup", destination.Name), lineSink);
                     var prune = NeedsPrune(previousUnfinished, MaintenanceRecords.LastFullPrune(repoId, ct), DateTime.UtcNow);
                     (var result, cleanup) = await RunDirectRetentionAsync(restic, repoId, repository, planId, backup, ct, lineSink, prune).ConfigureAwait(false);
-                    if (result.Status is BackrestStatus.Success || cleanup != default) Announce(cleanup.Recap(), lineSink);
-                    if (result.Status is not BackrestStatus.Success)
+                    if (result.Status is TerminalStatus.Success || cleanup != default) Announce(cleanup.Recap(), lineSink);
+                    if (result.Status is not TerminalStatus.Success)
                     {
                         status = BackupRunStatus.Warning;
                         details += $" Backup content completed; maintenance reported {result.Status}: {result.DisplayMessage}";
@@ -231,15 +231,15 @@ public sealed partial class ResticBackrestEngine
     {
         // A backup that completed as the stop arrived keeps its result.
         var completed = summary?.SnapshotId is not null && result.ExitCode is 0 or 3;
-        if (result.Cancelled && !completed) return (BackrestStatus.UserCancelled, "Stopped on request.");
+        if (result.Cancelled && !completed) return (TerminalStatus.UserCancelled, "Stopped on request.");
         return result.ExitCode switch
         {
-            0 when summary is not null => (BackrestStatus.Success,
+            0 when summary is not null => (TerminalStatus.Success,
                 summary.SnapshotId is null ? "No snapshot added, possibly due to no changes in the source data." : ""),
-            3 when summary?.SnapshotId is not null => (BackrestStatus.Warning, "Partial backup, some files may not have been read completely."),
-            0 or 3 => (BackrestStatus.Error, "restic ended without reporting a completed backup, so no snapshot is confirmed. " + result.ErrorText),
-            130 => (BackrestStatus.SystemCancelled, "restic was stopped before it finished, by Windows or another program. " + result.ErrorText),
-            _ => (BackrestStatus.Error, result.ErrorText),
+            3 when summary?.SnapshotId is not null => (TerminalStatus.Warning, "Partial backup, some files may not have been read completely."),
+            0 or 3 => (TerminalStatus.Error, "restic ended without reporting a completed backup, so no snapshot is confirmed. " + result.ErrorText),
+            130 => (TerminalStatus.SystemCancelled, "restic was stopped before it finished, by Windows or another program. " + result.ErrorText),
+            _ => (TerminalStatus.Error, result.ErrorText),
         };
     }
 
@@ -541,7 +541,7 @@ public sealed partial class ResticBackrestEngine
     /// restic's order for equal times, the last one (Backrest's choice).</summary>
     internal static (string Id, DateTime When)? LatestOf(IEnumerable<(string Id, long UnixMs)> snapshots)
     {
-        var latest = snapshots.Where(s => IsValidBackrestGuid(s.Id)).OrderBy(s => s.UnixMs).LastOrDefault();
+        var latest = snapshots.Where(s => IsValidSnapshotId(s.Id)).OrderBy(s => s.UnixMs).LastOrDefault();
         return latest.Id is null ? null : (latest.Id, DateTimeOffset.FromUnixTimeMilliseconds(latest.UnixMs).UtcDateTime);
     }
 
@@ -558,10 +558,10 @@ public sealed partial class ResticBackrestEngine
 
     /// <summary>A maintenance command's result in Backrest's words.</summary>
     private static DirectOutcome Outcome(ResticResult result) =>
-        result.Cancelled ? new(BackrestStatus.UserCancelled, "Stopped on request.")
-        : result.ExitCode == 0 ? new(BackrestStatus.Success, "")
-        : result.ExitCode == 3 ? new(BackrestStatus.Warning, result.ErrorText)
-        : new(BackrestStatus.Error, result.ErrorText);
+        result.Cancelled ? new(TerminalStatus.UserCancelled, "Stopped on request.")
+        : result.ExitCode == 0 ? new(TerminalStatus.Success, "")
+        : result.ExitCode == 3 ? new(TerminalStatus.Warning, result.ErrorText)
+        : new(TerminalStatus.Error, result.ErrorText);
 
     /// <summary>The retention policy applied with restic's forget (U172) and,
     /// after a backup that may have left data behind or once a week, a full
@@ -582,7 +582,7 @@ public sealed partial class ResticBackrestEngine
             result = Outcome(await RunResticAsync(repoId, new ResticCommand(restic, repository, forget) { OutputToTranscript = true },
                 lineSink, ct, onLine: figures.Accept).ConfigureAwait(false));
             cleanup = figures.Result();
-            if (result.Status is not BackrestStatus.Success) return (result, cleanup);
+            if (result.Status is not TerminalStatus.Success) return (result, cleanup);
         }
         if (prune)
         {
@@ -593,7 +593,7 @@ public sealed partial class ResticBackrestEngine
             if (run.Succeeded) MaintenanceRecords.FullPruneDone(repoId, DateTime.UtcNow, ct);
             return (Outcome(run), cleanup.Plus(figures.Result()));
         }
-        return (result ?? new(BackrestStatus.Success, "Retention keeps every snapshot; no cleanup was needed."), cleanup);
+        return (result ?? new(TerminalStatus.Success, "Retention keeps every snapshot; no cleanup was needed."), cleanup);
     }
 
     /// <summary>The lines of forget's and prune's output that say what they

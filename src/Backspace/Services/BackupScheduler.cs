@@ -183,6 +183,19 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         Func<bool>? Metered = null);
 
     private readonly SemaphoreSlim _wake = new(0, 1);
+
+    /// <summary>The run in progress on this flow says it completed (U185).</summary>
+    private static readonly AsyncLocal<StrongBox> Outcome = new();
+    private sealed class StrongBox { public bool Completed; }
+
+    /// <summary>Called by the run itself once it has completed (succeeded,
+    /// or finished with warnings): a battery or metered connection that
+    /// begins right after it then doesn't run it again (U185, owner,
+    /// 11 November 2026: "Yes do it").</summary>
+    internal static void ReportCompleted()
+    {
+        if (Outcome.Value is { } box) box.Completed = true;
+    }
     // Guards the saved state file and the two dictionaries: parallel runs end
     // on their own threads.
     private readonly object _sync = new();
@@ -333,6 +346,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
             state.Save();
         }
         var ran = true;
+        var outcome = new StrongBox();
         using var run = CancellationTokenSource.CreateLinkedTokenSource(stop);
         var limit = plan.Schedule.ExecutionTimeLimit;
         if (limit > TimeSpan.Zero && limit < TimeSpan.FromDays(20)) run.CancelAfter(limit);
@@ -342,6 +356,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         {
             if (quiet) Log.Debug("Trying the paused scheduled {Kind} for {Name} again", plan.Kind, plan.Backup.Name);
             else Log.Information("Starting scheduled {Kind} for {Name}", plan.Kind, plan.Backup.Name);
+            Outcome.Value = outcome;
             ran = await options.Run(plan, run.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
@@ -358,8 +373,9 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         // with "stop if the connection becomes metered". It stays due and runs
         // again once they are met (U185, owner, 11 November 2026: "stop any
         // check mid run ... and relaunch once all conditions are met"). A run
-        // that had just finished when the condition began runs once more.
-        var cutByCondition = ran && !stop.IsCancellationRequested
+        // that completed is not run again, even when the condition began
+        // just after it ended.
+        var cutByCondition = ran && !stop.IsCancellationRequested && !outcome.Completed
             && (plan.Schedule.StopOnBattery && options.OnBattery()
                 || plan.Backup.AbortOnMeteredNetwork && options.Metered?.Invoke() == true
                 // The connection went away during a check or cleanup (U185).

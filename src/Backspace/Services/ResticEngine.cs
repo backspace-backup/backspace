@@ -14,8 +14,8 @@ namespace Backspace.Services;
 /// <summary>
 /// <see cref="IBackupEngine"/> implementation that runs the bundled restic
 /// directly (U175): backups and the cleanup after them
-/// (ResticBackrestEngine.Direct.cs), checks, the stand-alone cleanup and the
-/// erase tools (ResticBackrestEngine.Maintenance.cs), and, here, snapshot
+/// (ResticEngine.Direct.cs), checks, the stand-alone cleanup and the
+/// erase tools (ResticEngine.Maintenance.cs), and, here, snapshot
 /// lists, folder listings, the mounted drive's reads and every restore. Each
 /// command carries the destination's repository, built from Backspace's
 /// destination and vault (<see cref="ResticRepository"/>); nothing is stored
@@ -27,16 +27,16 @@ namespace Backspace.Services;
 /// <see cref="Destination"/> with a storage name is a "repo" id. Both ids are
 /// deterministic.
 /// </summary>
-public sealed partial class ResticBackrestEngine : IBackupEngine
+public sealed partial class ResticEngine : IBackupEngine
 {
-    private static ILogger _log => AppLogger.For<ResticBackrestEngine>();
+    private static ILogger _log => AppLogger.For<ResticEngine>();
 
     private readonly SecretsStore _secrets;
     private readonly string? _resticOverride;
 
     /// <param name="resticBinary">The restic to run; this build's own
     /// (<see cref="AppPaths.ResticBinary"/>) when null.</param>
-    public ResticBackrestEngine(SecretsStore secrets, string? resticBinary = null)
+    public ResticEngine(SecretsStore secrets, string? resticBinary = null)
     {
         _secrets = secrets;
         _resticOverride = resticBinary;
@@ -75,9 +75,9 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
     /// (<c>STATUS_SUCCESS</c>…): run summaries keep them (<c>Backup result:
     /// STATUS_…</c>), and run history and <see cref="WasStoppedOnRequest"/>
     /// read them, so records from before and after U175 read alike.
-    /// <see cref="StatusFromBackrestTerminal"/> maps them to Backspace's.
+    /// <see cref="StatusFromTerminal"/> maps them to Backspace's.
     /// </summary>
-    private static class BackrestStatus
+    private static class TerminalStatus
     {
         public const string Success      = "STATUS_SUCCESS";
         public const string Warning      = "STATUS_WARNING";
@@ -246,15 +246,15 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
     /// <summary>True for a backup the engine stopped because it was asked to
     /// (Stop, Quit, the service stopping), as opposed to a skip it decided.</summary>
     internal static bool WasStoppedOnRequest(RunRecord record)
-        => record.Summary?.StartsWith($"Backup result: {BackrestStatus.UserCancelled}", StringComparison.Ordinal) == true;
+        => record.Summary?.StartsWith($"Backup result: {TerminalStatus.UserCancelled}", StringComparison.Ordinal) == true;
 
-    internal static BackupRunStatus StatusFromBackrestTerminal(string status) => status switch
+    internal static BackupRunStatus StatusFromTerminal(string status) => status switch
     {
-        BackrestStatus.Success       => BackupRunStatus.Success,
-        BackrestStatus.Warning       => BackupRunStatus.Warning,
-        BackrestStatus.Error         => BackupRunStatus.Failed,
-        BackrestStatus.UserCancelled => BackupRunStatus.Skipped,
-        BackrestStatus.SystemCancelled => BackupRunStatus.Skipped,
+        TerminalStatus.Success       => BackupRunStatus.Success,
+        TerminalStatus.Warning       => BackupRunStatus.Warning,
+        TerminalStatus.Error         => BackupRunStatus.Failed,
+        TerminalStatus.UserCancelled => BackupRunStatus.Skipped,
+        TerminalStatus.SystemCancelled => BackupRunStatus.Skipped,
         _                            => BackupRunStatus.Failed,
     };
 
@@ -1456,7 +1456,7 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
 
     /// <summary>A restic id: exactly 64 hex characters (a snapshot's or a
     /// repository's; Backrest's repository guids had the same shape).</summary>
-    internal static bool IsValidBackrestGuid(string? guid)
+    internal static bool IsValidSnapshotId(string? guid)
     {
         if (string.IsNullOrEmpty(guid) || guid.Length != 64) return false;
         for (int i = 0; i < guid.Length; i++)

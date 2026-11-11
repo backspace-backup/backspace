@@ -90,7 +90,7 @@ public sealed class CheckProgressTests(ITestOutputHelper output)
             Encrypted = true, StoragePasswordRef = secrets.PutNew("check-progress", Guid.NewGuid().ToString("N")) };
         var backup = new Backup { Name = "Check progress", SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(), Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
-        var engine = new ResticBackrestEngine(secrets);
+        var engine = new ResticEngine(secrets);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
         Assert.Equal(BackupRunStatus.Success, (await engine.BackupPruneCheckAsync(backup, source, destination, "default", deadline.Token)).Status);
 

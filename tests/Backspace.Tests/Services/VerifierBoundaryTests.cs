@@ -267,7 +267,7 @@ public sealed class VerifierBoundaryTests
             if (!verification.IsCompleted)
                 foreach (var notice in FileAccessRetry.Snapshot().Where(n => n.Path == scratch)) notice.StopCommand.Execute(null);
             await verification.WaitAsync(limit);
-            if (scratch is not null) ResticBackrestEngine.DeleteRestoreStaging(scratch);
+            if (scratch is not null) ResticEngine.DeleteRestoreStaging(scratch);
         }
     }
 

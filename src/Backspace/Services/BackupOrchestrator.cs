@@ -79,7 +79,7 @@ public sealed partial class BackupOrchestrator
     /// <summary>
     /// Fans the backup out across every (source × destination) cell.
     /// A backup with 2 sources and 2 destinations produces 4 cells, each
-    /// with its own <c>ResticBackrestEngine</c> invocation, its own
+    /// with its own <c>ResticEngine</c> invocation, its own
     /// repo, and its own retry budget. Cell failures are isolated — one
     /// cell timing out or hitting an auth error never cancels the rest.
     /// A pre-cancelled token or a metered-network trip <em>does</em>
@@ -226,7 +226,7 @@ public sealed partial class BackupOrchestrator
         // Queue the actual engine repository, not the spelling used by the
         // caller. Casing, empty/default names and normalized punctuation can
         // all address the same repository.
-        var key = ResticBackrestEngine.MakeRepoId(new Destination { Id = destinationId ?? "" }, storageName);
+        var key = ResticEngine.MakeRepoId(new Destination { Id = destinationId ?? "" }, storageName);
         var h = System.Security.Cryptography.SHA1.HashData(
             System.Text.Encoding.UTF8.GetBytes(key));
         var sb = new System.Text.StringBuilder(16);

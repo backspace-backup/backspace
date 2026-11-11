@@ -29,7 +29,7 @@ internal sealed class RestoreOutputTransaction
 
     internal void CreateDirectory(string path)
     {
-        ResticBackrestEngine.ValidateRestoreTarget(path);
+        ResticEngine.ValidateRestoreTarget(path);
         if (Directory.Exists(path)) return;
         var missing = new Stack<string>();
         for (var p = Path.GetFullPath(path); !Directory.Exists(p); p = Path.GetDirectoryName(p)!)
@@ -44,7 +44,7 @@ internal sealed class RestoreOutputTransaction
     {
         if (_finished) throw new InvalidOperationException("Restore output has already been finalized.");
         ct.ThrowIfCancellationRequested();
-        ResticBackrestEngine.ValidateRestoreTarget(Path.GetDirectoryName(destination)!);
+        ResticEngine.ValidateRestoreTarget(Path.GetDirectoryName(destination)!);
         CreateDirectory(Path.GetDirectoryName(destination)!);
 #if WINDOWS
         if (!_locations.ContainsKey(targetRoot)) _locations[targetRoot] = Platform.Windows.HandleRename.FolderLocation(targetRoot);
@@ -83,13 +83,13 @@ internal sealed class RestoreOutputTransaction
         if (original is not null)
             FileAccessRetry.Run(() =>
             {
-                ResticBackrestEngine.ValidateRestoreTarget(Path.GetDirectoryName(destination)!);
+                ResticEngine.ValidateRestoreTarget(Path.GetDirectoryName(destination)!);
                 MoveItem(destination, original, targetRoot, directory: false);
             }, destination, FileWaitReason.Restore, ct);
         _entries.Add(entry);
         FileAccessRetry.Run(() =>
         {
-            ResticBackrestEngine.ValidateRestoreTarget(Path.GetDirectoryName(destination)!);
+            ResticEngine.ValidateRestoreTarget(Path.GetDirectoryName(destination)!);
             MoveItem(staged, destination, targetRoot, directoryLink);
         }, staged, FileWaitReason.Restore, ct);
         entry.Published = true;
@@ -115,7 +115,7 @@ internal sealed class RestoreOutputTransaction
         {
             try
             {
-                ResticBackrestEngine.ValidateRestoreTarget(Path.GetDirectoryName(entry.Destination)!);
+                ResticEngine.ValidateRestoreTarget(Path.GetDirectoryName(entry.Destination)!);
                 if (entry.Published && Exists(entry.Destination))
                 {
                     // Move first, then identify the item we actually obtained.
@@ -151,8 +151,8 @@ internal sealed class RestoreOutputTransaction
         foreach (var root in _roots.Values)
             if (Directory.Exists(root))
             {
-                ResticBackrestEngine.ValidateRestoreTarget(root);
-                ResticBackrestEngine.DeleteRestoreStaging(root);
+                ResticEngine.ValidateRestoreTarget(root);
+                ResticEngine.DeleteRestoreStaging(root);
             }
     }
     // A security scanner or indexer often opens a file right after it is

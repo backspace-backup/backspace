@@ -24,7 +24,7 @@ internal sealed class ResticRig : IAsyncDisposable
     public readonly Backup Backup;
     public readonly string Source;
     public readonly string Password = Guid.NewGuid().ToString("N");
-    public readonly ResticBackrestEngine Engine;
+    public readonly ResticEngine Engine;
     public readonly ConcurrentQueue<(ResticCommand Command, ResticResult Result)> Commands = new();
     public readonly ConcurrentQueue<string> Log = new();
 
@@ -43,11 +43,11 @@ internal sealed class ResticRig : IAsyncDisposable
         Backup = new Backup { Id = "backup-" + label, Name = "Rig " + label, SourcePaths = { Source }, UseVss = false,
             VssDisabledAcknowledged = true, PruneSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = Destination.Id, StorageName = "default" } } };
-        Engine = new ResticBackrestEngine(Secrets);
+        Engine = new ResticEngine(Secrets);
         Engine.ResticCommandFinished += (command, result) => Commands.Enqueue((command, result));
     }
 
-    public string PlanId => ResticBackrestEngine.MakePlanId(Backup, Source, Destination, "default");
+    public string PlanId => ResticEngine.MakePlanId(Backup, Source, Destination, "default");
 
     public ResticRepository Repository => Engine.BuildResticRepository(Destination, Backup);
 

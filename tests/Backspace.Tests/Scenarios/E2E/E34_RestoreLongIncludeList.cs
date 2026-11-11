@@ -17,7 +17,7 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// <summary>
 /// Regression: a real-user restore of ~2400 files crashed with Windows'
 /// "The filename or extension is too long" error because <see
-/// cref="ResticBackrestEngine"/> was emitting one <c>--include /path</c>
+/// cref="ResticEngine"/> was emitting one <c>--include /path</c>
 /// flag per requested file, blowing past CreateProcess's ~32 KB
 /// command-line ceiling. The fix switched to a single
 /// <c>--include-file &lt;tempfile&gt;</c>.

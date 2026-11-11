@@ -9,7 +9,7 @@ namespace Backspace.Tests.TestHelpers;
 
 /// <summary>
 /// Test-scoped helper that puts the active <see cref="IBackupEngine"/>
-/// on the real <see cref="ResticBackrestEngine"/> instead of the
+/// on the real <see cref="ResticEngine"/> instead of the
 /// in-memory test double. Used by the E2E scenarios that need to
 /// exercise real cloud or local-restic flows.
 ///
@@ -28,10 +28,10 @@ public sealed class RealEngineFixture : IAsyncDisposable
     private readonly ITestOutputHelper _log;
     private readonly Func<SecretsStore, IBackupEngine>? _previousOverride;
     private readonly IBackupEngine _previousActiveEngine;
-    private readonly ResticBackrestEngine _engine;
+    private readonly ResticEngine _engine;
     private bool _disposed;
 
-    private RealEngineFixture(ITestOutputHelper log, ResticBackrestEngine engine,
+    private RealEngineFixture(ITestOutputHelper log, ResticEngine engine,
         Func<SecretsStore, IBackupEngine>? previousOverride, IBackupEngine previousActiveEngine)
     {
         _log = log;
@@ -44,7 +44,7 @@ public sealed class RealEngineFixture : IAsyncDisposable
     /// to <see cref="ServiceLocator.Engine"/>; held as a typed
     /// property for scenarios that want to call engine-specific
     /// helpers (e.g. for direct cleanup).</summary>
-    public ResticBackrestEngine Engine => _engine;
+    public ResticEngine Engine => _engine;
 
     /// <summary>True iff every required binary is on disk. Tests
     /// short-circuit with a Skipped log line when this is false.</summary>
@@ -89,7 +89,7 @@ public sealed class RealEngineFixture : IAsyncDisposable
         var previousActiveEngine = ServiceLocator.Engine;
 
         // The engine runs the bundled restic directly (U175).
-        var engine = new ResticBackrestEngine(ServiceLocator.Secrets);
+        var engine = new ResticEngine(ServiceLocator.Secrets);
 
         // Reach into the locator, swap the engine pointer, and
         // rebuild every service that captured the old engine

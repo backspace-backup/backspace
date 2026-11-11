@@ -1061,7 +1061,7 @@ at some opacity (a fade from Transparent passed through whitish tones on the
 dark sidebar, U194). S102 runs a check on the owner's three backups: Backup
 health shows it with the turning icon, the short name, the bar and the step,
 its hover has everything, Last backup keeps the backup's result, the banner
-counts a skipped backup apart from an incomplete check, and a backup that has
+says only "2 backups need attention" with each pill's reason on hover, and a backup that has
 stored nothing says why it has no checks (U197–U200). CheckProgressTests reads
 restic's check output and runs a real full data read slowly enough to see the
 packs counted part-way (U198). E53 clicks Activity against a real encrypted local backup,

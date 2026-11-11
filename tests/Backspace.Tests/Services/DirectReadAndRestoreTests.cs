@@ -39,7 +39,7 @@ public sealed class DirectReadAndRestoreTests(ITestOutputHelper output)
     private static Task<IReadOnlyList<RevisionSummary>> List(ResticRig rig) =>
         rig.Engine.ListSnapshotsAsync(rig.Backup, rig.Source, rig.Destination, "default", TestContext.Current.CancellationToken);
 
-    private static Task<ResticBackrestEngine.ResolvedSnapshot> Resolve(ResticRig rig, string? id) =>
+    private static Task<ResticEngine.ResolvedSnapshot> Resolve(ResticRig rig, string? id) =>
         rig.Engine.ResolveSnapshotIdAsync(rig.Backup, rig.Source, rig.Destination, "default", 1, TestContext.Current.CancellationToken, id);
 
     private static Task<RestoreOpResult> Restore(ResticRig rig, string target, string[] includes, string[]? leaves = null,

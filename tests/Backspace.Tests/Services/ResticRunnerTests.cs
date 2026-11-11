@@ -235,6 +235,33 @@ public sealed class ResticRunnerTests(ITestOutputHelper output)
         Assert.DoesNotContain(log, l => l.Contains(password, StringComparison.Ordinal));
     }
 
+    /// <summary>U196 (owner, 11 November 2026: "go ahead"): with Verbose off,
+    /// a restic command that worked adds no line to the log (its command line
+    /// and "finished: exit code 0" are Verbose detail); one that failed shows
+    /// its command line and how it ended, as errors.</summary>
+    [Fact]
+    public async Task Only_a_failed_command_shows_its_command_line_without_Verbose()
+    {
+        Assert.True(File.Exists(Restic), "restic is needed: " + Restic);
+        using var ws = new TempWorkspace("runner-levels");
+        var password = Guid.NewGuid().ToString("N");
+        var repository = new ResticRepository(await NewRepositoryAsync(ws.Sub("repo"), password), password, [], []);
+        static string Level(string line) => line.Split('\t') is { Length: >= 3 } parts ? parts[1] : "";
+        var worked = new ConcurrentQueue<string>();
+        Assert.True((await ResticRunner.RunAsync(new ResticCommand(Restic, repository, ["snapshots"]), null, worked.Enqueue, TestContext.Current.CancellationToken)).Succeeded);
+        output.WriteLine(string.Join("\n", worked));
+        Assert.Contains(worked, l => l.Contains("\tcommand: ", StringComparison.Ordinal));
+        Assert.All(worked.Where(l => l.StartsWith("[restic] ", StringComparison.Ordinal)), l => Assert.Equal("debug", Level(l)));
+
+        var failed = new ConcurrentQueue<string>();
+        var wrong = repository with { Password = "not-the-password" };
+        Assert.Equal(12, (await ResticRunner.RunAsync(new ResticCommand(Restic, wrong, ["snapshots"]), null, failed.Enqueue, TestContext.Current.CancellationToken)).ExitCode);
+        output.WriteLine(string.Join("\n", failed));
+        Assert.Contains(failed, l => Level(l) == "error" && l.Contains("\tcommand: ", StringComparison.Ordinal) && l.Contains(" snapshots", StringComparison.Ordinal));
+        Assert.Contains(failed, l => Level(l) == "error" && l.Contains("snapshots finished: exit code 12 (wrong password)", StringComparison.Ordinal));
+        Assert.DoesNotContain(failed, l => l.Contains("not-the-password", StringComparison.Ordinal));
+    }
+
     /// <summary>The fallback: a console program that shrugs Ctrl+Break off
     /// (ping -t prints its statistics and goes on) is ended once the wait is
     /// over, and the call returns only after it has.</summary>

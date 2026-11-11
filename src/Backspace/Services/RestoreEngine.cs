@@ -67,7 +67,7 @@ public sealed class RestoreEngine
             request.Backup.Name, request.SourcePath, request.Destination.Name, request.Revision,
             includes.Count, request.Files.Count, request.TargetPath);
 
-        ResticBackrestEngine.ValidateRestoreTarget(request.TargetPath);
+        ResticEngine.ValidateRestoreTarget(request.TargetPath);
         System.IO.Directory.CreateDirectory(request.TargetPath);
 
         var outcome = new RestoreOutcome

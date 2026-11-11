@@ -173,7 +173,7 @@ public sealed class E58_DropboxScaleBenchmark
             AbortOnMeteredNetwork = false, UseVss = false, VssDisabledAcknowledged = true,
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } },
         };
-        var engine = new ResticBackrestEngine(secrets);
+        var engine = new ResticEngine(secrets);
         // restic starts with the backup (U175): there is no engine start apart.
         var engineSeconds = 0.0;
         var watch = Stopwatch.StartNew();

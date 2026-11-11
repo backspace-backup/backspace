@@ -37,7 +37,7 @@ internal static class SnapshotReaders
     internal static string? DirectoryOverride { get; set; }
 
     internal static string Key(Destination destination, string storageName)
-        => ResticBackrestEngine.MakeRepoId(destination, storageName);
+        => ResticEngine.MakeRepoId(destination, storageName);
 
     internal static string Reason(Kind kind) => kind == Kind.Mount
         ? "a snapshot of this backup is mounted as a drive"

@@ -110,7 +110,7 @@ public sealed class HandleRenameTests
         File.WriteAllText(Path.Combine(staging, "a.txt"), "a");
         var output = new Backspace.Services.RestoreOutputTransaction();
         output.Publish(Path.Combine(staging, "a.txt"), Path.Combine(root, "a.txt"), root, true, TestContext.Current.CancellationToken);
-        Backspace.Services.ResticBackrestEngine.DeleteRestoreStaging(root, TestContext.Current.CancellationToken);
+        Backspace.Services.ResticEngine.DeleteRestoreStaging(root, TestContext.Current.CancellationToken);
         Assert.False(Directory.Exists(root));
         output.Rollback(); // finishing afterwards finds nothing left and doesn't fail
     }

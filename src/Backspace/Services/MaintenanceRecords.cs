@@ -24,9 +24,9 @@ namespace Backspace.Services;
 ///   "repositories": { "&lt;repository id&gt;": { "lastFullPruneUtc": "2026-11-10T06:13:11Z" } },
 ///   "plans": { "&lt;plan id&gt;": { "lastBackupStartedUtc": "…", "lastBackupFinishedUtc": "…", "lastSnapshotId": "…" } } }
 /// </code>
-/// The repository id is <see cref="ResticBackrestEngine.MakeRepoId"/> (the
+/// The repository id is <see cref="ResticEngine.MakeRepoId"/> (the
 /// destination's id and storage name), the plan id
-/// <see cref="ResticBackrestEngine.MakePlanId"/>. A record that cannot be
+/// <see cref="ResticEngine.MakePlanId"/>. A record that cannot be
 /// written leaves the backup alone: at worst one prune more or less.
 /// </summary>
 internal static class MaintenanceRecords
@@ -71,7 +71,7 @@ internal static class MaintenanceRecords
     /// snapshot. Null when none is remembered.</summary>
     internal static string? RememberedSnapshot(string planId, CancellationToken ct = default)
         => ReadAll(ct).Select(f => f.Plans.TryGetValue(planId, out var p) ? p : null)
-            .Where(p => p?.LastBackupFinishedUtc is not null && ResticBackrestEngine.IsValidBackrestGuid(p.LastSnapshotId))
+            .Where(p => p?.LastBackupFinishedUtc is not null && ResticEngine.IsValidSnapshotId(p.LastSnapshotId))
             .MaxBy(p => p!.LastBackupFinishedUtc)?.LastSnapshotId;
 
     internal static void BackupStarted(string planId, DateTime utc, CancellationToken ct = default)
@@ -220,7 +220,7 @@ internal static class KnownRepositories
         {
             return Read(FilePath, ct).Repositories.TryGetValue(repoId, out var entry)
                 && string.Equals(entry.Uri, uri, StringComparison.Ordinal)
-                && ResticBackrestEngine.IsValidBackrestGuid(entry.Id) ? entry.Id : null;
+                && ResticEngine.IsValidSnapshotId(entry.Id) ? entry.Id : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {

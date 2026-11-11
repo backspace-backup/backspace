@@ -157,7 +157,7 @@ public sealed class CellOutcome
 
     /// <summary>Path to the per-cell engine log file, when one was
     /// created. Set to the LogPath of the underlying RunRecord
-    /// produced by ResticBackrestEngine so LogsView can offer it as
+    /// produced by ResticEngine so LogsView can offer it as
     /// the Selected Run's history entry — earlier this stayed empty
     /// for cells that failed during init, leaving "Selected run"
     /// blank for the user.</summary>

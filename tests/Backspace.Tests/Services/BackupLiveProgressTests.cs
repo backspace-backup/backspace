@@ -208,8 +208,8 @@ public sealed class BackupLiveProgressTests
     [Fact]
     public void Backups_skip_restics_counting_walk()
     {
-        Assert.Equal("--no-scan", ResticBackrestEngine.BuildBackupFlags(new Backspace.Models.Backup())[0]);
-        Assert.Single(ResticBackrestEngine.BuildBackupFlags(new Backspace.Models.Backup()), "--no-scan");
+        Assert.Equal("--no-scan", ResticEngine.BuildBackupFlags(new Backspace.Models.Backup())[0]);
+        Assert.Single(ResticEngine.BuildBackupFlags(new Backspace.Models.Backup()), "--no-scan");
     }
 
     [Fact]
@@ -406,7 +406,7 @@ public sealed class BackupLiveProgressTests
     {
         var backup = new Backspace.Models.Backup { FiltersText = "-*.tmp\n-*.log", UseVss = true };
         var destination = new Backspace.Models.Destination { Name = "Google Drive" };
-        var first = ResticBackrestEngine.SetupLines(backup, @"C:\Users\me", destination, null).ToList();
+        var first = ResticEngine.SetupLines(backup, @"C:\Users\me", destination, null).ToList();
         Assert.Equal("[setup] No earlier backup of this folder in «Google Drive»: everything is read and sent.", first[0]);
         // The rules of the text, exactly as restic reads them (U151).
         Assert.StartsWith("[setup] 2 exclusion rules loaded", first[1]);
@@ -414,7 +414,7 @@ public sealed class BackupLiveProgressTests
             ? "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive."
             : "[setup] Shadow copy off: files another program keeps locked may be skipped.", first[2]);
         var when = new DateTime(2026, 11, 3, 18, 40, 0, DateTimeKind.Utc);
-        var next = ResticBackrestEngine.SetupLines(backup, @"C:\Users\me", destination, ("abcdef0123456789", when)).First();
+        var next = ResticEngine.SetupLines(backup, @"C:\Users\me", destination, ("abcdef0123456789", when)).First();
         Assert.Equal($"[setup] Previous backup to «Google Drive»: {when.ToLocalTime():yyyy-MM-dd HH:mm}, snapshot abcdef01. Only changes are sent.", next);
     }
 }

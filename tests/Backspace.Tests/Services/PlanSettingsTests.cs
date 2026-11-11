@@ -17,17 +17,17 @@ public sealed class PlanSettingsTests
     {
         Assert.Equal(new[] { "forget", "--tag", "plan:my-plan,created-by:my-instance", "--group-by=", "--keep-within=14d",
                 "--keep-within-daily=90d", "--keep-within-weekly=180d", "--keep-within-monthly=365d" },
-            ResticBackrestEngine.RetentionArguments("my-plan", "my-instance",
+            ResticEngine.RetentionArguments("my-plan", "my-instance",
                 KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse("0:365 30:180 7:90 1:14"))));
         Assert.Equal(new[] { "forget", "--tag", "plan:p,created-by:i", "--group-by=", "--keep-last=2" },
-            ResticBackrestEngine.RetentionArguments("p", "i", KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse("2"))));
-        Assert.Null(ResticBackrestEngine.RetentionArguments("plan", "instance", KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse(""))));
-        Assert.Null(ResticBackrestEngine.RetentionArguments("plan", "instance", KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse("0:30 7:90"))));
-        Assert.Null(ResticBackrestEngine.RetentionArguments("plan", "instance", []));
-        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.RetentionArguments("plan", "", ["--keep-last=1"]));
-        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.RetentionArguments("plan,another-plan", "instance", ["--keep-last=1"]));
-        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.RetentionArguments("plan", "instance", ["--keep-last=1 --prune"]));
-        Assert.Throws<System.InvalidOperationException>(() => ResticBackrestEngine.RetentionArguments("plan", "instance", ["unlock"]));
+            ResticEngine.RetentionArguments("p", "i", KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse("2"))));
+        Assert.Null(ResticEngine.RetentionArguments("plan", "instance", KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse(""))));
+        Assert.Null(ResticEngine.RetentionArguments("plan", "instance", KeepPolicyRules.ResticOptions(KeepPolicyRules.Parse("0:30 7:90"))));
+        Assert.Null(ResticEngine.RetentionArguments("plan", "instance", []));
+        Assert.Throws<System.InvalidOperationException>(() => ResticEngine.RetentionArguments("plan", "", ["--keep-last=1"]));
+        Assert.Throws<System.InvalidOperationException>(() => ResticEngine.RetentionArguments("plan,another-plan", "instance", ["--keep-last=1"]));
+        Assert.Throws<System.InvalidOperationException>(() => ResticEngine.RetentionArguments("plan", "instance", ["--keep-last=1 --prune"]));
+        Assert.Throws<System.InvalidOperationException>(() => ResticEngine.RetentionArguments("plan", "instance", ["unlock"]));
     }
 
     /// <summary>U131 (4 November 2026): a backup cut short leaves data restic
@@ -38,13 +38,13 @@ public sealed class PlanSettingsTests
     {
         var now = new System.DateTime(2026, 11, 5, 12, 0, 0, System.DateTimeKind.Utc);
         // Previous run finished, pruned two days ago: nothing to do.
-        Assert.False(ResticBackrestEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-2), now));
-        Assert.False(ResticBackrestEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-6.9), now));
+        Assert.False(ResticEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-2), now));
+        Assert.False(ResticEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-6.9), now));
         // Previous run cut short (an error, a stop, a crash): prune.
-        Assert.True(ResticBackrestEngine.NeedsPrune(previousUnfinished: true, now.AddDays(-2), now));
+        Assert.True(ResticEngine.NeedsPrune(previousUnfinished: true, now.AddDays(-2), now));
         // Never pruned (as far as Backspace's records say), or a week ago or more: prune.
-        Assert.True(ResticBackrestEngine.NeedsPrune(previousUnfinished: false, null, now));
-        Assert.True(ResticBackrestEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-7), now));
-        Assert.True(ResticBackrestEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-9), now));
+        Assert.True(ResticEngine.NeedsPrune(previousUnfinished: false, null, now));
+        Assert.True(ResticEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-7), now));
+        Assert.True(ResticEngine.NeedsPrune(previousUnfinished: false, now.AddDays(-9), now));
     }
 }

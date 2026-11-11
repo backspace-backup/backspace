@@ -77,7 +77,7 @@ public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
             Assert.Single(live, l => l.StartsWith("[orchestrator] attempt 1 starting"));
             Output.WriteLine($"Live lines heard once each: {setup.Count} setup/recap lines, {live.Count} lines in all");
             // The backup ran restic itself, and nothing of it is left running.
-            Assert.Contains(live, l => l.Contains("\tinfo\tcommand: ", StringComparison.Ordinal) && l.Contains(" backup --json ", StringComparison.Ordinal));
+            Assert.Contains(live, l => l.Contains("\tdebug\tcommand: ", StringComparison.Ordinal) && l.Contains(" backup --json ", StringComparison.Ordinal));
             Assert.Empty(Children(self, "restic"));
             Assert.Empty(Children(self, "rclone"));
             Assert.Empty(Children(self, "backrest"));

@@ -589,14 +589,13 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         else if (warned.Count > 0 || skipped.Count > 0)
         {
             HealthClass = "warn";
-            // Each reason with its own count (U199): a skipped backup is not
-            // a check that needs attention.
+            // Several kinds of problem, or a check: "N backups need attention"
+            // and the pills, each saying why on hover (U199). The line only
+            // points at the pills; reasons beside it wrapped awkwardly.
             var warnedRuns = warned.Count - incompleteChecks;
-            var parts = new System.Collections.Generic.List<string>();
-            if (incompleteChecks > 0) parts.Add($"{incompleteChecks} with a check incomplete, overdue, or unavailable");
-            if (warnedRuns > 0) parts.Add($"{warnedRuns} finished with warnings");
-            if (skipped.Count > 0) parts.Add(skipped.Count == 1 ? "1 skipped on its last run" : $"{skipped.Count} skipped on their last run");
-            if (parts.Count > 1 || incompleteChecks > 0)
+            var kinds = (incompleteChecks > 0 ? 1 : 0) + (warnedRuns > 0 ? 1 : 0) + (skipped.Count > 0 ? 1 : 0);
+            var generic = kinds > 1 || incompleteChecks > 0;
+            if (generic)
             {
                 var affected = warned.Count + skipped.Count;
                 HealthHeadline = affected == 1 ? "1 backup needs attention" : $"{affected} backups need attention";
@@ -613,9 +612,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                     ? "1 backup was skipped on its last run"
                     : $"{skipped.Count} backups were skipped on their last run";
             }
-            HealthDetail = parts.Count > 1 ? string.Join(" · ", parts) + "."
-                : incompleteChecks > 0 ? (incompleteChecks == 1 ? "Its check is incomplete, overdue, or unavailable." : "Their checks are incomplete, overdue, or unavailable.")
-                : $"Last activity: {ago}";
+            HealthDetail = generic ? "" : $"Last activity: {ago}";
             foreach (var b in warned)  AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "warn", JumpToBackupCommand, Reason(b)));
             foreach (var b in skipped) AffectedBackups.Add(new HealthBackupReference(b.Id, b.Name, "skipped", JumpToBackupCommand, Reason(b)));
         }

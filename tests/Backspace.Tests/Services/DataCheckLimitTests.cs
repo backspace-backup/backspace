@@ -32,11 +32,11 @@ public sealed class DataCheckLimitTests(ITestOutputHelper output)
     [InlineData(10L * 1024 * BackupCheck.OneGiB, 5 * BackupCheck.OneGiB, 5 * BackupCheck.OneGiB)] // a limit above 1 GiB is kept
     [InlineData(50L, 4096L, 1L)]                           // never less than one byte
     public void A_data_sample_reads_one_percent_up_to_its_limit(long stored, long? limit, long expected)
-        => Assert.Equal(expected, ResticBackrestEngine.DataCheckSampleBytes(stored, limit));
+        => Assert.Equal(expected, ResticEngine.DataCheckSampleBytes(stored, limit));
 
     [Fact]
     public void A_limit_below_one_byte_is_refused()
-        => Assert.Throws<ArgumentOutOfRangeException>(() => ResticBackrestEngine.DataCheckSampleBytes(1000, 0));
+        => Assert.Throws<ArgumentOutOfRangeException>(() => ResticEngine.DataCheckSampleBytes(1000, 0));
 
     [Fact]
     public void Each_check_entry_becomes_its_own_command_and_depth()
@@ -46,23 +46,23 @@ public sealed class DataCheckLimitTests(ITestOutputHelper output)
         var sample = BackupOrchestrator.EngineViewFor(backup, new BackupCheck { Kind = CheckKind.DataSample, MaximumBytes = 200 * MiB });
         var full = BackupOrchestrator.EngineViewFor(backup, new BackupCheck { Kind = CheckKind.FullDataRead });
 
-        Assert.False(ResticBackrestEngine.ReadsAllData(structure));
-        Assert.False(ResticBackrestEngine.ReadsAllData(sample));
-        Assert.True(ResticBackrestEngine.ReadsAllData(full));
-        Assert.Equal("check --read-data-subset=4096B --limit-download=512", ResticBackrestEngine.DataCheckCommand(sample, 4096));
-        Assert.Equal("check --read-data --limit-download=512", ResticBackrestEngine.DataCheckCommand(full, null));
+        Assert.False(ResticEngine.ReadsAllData(structure));
+        Assert.False(ResticEngine.ReadsAllData(sample));
+        Assert.True(ResticEngine.ReadsAllData(full));
+        Assert.Equal("check --read-data-subset=4096B --limit-download=512", ResticEngine.DataCheckCommand(sample, 4096));
+        Assert.Equal("check --read-data --limit-download=512", ResticEngine.DataCheckCommand(full, null));
         backup.BandwidthLimitKBps = 0;
-        Assert.Equal("check --read-data", ResticBackrestEngine.DataCheckCommand(BackupOrchestrator.EngineViewFor(backup,
+        Assert.Equal("check --read-data", ResticEngine.DataCheckCommand(BackupOrchestrator.EngineViewFor(backup,
             new BackupCheck { Kind = CheckKind.FullDataRead }), null));
 
-        Assert.Contains("were not downloaded", ResticBackrestEngine.RepositoryCheckDescription(structure));
-        Assert.Contains("up to 200 MiB", ResticBackrestEngine.RepositoryCheckDescription(sample));
-        Assert.Contains("not a full-data check", ResticBackrestEngine.RepositoryCheckDescription(sample));
-        Assert.Contains("every piece of saved data", ResticBackrestEngine.RepositoryCheckDescription(full));
-        Assert.DoesNotContain("not a full-data check", ResticBackrestEngine.RepositoryCheckDescription(full));
+        Assert.Contains("were not downloaded", ResticEngine.RepositoryCheckDescription(structure));
+        Assert.Contains("up to 200 MiB", ResticEngine.RepositoryCheckDescription(sample));
+        Assert.Contains("not a full-data check", ResticEngine.RepositoryCheckDescription(sample));
+        Assert.Contains("every piece of saved data", ResticEngine.RepositoryCheckDescription(full));
+        Assert.DoesNotContain("not a full-data check", ResticEngine.RepositoryCheckDescription(full));
         // A copy without a limit (settings from before U179) keeps 1 GiB.
-        Assert.Contains("up to 1 GiB", ResticBackrestEngine.RepositoryCheckDescription(new Backup { CheckReadDataSample = true }));
-        Assert.True(new ResticBackrestEngine(new SecretsStore()).HonoursDataCheckLimit);
+        Assert.Contains("up to 1 GiB", ResticEngine.RepositoryCheckDescription(new Backup { CheckReadDataSample = true }));
+        Assert.True(new ResticEngine(new SecretsStore()).HonoursDataCheckLimit);
     }
 
     /// <summary>The real engine, through the stand-alone check (restic run
@@ -81,7 +81,7 @@ public sealed class DataCheckLimitTests(ITestOutputHelper output)
             Encrypted = true, StoragePasswordRef = secrets.PutNew("data-check", Guid.NewGuid().ToString("N")) };
         var backup = new Backup { Name = "Data check", SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(), Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
-        var engine = new ResticBackrestEngine(secrets);
+        var engine = new ResticEngine(secrets);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
         Assert.Equal(BackupRunStatus.Success, (await engine.BackupPruneCheckAsync(backup, source, destination, "default", deadline.Token)).Status);
 

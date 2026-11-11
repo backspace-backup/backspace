@@ -97,7 +97,7 @@ public sealed class EngineUnreachableDestinationException : System.Exception, IN
 
 
 /// <summary>A task stopped showing signs of life (U111, 4 November 2026): a
-/// backup's counts didn't move for <see cref="ResticBackrestEngine.ProgressStallLimit"/>.
+/// backup's counts didn't move for <see cref="ResticEngine.ProgressStallLimit"/>.
 /// The task is stopped and the run fails with this reason and the usual
 /// failure alerts; the next scheduled run tries again. Retrying at once could
 /// wait another hour on the same stuck network.</summary>

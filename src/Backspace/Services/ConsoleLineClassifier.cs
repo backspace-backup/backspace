@@ -24,7 +24,7 @@ internal static class ConsoleLineClassifier
     private static readonly Regex Dated = new(
         @"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? (?<level>[A-Z]+) ",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
-    private static readonly Regex BackrestStatus = new(
+    private static readonly Regex TerminalStatus = new(
         @"^\[backrest\] op=\d+ status=STATUS_(?<status>[A-Z_]+)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex OnlineOnly = new(
@@ -66,7 +66,7 @@ internal static class ConsoleLineClassifier
                 "warn" => ConsoleLineKind.Warning,
                 _ => ConsoleLineKind.Error,
             };
-        if (BackrestStatus.Match(text) is { Success: true } op)
+        if (TerminalStatus.Match(text) is { Success: true } op)
             return op.Groups["status"].Value switch
             {
                 "PENDING" or "INPROGRESS" => ConsoleLineKind.Detail,

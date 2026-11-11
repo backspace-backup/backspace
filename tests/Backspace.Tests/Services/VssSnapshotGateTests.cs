@@ -91,12 +91,12 @@ public sealed class VssSnapshotGateTests
     [Fact]
     public void Restic_keeps_retrying_while_another_snapshot_is_made_for_thirty_minutes()
     {
-        var flags = ResticBackrestEngine.BuildBackupFlags(new Backup { UseVss = true });
+        var flags = ResticEngine.BuildBackupFlags(new Backup { UseVss = true });
         if (!Backspace.Services.Platform.PlatformInfo.IsWindows) { Assert.DoesNotContain("-o", flags); return; }
         var at = flags.IndexOf("--use-fs-snapshot");
         Assert.True(at >= 0);
         Assert.Equal(["-o", "vss.timeout=30m"], flags.Skip(at + 1).Take(2));
-        Assert.DoesNotContain("vss.timeout=30m", ResticBackrestEngine.BuildBackupFlags(new Backup { UseVss = false }));
+        Assert.DoesNotContain("vss.timeout=30m", ResticEngine.BuildBackupFlags(new Backup { UseVss = false }));
     }
 
     private static BackupLiveProgress.Sample? Status(long filesDone) => BackupLiveProgress.FromResticStatus(JsonDocument.Parse(

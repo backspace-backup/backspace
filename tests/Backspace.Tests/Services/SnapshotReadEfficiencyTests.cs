@@ -47,10 +47,10 @@ public sealed class SnapshotReadEfficiencyTests
     [Fact]
     public void MissingOrWrongSnapshotHeaderCannotPublishATree()
     {
-        var missing = new ResticBackrestEngine.SnapshotTreeListing("/C/source", Snapshot);
+        var missing = new ResticEngine.SnapshotTreeListing("/C/source", Snapshot);
         missing.Accept(Node("/C/source/valid.txt", "file"));
         Assert.False(missing.IsComplete);
-        var wrong = new ResticBackrestEngine.SnapshotTreeListing("/C/source", Snapshot);
+        var wrong = new ResticEngine.SnapshotTreeListing("/C/source", Snapshot);
         wrong.Accept("{\"struct_type\":\"snapshot\",\"id\":\"wrong\"}");
         Assert.False(wrong.IsComplete);
         Assert.True(Tree().IsComplete); // An actual empty snapshot is valid.
@@ -77,9 +77,9 @@ public sealed class SnapshotReadEfficiencyTests
     [InlineData("C:\\")] [InlineData("C:/")]
     public void WholeDriveListingKeepsRootFilesAndExcludesOtherDrives(string source)
     {
-        var prefix = ResticBackrestEngine.SourcePathToSnapshotPrefix(source);
+        var prefix = ResticEngine.SourcePathToSnapshotPrefix(source);
         Assert.Equal("C", prefix);
-        var listing = new ResticBackrestEngine.SnapshotTreeListing("/" + prefix, Snapshot);
+        var listing = new ResticEngine.SnapshotTreeListing("/" + prefix, Snapshot);
         listing.Accept(JsonSerializer.Serialize(new { struct_type = "snapshot", id = Snapshot }));
         listing.Accept(Node("/C", "dir"));
         listing.Accept(Node("/C/root.txt", "file", 10));
@@ -96,7 +96,7 @@ public sealed class SnapshotReadEfficiencyTests
     public void Progress_counts_files_not_folders()
     {
         var heard = new List<int>();
-        var listing = new ResticBackrestEngine.SnapshotTreeListing("/C/source", Snapshot, new Counted(heard.Add));
+        var listing = new ResticEngine.SnapshotTreeListing("/C/source", Snapshot, new Counted(heard.Add));
         listing.Accept(JsonSerializer.Serialize(new { struct_type = "snapshot", id = Snapshot }));
         listing.Accept(Node("/C/source", "dir"));
         for (var folder = 0; folder < 1000; folder++)
@@ -116,9 +116,9 @@ public sealed class SnapshotReadEfficiencyTests
         public void Report(int value) => report(value);
     }
 
-    private static ResticBackrestEngine.SnapshotTreeListing Tree()
+    private static ResticEngine.SnapshotTreeListing Tree()
     {
-        var listing = new ResticBackrestEngine.SnapshotTreeListing("/C/source", Snapshot);
+        var listing = new ResticEngine.SnapshotTreeListing("/C/source", Snapshot);
         listing.Accept(JsonSerializer.Serialize(new { struct_type = "snapshot", id = Snapshot }));
         return listing;
     }

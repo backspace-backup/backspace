@@ -35,7 +35,7 @@ namespace Backspace.Services;
 ///     <see cref="IBackupEngine"/> the main process picked, and routes
 ///     the cell call through it. The VSS magic comes from restic's
 ///     <c>--use-fs-snapshot</c> flag (added by
-///     <see cref="ResticBackrestEngine.BuildBackupFlags"/>); the
+///     <see cref="ResticEngine.BuildBackupFlags"/>); the
 ///     helper just provides the Administrator token restic needs to
 ///     call into the Volume Shadow Copy Service.
 /// </summary>

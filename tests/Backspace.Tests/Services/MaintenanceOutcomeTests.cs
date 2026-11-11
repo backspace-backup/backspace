@@ -282,19 +282,19 @@ public sealed class MaintenanceOutcomeTests
     [InlineData(107_374_182_400L, 1_073_741_824L)]
     [InlineData(long.MaxValue, 1_073_741_824L)]
     public void Sample_target_uses_the_smaller_percentage_and_size_budget(long stored, long expected)
-        => Assert.Equal(expected, ResticBackrestEngine.DataCheckSampleBytes(stored));
+        => Assert.Equal(expected, ResticEngine.DataCheckSampleBytes(stored));
 
     [Fact]
     public void Invalid_size_cannot_turn_into_an_unlimited_data_check()
-        => Assert.Throws<System.IO.InvalidDataException>(() => ResticBackrestEngine.DataCheckSampleBytes(-1));
+        => Assert.Throws<System.IO.InvalidDataException>(() => ResticEngine.DataCheckSampleBytes(-1));
 
     [Fact]
     public void Stored_data_size_accepts_the_real_command_heading_but_requires_one_result()
     {
-        Assert.Equal(12000, ResticBackrestEngine.ParseStoredDataSize("command: stats --mode raw-data --json\n{\"total_size\":12000,\"total_blob_count\":2}\n"));
-        Assert.Equal(0, ResticBackrestEngine.ParseStoredDataSize("{\"total_size\":0}"));
+        Assert.Equal(12000, ResticEngine.ParseStoredDataSize("command: stats --mode raw-data --json\n{\"total_size\":12000,\"total_blob_count\":2}\n"));
+        Assert.Equal(0, ResticEngine.ParseStoredDataSize("{\"total_size\":0}"));
         foreach (var output in new[] { "no result", "{\"total_size\":-1}", "{\"total_size\":\"12000\"}", "{\"total_size\":1}\n{\"total_size\":2}" })
-            Assert.ThrowsAny<Exception>(() => ResticBackrestEngine.ParseStoredDataSize(output));
+            Assert.ThrowsAny<Exception>(() => ResticEngine.ParseStoredDataSize(output));
     }
 
     public class OutcomeEngine : DispatchProxy

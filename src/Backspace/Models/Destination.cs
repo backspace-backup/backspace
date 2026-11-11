@@ -84,7 +84,7 @@ public sealed class Destination
     /// <summary>
     /// SecretsStore ref for the restic repository password
     /// (used for restic's repo encryption — fed to the engine via
-    /// the <c>RESTIC_PASSWORD</c> env var by ResticBackrestEngine).
+    /// the <c>RESTIC_PASSWORD</c> env var by ResticEngine).
     /// Generated if the user leaves it blank; we show it once for
     /// them to back up.
     /// </summary>

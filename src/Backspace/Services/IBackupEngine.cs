@@ -9,14 +9,14 @@ namespace Backspace.Services;
 
 /// <summary>
 /// Backend-agnostic contract for the bytes-on-disk part of a backup engine.
-/// The live implementation is <see cref="ResticBackrestEngine"/>, which
+/// The live implementation is <see cref="ResticEngine"/>, which
 /// runs the bundled restic (and, for cloud destinations, rclone) directly
 /// (U175).
 ///
 /// The surface is deliberately narrow: every method here has at least
 /// one live call site in the app. Engine-specific helpers (command lines,
 /// error translation, snapshot-id minting, restic URI shaping) stay on the concrete
-/// <see cref="ResticBackrestEngine"/> — they're engine details, not
+/// <see cref="ResticEngine"/> — they're engine details, not
 /// part of the contract.
 /// </summary>
 public interface IBackupEngine

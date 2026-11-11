@@ -26,8 +26,8 @@ public class BackupOrchestratorBuildSummaryTests
         var r = new RunRecord { StartedUtc = started, EndedUtc = started.AddMinutes(95), Status = BackupRunStatus.Skipped };
         r.Cells.Add(new CellOutcome { Status = BackupRunStatus.Skipped, Summary = "Stopped" });
         Assert.Equal("Stopped after 1h 35m", BackupOrchestrator.BuildSummary(r));
-        Assert.True(ResticBackrestEngine.WasStoppedOnRequest(new RunRecord { Summary = "Backup result: STATUS_USER_CANCELLED. failed to backup: command \"restic.exe backup\" failed" }));
-        Assert.False(ResticBackrestEngine.WasStoppedOnRequest(new RunRecord { Summary = "Backup result: STATUS_ERROR. failed" }));
+        Assert.True(ResticEngine.WasStoppedOnRequest(new RunRecord { Summary = "Backup result: STATUS_USER_CANCELLED. failed to backup: command \"restic.exe backup\" failed" }));
+        Assert.False(ResticEngine.WasStoppedOnRequest(new RunRecord { Summary = "Backup result: STATUS_ERROR. failed" }));
 
         // Stopped by the service so that it resumes later (U131).
         r.Cells[0].Summary = "Interrupted";

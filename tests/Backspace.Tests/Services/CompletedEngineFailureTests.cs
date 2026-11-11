@@ -27,7 +27,7 @@ public sealed class CompletedEngineFailureTests
     [InlineData("", false)]
     [InlineData(null, false)]
     public void Interrupted_initialization_requires_restics_own_closing_message(string? exitMessage, bool expected)
-        => Assert.Equal(expected, ResticBackrestEngine.IsInterruptedInitialization(exitMessage));
+        => Assert.Equal(expected, ResticEngine.IsInterruptedInitialization(exitMessage));
 
     [AvaloniaFact]
     public async Task Real_interrupted_initialization_fails_once_and_preserves_every_existing_file()
@@ -56,7 +56,7 @@ public sealed class CompletedEngineFailureTests
         File.Delete(Path.Combine(destination.PathOrSubpath, "config"));
         var before = Contents(destination.PathOrSubpath);
         Assert.NotEmpty(before);
-        var engine = new ResticBackrestEngine(secrets);
+        var engine = new ResticEngine(secrets);
         var run = await Orchestrator(config, secrets, logs, engine).RunBackupAsync(backup, deadline.Token);
         Assert.Equal(BackupRunStatus.Failed, run.Status);
         Assert.Equal(1, Assert.Single(run.Cells).AttemptsMade);
@@ -95,7 +95,7 @@ public sealed class CompletedEngineFailureTests
             Assert.True(process.ExitCode == 0, await stdout + await stderr);
         }
         var before = Contents(destination.PathOrSubpath);
-        var engine = new ResticBackrestEngine(secrets);
+        var engine = new ResticEngine(secrets);
         var run = await Orchestrator(config, secrets, logs, engine).RunBackupAsync(backup, deadline.Token);
         Assert.Equal(BackupRunStatus.Failed, run.Status);
         var cell = Assert.Single(run.Cells);
@@ -146,7 +146,7 @@ public sealed class CompletedEngineFailureTests
         Assert.True(RealEngineFixture.BinariesPresent, RealEngineFixture.MissingBinariesReason());
         using var workspace = new TempWorkspace("missing-repository-config");
         var (config, secrets, logs, backup, destination) = Setup(workspace);
-        var engine = new ResticBackrestEngine(secrets);
+        var engine = new ResticEngine(secrets);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         var first = await engine.BackupPruneCheckAsync(backup, backup.SourcePaths.Single(), destination, "default", deadline.Token);
         Assert.Equal(BackupRunStatus.Success, first.Status);
@@ -192,7 +192,7 @@ public sealed class CompletedEngineFailureTests
         destination.Encrypted = true;
         destination.StoragePasswordRef = "test-repository-password";
         secrets.Set(destination.StoragePasswordRef, "disposable-correct-repository-password");
-        var engine = new ResticBackrestEngine(secrets);
+        var engine = new ResticEngine(secrets);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         var first = await engine.BackupPruneCheckAsync(backup, backup.SourcePaths.Single(), destination, "default", deadline.Token);
         Assert.Equal(BackupRunStatus.Success, first.Status);

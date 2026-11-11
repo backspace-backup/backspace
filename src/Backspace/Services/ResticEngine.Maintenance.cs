@@ -20,7 +20,7 @@ namespace Backspace.Services;
 /// <c>check --read-data</c>), <c>forget &lt;id&gt;</c> and
 /// <c>prune --max-unused 25%</c>.
 /// </summary>
-public sealed partial class ResticBackrestEngine
+public sealed partial class ResticEngine
 {
     public Task<RunRecord> RunPruneOnlyAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
@@ -84,10 +84,10 @@ public sealed partial class ResticBackrestEngine
             var planId = MakePlanId(backup, sourcePath, destination, storageName);
             // The cleanup schedule always ends with a full prune.
             (terminal, cleanup) = await RunDirectRetentionAsync(restic, repoId, repository, planId, backup, ct, lineSink, prune: true).ConfigureAwait(false);
-            if (terminal.Status is BackrestStatus.Success || cleanup != default) Announce(cleanup.Recap(), lineSink);
+            if (terminal.Status is TerminalStatus.Success || cleanup != default) Announce(cleanup.Recap(), lineSink);
         }
         else terminal = await RunDirectCheckAsync(restic, repoId, repository, backup, ct, lineSink, progress).ConfigureAwait(false);
-        var status = StatusFromBackrestTerminal(terminal.Status);
+        var status = StatusFromTerminal(terminal.Status);
         return new RunRecord
         {
             BackupId = backup.Id, BackupName = backup.Name, Kind = kind,
@@ -171,7 +171,7 @@ public sealed partial class ResticBackrestEngine
         Backup backup, string sourcePath, Destination destination, string storageName,
         string snapshotId, CancellationToken ct)
     {
-        if (!IsValidBackrestGuid(snapshotId)) throw new InvalidOperationException("Invalid snapshot identity; nothing was removed.");
+        if (!IsValidSnapshotId(snapshotId)) throw new InvalidOperationException("Invalid snapshot identity; nothing was removed.");
         var (restic, repoId, repository) = await PrepareDirectAsync(backup, destination, storageName,
             checkConnection: true, create: false, ct, null).ConfigureAwait(false);
         var owned = await PlanSnapshotsAsync(restic, repoId, repository, MakePlanId(backup, sourcePath, destination, storageName), ct, null).ConfigureAwait(false);
@@ -276,7 +276,7 @@ public sealed partial class ResticBackrestEngine
         var snapshots = new List<PlanSnapshot>();
         foreach (var snapshot in list.EnumerateArray())
         {
-            if (snapshot.ValueKind != JsonValueKind.Object || Text(snapshot, "id") is not { } id || !IsValidBackrestGuid(id)) continue;
+            if (snapshot.ValueKind != JsonValueKind.Object || Text(snapshot, "id") is not { } id || !IsValidSnapshotId(id)) continue;
             if (!DateTimeOffset.TryParse(Text(snapshot, "time"), System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.None, out var time)) continue;
             long files = 0, bytes = 0;

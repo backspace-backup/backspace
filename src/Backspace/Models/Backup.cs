@@ -10,7 +10,7 @@ namespace Backspace.Models;
 ///
 /// Multi-source semantics: each entry in <see cref="SourcePaths"/>
 /// becomes its own (source × destination × storageName) plan, whose id
-/// labels its snapshots — see <see cref="Services.ResticBackrestEngine.MakePlanId"/>.
+/// labels its snapshots — see <see cref="Services.ResticEngine.MakePlanId"/>.
 /// The orchestrator loops over sources × destinations, so a backup
 /// named "computer" with sources
 /// <c>[C:\Users\me\Documents, C:\Users\me\Pictures]</c> and one

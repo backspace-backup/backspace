@@ -16,7 +16,7 @@ namespace Backspace.Tests.E2E;
 /// up, restores every file into a scratch target, and hashes the tree
 /// before/after to prove byte equality.
 ///
-/// This exercises: ResticBackrestEngine (init / backup / restore),
+/// This exercises: ResticEngine (init / backup / restore),
 /// ResticRunner (restic's process and JSON output), BackupOrchestrator,
 /// RevisionBrowser, RestoreEngine, the filter machinery (here with an
 /// empty filter set), and the config / secrets pipeline.

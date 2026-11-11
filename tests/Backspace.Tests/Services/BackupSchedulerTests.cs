@@ -99,6 +99,18 @@ public sealed class BackupSchedulerTests : IDisposable
         _battery = false;
         await loop.TickAsync(default);
         Assert.Equal(4, _runs.Count);
+
+        // A run that completed, and the connection became metered just
+        // after: it is not run again (owner, 11 November 2026: "Yes do it").
+        _now = Local(6, 20, 0);
+        _work = _ => { ScheduleLoop.ReportCompleted(); _metered = true; _blocked = "the connection is metered"; return Task.CompletedTask; };
+        await loop.TickAsync(default);
+        Assert.Equal(5, _runs.Count);
+        _work = _ => Task.CompletedTask;
+        _metered = false; _blocked = null;
+        _now = Local(6, 20, 30);
+        await loop.TickAsync(default);
+        Assert.Equal(5, _runs.Count);
     }
 
     [Fact]
