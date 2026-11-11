@@ -298,12 +298,25 @@ public sealed partial class BackupEditorViewModel
     {
         if (ReferenceEquals(_entriesFor, r)) return _entries;
         LeftOutRow Row(LeftOutItem item) => _keptRows.FirstOrDefault(k => ReferenceEquals(k.Item, item)) ?? new LeftOutRow(item, Shown(item.Path));
+        // Rows share a row only where the rule takes any name at that level
+        // (a lone * such as Dropbox/* or Program Files*/*/*): checked by
+        // putting a made-up name there and asking the rules again. A rule like
+        // *.tmp or Program Files* names what it takes, so those stay one row each.
+        var rules = FilterTranslator.CompileRules(_leftOutRulesRun);
+        bool AnyName(string folder, string sample)
+        {
+            var rest = sample.Length > folder.Length ? sample[folder.Length..].TrimStart('\\', '/') : "";
+            if (rest.Length == 0) return false;
+            var cut = rest.IndexOfAny(new[] { '\\', '/' });
+            var made = System.IO.Path.Combine(folder, "bs-any-name-7f3a" + (cut < 0 ? "" : rest[cut..]));
+            return FilterTranslator.Evaluate(rules, FilterTranslator.ResticPath(made)).Excluded;
+        }
         // First level: items sharing their folder and rule.
         var level = new List<object>();
         foreach (var g in r.Items.GroupBy(i => (Parent: ParentOf(i.Path), i.RuleIndex)))
         {
             var list = g.ToList();
-            if (list.Count == 1) { level.Add(Row(list[0])); continue; }
+            if (list.Count == 1 || !AnyName(g.Key.Parent, list[0].Path)) { level.AddRange(list.Select(Row)); continue; }
             level.Add(new LeftOutGroupRow(g.Key.Parent, Shown(g.Key.Parent), list.Select(Row).Cast<object>().ToList(), this));
         }
         // Then folders whose contents one rule leaves out, gathered by their
@@ -327,7 +340,8 @@ public sealed partial class BackupEditorViewModel
             {
                 var list = g.ToList();
                 var top = list.OfType<LeftOutGroupRow>().FirstOrDefault();
-                if (list.Count == 1 || top is null || string.Equals(g.Key.Parent, top.Parent, StringComparison.OrdinalIgnoreCase))
+                if (list.Count == 1 || top is null || string.Equals(g.Key.Parent, top.Parent, StringComparison.OrdinalIgnoreCase)
+                    || !AnyName(g.Key.Parent, top.Items[0].Path))
                 { merged.AddRange(list); continue; }
                 merged.Add(new LeftOutGroupRow(g.Key.Parent, Shown(g.Key.Parent), list, this));
                 changed = true;
@@ -451,7 +465,7 @@ public sealed partial class LeftOutGroupRow : ObservableObject
     public long Bytes => Items.Sum(m => m.Item.Bytes);
     public long Files => Items.Sum(m => m.Item.Files);
     public bool IsNew => Items.All(m => m.IsNew);
-    public string Shown => ShownParent + System.IO.Path.DirectorySeparatorChar + "…";
+    public string Shown => ShownParent.TrimEnd('\\', '/') + System.IO.Path.DirectorySeparatorChar + "…";
     public string Size => BackupEditorViewModel.Size(Bytes);
     private bool Gathers => Children.Any(c => c is LeftOutGroupRow);
 
