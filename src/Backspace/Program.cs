@@ -38,6 +38,9 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+#if WINDOWS
+        Services.Platform.Windows.CliConsole.AttachIfStartedFromConsole(args);
+#endif
         if (IsBackgroundStart(args))
         {
             // After Quit, nothing restarts Backspace in this sign-in session.
