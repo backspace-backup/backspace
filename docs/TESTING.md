@@ -378,8 +378,8 @@ clears earlier values without dropping unknown daemon fields.
 `E55_OnDemandLockRecovery` uses a real restic child waiting on standard input.
 The cleanup after a backup (restic run directly) meets its live lock: one
 ordinary `restic unlock`, one retry, the backup saved with a cleanup warning,
-the live lock and both snapshots kept. Backrest's stand-alone cleanup is
-refused too. After the child exits and the test releases its Windows process
+the live lock and both snapshots kept. The stand-alone cleanup (restic run
+directly too) gets the same one unlock and retry, and fails. After the child exits and the test releases its Windows process
 handle, the next cleanup's one unlock removes the stale lock and it succeeds;
 force removal is forbidden. Healthy backups issue no recovery command.
 
@@ -886,7 +886,7 @@ older scenario comments that describe broader coverage.
 |---|---|---|
 | Prune after backup (inline) | `E14_PruneAfterBackupRealEngine` | ✅ |
 | Standalone prune (cadence) | `RuntimeGuardCoverageTests` verifies actual unregistered weekly trigger/action and real orchestration cancellation/opt-out; `S39` covers fake-engine invocation. OS due-time firing unexercised | ⛔ OS acceptance |
-| Check after each backup (an entry of its own, U179) | `E15_CheckAfterBackupRealEngine`: the backup runs restic and no check, then the structure check runs as its own run (Backrest's OperationCheck) | ✅ |
+| Check after each backup (an entry of its own, U179) | `E15_CheckAfterBackupRealEngine`: the backup runs restic and no check, then the structure check runs as its own run (`restic check`, run directly) | ✅ |
 | Standalone check (cadence) | Actual unregistered monthly trigger/action and real orchestration cancellation/opt-out; `S39` covers fake-engine invocation. OS due-time firing unexercised | ⛔ OS acceptance |
 | Test-restore drill | `E16_TestRestoreVerifyDrill`: actual button pointer clicks in headless Avalonia; real Backrest/restic, two sources, an empty file, all file counts, persisted runs, and a second-source same-size mismatch that must fail. Screenshots show the result beside the button. | ✅ |
 | Drill skips mid-flight-edited files | E16 deliberately retains the source modification time to test byte mismatch detection; it does not simulate a concurrent edit. `BackupVerifierMidFlightDirtyTests` covers record state and retry replacement only. | 🟡 |

@@ -94,16 +94,10 @@ public sealed class E54_PlanUpdatesAndCleanupSchedule(ITestOutputHelper output) 
         backup.PruneSchedule = null;
         await BackUp();
         Assert.Equal(2, (await Snapshots()).Count);
-        // The explicit cleanup still goes through Backrest (step 2 moves it);
-        // the inline one ran restic directly. One each, nothing automatic.
-        var config = await fixture.Sidecar.Client!.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>("/v1.Backrest/GetConfig", new(), ct);
-        Assert.Equal(2, config.Plans.Count); // The edited plan and the untouched sibling, with no duplicates.
-        var operations = await fixture.Sidecar.Client.CallAsync<GetOperationsRequest, BackrestOperationList>("/v1.Backrest/GetOperations", new()
-        { Selector = new() { RepoGuid = config.Repos.Single().Guid }, LastN = 256 }, ct);
-        Assert.Equal(1, operations.Operations.Count(op => op.Status == "STATUS_SUCCESS" && op.OperationRunCommand?.Command.StartsWith("forget --tag ", StringComparison.Ordinal) == true));
-        Assert.DoesNotContain(operations.Operations, op => op.OperationForget is not null || op.OperationBackup is not null);
-        Assert.Single(direct, c => c.Arguments[0] == "forget");
+        // The explicit cleanup and the inline one both run restic directly
+        // (U175): exactly one forget each, nothing automatic.
+        Assert.Equal(2, direct.Count(c => c.Arguments[0] == "forget"));
         Assert.Equal(siblingIds, (await fixture.Engine.ListSnapshotsAsync(sibling, source, destination, "default", ct)).Select(s => s.SnapshotId));
-        ctx.Report.RecordNote("Inline cleanup runs once and leaves other backups alone", "Switching cleanup to after each backup kept two snapshots. Exactly two successful cleanup commands ran overall: the explicit cleanup (through Backrest) and this inline cleanup (restic directly). No automatic Forget task ran, and Backrest ran no backup. Both snapshots of another backup in the same repository survived unchanged.");
+        ctx.Report.RecordNote("Inline cleanup runs once and leaves other backups alone", "Switching cleanup to after each backup kept two snapshots. Exactly two successful forget commands ran overall, both restic run directly: the explicit cleanup and this inline cleanup. Both snapshots of another backup in the same repository survived unchanged.");
     }
 }

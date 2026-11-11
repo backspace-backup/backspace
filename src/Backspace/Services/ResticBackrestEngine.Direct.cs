@@ -14,9 +14,9 @@ namespace Backspace.Services;
 /// changed files) run restic directly through <see cref="ResticRunner"/>
 /// (U175, step 1): a backup never starts Backrest, in the app or in the
 /// background service. Checks are entries of their own since U179, run after
-/// the backup or on their schedule through <see cref="RunCheckOnlyAsync"/>;
-/// they, restore, browsing, mounting, the stand-alone cleanup and the erase
-/// tools still go through Backrest until the later steps.
+/// the backup or on their schedule through <see cref="RunCheckOnlyAsync"/>,
+/// which runs restic directly too, as do the stand-alone cleanup and the
+/// erase tools (step 2, ResticBackrestEngine.Maintenance.cs).
 ///
 /// <para>Everything Backrest added to a backup is kept, so repositories,
 /// snapshots, their labels and the run history carry on unchanged:
@@ -563,8 +563,7 @@ public sealed partial class ResticBackrestEngine
 
     /// <summary>The retention policy applied with restic's forget (U172) and,
     /// after a backup that may have left data behind or once a week, a full
-    /// prune (U131); see <see cref="RunRetentionAsync"/>, its Backrest twin
-    /// for the stand-alone schedule.</summary>
+    /// prune (U131). The stand-alone cleanup schedule always prunes.</summary>
     private async Task<(DirectOutcome Result, CleanupResult Cleanup)> RunDirectRetentionAsync(string restic, string repoId,
         ResticRepository repository, string planId, Backup backup, CancellationToken ct, Action<string>? lineSink, bool prune)
     {

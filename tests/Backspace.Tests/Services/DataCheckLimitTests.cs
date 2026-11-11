@@ -65,8 +65,8 @@ public sealed class DataCheckLimitTests(ITestOutputHelper output)
         Assert.True(new ResticBackrestEngine(new BackrestSidecar("none", "none", "none"), new SecretsStore()).HonoursDataCheckLimit);
     }
 
-    /// <summary>The real engine, through the stand-alone check (Backrest's
-    /// command path until step 2): a full data read runs
+    /// <summary>The real engine, through the stand-alone check (restic run
+    /// directly, U175 step 2): a full data read runs
     /// <c>check --read-data</c> and is recorded as reading all data; a data
     /// sample with a small limit reads no more than that limit.</summary>
     [AvaloniaFact]

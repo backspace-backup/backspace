@@ -65,10 +65,10 @@ engine Backspace started, and startup stops otherwise (U152).
 Backups, and the cleanup that follows them, run the bundled restic without
 Backrest (`ResticBackrestEngine.Direct.cs`): a backup started from the window,
 by the schedule or by the background service's worker never starts Backrest.
-Backrest still serves checks (entries of their own since U179, run after the
-backup or on their schedule through `RunCheckOnlyAsync`), snapshot lists,
-browsing, restore, mounting, the stand-alone cleanup and erasing, until the
-later steps of U175; after a backup it starts only for that backup's checks.
+Since step 2 so do checks (entries of their own since U179, run after the
+backup or on their schedule through `RunCheckOnlyAsync`), the stand-alone
+cleanup and the erase tools (`ResticBackrestEngine.Maintenance.cs`). Backrest
+still serves snapshot lists, browsing, restore and mounting until step 3.
 Each restic command goes through `ResticRunner`:
 
 - The password reaches restic only in its environment (`RESTIC_PASSWORD`);
@@ -289,9 +289,9 @@ structure checks use `restic check`; the data sample runs
 `stats --mode raw-data --json`, then `check --read-data-subset=<bytes>B` for 1%
 of the stored data up to the entry's limit (1 GiB when the copy has none); a
 full data read runs `check --read-data`, recorded as `CheckDepth.AllData`
-(`DataCheckLimitTests`). Checks run through Backrest's `DoRepoTask` and
-`RunCommand` until step 2 of U175. An invalid or unavailable size fails the
-check; it never falls back to an unlimited download.
+(`DataCheckLimitTests`). Checks run restic directly (U175 step 2). An invalid
+or unavailable size fails the check; it never falls back to an unlimited
+download.
 
 This is an approximate sampling target, not a network quota. Restic converts
 the byte target to a fraction of pack count, with a minimum of one pack.
@@ -965,8 +965,8 @@ only those files has no vault, and the first save asks for a password.
 - A backup, with its cleanup, never starts Backrest (U175): the window,
   `--run` and the service's worker all go through `BackupPruneCheckAsync` and
   `ResticRunner`. A new step inside a backup must run restic directly too, or
-  every scheduled backup starts the daemon again. Its checks (U179) still go
-  through Backrest until step 2.
+  every scheduled backup starts the daemon again. Its checks (U179) and the
+  stand-alone cleanup run restic directly too (step 2).
   `DirectBackupTests.A_scheduled_backup_never_starts_Backrest` watches every
   process under two `--run` runs. The password reaches restic only through its
   environment, never its command line or the transcript.

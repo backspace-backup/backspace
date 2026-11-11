@@ -109,10 +109,9 @@ hibernation and locking the screen don't bring it back.
 
 Backspace registers no Windows scheduled task. Between runs it only waits for
 the next due time, so it uses no CPU while idle. The backup engine runs only
-while needed. A backup, with its cleanup, runs restic (and rclone, for a
-cloud destination), which end with it. Backrest, which Backspace still uses
-for checks, to list, browse and restore backups, and for cleanup on its own
-schedule, starts when one of those needs it: the background service stops
+while needed. A backup, its cleanup and its checks run restic (and rclone,
+for a cloud destination), which end with them. Backrest, which Backspace still
+uses to list, browse and restore backups, starts when one of those needs it: the background service stops
 it when each run ends, and the open app after 5 minutes without use. The next
 action starts it again, which takes a few seconds.
 

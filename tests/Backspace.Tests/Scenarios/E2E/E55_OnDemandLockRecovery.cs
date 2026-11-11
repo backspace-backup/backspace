@@ -92,9 +92,14 @@ public sealed class E55_OnDemandLockRecovery(ITestOutputHelper output) : BackupE
                 "The backup itself was saved beside the live restic process. Its cleanup was refused (exit code 11), asked restic once to remove stale locks, " +
                 "tried once more and was refused again: the live process and its lock remained, and the run ended with a warning.");
 
-            // The standalone cleanup (Backrest, until step 2) obeys the same rule.
+            // The stand-alone cleanup (restic directly too, U175 step 2) obeys
+            // the same rule: one unlock, one retry, then a failure.
+            commands.Clear();
             var standalone = await fixture.Engine.RunPruneOnlyAsync(backup, source, destination, "default", ct, Output.WriteLine);
             Assert.Equal(BackupRunStatus.Failed, standalone.Status);
+            Assert.Equal(new[] { 11, 11 }, Ran("forget").Select(f => f.Result.ExitCode));
+            Assert.Single(Ran("unlock"));
+            Assert.Empty(Ran("prune"));
             Assert.False(held.HasExited);
             Assert.NotEmpty(Directory.EnumerateFiles(locks));
 

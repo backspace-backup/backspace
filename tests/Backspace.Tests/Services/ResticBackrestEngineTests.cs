@@ -353,14 +353,11 @@ public class ResticBackrestEngineTests
     }
 
     [Fact]
-    public async Task PruneToLatestAsync_TriggersLazySidecarStart()
+    public async Task PruneToLatestAsync_WithoutRestic_SaysTheComponentIsMissing()
     {
-        // With lazy auto-start, the engine tries to launch backrest the
-        // first time anything reaches the RPC layer. Our test engine
-        // points at nonexistent binaries, so the sidecar start surfaces
-        // FileNotFoundException -- which is the clear signal "the
-        // binaries aren't there", not the previous "you forgot to call
-        // StartAsync" misdirection.
+        // "Free up space" runs restic directly (U175): with no restic binary
+        // the engine says a component is missing (a FileNotFoundException)
+        // before touching the destination.
         var engine = MakeEngineWithoutSidecar();
         await Assert.ThrowsAnyAsync<System.IO.FileNotFoundException>(() =>
             engine.PruneToLatestAsync(new Backup(), "/x", new Destination(), "default", default));

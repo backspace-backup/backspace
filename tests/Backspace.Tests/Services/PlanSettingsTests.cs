@@ -9,19 +9,6 @@ namespace Backspace.Tests.Services;
 
 public sealed class PlanSettingsTests
 {
-    [Theory]
-    [InlineData("STATUS_ERROR", "command failed: exit status 11", true)]
-    [InlineData("STATUS_ERROR", "command failed: exit status 11\n", true)]
-    [InlineData("STATUS_ERROR", "command failed: exit status 1", false)]
-    [InlineData("STATUS_ERROR", "command failed: exit status 110", false)]
-    [InlineData("STATUS_ERROR", "snapshot end hook: exit status 11", false)]
-    [InlineData("STATUS_SUCCESS", "exit status 11", false)]
-    [InlineData("STATUS_INPROGRESS", "exit status 11", false)]
-    [InlineData("STATUS_CANCELLED", "exit status 11", false)]
-    [InlineData("STATUS_ERROR", "A previous command had exit status 11; current failure is unknown", false)]
-    public void OnlyAConfirmedLockFailureCanStartRecovery(string status, string message, bool expected) =>
-        Assert.Equal(expected, ResticBackrestEngine.IsConfirmedLockFailure(new() { Status = status, DisplayMessage = message }));
-
     [Fact]
     public void RetentionCommandIsScopedAndEmptyPoliciesDoNothing()
     {

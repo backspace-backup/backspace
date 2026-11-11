@@ -148,78 +148,6 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
     private readonly object _snapshotTreeGate = new();
     private int _cachedTreeNodeCount;
 
-    // ---- operations that map cleanly to Backrest's RPC ----
-
-    // BackupPruneCheckAsync runs restic directly: ResticBackrestEngine.Direct.cs (U175).
-
-    public Task<RunRecord> RunPruneOnlyAsync(
-        Backup backup, string sourcePath, Destination destination, string storageName,
-        CancellationToken ct, Action<string>? lineSink = null) =>
-        RunMaintenanceRpcAsync(backup, sourcePath, destination, storageName, RunKind.Prune, ct, lineSink);
-
-    public Task<RunRecord> RunCheckOnlyAsync(
-        Backup backup, string sourcePath, Destination destination, string storageName,
-        CancellationToken ct, Action<string>? lineSink = null) =>
-        RunMaintenanceRpcAsync(backup, sourcePath, destination, storageName, RunKind.Check, ct, lineSink);
-
-    private async Task<RunRecord> RunMaintenanceRpcAsync(
-        Backup backup, string sourcePath, Destination destination, string storageName,
-        RunKind kind, CancellationToken ct, Action<string>? lineSink)
-    {
-        var client = await EnsureClientAsync(ct).ConfigureAwait(false);
-        var repoId = MakeRepoId(destination, storageName);
-        var planId = MakePlanId(backup, sourcePath, destination, storageName);
-        await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
-        var started = DateTime.UtcNow;
-        BackrestOperation terminal;
-        CleanupResult cleanup = default;
-        // Where this check or cleanup starts in the log (U176).
-        Announce(LogSection.Line(backup.Name, kind == RunKind.Prune ? "cleanup" : "check", destination.Name), lineSink);
-        if (kind == RunKind.Prune)
-        {
-            // Never while a snapshot here is mounted or restored (U159).
-            using var change = SnapshotReaders.TryBeginChange(destination, storageName, out var inUse);
-            if (change is null)
-            {
-                var skipped = SnapshotReaders.CleanupSkipped(inUse);
-                RaiseLineWritten("[backspace] " + skipped); lineSink?.Invoke("[backspace] " + skipped);
-                return new RunRecord
-                {
-                    BackupId = backup.Id, BackupName = backup.Name, Kind = kind,
-                    StartedUtc = started, EndedUtc = DateTime.UtcNow,
-                    Status = BackupRunStatus.Skipped, Summary = skipped,
-                };
-            }
-            (terminal, cleanup) = await RunRetentionAsync(client, repoId, planId, backup, ct, lineSink, prune: true).ConfigureAwait(false);
-            if (terminal.Status is BackrestStatus.Success || cleanup != default)
-            {
-                var recap = cleanup.Recap();
-                RaiseLineWritten(recap); lineSink?.Invoke(recap);
-            }
-        }
-        else terminal = await RunRepositoryCheckAsync(client, repoId, backup, ct, lineSink).ConfigureAwait(false);
-        return new RunRecord
-        {
-            BackupId = backup.Id, BackupName = backup.Name, Kind = kind,
-            StartedUtc = started, EndedUtc = DateTime.UtcNow,
-            SnapshotsRemoved = cleanup.SnapshotsRemoved, BytesFreed = cleanup.BytesFreed,
-            Status = StatusFromBackrestTerminal(terminal.Status),
-            Checks = kind == RunKind.Check
-                ? new() { CheckResult(backup, destination, storageName, StatusFromBackrestTerminal(terminal.Status), terminal.DisplayMessage) }
-                : new(),
-            Summary = $"{(kind == RunKind.Prune ? "Cleanup" : "Backup check")} result: {terminal.Status}. {terminal.DisplayMessage} "
-                + (kind == RunKind.Check ? RepositoryCheckDescription(backup) : ""),
-            Errors = StatusFromBackrestTerminal(terminal.Status) == BackupRunStatus.Failed
-                ? new() { string.IsNullOrWhiteSpace(terminal.DisplayMessage) ? $"Backup operation result: {terminal.Status}." : terminal.DisplayMessage }
-                : new(),
-        };
-    }
-
-    /// <summary>The engine reads a check entry's data limit (U179): a data
-    /// sample reads 1% of the stored data up to <see cref="Backup.DataCheckLimitBytes"/>
-    /// (1 GiB when unset), and <see cref="long.MaxValue"/> reads all of it.</summary>
-    public bool HonoursDataCheckLimit => true;
-
     /// <summary>A check of every piece of stored data (<c>check --read-data</c>).</summary>
     internal static bool ReadsAllData(Backup backup) => backup.CheckReadDataSample && backup.DataCheckLimitBytes == long.MaxValue;
 
@@ -248,19 +176,6 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         return Math.Min(limit ?? BackupCheck.OneGiB, Math.Max(1, storedBytes / 100));
     }
 
-    /// <summary>restic's check for a data read: all of it, or the sample's
-    /// size (the B suffix: an unadorned integer would be read as an n/t
-    /// bucket selection), with the backup's download limit.</summary>
-    internal static string DataCheckCommand(Backup backup, long? sampleBytes)
-    {
-        var command = sampleBytes is { } bytes
-            ? "check --read-data-subset=" + bytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + "B"
-            : "check --read-data";
-        if (backup.BandwidthLimitKBps > 0)
-            command += " --limit-download=" + backup.BandwidthLimitKBps.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        return command;
-    }
-
     internal static long ParseStoredDataSize(string output)
     {
         long? found = null;
@@ -280,116 +195,9 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         return found ?? throw new InvalidDataException("The engine did not return a stored-data size. No data sample was started.");
     }
 
-    /// <summary>
-    /// Removes the snapshots the retention policy no longer keeps, and the
-    /// stored data nothing uses any more (U131, 4 November 2026). Before, only
-    /// the snapshots were removed ("forget"), so the storage never shrank, and
-    /// the data a cut-short backup had sent stayed there for good: restic lists
-    /// what it sent only every 10 minutes or at the end, so a resumed backup
-    /// sends that data again (local_c: 652 files, about 10 GB, after its
-    /// interruptions). "--prune" deletes what the removed snapshots alone used;
-    /// <paramref name="prune"/> runs a full prune as well, which also deletes
-    /// data no snapshot or list knows about.
-    /// </summary>
-    private async Task<(BackrestOperation Result, CleanupResult Cleanup)> RunRetentionAsync(BackrestClient client, string repoId,
-        string planId, Backup backup, CancellationToken ct, Action<string>? lineSink, bool prune = false)
-    {
-        var config = await client.CallAsync<BackrestSidecar.EmptyRequest, BackrestConfig>(
-            "/v1.Backrest/GetConfig", new(), ct).ConfigureAwait(false);
-        var policy = KeepPolicyRules.Parse(backup.KeepPolicy);
-        if (!policy.Valid)
-        {
-            // Never guess at a policy the editor would refuse: keep everything.
-            var line = "[backspace] The retention policy could not be read, so no backup was removed: " + policy.Error;
-            RaiseLineWritten(line); lineSink?.Invoke(line);
-        }
-        var forget = BuildRetentionCommand(planId, config.Instance, KeepPolicyRules.ResticOptions(policy));
-        BackrestOperation? result = null;
-        CleanupResult cleanup = default;
-        if (forget is not null)
-        {
-            var command = prune ? forget : forget + " --prune";
-            result = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
-                new RunCommandRequest { RepoId = repoId, Command = command },
-                op => op.OperationRunCommand?.Command == command, ct, lineSink).ConfigureAwait(false);
-            cleanup = await CleanupOfAsync(client, result, ct).ConfigureAwait(false);
-            if (result.Status is not BackrestStatus.Success) return (result, cleanup);
-        }
-        if (prune)
-        {
-            var line = "[backspace] Removing stored data no backup uses any more";
-            RaiseLineWritten(line); lineSink?.Invoke(line);
-            result = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
-                new RunCommandRequest { RepoId = repoId, Command = PruneCommand },
-                op => op.OperationRunCommand?.Command == PruneCommand, ct, lineSink).ConfigureAwait(false);
-            // The cleanup after a backup reads when the last full prune ran
-            // from Backspace's own record (U175), whichever path ran it.
-            if (result.Status is BackrestStatus.Success) MaintenanceRecords.FullPruneDone(repoId, DateTime.UtcNow, ct);
-            cleanup = cleanup.Plus(await CleanupOfAsync(client, result, ct).ConfigureAwait(false));
-            return (result, cleanup);
-        }
-        return (result ?? new() { Status = BackrestStatus.Success, DisplayMessage = "Retention keeps every snapshot; no cleanup was needed." }, cleanup);
-    }
-
-    /// <summary>What a forget or prune command removed, from restic's output
-    /// as Backrest kept it (U142). Only for the run's figures: a log that
-    /// can't be read leaves them at zero.</summary>
-    private async Task<CleanupResult> CleanupOfAsync(BackrestClient client, BackrestOperation operation, CancellationToken ct)
-    {
-        var reference = operation.OperationRunCommand?.OutputLogref;
-        if (string.IsNullOrWhiteSpace(reference)) return default;
-        try
-        {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            using var bytes = new MemoryStream();
-            await foreach (var chunk in client.StreamAsync<GetLogsRequest, RestoreLogChunk>(
-                "/v1.Backrest/GetLogs", new GetLogsRequest { Ref = reference }, timeout.Token).ConfigureAwait(false))
-            {
-                // forget lists every snapshot it keeps; 8 MiB is far more
-                // than years of them. Past it, the counts stay incomplete.
-                if (bytes.Length + chunk.Value.Length > 8 * 1024 * 1024) break;
-                bytes.Write(chunk.Value);
-            }
-            return CleanupResult.Parse(System.Text.Encoding.UTF8.GetString(bytes.ToArray()));
-        }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
-        {
-            _log.Debug(ex, "Could not read what the cleanup removed");
-            return default;
-        }
-    }
-
-    internal const string PruneCommand = "prune";
-
     /// <summary>How often a repository gets a full prune at the latest, for
     /// leftovers no record shows (a backup cut short where nothing recorded it).</summary>
     internal static readonly TimeSpan PruneAtLeastEvery = TimeSpan.FromDays(7);
-
-    internal static bool IsConfirmedLockFailure(BackrestOperation result) =>
-        result.Status == BackrestStatus.Error &&
-        !result.DisplayMessage.Contains("hook", StringComparison.OrdinalIgnoreCase) &&
-        result.DisplayMessage.TrimEnd().EndsWith("exit status 11", StringComparison.Ordinal);
-
-    private async Task<BackrestOperation> RunWithStaleLockRecoveryAsync<T>(BackrestClient client,
-        string repoId, string endpoint, T request, Func<BackrestOperation, bool> matches,
-        CancellationToken ct, Action<string>? lineSink = null, BackupLiveProgress? liveProgress = null) where T : class
-    {
-        for (var attempt = 0; ; attempt++)
-        {
-            ct.ThrowIfCancellationRequested();
-            var result = await RunTrackedRepoRpcAsync(client, repoId, endpoint, request,
-                matches, ct, lineSink, liveProgress: liveProgress).ConfigureAwait(false);
-            if (attempt != 0 || !IsConfirmedLockFailure(result)) return result;
-            // The command never acquired its repository lock. Restic unlock
-            // removes only stale locks; never use --remove-all. Active locks
-            // survive, and a second conflict remains a visible failure.
-            var unlocked = await RunTrackedRepoRpcAsync(client, repoId, "/v1.Backrest/RunCommand",
-                new RunCommandRequest { RepoId = repoId, Command = "unlock" },
-                op => op.OperationRunCommand?.Command == "unlock", ct, lineSink).ConfigureAwait(false);
-            if (unlocked.Status != BackrestStatus.Success) return unlocked;
-        }
-    }
 
     /// <summary>The forget command that applies the backup's retention
     /// policy (<see cref="KeepPolicyRules.ResticOptions"/>), or null when it
@@ -494,55 +302,6 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         start.Environment["PATH"] = directory + Path.PathSeparator +
             (start.Environment.TryGetValue("PATH", out var oldPath) ? oldPath : "");
         return start;
-    }
-
-    private async Task<BackrestOperation> RunRepositoryCheckAsync(BackrestClient client, string repoId,
-        Backup backup, CancellationToken ct, Action<string>? lineSink)
-    {
-        if (!backup.CheckReadDataSample)
-            return await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/DoRepoTask",
-                new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskCheck },
-                op => op.OperationCheck is not null, ct, lineSink).ConfigureAwait(false);
-        if (ReadsAllData(backup))
-        {
-            // A full data read (U179): every pack, no size needed first.
-            var all = DataCheckCommand(backup, null);
-            Announce("[backspace] Data check reads all stored data; this downloads the whole repository.", lineSink);
-            return await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
-                new RunCommandRequest { RepoId = repoId, Command = all },
-                op => op.OperationRunCommand?.Command == all, ct, lineSink).ConfigureAwait(false);
-        }
-
-        // Backrest's native CheckPolicy only accepts a percentage. Its tracked
-        // RunCommand path lets the bundled restic apply a size target too,
-        // without changing shared repository settings or reimplementing checks.
-        const string statsCommand = "stats --mode raw-data --json";
-        var stats = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
-            new RunCommandRequest { RepoId = repoId, Command = statsCommand },
-            op => op.OperationRunCommand?.Command == statsCommand, ct, lineSink).ConfigureAwait(false);
-        ct.ThrowIfCancellationRequested();
-        if (stats.Status is not BackrestStatus.Success)
-            throw new IOException("Could not determine the data-check sample size. No data sample was started. " + stats.DisplayMessage);
-        var outputRef = stats.OperationRunCommand?.OutputLogref;
-        if (string.IsNullOrWhiteSpace(outputRef))
-            throw new IOException("The engine did not return the stored-data size. No data sample was started.");
-        using var bytes = new MemoryStream();
-        await foreach (var chunk in client.StreamAsync<GetLogsRequest, RestoreLogChunk>(
-            "/v1.Backrest/GetLogs", new GetLogsRequest { Ref = outputRef }, ct).ConfigureAwait(false))
-        {
-            if (bytes.Length + chunk.Value.Length > 64 * 1024)
-                throw new IOException("The engine's size result was unexpectedly large. No data sample was started.");
-            bytes.Write(chunk.Value);
-        }
-        var storedBytes = ParseStoredDataSize(System.Text.Encoding.UTF8.GetString(bytes.ToArray()));
-        // The entry's own limit (U179), 1 GiB when it has none.
-        var sampleBytes = DataCheckSampleBytes(storedBytes, backup.DataCheckLimitBytes);
-        var command = DataCheckCommand(backup, sampleBytes);
-        var description = $"[backspace] Data check targets {sampleBytes:N0} bytes per repository; whole-pack sampling, metadata and retries can change actual traffic.";
-        RaiseLineWritten(description); lineSink?.Invoke(description);
-        return await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
-            new RunCommandRequest { RepoId = repoId, Command = command },
-            op => op.OperationRunCommand?.Command == command, ct, lineSink).ConfigureAwait(false);
     }
 
     // Backup and RunCommand wait for completion; maintenance RPCs acknowledge
@@ -2386,44 +2145,6 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         return null;
     }
 
-    public async Task PruneSnapshotIdAsync(
-        Backup backup, string sourcePath, Destination destination, string storageName,
-        string snapshotId, CancellationToken ct)
-    {
-        var client = await EnsureClientAsync(ct).ConfigureAwait(false);
-        var owned = await ListSnapshotsSortedAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
-        if (!owned.Any(s => s.Id == snapshotId))
-            throw new InvalidOperationException("The snapshot no longer belongs to this backup. Nothing was removed.");
-        var repoId = MakeRepoId(destination, storageName);
-        if (!IsValidBackrestGuid(snapshotId)) throw new InvalidOperationException("Invalid snapshot identity; nothing was removed.");
-        // Backrest removes a successful one-off Forget operation from its history.
-        // A tracked command retains a terminal record, so we can confirm completion
-        // and keep the repository lease through cancellation and index follow-ups.
-        using var change = SnapshotReaders.TryBeginChange(destination, storageName, out var inUse)
-            ?? throw new InvalidOperationException(SnapshotReaders.Refusal("Removing a snapshot", inUse));
-        var command = "forget " + snapshotId;
-        var result = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/RunCommand",
-            new RunCommandRequest { RepoId = repoId, Command = command },
-            op => op.OperationRunCommand?.Command == command, ct).ConfigureAwait(false);
-        if (result.Status is not BackrestStatus.Success)
-            throw new IOException($"Snapshot removal reported {result.Status}: {result.DisplayMessage}");
-    }
-
-    public async Task PruneExhaustiveAsync(
-        Backup backup, string sourcePath, Destination destination, string storageName,
-        CancellationToken ct)
-    {
-        var client = await EnsureClientAsync(ct).ConfigureAwait(false);
-        var repoId = MakeRepoId(destination, storageName);
-        using var change = SnapshotReaders.TryBeginChange(destination, storageName, out var inUse)
-            ?? throw new InvalidOperationException(SnapshotReaders.Refusal("Cleaning up this backup's storage", inUse));
-        var result = await RunWithStaleLockRecoveryAsync(client, repoId, "/v1.Backrest/DoRepoTask",
-            new DoRepoTaskRequest { RepoId = repoId, Task = (int)BackrestRepoTask.TaskPrune },
-            op => op.OperationPrune is not null, ct).ConfigureAwait(false);
-        if (result.Status is not BackrestStatus.Success)
-            throw new IOException($"Repository cleanup reported {result.Status}: {result.DisplayMessage}");
-    }
-
     public async Task EnsureInitializedAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
         CancellationToken ct)
@@ -2433,42 +2154,6 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         // their connection check, as does adding a new cloud repository.
         await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct,
             checkConnection: false).ConfigureAwait(false);
-    }
-
-    // ---- operations with a real Restic analogue routed via RunCommand ----
-
-    /// <summary>
-    /// Forgets older snapshots belonging to this backup/source plan only,
-    /// then prunes unreferenced chunks. Explicit IDs preserve other plans
-    /// sharing the repository and leave configured retention unchanged.
-    /// </summary>
-    public async Task<RunRecord> PruneToLatestAsync(
-        Backup backup, string sourcePath, Destination destination, string storageName,
-        CancellationToken ct)
-    {
-        var client = await EnsureClientAsync(ct).ConfigureAwait(false);
-        await EnsurePlanAndRepoAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
-
-        var started = DateTime.UtcNow;
-        RaiseLineWritten($"[backspace] prune-to-latest started for {destination.Name}/{storageName}");
-        // Never run an unfiltered repository-wide retention command here.
-        // Several backups, sources, or external tools can share this repository.
-        var snapshots = await ListSnapshotsSortedAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
-        foreach (var snapshot in snapshots.Skip(1))
-            await PruneSnapshotIdAsync(backup, sourcePath, destination, storageName, snapshot.Id, ct).ConfigureAwait(false);
-        if (snapshots.Count > 1)
-            await PruneExhaustiveAsync(backup, sourcePath, destination, storageName, ct).ConfigureAwait(false);
-
-        return new RunRecord
-        {
-            BackupId = backup.Id,
-            BackupName = backup.Name,
-            Kind = RunKind.Prune,
-            StartedUtc = started,
-            EndedUtc = DateTime.UtcNow,
-            Status = BackupRunStatus.Success,
-            Summary = $"Removed {Math.Max(0, snapshots.Count - 1)} older snapshot(s) from this backup source. Other backup histories were preserved.",
-        };
     }
 
     // EnumOnlyAsync (restic "backup --dry-run" via RunCommand) used to

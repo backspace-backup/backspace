@@ -484,9 +484,9 @@ move): the task is cancelled and the run fails with
 cost another hour at once. If cancellation can't be confirmed, the usual
 fail-closed block applies.
 
-Backups and their cleanup run restic directly (U175), so the notes above
-about Backrest's tasks apply to the rest (checks, lists, browsing, restore, the
-cleanup schedule); `ProgressStallLimit` also stops a direct backup.
+Backups, their cleanup, checks and the erase tools run restic directly
+(U175), so the notes above about Backrest's tasks apply to the rest (lists,
+browsing, restore); `ProgressStallLimit` also stops a direct backup.
 A direct command stops in two steps (`ResticRunner.StopAsync`): Ctrl+Break to
 restic's own process group, then, after `GentleStopWait` (3 s), the end of its
 whole job, rclone included, and a wait for the exit. restic is started in a new
