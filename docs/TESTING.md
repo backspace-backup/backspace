@@ -1053,7 +1053,9 @@ It also saves complete light/dark card references at 1180 × 840; this capture
 size does not change the app's startup size or minimum. S58 checks that Activity
 and Test restore stay inside the card without clipped labels or overlapping
 actions. S54 also opens the More menu and checks that its actions disable while
-a backup runs. E53 clicks Activity against a real encrypted local backup,
+a backup runs. S100 photographs the More menu with a hovered item in both
+themes, checks a disabled item fades, and checks More itself is greyed out with
+its reason while the backup runs (a real click opens nothing). E53 clicks Activity against a real encrypted local backup,
 checks the backup/check filters and opens the saved log;
 its failed, passing and cancelled restore comparisons also exercise the card's
 status colors and wording. These are headless Avalonia interactions, not a new

@@ -157,7 +157,35 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     internal const string UploadNote = "Only data the backup doesn't already hold is uploaded, compressed, so it is usually much less than the changed size.";
     partial void OnOverallPercentChanged(double value) => OnPropertyChanged(nameof(ProgressTooltip));
-    partial void OnProgressDetailChanged(string value) => OnPropertyChanged(nameof(ProgressTooltip));
+    partial void OnProgressDetailChanged(string value) { OnPropertyChanged(nameof(ProgressTooltip)); OnPropertyChanged(nameof(ProgressCardLine)); }
+
+    /// <summary>The card's short form of <see cref="ProgressDetail"/> (U193,
+    /// 11 November 2026): the line had grown to two lines with the hover
+    /// saying the same. The card keeps the files checked, the changes backed
+    /// up and the time left; the hover keeps everything, the source's size,
+    /// the data uploaded and its speed included.</summary>
+    public string ProgressCardLine => CardLine(ProgressDetail);
+
+    internal static string CardLine(string detail)
+    {
+        var parts = new List<string>();
+        foreach (var part in (detail ?? "").Split(" · "))
+        {
+            // The percentage is beside the bar, the action above it.
+            if (part is "Backing up" || part.Contains("new data uploaded", StringComparison.Ordinal)
+                || (part.EndsWith('%') && double.TryParse(part[..^1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _)))
+                continue;
+            var text = part;
+            // "122,087 of ~428,634 files checked (~164 GB)": the size is in the hover.
+            if (text.Contains("files checked (", StringComparison.Ordinal) && text.EndsWith(')'))
+                text = text[..text.LastIndexOf(" (", StringComparison.Ordinal)];
+            // "1.2 of ~25 GB changed files backed up" → "1.2 of ~25 GB of changes backed up".
+            if (text.EndsWith(" changed files backed up", StringComparison.Ordinal))
+                text = text[..^" changed files backed up".Length] + " of changes backed up";
+            if (text.Length > 0) parts.Add(text);
+        }
+        return string.Join(" · ", parts);
+    }
     public string OperationPhaseLabel => IsRunning && IsVerifying ? "Testing restored files" : CurrentPhaseLabel;
     partial void OnCurrentPhaseLabelChanged(string value) => OnPropertyChanged(nameof(OperationPhaseLabel));
 
@@ -236,6 +264,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// the card's IsRunning flag. Bind to this instead.</summary>
     public bool CanEditWhileIdle => !IsRunning;
 
+    /// <summary>More holds only actions that wait for the run to end, so it
+    /// is greyed out with them and says why (U191, 11 November 2026).</summary>
+    public string MoreActionsTooltip => CanEditWhileIdle ? "Edit settings or remove this backup."
+        : "Editing and removing this backup are available once it is no longer running.";
+
     /// <summary>
     /// Populated by the parent <see cref="BackupsViewModel"/> when
     /// another currently-running backup shares one of this card's
@@ -298,6 +331,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     partial void OnIsRunningChanged(bool value)
     {
         OnPropertyChanged(nameof(CanEditWhileIdle));
+        OnPropertyChanged(nameof(MoreActionsTooltip));
         OnPropertyChanged(nameof(CanUseSnapshots));
         OnPropertyChanged(nameof(RunningActionTooltip));
         OnPropertyChanged(nameof(EditTooltip));

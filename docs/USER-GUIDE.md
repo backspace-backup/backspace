@@ -498,9 +498,10 @@ time the run has taken so far, for example **Running · 12 min** (counted from
 the run's start, for a backup run by the background service too, without the
 time it spent queued: see [Backups at once](#backups-at-once)). Each source
 and the strip below show the percentage, and the line under the strip says
-what is done, in the order it happens, for example "88,211 of ~109,320 files
-checked (30 of ~178 GB) · 2.6 GB of new data uploaded, 5.7 MB/s"; hovering it
-shows the same, one item per line. The totals, marked "~", are Backspace's own listing
+what is done, in the order it happens, kept to one line: for example
+"88,211 of ~109,320 files checked · about 40 min left". Hovering it shows
+everything, one item per line: the size ("30 of ~178 GB"), the new data
+uploaded and its speed ("2.6 GB of new data uploaded, 5.7 MB/s") too. The totals, marked "~", are Backspace's own listing
 of the source with the backup's rules, made as the backup starts (seconds for
 a whole drive). The engine doesn't count the source itself: its separate
 counting pass looked every file up a second time and took as long as the backup
@@ -525,10 +526,10 @@ succeeded, Backspace keeps a list of the source's files with their size and
 date (in `%LOCALAPPDATA%\Backspace\change-lists`; a cache it rebuilds when
 missing). At the start of the next backup it lists the source again (seconds)
 and compares: a file whose size or date differs is one the engine will read,
-as the engine itself decides. The line then reads, for example, "Backing up ·
-504,701 of 601,922 files checked (190 GB) · 3.1 of ~9.0 GB changed files
-backed up · 881 MB of new data uploaded, 3.8 MB/s · about 25 min left" (or
-"no changed files" when nothing changed). The percentage and the time left are of
+as the engine itself decides. The line then reads, for example, "504,701 of 601,922 files checked ·
+3.1 of ~9.0 GB of changes backed up · about 25 min left" (or "no changed
+files" when nothing changed); the hover adds the size (190 GB) and "881 MB of
+new data uploaded, 3.8 MB/s". The percentage and the time left are of
 the work: checking the unchanged files counts for a small part, reading and
 sending the changes for the rest, each at the pace this backup measures (the
 last backup's pace is the first guess). So a backup no longer races to 99% on

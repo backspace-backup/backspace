@@ -231,7 +231,10 @@ destinations retain their names and provider icons. Titles leave room for descen
 
 Run, mount, restore and Test restore remain visible. **More** contains settings,
 the browser view and **Remove backup**, which also deletes what the backup stored. Those actions disable if a run
-starts while the menu is open. A running comparison offers **View test restore**.
+starts while the menu is open; while a run goes on, **More** itself is greyed out
+and its hover says why. Menus are compact rounded panels with a hairline border,
+an inset rounded highlight in the accent colour with white text, and disabled
+items clearly faded (macOS-like). A running comparison offers **View test restore**.
 The action row wraps on narrow cards; labels and targets stay readable. Run now is the
 only accent button; Mount, Restore files and Test restore are filled neutral
 buttons; Activity and More are quiet text buttons that fill on hover.

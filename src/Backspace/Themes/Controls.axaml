@@ -1,6 +1,94 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:conv="using:Avalonia.Controls.Converters"
         xmlns:vm="using:Backspace.ViewModels">
+
+  <!-- Menus as neat as macOS's (U192, 11 November 2026): a rounded panel
+       with a hairline border, compact rows, an inset rounded highlight in
+       the accent colour with white text, and disabled items clearly faded.
+       Backspace's menus have no submenus, so the item template has none. -->
+  <Styles.Resources>
+    <ControlTheme x:Key="{x:Type MenuFlyoutPresenter}" TargetType="MenuFlyoutPresenter">
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.BgElevated}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BS.Brush.BorderSubtle}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="5"/>
+      <Setter Property="MinWidth" Value="200"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}"
+                              KeyboardNavigation.TabNavigation="Continue"/>
+            </ScrollViewer>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+    <ControlTheme x:Key="{x:Type ContextMenu}" TargetType="ContextMenu">
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.BgElevated}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BS.Brush.BorderSubtle}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="5"/>
+      <Setter Property="MinWidth" Value="200"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}"
+                              KeyboardNavigation.TabNavigation="Continue"/>
+            </ScrollViewer>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+    <ControlTheme x:Key="{x:Type MenuItem}" TargetType="MenuItem">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Padding" Value="10,5"/>
+      <Setter Property="MinHeight" Value="26"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Name="PART_LayoutRoot" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}" MinHeight="{TemplateBinding MinHeight}">
+            <Border.Resources>
+              <conv:PlatformKeyGestureConverter x:Key="MenuGesture"/>
+            </Border.Resources>
+            <Grid ColumnDefinitions="*,Auto">
+              <ContentPresenter Name="PART_HeaderPresenter" Content="{TemplateBinding Header}"
+                                ContentTemplate="{TemplateBinding HeaderTemplate}" VerticalAlignment="Center"
+                                Foreground="{TemplateBinding Foreground}"/>
+              <TextBlock Name="PART_InputGestureText" Grid.Column="1" Margin="28,0,0,0" VerticalAlignment="Center"
+                         Opacity="0.6" Foreground="{TemplateBinding Foreground}"
+                         Text="{TemplateBinding InputGesture, Converter={StaticResource MenuGesture}}"/>
+            </Grid>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+      <Style Selector="^:pointerover, ^:selected">
+        <Setter Property="Background" Value="{DynamicResource BS.Brush.Accent}"/>
+        <Setter Property="Foreground" Value="#FFFFFFFF"/>
+      </Style>
+      <Style Selector="^:disabled">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
+        <Setter Property="Opacity" Value="0.35"/>
+      </Style>
+    </ControlTheme>
+  </Styles.Resources>
+  <Style Selector="MenuFlyoutPresenter Separator, ContextMenu Separator">
+    <Setter Property="Height" Value="1"/>
+    <Setter Property="Margin" Value="8,4"/>
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.BorderSubtle}"/>
+  </Style>
 
   <!-- Hover texts are never cut (U164, 8 November 2026). A tooltip inherits
        MaxLines and TextTrimming from the TextBlock it belongs to (a two-line

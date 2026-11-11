@@ -344,7 +344,7 @@
                speed and time left at its end are what is cut first. -->
           <TextBlock FontSize="12" Margin="24,-4,0,0" Foreground="{DynamicResource BS.Brush.FgSecondary}"
                      TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
-                     Text="{Binding ProgressDetail}" ToolTip.Tip="{Binding ProgressTooltip}">
+                     Text="{Binding ProgressCardLine}" ToolTip.Tip="{Binding ProgressTooltip}">
             <TextBlock.IsVisible>
               <MultiBinding Converter="{x:Static vm:BoolAnd.To}">
                 <Binding Path="IsRunning"/>
@@ -427,7 +427,8 @@
 
           <Button Grid.Column="2" Name="MoreActionsButton" Classes="ghost subtle" VerticalAlignment="Top" Margin="0,0,0,6"
                   Content="More" Click="OnMoreActions" AutomationProperties.Name="More backup actions"
-                  ToolTip.Tip="Edit settings or remove this backup."/>
+                  IsEnabled="{Binding CanEditWhileIdle}" ToolTip.ShowOnDisabled="True"
+                  ToolTip.Tip="{Binding MoreActionsTooltip}"/>
 
           <!-- The mounted drive, from the click (U158): what the mount is
                doing, then the drive and Open in Explorer, or why it failed. -->

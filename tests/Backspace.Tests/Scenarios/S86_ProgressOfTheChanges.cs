@@ -108,12 +108,20 @@ public sealed class S86_ProgressOfTheChanges : ScenarioBase
         Assert.Equal("Running · 30 min", runningText.Text);
         // U155: said as the actions, in the order the work happens.
         Assert.Matches(@"^Backing up · 551,000 of 600,001 files checked \(176 GB\) · [0-9.]+ of ~8\.4 GB changed files backed up · [0-9.]+ [KMG]?B of new data uploaded, [0-9.]+ MB/s · about .+ left$", card.ProgressDetail);
-        // Hovering the line explains why the upload is smaller than the changes.
-        var detailText = host.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>().Single(t => t.Text == card.ProgressDetail);
+        // U193: the card shows the short form on one line; the hover keeps
+        // everything (the size, the data uploaded and its speed) and explains
+        // why the upload is smaller than the changes.
+        Assert.Matches(@"^551,000 of 600,001 files checked · [0-9.]+ of ~8\.4 GB of changes backed up · about .+ left$", card.ProgressCardLine);
+        var detailText = host.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>().Single(t => t.Text == card.ProgressCardLine);
         Assert.True(detailText.IsEffectivelyVisible);
-        Assert.EndsWith(BackupCardViewModel.UploadNote, Avalonia.Controls.ToolTip.GetTip(detailText) as string);
+        Assert.DoesNotContain(host.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>(), t => t.IsEffectivelyVisible && (t.Text ?? "").Contains("uploaded"));
+        var tip = Assert.IsType<string>(Avalonia.Controls.ToolTip.GetTip(detailText));
+        Assert.Contains("files checked (176 GB)", tip);
+        Assert.Matches(@"\n[0-9.]+ [KMG]?B of new data uploaded, [0-9.]+ MB/s\n", tip);
+        Assert.EndsWith(BackupCardViewModel.UploadNote, tip);
+        var tipOneLine = tip.Replace("\n", " / ");
         ctx.Snapshot(host, "sending the changes",
-            $"24 minutes into the large file at 3.8 MB/s: {later:0}%. The line under the bar reads \"{card.ProgressDetail}\": files checked, changed files backed up, then the new data uploaded, smaller because only data the backup doesn't already hold is sent, compressed (the hover note says so).");
+            $"24 minutes into the large file at 3.8 MB/s: {later:0}%. The line under the bar reads \"{card.ProgressCardLine}\" on one line: files checked, changes backed up, time left. The size, the new data uploaded and its speed are in the hover: \"{tipOneLine}\".");
         host.Close();
     }
 }
