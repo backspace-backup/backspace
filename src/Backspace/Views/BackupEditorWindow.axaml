@@ -57,6 +57,20 @@
     <Style Selector="RadioButton.check-choice TextBlock.helper">
       <Setter Property="FontSize" Value="14"/>
     </Style>
+    <!-- "Show its 20 rules": a flat link-like toggle (owner, 11 November). -->
+    <Style Selector="ToggleButton.rules-toggle">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="0,2"/>
+      <Setter Property="MinHeight" Value="0"/>
+    </Style>
+    <Style Selector="ToggleButton.rules-toggle:pointerover /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.rules-toggle:pressed /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.rules-toggle:checked /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.rules-toggle:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderBrush" Value="Transparent"/>
+    </Style>
+    <Style Selector="ToggleButton.rules-toggle:pointerover TextBlock">
+      <Setter Property="TextDecorations" Value="Underline"/>
+    </Style>
   </Window.Styles>
 
   <Window.Resources>
@@ -88,10 +102,25 @@
     <!-- Under the checkbox: the group's rules, collapsed, or why it has none here. -->
     <DataTemplate x:Key="GroupRules" x:DataType="vm:RecommendedGroupState">
       <StackPanel Spacing="2">
-        <Expander Classes="advanced" Header="{Binding RulesHeader}" IsVisible="{Binding HasRules}">
+        <!-- "Show its 20 rules" right under the text, the chevron beside it and in
+             the same place open or closed; the rules in a tinted box (owner, 11 Nov). -->
+        <ToggleButton Name="RulesToggle" Classes="rules-toggle" IsVisible="{Binding HasRules}" HorizontalAlignment="Left">
+          <StackPanel Orientation="Horizontal" Spacing="4">
+            <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource BS.Brush.Accent}"
+                       Text="{Binding RulesShowText}" IsVisible="{Binding !#RulesToggle.IsChecked}"/>
+            <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource BS.Brush.Accent}"
+                       Text="{Binding RulesHideText}" IsVisible="{Binding #RulesToggle.IsChecked}"/>
+            <PathIcon Data="{StaticResource Icon.ChevronRight}" Width="10" Height="10" VerticalAlignment="Center"
+                      Foreground="{DynamicResource BS.Brush.Accent}" IsVisible="{Binding !#RulesToggle.IsChecked}"/>
+            <PathIcon Data="M6 9l6 6 6-6" Width="10" Height="10" VerticalAlignment="Center"
+                      Foreground="{DynamicResource BS.Brush.Accent}" IsVisible="{Binding #RulesToggle.IsChecked}"/>
+          </StackPanel>
+        </ToggleButton>
+        <Border IsVisible="{Binding #RulesToggle.IsChecked}" Background="{DynamicResource BS.Brush.BgBase}"
+                BorderBrush="{DynamicResource BS.Brush.BorderSubtle}" BorderThickness="1" CornerRadius="6" Padding="10,6" Margin="0,2,0,0">
           <SelectableTextBlock FontFamily="{DynamicResource BS.Font.Mono}" FontSize="12" LineHeight="18" Text="{Binding RulesText}"
                                Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"/>
-        </Expander>
+        </Border>
         <TextBlock IsVisible="{Binding !HasRules}" Text="{Binding NoRulesText}" FontSize="12" TextWrapping="Wrap"
                    Foreground="{DynamicResource BS.Brush.FgDim}"/>
         <TextBlock IsVisible="{Binding HasPending}" Text="{Binding PendingText}" FontSize="12" TextWrapping="Wrap"
@@ -930,10 +959,10 @@
                      what is saved, "Not used" otherwise. A tick rewrites the
                      group's part of the recommended block at once. -->
                 <Border Classes="surface" Name="RecommendedCard">
-                  <StackPanel Spacing="14">
+                  <StackPanel Spacing="8">
                     <TextBlock Classes="section-title" Text="Recommended exclusions" Margin="0"/>
 
-                    <StackPanel Spacing="4">
+                    <StackPanel Spacing="2">
                       <Grid ColumnDefinitions="*,12,Auto">
                         <CheckBox IsChecked="{Binding RecExcludeEssentials}" Name="EssentialsGroup"
                                   Foreground="{DynamicResource BS.Brush.FgPrimary}">
@@ -949,7 +978,7 @@
                       <ContentControl Margin="28,0,0,0" Content="{Binding EssentialsState}" ContentTemplate="{StaticResource GroupRules}"/>
                     </StackPanel>
 
-                    <StackPanel Spacing="4">
+                    <StackPanel Spacing="2">
                       <Grid ColumnDefinitions="*,12,Auto">
                         <CheckBox IsChecked="{Binding RecExcludeWindowsSystem}" Name="WindowsSystemGroup"
                                   Foreground="{DynamicResource BS.Brush.FgPrimary}">
@@ -965,7 +994,7 @@
                       <ContentControl Margin="28,0,0,0" Content="{Binding WindowsSystemState}" ContentTemplate="{StaticResource GroupRules}"/>
                     </StackPanel>
 
-                    <StackPanel Spacing="4">
+                    <StackPanel Spacing="2">
                       <Grid ColumnDefinitions="*,12,Auto">
                         <CheckBox IsChecked="{Binding RecExcludeCachesAndJunk}" Name="CachesGroup"
                                   Foreground="{DynamicResource BS.Brush.FgPrimary}">
@@ -988,6 +1017,7 @@
                       <ItemsControl ItemsSource="{Binding DetectedCloudFolders}">
                         <ItemsControl.ItemTemplate>
                           <DataTemplate DataType="vm:CloudExcludeChoice">
+                            <Grid ColumnDefinitions="*,12,Auto">
                             <CheckBox IsChecked="{Binding IsSelected}"
                                       Margin="0,2"
                                       Foreground="{DynamicResource BS.Brush.FgPrimary}">
@@ -1000,6 +1030,10 @@
                                            MaxWidth="520"/>
                               </StackPanel>
                             </CheckBox>
+                            <ContentControl Grid.Column="2" VerticalAlignment="Center" Content="{Binding State}"
+                                            ContentTemplate="{StaticResource GroupStatusPill}"
+                                            IsVisible="{Binding State, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                            </Grid>
                           </DataTemplate>
                         </ItemsControl.ItemTemplate>
                       </ItemsControl>

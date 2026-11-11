@@ -380,6 +380,16 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(EssentialsState));
         OnPropertyChanged(nameof(WindowsSystemState));
         OnPropertyChanged(nameof(CachesState));
+        // Cloud folders get the same pill as the groups (owner, 11 November).
+        foreach (var choice in DetectedCloudFolders)
+        {
+            if (RecommendedFilters.CloudLine(choice.Folder) is not { } line) { choice.State = null; continue; }
+            bool In(string? text) => (text ?? "").Split('\n').Any(l => string.Equals(l.Trim(), line, StringComparison.OrdinalIgnoreCase));
+            var now = In(FiltersText);
+            var saved = !IsNew && In(_savedFiltersText);
+            var status = now && saved ? GroupStatus.InPlace : now ? GroupStatus.WillBeAdded : saved ? GroupStatus.WillBeRemoved : GroupStatus.NotUsed;
+            choice.State = new RecommendedGroupState(status, [line], 0);
+        }
     }
 
     /// <summary>The backup's rules as saved (null for a new backup): what the
@@ -2163,7 +2173,10 @@ public sealed record RecommendedGroupState(GroupStatus Status, IReadOnlyList<str
     public bool IsNotUsed => Status == GroupStatus.NotUsed;
 
     public bool HasRules => Rules.Count > 0;
-    public string RulesHeader => (Rules.Count == 1 ? "Its 1 rule" : $"Its {Rules.Count} rules") + (IsNotUsed || Status == GroupStatus.WillBeRemoved ? ", if ticked" : "");
+    private string RulesNoun => Rules.Count == 1 ? "its rule" : $"its {Rules.Count} rules";
+    /// <summary>The toggle under the group (owner, 11 November: "Show its 20 rules").</summary>
+    public string RulesShowText => "Show " + RulesNoun + (IsNotUsed || Status == GroupStatus.WillBeRemoved ? " (if ticked)" : "");
+    public string RulesHideText => "Hide " + RulesNoun;
     public string RulesText => string.Join("\n", Rules);
 
     /// <summary>For a group with no rule that fits this backup's folders.</summary>
@@ -2177,6 +2190,8 @@ public sealed partial class CloudExcludeChoice : ObservableObject
 {
     public RecommendedFilters.CloudSyncFolder Folder { get; }
     [ObservableProperty] private bool _isSelected = true;
+    /// <summary>In place / will be added or removed when you save, as for the groups.</summary>
+    [ObservableProperty] private RecommendedGroupState? _state;
 
     public string Label => Folder.Label;
     public string Path  => Folder.Path;

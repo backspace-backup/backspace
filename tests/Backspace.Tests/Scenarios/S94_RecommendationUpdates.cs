@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -116,14 +117,20 @@ public sealed class S94_RecommendationUpdates : ScenarioBase
         // A folder backup: none of the Essentials can be inside it, said in words, not "none".
         Assert.False(vm.EssentialsState.HasRules);
         Assert.Contains(editor.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == vm.EssentialsState.NoRulesText);
-        var expanders = editor.GetVisualDescendants().OfType<Expander>().Where(e => e.Classes.Contains("advanced") && e.IsEffectivelyVisible).ToList();
-        Assert.Equal(2, expanders.Count);
-        Assert.All(expanders, e => Assert.False(e.IsExpanded)); // collapsed by default
-        var caches = expanders.Single(e => Equals(e.Header, vm.CachesState.RulesHeader));
-        Assert.Matches(@"^Its \d+ rules$", vm.CachesState.RulesHeader);
-        caches.IsExpanded = true;
+        var toggles = editor.GetVisualDescendants().OfType<ToggleButton>().Where(e => e.Classes.Contains("rules-toggle") && e.IsEffectivelyVisible).ToList();
+        Assert.Equal(2, toggles.Count);
+        Assert.All(toggles, e => Assert.False(e.IsChecked)); // collapsed by default
+        var caches = toggles.Last(); // Windows system files, then App caches
+        Assert.Matches(@"^Show its \d+ rules$", vm.CachesState.RulesShowText);
+        Assert.Contains(caches.GetVisualDescendants().OfType<TextBlock>(), x => x.IsEffectivelyVisible && x.Text == vm.CachesState.RulesShowText);
+        PathIcon Chevron() => caches.GetVisualDescendants().OfType<PathIcon>().Single(i => i.IsEffectivelyVisible);
+        var closedAt = Chevron().TranslatePoint(new Avalonia.Point(0, 0), editor);
+        caches.IsChecked = true;
         await ctx.Driver.PumpAsync(100);
-        var listed = caches.GetVisualDescendants().OfType<SelectableTextBlock>().Single().Text!.Split('\n');
+        // Open: "Hide its N rules", the chevron where it was, the rules in a box below.
+        Assert.Contains(caches.GetVisualDescendants().OfType<TextBlock>(), x => x.IsEffectivelyVisible && x.Text == vm.CachesState.RulesHideText);
+        Assert.True(Math.Abs(Chevron().TranslatePoint(new Avalonia.Point(0, 0), editor)!.Value.Y - closedAt!.Value.Y) < 2);
+        var listed = ((Visual)caches.Parent!).GetVisualDescendants().OfType<SelectableTextBlock>().First(x => x.IsEffectivelyVisible).Text!.Split('\n');
         Assert.Equal(RecommendedFilters.GroupRules(vm.FiltersText, RecommendedFilters.Group.CachesAndJunk), listed);
         Assert.Contains("node_modules/", listed);
         // The list is exactly what the filters hold for the group, nothing to apply.
@@ -131,7 +138,7 @@ public sealed class S94_RecommendationUpdates : ScenarioBase
         Assert.DoesNotContain(editor.GetVisualDescendants().OfType<Button>(), b => b.Content as string is "Apply recommended exclusions");
         groups[0].BringIntoView(); await ctx.Driver.PumpAsync(50);
         ctx.Snapshot(editor, "advanced-recommended-three-groups",
-            "A new backup, Filters > Recommended: Essentials (first; 'Nothing to leave out in this backup's folders'), Windows system files and App caches, each with an amber 'Will be added when you save'; the caches list opened as 'Its N rules' showing the actual lines. No Apply button: Save keeps them.");
+            "A new backup, Filters > Recommended: Essentials (first; 'Nothing to leave out in this backup's folders'), Windows system files and App caches, each with an amber 'Will be added when you save'; the caches list opened with 'Hide its N rules' and the actual lines in a box. No Apply button: Save keeps them.");
 
         var autoBox = editor.FindControl<CheckBox>("AutoApplyRecommendations")!;
         editor.FindControl<Border>("AutoApplyCard")!.BringIntoView(); await ctx.Driver.PumpAsync(50);
@@ -233,7 +240,7 @@ public sealed class S94_RecommendationUpdates : ScenarioBase
         Assert.Equal(GroupStatus.InPlace, avm.EssentialsState.Status);
         Assert.False(avm.FiltersUnsaved);
         ctx.Snapshot(again, "saved-unticked-group-persists",
-            "Saved and opened again: Windows system files stays unticked and reads 'Off: these files are backed up', its list 'Its 3 rules, if ticked'; Essentials and caches read 'In place'; the top line is green again.");
+            "Saved and opened again: Windows system files stays unticked and reads 'Off: these files are backed up', its toggle 'Show its 3 rules (if ticked)'; Essentials and caches read 'In place'; the top line is green again.");
         Application.Current!.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
         await ctx.Driver.PumpAsync(150);
         ctx.Snapshot(again, "saved-unticked-group-persists-dark",

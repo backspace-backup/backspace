@@ -20,6 +20,17 @@
     </Setter>
   </Style>
 
+  <!-- Everything clickable shows the hand pointer, whatever its class
+       (U184, 10 November 2026): only some button styles set it, so most
+       buttons in Backup settings showed the arrow. Disabled controls keep the
+       arrow. Specific styles further down still win where they set a cursor. -->
+  <Style Selector="Button, ToggleButton, RepeatButton, CheckBox, RadioButton, ToggleSwitch, ComboBox, Expander /template/ ToggleButton, TabItem, MenuItem">
+    <Setter Property="Cursor" Value="Hand"/>
+  </Style>
+  <Style Selector="Button:disabled, ToggleButton:disabled, RepeatButton:disabled, CheckBox:disabled, RadioButton:disabled, ToggleSwitch:disabled, ComboBox:disabled, TabItem:disabled, MenuItem:disabled">
+    <Setter Property="Cursor" Value="Arrow"/>
+  </Style>
+
   <!-- =================================================================== -->
   <!-- Shared type scale: bundled Manrope headings, native readable body. -->
   <!-- Body: 14/22/400, page title: Manrope 28/38/700. Tabular numbers.  -->
