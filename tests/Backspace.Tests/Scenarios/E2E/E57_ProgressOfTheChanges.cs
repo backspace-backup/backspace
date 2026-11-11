@@ -66,7 +66,7 @@ public sealed class E57_ProgressOfTheChanges : BackupE2EBase
         try
         {
             var second = await RunBackupViaUiAsync(ctx, backup, view, CancellationToken.None);
-            Assert.Equal(BackupRunStatus.Success, second.Status);
+            Assert.True(second.Status == BackupRunStatus.Success, second.Summary + " | " + string.Join(" | ", second.Errors) + " | " + string.Join(" | ", second.Cells.Select(c => c.Summary)));
             // U142: the run records what it added, from restic's summary.
             Assert.Equal(1, second.FilesNew);
             Assert.True(second.BytesUploaded > 0, second.BytesUploaded.ToString()); // compressed and deduplicated: less than the 400 MiB read

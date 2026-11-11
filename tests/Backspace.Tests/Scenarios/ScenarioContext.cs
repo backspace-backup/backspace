@@ -190,6 +190,32 @@ public sealed class ScenarioContext : IDisposable
         // headless lifecycle does most cleanup itself.
         Driver.Dispose();
         if (Report.Status == ScenarioStatus.Pending) Report.MarkPassed();
+        // The fixtures (sources, destinations, restores) are throwaway; left
+        // behind, a full test run filled the owner's C: drive (11 November
+        // 2026). Screenshots and reports live elsewhere. Set
+        // BACKSPACE_KEEP_SCENARIO_DIRS=1 to keep them for debugging.
+        if (Environment.GetEnvironmentVariable("BACKSPACE_KEEP_SCENARIO_DIRS") != "1")
+            DeleteWithoutFollowingLinks(RootDir);
+    }
+
+    /// <summary>Deletes a fixture folder. A junction or symbolic link is
+    /// removed itself, never followed, so nothing outside is touched. Best
+    /// effort: a file still held open (a mount not yet gone) is left.</summary>
+    internal static void DeleteWithoutFollowingLinks(string path)
+    {
+        try
+        {
+            var dir = new DirectoryInfo(path);
+            if (!dir.Exists) return;
+            if (dir.Attributes.HasFlag(FileAttributes.ReparsePoint)) { dir.Delete(false); return; }
+            foreach (var entry in dir.EnumerateFileSystemInfos())
+            {
+                if (entry is DirectoryInfo child) DeleteWithoutFollowingLinks(child.FullName);
+                else { entry.Attributes = FileAttributes.Normal; entry.Delete(); }
+            }
+            dir.Delete(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     private static string SafeFilename(string label)
