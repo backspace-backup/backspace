@@ -429,13 +429,9 @@ public partial class MainWindow : Window
                 ServiceLocator.Maintenance.TryBeginShutdown(out _shutdownAdmission);
             // Each stopped run records how it ended before Backspace exits (U126).
             await ServiceLocator.Orchestrator.CancelAndRecordRunsAsync(CancelEverything, TimeSpan.FromSeconds(5), "Backspace was force quit");
-            // Stop only this instance's engine. A stalled engine cannot hold
-            // the UI open indefinitely; Windows also owns its process job.
-            if (ServiceLocator.BackrestSidecar is { } sidecar)
-            {
-                try { await sidecar.StopAsync(TimeSpan.Zero).WaitAsync(TimeSpan.FromSeconds(2)); }
-                catch (Exception ex) { AppLogger.For<MainWindow>().Warning(ex, "Forced engine shutdown will fall back to process-exit cleanup"); }
-            }
+            // End this instance's restic runs at once, with everything they
+            // started (U175); Windows also owns their process job.
+            ResticRunner.EndAll();
             App.ForceQuitRequested = true;
             App.QuitRequested = true;
             Close();
@@ -561,14 +557,12 @@ public partial class MainWindow : Window
         OpenExternal("https://github.com/backspace-backup/backspace", "GitHub");
 
     /// <summary>
-    /// Opens the Backrest GitHub repo — matches the "Powered by
-    /// Backrest" attribution copy in the sidebar footer. Backrest is
-    /// the upstream Go daemon Backspace embeds as a sidecar to drive
-    /// restic, so the upstream repo is the right place to send
-    /// curious users.
+    /// Opens restic's website — matches the "Powered by restic"
+    /// attribution in the sidebar footer: Backspace runs the bundled
+    /// restic for every backup and restore (U175).
     /// </summary>
-    private void OnOpenBackrest(object? sender, RoutedEventArgs e) =>
-        OpenExternal("https://github.com/garethgeorge/backrest", "Backrest");
+    private void OnOpenRestic(object? sender, RoutedEventArgs e) =>
+        OpenExternal("https://restic.net/", "restic");
 
     /// <summary>The sidebar version opens Settings at App updates (U088).</summary>
     private void OnOpenAppUpdates(object? sender, RoutedEventArgs e)

@@ -7,9 +7,10 @@ the deeper docs you'll need next.
 
 ## What the app is
 
-A friendly desktop GUI for [restic](https://restic.net/) backups,
-driven by a bundled [Backrest](https://github.com/garethgeorge/backrest)
-daemon as the engine. Avalonia-based, single framework-dependent `.exe`,
+A friendly desktop GUI for [restic](https://restic.net/) backups: Backspace
+runs the bundled restic (and rclone, for cloud destinations) itself, with no
+daemon in between (U175 removed the Backrest daemon that earlier versions
+used). Avalonia-based, single framework-dependent `.exe`,
 portable config folder. Windows is the supported target; macOS / Linux
 compile but the suite has not been exercised on either OS.
 
@@ -46,7 +47,7 @@ focuses on contributor / agent concerns.
 | Visual identity: palette, type, motion, copy tone | [DESIGN.md](DESIGN.md) |
 | Test suite + scenario harness + standing instruction | [docs/TESTING.md](docs/TESTING.md) |
 | Issues, decisions and future work (local, Git-excluded) | [Review desk](http://127.0.0.1:4317/) and [planned work](http://127.0.0.1:4317/roadmap) |
-| Sharp edges (OAuth, Backrest guid contract, WebDAV, bracket-restore) | [docs/GOTCHAS.md](docs/GOTCHAS.md) |
+| Sharp edges (OAuth, the restic runner, WebDAV, bracket-restore) | [docs/GOTCHAS.md](docs/GOTCHAS.md) |
 | Icon build pipeline (per-accent ICOs, syncing frames) | [docs/icon.md](docs/icon.md) |
 | Scenario harness deep-dive (how to add a scenario) | [tests/Backspace.Tests/Scenarios/README.md](tests/Backspace.Tests/Scenarios/README.md) |
 | PR conventions | [CONTRIBUTING.md](CONTRIBUTING.md) |
@@ -68,20 +69,9 @@ When an upstream fix may replace local workaround code, keep its findings
 in the existing Review desk issue. Document the removal
 conditions in the relevant technical guide. A merged PR alone is not enough:
 the fix must be released, bundled and tested before removing protections.
-For restore bracket matching, see [the cleanup criteria](docs/GOTCHAS.md#reviewing-the-upstream-bracket-fix).
-
-**Next-agent reminder — review Backrest PR #1411 by 12 January 2027.**
-When resuming this project, compare the current date with this deadline and
-check R007 for a recorded review. If the date has arrived or passed and the
-review has not been done, check whether the PR has merged, whether a stable
-release contains it, and whether Backspace bundles that release. Assess which
-remaining local code can safely be simplified using the criteria above,
-then record the findings and review date in R007. This is an instruction for
-the next agent, not a ChatGPT task or other scheduled automation. Do not
-create a scheduler job for it.
 
 **Next-agent reminder — check whether Backspace still needs its own restic,
-on the same date (12 January 2027) and at each restic upgrade.** Backspace's
+on 12 January 2027 and at each restic upgrade.** Backspace's
 Windows restic carries two patches (engine/restic/README.md): 0001 is
 restic PR #22165 (faster exclusion matching, U137) and 0002 is restic
 PR #22134 (two `**` in one rule, restic issue #22131, U151). Check whether
@@ -90,7 +80,8 @@ release contains both, follow "When to remove it" in engine/restic/README.md:
 pin that release, drop `resticBackspace` and the patches, make Simulate use
 the fixed matching on every platform (`FilterTranslator.ResticMatch`),
 and run the filter parity scenario (E57). Record the check and its date in
-U151 (and U137 for 0001). Same rule as above: no scheduler job.
+U151 (and U137 for 0001). This is an instruction for the next agent, not a
+ChatGPT task or other scheduled automation: no scheduler job.
 
 The dashboard and its JSON stay Git-excluded at the user's request.
 Copy them separately when moving this checkout. Start the desk with
@@ -325,7 +316,7 @@ sessions. Read them once and treat them as load-bearing.
    #3).
 5. **When in doubt about a destructive action, ask.** Confirm before
    deletes, force-pushes, `rm -rf`, `git checkout --`,
-   `restic forget`, `backrest --reset-db`, etc. The cost of pausing
+   `restic forget`, `restic prune`, etc. The cost of pausing
    to confirm is low; the cost of an unwanted action (lost work,
    deleted branches, wiped repo) is unbounded.
 6. **Before every commit, sweep markdown for staleness.** Run the

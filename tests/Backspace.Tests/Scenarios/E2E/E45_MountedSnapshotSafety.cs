@@ -49,7 +49,7 @@ public sealed class E45_MountedSnapshotSafety : BackupE2EBase
         Assert.Equal("root-version-3", File.ReadAllText(Path.Combine(bulkTarget, "readme.txt")));
         Assert.Equal("deep-version-3", File.ReadAllText(Path.Combine(bulkTarget, "nested", "deeper", "two.txt")));
         Assert.True(Directory.Exists(Path.Combine(bulkTarget, "empty", "deeper")));
-        ctx.Report.RecordNote("Complete nested bulk restore", "The actual bundled Backrest and restic restored all three files and the empty/deeper folder. Directory counts did not turn a successful restore into a warning.");
+        ctx.Report.RecordNote("Complete nested bulk restore", "The actual bundled restic restored all three files and the empty/deeper folder. Directory counts did not turn a successful restore into a warning.");
 
         var cache = ctx.MakeRestoreTarget("mount-cache");
         using (var provider = new BackupMountTreeProvider(fixture.Engine, backup, destination, "default", cache,

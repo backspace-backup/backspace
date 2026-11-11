@@ -73,7 +73,7 @@ public sealed class E2E_WindowsUpdateBundle
         }
         using var ws = new TempWorkspace("native-update");
         var root = ws.Sub("café 日本 & ! (portable)");
-        foreach (var name in new[] { "Backspace.exe", "backrest.exe", "restic.exe", "rclone.exe" })
+        foreach (var name in new[] { "Backspace.exe", "restic.exe", "rclone.exe" })
             File.Copy(Path.Combine(string.IsNullOrWhiteSpace(previous) ? candidate! : previous, name), Path.Combine(root, name));
         var original = Directory.GetFiles(root).ToDictionary(p => Path.GetFileName(p)!, WindowsUpdatePackage.Hash);
         if (!string.IsNullOrWhiteSpace(previous))

@@ -70,10 +70,14 @@ public class BundledRcloneIntegrationTests
         }
     }
 
+    /// <summary>The runner (U175) starts restic with the bundled rclone and
+    /// the destination's own rclone configuration: <c>init --json</c> creates
+    /// the repository through rclone and answers with restic's id for it.</summary>
     [Fact]
-    public async Task RealBackrest_CreatesRcloneRepository_FromItsSeparateDataDirectory()
+    public async Task ResticRunner_CreatesAnRcloneRepository_WithTheBundledRclone()
     {
-        var root = Path.Combine(Path.GetTempPath(), "backspace-backrest-rclone-" + Guid.NewGuid().ToString("N"));
+        Assert.True(File.Exists(AppPaths.ResticBinary) && File.Exists(AppPaths.RcloneBinary), "This check requires the bundled engines.");
+        var root = Path.Combine(Path.GetTempPath(), "backspace-runner-rclone-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(60));
@@ -81,18 +85,13 @@ public class BundledRcloneIntegrationTests
         {
             var conf = Path.Combine(root, "rclone.conf");
             await File.WriteAllTextAsync(conf, "[fixture]\ntype = local\n", timeout.Token);
-            await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, Path.Combine(root, "daemon data"));
-            await sidecar.StartAsync(timeout.Token);
-            var result = await sidecar.Client!.CallAsync<AddRepoRequest, BackrestConfig>("/v1.Backrest/AddRepo", new AddRepoRequest
-            {
-                Repo = new BackrestRepo
-                {
-                    Id = "bundled-rclone-check", Uri = "rclone:fixture:" + Path.Combine(root, "repository").Replace('\\', '/'),
-                    Password = "disposable-fixture-password", Env = { "RCLONE_CONFIG=" + conf }
-                }
-            }, timeout.Token);
+            var repository = new ResticRepository("rclone:fixture:" + Path.Combine(root, "repository").Replace('\\', '/'),
+                "disposable-fixture-password", ["RCLONE_CONFIG=" + conf], []);
+            var result = await ResticRunner.RunAsync(new ResticCommand(AppPaths.ResticBinary, repository, ["init", "--json"]) { CaptureOutput = 64 * 1024 },
+                null, null, timeout.Token);
+            Assert.True(result.Succeeded, result.ErrorText);
             Assert.True(File.Exists(Path.Combine(root, "repository", "config")));
-            Assert.Equal(64, result.Repos.Single().Guid.Length);
+            Assert.Equal(64, ResticBackrestEngine.RepositoryId(result.Output)?.Length);
         }
         finally { ResticBackrestEngine.DeleteRestoreStaging(root); }
     }

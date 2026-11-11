@@ -16,22 +16,18 @@ namespace Backspace.Tests.Services;
 
 public sealed class CompletedEngineFailureTests
 {
+    /// <summary>An interrupted setup is recognised from restic's own closing
+    /// message (its exit_error, read by ResticRunner) and nothing else: a
+    /// file name or a status line that contains the words is not one.</summary>
     [Theory]
-    [InlineData("/v1.Backrest/AddRepo", "{\"message_type\":\"exit_error\",\"message\":\"Fatal: create key failed: repository already contains keys\"}", true)]
-    [InlineData("/v1.Backrest/Backup", "{\"message_type\":\"exit_error\",\"message\":\"Fatal: create key failed: repository already contains keys\"}", false)]
-    [InlineData("/v1.Backrest/AddRepo", "{\"message_type\":\"exit_error\",\"message\":\"Fatal: open repository already contains keys.txt: sharing violation\"}", false)]
-    [InlineData("/v1.Backrest/AddRepo", "{\"message_type\":\"status\",\"message\":\"Example: repository already contains keys\"}", false)]
-    [InlineData("/v1.Backrest/AddRepo", "{\"message_type\":\"exit_error\",\"message\":\"Fatal: save config: Access is denied\"}", false)]
-    [InlineData("/v1.Backrest/AddRepo", "{broken json: repository already contains keys", false)]
-    [InlineData("/v1.Backrest/AddRepo", "{\"message_type\":42,\"message\":null}", false)]
-    public void Interrupted_initialization_requires_the_actual_structured_terminal_error(string endpoint, string output, bool expected)
-    {
-        var original = new BackrestRpcException(endpoint, 500, "unknown", "failed to init repo\nOutput:\n" + output);
-        var translated = ResticBackrestEngine.TranslateRpcError(original, "AddRepo");
-        Assert.Equal(expected, translated is EngineRepositoryInitializationException);
-        if (expected) Assert.IsAssignableFrom<INonRetriable>(translated);
-        else Assert.Same(original, translated);
-    }
+    [InlineData("Fatal: create key failed: repository already contains keys", true)]
+    [InlineData("Fatal: open repository already contains keys.txt: sharing violation", false)]
+    [InlineData("Example: repository already contains keys and more", false)]
+    [InlineData("Fatal: save config: Access is denied", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void Interrupted_initialization_requires_restics_own_closing_message(string? exitMessage, bool expected)
+        => Assert.Equal(expected, ResticBackrestEngine.IsInterruptedInitialization(exitMessage));
 
     [AvaloniaFact]
     public async Task Real_interrupted_initialization_fails_once_and_preserves_every_existing_file()
@@ -60,8 +56,7 @@ public sealed class CompletedEngineFailureTests
         File.Delete(Path.Combine(destination.PathOrSubpath, "config"));
         var before = Contents(destination.PathOrSubpath);
         Assert.NotEmpty(before);
-        await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, workspace.Sub("backrest"));
-        var engine = new ResticBackrestEngine(sidecar, secrets);
+        var engine = new ResticBackrestEngine(secrets);
         var run = await Orchestrator(config, secrets, logs, engine).RunBackupAsync(backup, deadline.Token);
         Assert.Equal(BackupRunStatus.Failed, run.Status);
         Assert.Equal(1, Assert.Single(run.Cells).AttemptsMade);
@@ -100,8 +95,7 @@ public sealed class CompletedEngineFailureTests
             Assert.True(process.ExitCode == 0, await stdout + await stderr);
         }
         var before = Contents(destination.PathOrSubpath);
-        await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, workspace.Sub("backrest"));
-        var engine = new ResticBackrestEngine(sidecar, secrets);
+        var engine = new ResticBackrestEngine(secrets);
         var run = await Orchestrator(config, secrets, logs, engine).RunBackupAsync(backup, deadline.Token);
         Assert.Equal(BackupRunStatus.Failed, run.Status);
         var cell = Assert.Single(run.Cells);
@@ -152,8 +146,7 @@ public sealed class CompletedEngineFailureTests
         Assert.True(RealEngineFixture.BinariesPresent, RealEngineFixture.MissingBinariesReason());
         using var workspace = new TempWorkspace("missing-repository-config");
         var (config, secrets, logs, backup, destination) = Setup(workspace);
-        await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, workspace.Sub("backrest"));
-        var engine = new ResticBackrestEngine(sidecar, secrets);
+        var engine = new ResticBackrestEngine(secrets);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         var first = await engine.BackupPruneCheckAsync(backup, backup.SourcePaths.Single(), destination, "default", deadline.Token);
         Assert.Equal(BackupRunStatus.Success, first.Status);
@@ -191,7 +184,7 @@ public sealed class CompletedEngineFailureTests
     }
 
     [AvaloniaFact]
-    public async Task Real_Backrest_wrong_password_retains_the_error_in_backup_history_and_maintenance()
+    public async Task A_wrong_password_retains_the_error_in_backup_history_and_maintenance()
     {
         Assert.True(RealEngineFixture.BinariesPresent, RealEngineFixture.MissingBinariesReason());
         using var workspace = new TempWorkspace("failure-details");
@@ -199,8 +192,7 @@ public sealed class CompletedEngineFailureTests
         destination.Encrypted = true;
         destination.StoragePasswordRef = "test-repository-password";
         secrets.Set(destination.StoragePasswordRef, "disposable-correct-repository-password");
-        await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, workspace.Sub("backrest"));
-        var engine = new ResticBackrestEngine(sidecar, secrets);
+        var engine = new ResticBackrestEngine(secrets);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         var first = await engine.BackupPruneCheckAsync(backup, backup.SourcePaths.Single(), destination, "default", deadline.Token);
         Assert.Equal(BackupRunStatus.Success, first.Status);

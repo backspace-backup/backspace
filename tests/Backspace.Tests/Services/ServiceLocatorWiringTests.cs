@@ -7,21 +7,12 @@ namespace Backspace.Tests.Services;
 /// <summary>
 /// Pins down a few service-locator wiring assumptions that are
 /// otherwise invisible from the outside: when the consumer is the
-/// XAML binding "{Binding CanMountSnapshot}" or
-/// "{Binding BrowseSnapshotsCommand}", a missing registration silently
-/// renders a dead button. These tests fail loud if the wiring breaks.
+/// XAML binding "{Binding CanMountSnapshot}", a missing registration
+/// silently renders a dead button. These tests fail loud if the wiring
+/// breaks.
 /// </summary>
 public class ServiceLocatorWiringTests
 {
-    [Fact]
-    public void SnapshotBrowserLauncher_IsRegisteredOnEveryPlatform()
-    {
-        // BackupCard binds the "Browse" button to BrowseSnapshotsCommand
-        // which calls ServiceLocator.SnapshotBrowser.OpenFor — a null
-        // here would throw NullReferenceException on every click.
-        Assert.NotNull(ServiceLocator.SnapshotBrowser);
-    }
-
     [Fact]
     [SupportedOSPlatform("windows")]
     public void SnapshotMountRegistry_IsRegisteredOnWindows()

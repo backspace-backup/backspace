@@ -198,7 +198,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     private bool _displayedRunStoredSomething;
 
-    /// <summary>Mount, Restore files and Browse snapshots: idle and with something stored.</summary>
+    /// <summary>Mount and Restore files: idle and with something stored.</summary>
     public bool CanUseSnapshots => !IsRunning && HasRestorableRun;
 
     public const string NothingToRestoreTooltip = "Nothing to restore yet: this backup hasn't stored anything. Run it first.";
@@ -1050,44 +1050,6 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             }
         }
         catch (Exception ex) { AppLogger.For<BackupCardViewModel>().Warning(ex, "ViewLogs handler threw for {Id}", Id); }
-    }
-
-    /// <summary>Open Backrest's bundled snapshot browser in the
-    /// user's default browser, scoped to this backup's first
-    /// (source × destination) plan. Wired to the "Browse snapshots"
-    /// button on the card. Failures surface as a toast through the
-    /// notification service rather than throwing — the user clicked
-    /// a "show me my files" button; a stack trace isn't useful.</summary>
-    [RelayCommand]
-    private async Task BrowseSnapshotsAsync()
-    {
-        try
-        {
-            if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to open this backup.").ConfigureAwait(true)) return;
-            // Async — a cold-start of the Backrest engine inside
-            // the launcher could otherwise freeze the UI thread for
-            // up to 15s while the engine's readiness probe runs.
-            var result = await ServiceLocator.SnapshotBrowser.OpenForAsync(Snapshot).ConfigureAwait(true);
-            if (!result.Succeeded)
-            {
-                _ = ServiceLocator.Notifier.NotifyAsync(
-                    title: "Couldn't open the snapshot browser",
-                    detail: result.Message,
-                    severity: NotificationSeverity.Failure);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Belt-and-braces: any unexpected throw (Process.Start on
-            // a locked-down host, sidecar disposed mid-call) becomes
-            // an unhandled async-void exception that crashes the
-            // dispatcher. Toast + log instead.
-            AppLogger.For<BackupCardViewModel>().Error(ex, "BrowseSnapshots threw");
-            _ = ServiceLocator.Notifier.NotifyAsync(
-                title: "Couldn't open the snapshot browser",
-                detail: ex.Message,
-                severity: NotificationSeverity.Failure);
-        }
     }
 
     /// <summary>True iff the host is Windows AND the WebDAV-mount

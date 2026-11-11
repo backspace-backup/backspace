@@ -25,8 +25,7 @@ public class ReviewRound2RegressionTests
     {
         var b = new Backup { BandwidthLimitKBps = 512 };
         var flags = ResticBackrestEngine.BuildRepoFlagsForBackup(b);
-        // Order matters — Backrest rounds-trips Flags in the order
-        // we sent them, and the drift check uses ordinal equality.
+        // The upload limit first, then the download limit.
         Assert.Equal(new[] { "--limit-upload", "512", "--limit-download", "512" }, flags);
     }
 
@@ -43,28 +42,12 @@ public class ReviewRound2RegressionTests
     [InlineData(DestinationKind.OneDrivePersonal)]
     [InlineData(DestinationKind.OneDriveBusiness)]
     [InlineData(DestinationKind.GoogleDrive)]
-    public void CloudRepoFlags_doNotPassExecutablePathsThroughBackrestsShellParser(DestinationKind kind)
+    public void CloudRepoFlags_carryNoExecutablePaths(DestinationKind kind)
     {
         var flags = ResticBackrestEngine.BuildRepoFlagsForBackup(null, new Destination { Kind = kind, Encrypted = true });
         Assert.Empty(flags);
         Assert.Empty(ResticBackrestEngine.BuildRepoFlagsForBackup(null, new Destination { Kind = DestinationKind.LocalFolder, Encrypted = true }));
         Assert.Empty(ResticBackrestEngine.BuildRepoFlagsForBackup(null, new Destination { Kind = DestinationKind.S3Compatible, Encrypted = true }));
-    }
-
-    [Fact]
-    public void RepoFlagsEqual_detects_order_and_value_drift()
-    {
-        Assert.True(ResticBackrestEngine.RepoFlagsEqual(null, null));
-        Assert.True(ResticBackrestEngine.RepoFlagsEqual(new List<string>(), null));
-        Assert.True(ResticBackrestEngine.RepoFlagsEqual(
-            new List<string> { "--limit-upload", "512" },
-            new List<string> { "--limit-upload", "512" }));
-        Assert.False(ResticBackrestEngine.RepoFlagsEqual(
-            new List<string> { "--limit-upload", "512" },
-            new List<string> { "--limit-upload", "256" }));
-        Assert.False(ResticBackrestEngine.RepoFlagsEqual(
-            new List<string> { "--limit-upload", "512" },
-            new List<string> { "512", "--limit-upload" }));
     }
 
     // ---- ConfigStore Save_NoLock refuses while _loaded=false ----

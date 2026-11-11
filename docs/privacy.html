@@ -145,21 +145,12 @@ footer a { color: var(--fg-dim); }
                 destination details. Backspace does not upload these logs
                 automatically; inspect them before sharing a support report.
             </li>
-            <li>
-                <strong>The Backrest sidecar's data.</strong> Backspace
-                bundles <a href="https://github.com/garethgeorge/backrest">Backrest</a>
-                and drives it as a localhost-only RPC sidecar. Its
-                state (operation history and cached repository metadata) lives on
-                this computer only, under <code>%LOCALAPPDATA%/Backspace/engine</code>,
-                not in the portable folder.
-                The sidecar binds to <code>127.0.0.1</code> only — it
-                is not reachable from any other computer.
-            </li>
         </ul>
         <p>
             The engine's working files on this computer contain readable cloud
-            credentials and repository passwords while Backspace manages its
-            connections; they stay outside the portable folder. Keep the
+            credentials while Backspace manages its connections; they stay
+            outside the portable folder. Repository passwords reach restic only
+            while it runs, never a file. Keep the
             configuration folder private all the same. Removing a destination or its local settings does not erase
             backups already stored with your provider.
         </p>
@@ -239,10 +230,9 @@ footer a { color: var(--fg-dim); }
                 GitHub's release service. On Windows, the updater downloads a
                 release when you choose to install it. GitHub receives normal
                 request information, including your IP address.</li>
-            <li>A one-time download of release binaries from GitHub
-                (backrest, restic, rclone) the first time you build
-                Backspace from source. Disabled by passing
-                <code>-p:SkipBackrestDownload=true</code>.</li>
+            <li>A one-time download of release binaries (restic, rclone)
+                the first time you build Backspace from source. Disabled by
+                passing <code>-p:SkipEngineDownload=true</code>.</li>
         </ul>
 
         <h2>Cookies, tracking, third-party scripts</h2>

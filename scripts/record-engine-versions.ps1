@@ -5,7 +5,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $lines = [Collections.Generic.List[string]]::new()
-foreach ($item in @(@('restic.exe','version'), @('backrest.exe','--windows-tray=false --version'), @('rclone.exe','version'))) {
+foreach ($item in @(@('restic.exe','version'), @('rclone.exe','version'))) {
     $file = Join-Path ([IO.Path]::GetFullPath($SourceDirectory)) $item[0]
     Write-Host "Recording version: $($item[0])"
     $start = [Diagnostics.ProcessStartInfo]::new($file)

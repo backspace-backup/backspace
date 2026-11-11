@@ -133,7 +133,7 @@ public sealed class S54_EditorialMinimumWidth : ScenarioBase
             var menu = Assert.IsType<MenuFlyout>(delete.Flyout);
             Assert.True(menu.IsOpen);
             var extraActions = menu.Items.OfType<MenuItem>().ToArray();
-            Assert.Equal(new[] { "Edit backup settings", "Browse snapshots in browser", "Remove backup…" }, extraActions.Select(i => i.Header));
+            Assert.Equal(new[] { "Edit backup settings", "Remove backup…" }, extraActions.Select(i => i.Header));
             Assert.All(extraActions, i => Assert.NotNull(i.Command));
             cardVm.IsRunning = true; ctx.Driver.Pump();
             Assert.All(extraActions, i => Assert.False(i.IsEnabled));

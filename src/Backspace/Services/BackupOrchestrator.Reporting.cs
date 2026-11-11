@@ -88,7 +88,7 @@ public sealed partial class BackupOrchestrator
         if (record.Status == BackupRunStatus.Failed)
         {
             var firstError = record.Errors.Count > 0 ? record.Errors[0] : null;
-            // Backrest wraps restic's reason in a command and long local paths.
+            // restic's reason can come with a command and long local paths.
             // Read the full diagnostic before shortening the visible message.
             detail = firstError?.Contains("Fatal: wrong password or no key found", StringComparison.OrdinalIgnoreCase) == true
                 ? "The backup could not unlock this destination. Check its backup password in Destinations."

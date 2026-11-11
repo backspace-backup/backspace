@@ -61,7 +61,7 @@ public sealed class E43_CloudSourceChangeDetection : BackupE2EBase
         await Round("Changed revision with a distinct virtual timestamp", newBytes, originalDate.AddTicks(1),
             expectedChangedReads: true, expectedUnchangedReads: false, expectedRecovered: newBytes);
         ctx.Report.RecordNote("Scope and remaining work",
-            "Real WinFSP, Backrest and restic; simulated remote metadata and bytes. Each round remounts to remove filesystem-cache reuse. " +
+            "Real WinFSP and restic; simulated remote metadata and bytes. Each round remounts to remove filesystem-cache reuse. " +
             "No Dropbox account or original placeholder was accessed. This proves the change-detection mechanism only. " +
             "Production still needs provider authorization, revision-aware persisted metadata, original-date recovery, " +
             "a bounded temporary download cache, backup/restore integration and interface controls.");

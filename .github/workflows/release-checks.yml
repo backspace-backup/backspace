@@ -66,7 +66,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File src/Backspace/fetch-backrest.ps1 -BackrestOutPath src/Backspace/Assets/backrest.exe -ResticOutPath src/Backspace/Assets/restic.exe -RcloneOutPath src/Backspace/Assets/rclone.exe
+          powershell -NoProfile -ExecutionPolicy Bypass -File src/Backspace/fetch-engines.ps1 -ResticOutPath src/Backspace/Assets/restic.exe -RcloneOutPath src/Backspace/Assets/rclone.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run unit and interface checks
         shell: pwsh
@@ -76,7 +76,7 @@ jobs:
       - name: Check Release service and credential boundaries
         shell: pwsh
         run: |
-          dotnet test tests/Backspace.Tests -c Release -f net10.0-windows -m:1 -p:SkipBackrestDownload=true --filter "FullyQualifiedName~ServiceMigrationProtocolTests|FullyQualifiedName~ServiceSetupTests|FullyQualifiedName~ServiceScheduledRunTests|FullyQualifiedName~Secrets" --logger "trx;LogFileName=release-service.trx" --results-directory release-evidence
+          dotnet test tests/Backspace.Tests -c Release -f net10.0-windows -m:1 -p:SkipEngineDownload=true --filter "FullyQualifiedName~ServiceMigrationProtocolTests|FullyQualifiedName~ServiceSetupTests|FullyQualifiedName~ServiceScheduledRunTests|FullyQualifiedName~Secrets" --logger "trx;LogFileName=release-service.trx" --results-directory release-evidence
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Back up and restore 20,000 files and 2 GiB with the real engine
         shell: pwsh
@@ -124,7 +124,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/verify-runtime-package.ps1 -Executable release-candidate/Backspace.exe -ResultFile release-evidence/runtime-package.json
           # U100, U102: the release offers Backspace.exe alone. On first start
-          # it downloads restic, Backrest and rclone from their own projects at
+          # it downloads restic and rclone from their own projects at
           # the pinned versions and checks them against hashes built into it.
           if (Get-ChildItem release-candidate -File | Where-Object Name -ne "Backspace.exe") { throw "The published app must be Backspace.exe alone." }
           Copy-Item release-candidate/Backspace.exe release-evidence/Backspace.exe
@@ -132,7 +132,7 @@ jobs:
           # The update test installs the candidate beside engines, as a test fixture only.
           New-Item -ItemType Directory -Force update-candidate | Out-Null
           Copy-Item release-candidate/Backspace.exe update-candidate/
-          foreach ($e in "backrest.exe", "restic.exe", "rclone.exe") { Copy-Item "src/Backspace/Assets/$e" update-candidate/ }
+          foreach ($e in "restic.exe", "rclone.exe") { Copy-Item "src/Backspace/Assets/$e" update-candidate/ }
       - name: Verify the actual Windows update bundle and rollback
         shell: pwsh
         timeout-minutes: 5

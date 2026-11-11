@@ -38,7 +38,7 @@ public sealed class EngineRepositoryInitializationException : System.Exception, 
 }
 
 /// <summary>
-/// Thrown when a required engine binary (backrest, restic, rclone)
+/// Thrown when a required engine binary (restic, rclone)
 /// isn't on disk next to Backspace.exe. The orchestrator treats this
 /// as non-retriable — retrying a missing binary is pure delay — and
 /// surfaces the message verbatim to the user so they know exactly
@@ -50,25 +50,9 @@ public sealed class EngineBinaryMissingException : System.IO.FileNotFoundExcepti
 }
 
 /// <summary>
-/// Thrown when the engine reports that the plan or repo we just
-/// asked it to operate on doesn't exist in its config. Retrying
-/// the orchestrator-level cell can't recover from this — the
-/// engine's internal config is out of sync with what we just
-/// asked for, and no amount of backoff fixes that. We surface
-/// the underlying RPC message so the cell-log breadcrumb tells
-/// the operator what to investigate (most often a stale Backrest
-/// data dir from a prior install).
-/// </summary>
-public sealed class EngineConfigOutOfSyncException : System.Exception, INonRetriable
-{
-    public EngineConfigOutOfSyncException(string message) : base(message) { }
-    public EngineConfigOutOfSyncException(string message, System.Exception inner) : base(message, inner) { }
-}
-
-/// <summary>
 /// Thrown when the engine reports an authentication / authorization
-/// failure (Connect-Go code <c>unauthenticated</c> or
-/// <c>permission_denied</c>): wrong restic repo password, wrong
+/// failure (restic's exit code 12, or a provider's refusal): wrong
+/// restic repo password, wrong
 /// cloud OAuth token, expired credentials, or 403 from the
 /// backend. Retrying with the same credentials produces the same
 /// failure, so the orchestrator marks it non-retriable and asks
@@ -78,19 +62,6 @@ public sealed class EngineAuthFailedException : System.Exception, INonRetriable
 {
     public EngineAuthFailedException(string message) : base(message) { }
     public EngineAuthFailedException(string message, System.Exception inner) : base(message, inner) { }
-}
-
-/// <summary>
-/// Thrown when the engine rejects the request as malformed
-/// (Connect-Go code <c>invalid_argument</c>): bad storage URI,
-/// unknown destination kind, malformed retention policy. These
-/// are configuration mistakes — burning the 5/20/60 s retry
-/// cascade against an invalid URI is pure delay.
-/// </summary>
-public sealed class EngineInvalidArgumentException : System.Exception, INonRetriable
-{
-    public EngineInvalidArgumentException(string message) : base(message) { }
-    public EngineInvalidArgumentException(string message, System.Exception inner) : base(message, inner) { }
 }
 
 /// <summary>
@@ -124,20 +95,9 @@ public sealed class EngineUnreachableDestinationException : System.Exception, IN
     }
 }
 
-/// <summary>Backrest discarded a queued task without running it: its queue is
-/// reset when the computer wakes from sleep (a clock jump) or its settings
-/// change, and the waiting request then never returns (U093). Nothing is
-/// running, so the run's ordinary retry submits it again.</summary>
-public sealed class EngineTaskDroppedException : System.IO.IOException
-{
-    public EngineTaskDroppedException()
-        : base("The backup engine discarded this task before running it (for example after the computer woke from sleep).") { }
-}
 
-
-/// <summary>A task stopped showing signs of life (U111, 4 November 2026): the
-/// engine left status checks unanswered for <see cref="ResticBackrestEngine.EngineSilenceLimit"/>,
-/// or a backup's counts didn't move for <see cref="ResticBackrestEngine.ProgressStallLimit"/>.
+/// <summary>A task stopped showing signs of life (U111, 4 November 2026): a
+/// backup's counts didn't move for <see cref="ResticBackrestEngine.ProgressStallLimit"/>.
 /// The task is stopped and the run fails with this reason and the usual
 /// failure alerts; the next scheduled run tries again. Retrying at once could
 /// wait another hour on the same stuck network.</summary>

@@ -22,10 +22,10 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// Real-world drift scenario: the user backs up to <c>D:\Backups\old</c>,
 /// then later renames / moves that folder to <c>D:\Backups\new</c>
 /// from the destination editor. The next backup should pick up the
-/// new path — Backrest's repo URI must be rewritten via SetConfig
-/// drift detection so the daemon points restic at the right tree,
-/// and old snapshots stored there should still be enumerable from
-/// the new path.
+/// new path — every restic command takes the repository from the
+/// destination as it is now, so restic opens the right tree, and old
+/// snapshots stored there should still be enumerable from the new
+/// path.
 ///
 /// Shape:
 ///   1. Create destination D pointing at folderOld; back up + assert.
@@ -34,11 +34,10 @@ namespace Backspace.Tests.Scenarios.E2E;
 ///   4. ListRevisions should now show TWO snapshots (old + new), both
 ///      restorable from the new location.
 ///
-/// This pins the SetConfig drift path that
-/// <c>EnsurePlanAndRepoCoreAsync</c> implements for destination URI
-/// changes — without it, the second backup would either fail (Backrest
-/// pointing at the missing old path) or silently create a second repo
-/// under the new path, orphaning the first snapshot.
+/// This pins destination URI changes — without them reaching restic,
+/// the second backup would either fail (restic pointing at the
+/// missing old path) or silently create a second repo under the new
+/// path, orphaning the first snapshot.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E33_DestinationPathRenameMidLife : BackupE2EBase

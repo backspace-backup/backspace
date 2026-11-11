@@ -30,7 +30,7 @@ namespace Backspace.Tests.TestHelpers;
 /// files back out of a chosen revision into the caller's target. End
 /// result: backup + list + restore + byte-compare round-trips work
 /// the same way they would against a real engine, without any
-/// backrest.exe / restic.exe binary on disk.
+/// restic.exe binary on disk.
 ///
 /// Operation history is captured on <see cref="Calls"/> so tests can
 /// assert "the orchestrator routed through here" without parsing

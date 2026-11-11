@@ -57,9 +57,9 @@ public sealed class VssSnapshotGateTests
             await vss.CreateAsync(who);
             // Restic reads its first files: the snapshot exists, the next may make one.
             var progress = new BackupLiveProgress { Reading = turn.Dispose };
-            progress.Next(Status(filesDone: 0), DateTime.UtcNow);
+            progress.NextStatus(Status(filesDone: 0), DateTime.UtcNow);
             Assert.True(turn.Held, "No file read yet: the gate is still held.");
-            progress.Next(Status(filesDone: 3), DateTime.UtcNow);
+            progress.NextStatus(Status(filesDone: 3), DateTime.UtcNow);
             Assert.False(turn.Held);
         }
         await Task.WhenAll(Backup("local_c"), Backup("local_dropbox"), Backup("photos")).WaitAsync(TimeSpan.FromSeconds(20));
@@ -99,6 +99,6 @@ public sealed class VssSnapshotGateTests
         Assert.DoesNotContain("vss.timeout=30m", ResticBackrestEngine.BuildBackupFlags(new Backup { UseVss = false }));
     }
 
-    private static JsonElement Status(long filesDone) => JsonDocument.Parse(
-        $"{{\"lastStatus\":{{\"status\":{{\"percentDone\":0.1,\"totalBytes\":\"0\",\"bytesDone\":\"0\",\"totalFiles\":\"0\",\"filesDone\":\"{filesDone}\"}}}}}}").RootElement;
+    private static BackupLiveProgress.Sample? Status(long filesDone) => BackupLiveProgress.FromResticStatus(JsonDocument.Parse(
+        $"{{\"message_type\":\"status\",\"percent_done\":0.1,\"total_bytes\":0,\"bytes_done\":0,\"total_files\":0,\"files_done\":{filesDone}}}").RootElement);
 }

@@ -8,14 +8,15 @@ namespace Backspace.Services;
 /// <summary>
 /// Files that belong to this computer, not to the portable folder (U153).
 ///
-/// <para>The engine's working files hold readable credentials: Backrest keeps
-/// every repository's password in its config.json, and rclone keeps cloud
-/// tokens in its configuration. They are rebuilt from the vault and the
-/// settings whenever they are missing, so they live outside
+/// <para>The engine's working files can hold readable credentials: rclone
+/// keeps cloud tokens in its configuration. They are rebuilt from the vault
+/// and the settings whenever they are missing, so they live outside
 /// <c>Backspace.config</c> (which the owner syncs) in
 /// <c>%LOCALAPPDATA%\Backspace\engine\&lt;16 hex of SHA-256 of the upper-case
-/// configuration folder&gt;</c>: Backrest's data folder, the generated rclone
-/// remotes, isolated engine runs and the background service's scratch folder.
+/// configuration folder&gt;</c>: the generated rclone remotes, the exclude
+/// files, the mounted drive's cache and the background service's scratch
+/// folder. (Backrest's folders, which held repository passwords, are removed
+/// since U175: <see cref="BackrestLeftovers"/>.)
 /// The per-computer copies of the vault key sit in
 /// <c>%LOCALAPPDATA%\Backspace\keys</c>.</para>
 ///
@@ -74,9 +75,9 @@ internal static class EngineWorkPaths
         return Path.Combine(MachineRoot, "engine", ConfigHash(config));
     }
 
-    internal static string BackrestDataDir => Path.Combine(Root, "backrest");
     internal static string RcloneRemotesDir => Path.Combine(Root, "rclone-remotes");
     internal static string RcloneConfigFile => Path.Combine(Root, "rclone.conf");
-    internal static string EngineRunsDir => Path.Combine(Root, "engine-runs");
+    /// <summary>The mounted drive's copies of files read so far, per backup.</summary>
+    internal static string MountCacheDir => Path.Combine(Root, "mount-cache");
     internal static string ScratchDir => Path.Combine(Root, "scratch");
 }

@@ -20,7 +20,7 @@ namespace Backspace.Services;
 /// throwaway rclone.conf with one section for the candidate token,
 /// shells out to the bundled rclone binary, and surfaces the exit
 /// code + redacted stderr tail. Path resolution to the rclone binary
-/// goes through <see cref="AppPaths.RcloneBinary"/>; FetchBackrest.targets
+/// goes through <see cref="AppPaths.RcloneBinary"/>; FetchEngines.targets
 /// drops it next to the app at build time. If the binary isn't on disk
 /// the probe returns a clear "rclone missing" error so the user knows
 /// to repair the install rather than re-paste their token thinking it

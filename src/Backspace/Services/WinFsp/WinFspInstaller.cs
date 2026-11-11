@@ -46,7 +46,7 @@ public static class WinFspInstaller
     /// <see cref="WinFspNativeLoader.ExtractRoot"/> on startup; this
     /// returns the extracted path when present. Returns null when
     /// EnsureRegistered hasn't run yet or the extraction failed
-    /// (offline build with <c>-p:SkipBackrestDownload=true</c>,
+    /// (offline build with <c>-p:SkipEngineDownload=true</c>,
     /// stripped resource). Callers fall back to the "install
     /// manually" message in that case.</summary>
     public static string? BundledMsiPath()

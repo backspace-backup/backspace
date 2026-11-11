@@ -347,34 +347,6 @@ public sealed class InfrastructureReliabilityTests
     }
 
     [Fact]
-    public void Sidecar_same_directory_second_owner_cannot_touch_first_owner()
-    {
-        using var workspace = new TempWorkspace();
-        var data = workspace.Sub("engine");
-        using (var first = BackrestSidecar.AcquireDataDirectoryLease(data))
-        {
-            // A second owner waits (as long as it takes, U135) without touching the first.
-            using var stop = new System.Threading.CancellationTokenSource(TimeSpan.FromMilliseconds(500));
-            Assert.ThrowsAny<OperationCanceledException>(() => BackrestSidecar.AcquireDataDirectoryLease(data, stop.Token));
-            using var independent = BackrestSidecar.AcquireDataDirectoryLease(workspace.Sub("other-engine"));
-        }
-        using var afterExit = BackrestSidecar.AcquireDataDirectoryLease(data);
-    }
-
-    [Fact]
-    public async Task Sidecar_lease_waits_out_a_brief_scanner_handle()
-    {
-        if (!OperatingSystem.IsWindows()) return;
-        using var workspace = new TempWorkspace();
-        var data = workspace.Sub("engine");
-        // A scanner-style handle shares read/write but not deletion, which still blocks an exclusive open.
-        var scan = new FileStream(Path.Combine(data, "sidecar.owner.lock"), FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
-        var release = Task.Delay(300, TestContext.Current.CancellationToken).ContinueWith(_ => scan.Dispose(), TaskScheduler.Default);
-        try { using var lease = BackrestSidecar.AcquireDataDirectoryLease(data); }
-        finally { await release; scan.Dispose(); }
-    }
-
-    [Fact]
     public void Elevated_helper_receives_explicit_config_root_and_exact_parent_identity()
     {
         using var workspace = new TempWorkspace();
@@ -387,11 +359,6 @@ public sealed class InfrastructureReliabilityTests
         using var owner = Process.GetCurrentProcess();
         Assert.Equal(owner.Id, parsed.ParentPid);
         Assert.Equal(owner.StartTime.ToUniversalTime().Ticks, parsed.ParentStartTimeTicks);
-        var first = BackrestSidecar.CreateIsolatedDataDirectory("vss");
-        var second = BackrestSidecar.CreateIsolatedDataDirectory("vss");
-        Assert.NotEqual(first, second);
-        Assert.StartsWith(workspace.ConfigRoot, first);
-        Assert.NotEqual(AppPaths.BackrestDataDir, first);
     }
 
     [Fact]

@@ -15,7 +15,7 @@ using Xunit;
 namespace Backspace.Tests.Scenarios.E2E;
 
 /// <summary>
-/// Inline prune lifecycle against the real Backrest sidecar.
+/// Inline prune lifecycle against the real restic.
 /// <see cref="Backspace.Tests.E2E.BackupLifecycleTests.PruneAfterBackup_Runs_AndLeavesRevisions"/>
 /// covers the same shape against <c>InMemoryBackupEngine</c>, which
 /// has no concept of a restic-managed forget/prune so it can't catch

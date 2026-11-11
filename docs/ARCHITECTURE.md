@@ -38,40 +38,26 @@ a backup needs.
 
 ## Local engine access
 
-Backrest runs in the background on an ephemeral IPv4 loopback port. Its HTTP
-server carries the API used by Backspace, so stopping that server also stops
-backup and restore operations. Backspace suppresses Backrest's tray icon and
-does not automatically open its browser interface.
-
-Before starting the daemon, Backspace writes a random per-instance password
-and its bcrypt hash into the local credential/configuration files. The daemon
-therefore requires authentication from its first request; there is no open
-setup interval. Backspace signs in and sends a bearer token with API calls.
-Missing credentials are replaced on disk before launch, preserving unrelated
-configuration. Failed sign-in stops startup. Corrupt or newer configuration
-is preserved and rejected, never replaced with an empty repository list.
-
-This protects against unauthenticated local HTTP callers, including websites
-that attempt to reach localhost. It does not isolate Backspace from malware
-already running as the same Windows user or as administrator. The password
-file takes its folder's permissions; Backspace changes none. The engine's
-port is chosen free and released just before the engine starts on it, so
-another account could take it in between: before the first password is sent,
-`LoopbackPortOwner` confirms that the process listening on that port is the
-engine Backspace started, and startup stops otherwise (U152).
+Backspace runs restic (and, for cloud destinations, rclone) as its own child
+processes: no daemon, no local port, no sign-in, no engine settings file. The
+repository password reaches restic only in its environment while it runs
+(below). Earlier versions ran a Backrest daemon on a loopback port for all of
+this; U175 removed it. Its old working folders, which held a readable copy of
+every repository password, are deleted when the window or a service worker
+starts (`BackrestLeftovers`: `backrest`, `backrest-1` to `backrest-7`, their
+`worker-slot-N.lock` files and `engine-runs`, only directly inside this
+configuration's engine folder, never through a link).
 
 ## Backups, checks and restores run restic directly (U175)
 
-Backups, and the cleanup that follows them, run the bundled restic without
-Backrest (`ResticBackrestEngine.Direct.cs`): a backup started from the window,
-by the schedule or by the background service's worker never starts Backrest.
-Since step 2 so do checks (entries of their own since U179, run after the
-backup or on their schedule through `RunCheckOnlyAsync`), the stand-alone
-cleanup and the erase tools (`ResticBackrestEngine.Maintenance.cs`), and since
-step 3 snapshot lists, folder listings, the mounted drive's reads and every
-restore (`ResticBackrestEngine.cs`, below). Backrest is started only for
-Browse snapshots in browser, until step 4 removes it.
-Each restic command goes through `ResticRunner`:
+Backups, and the cleanup that follows them, run the bundled restic
+(`ResticBackrestEngine.Direct.cs`), whether started from the window, by the
+schedule or by the background service's worker. So do checks (entries of their own since U179, run after the backup or on
+their schedule through `RunCheckOnlyAsync`), the stand-alone cleanup and the
+erase tools (`ResticBackrestEngine.Maintenance.cs`), snapshot lists, folder
+listings, the mounted drive's reads and every restore
+(`ResticBackrestEngine.cs`, below). The class keeps its name from the Backrest
+engine it replaced. Each restic command goes through `ResticRunner`:
 
 - The password reaches restic only in its environment (`RESTIC_PASSWORD`);
   inherited `RESTIC_PASSWORD_FILE`, `RESTIC_PASSWORD_COMMAND` and
@@ -100,9 +86,10 @@ Each restic command goes through `ResticRunner`:
   130), waits `ResticRunner.GentleStopWait` (3 s) for it to exit, then ends
   the whole job, rclone included, and waits for the exit. A program without
   a console of its own (the window, `--run`, the service's worker) attaches
-  to restic's console to send it (`ConsoleBreak`). Force quit of a scheduled
-  `--run` ends its restic at once (`ResticRunner.EndAll`); the window's Force
-  quit stops runs the usual way, so at most 3 s more.
+  to restic's console to send it (`ConsoleBreak`). On macOS and Linux the
+  gentle step is SIGINT (the system's `kill -INT`), then the process tree.
+  Force quit, of the window or of a scheduled `--run`, ends every restic at
+  once (`ResticRunner.EndAll`).
 - A repository this computer has not used yet is opened with
   `restic cat config`, and created with `restic init` only when restic says
   there is none (exit code 10). The repositories this computer knows are in
@@ -459,28 +446,6 @@ accidentally cancel it before the pause has actually been saved.
 Starting Quit also cancels any pending startup resume, so a delayed reopen
 save cannot clear the newer Quit pause.
 
-Backrest can also exit when its own startup configuration write is denied.
-`BackrestSidecar` detects that exit promptly and retries only when the current
-launch's log explicitly identifies the configuration replacement access error.
-It stops and releases each owned failed attempt before starting another.
-Unrelated exits and stale log entries do not qualify. If cancellation separated
-the local password write from the configuration replacement, the next startup
-checks the password against the saved hash and repairs the mismatched pair
-before exposing a client.
-
-The Backups health banner includes a failed Test restore, even if the latest
-backup succeeded. Another successful backup does not clear that warning; a
-passing Test restore does. Cancelling a test preserves the previous completed
-verification result. A backup with both kinds of failure appears once in the
-attention list and is not counted among healthy backups.
-
-Sample history records successful checks by source, destination, path, size
-and modification time. Selection favours never-checked and oldest-checked
-files, with random ties. A sample is labelled as such throughout its result;
-it cannot establish that every file is recoverable. The configured byte
-budget describes selected file sizes, not compressed network traffic, and
-can be exceeded by the last whole file selected for each source/destination.
-
 ## Windows release updates
 
 `WindowsUpdateViewModel` owns the Settings update controls and a one-shot timer for the chosen check frequency. Checks use GitHub's latest stable release endpoint; downloads and restarts require a click. The release body is shown under "What changed" by `MarkdownView` (U169), which renders the Markdown subset release notes use (`MarkdownLite`: headings, bullets, bold, inline code, links); it interprets no HTML, loads no image and opens only https links. `WindowsUpdatePackage` verifies the official asset URL, exact size, GitHub SHA-256 digest, safe archive entries and application version before preparing a complete bundle under `.backspace-updates` beside the executable.
@@ -518,9 +483,9 @@ Backspace/                          ← repo root (folder name may vary locally)
 │   ├── Views/                       — Avalonia .axaml + code-behind
 │   ├── Themes/                      — Theme.axaml + Accent_*.axaml + Controls.axaml + Icons.axaml
 │   ├── Assets/                      — embedded icons and fonts (Manrope for headings),
-│   │                                  backrest(.exe) + restic(.exe) + rclone(.exe)
+│   │                                  restic(.exe) + rclone(.exe)
 │   │                                  (gitignored, fetched at build)
-│   ├── FetchBackrest.targets        — MSBuild target that downloads the engines on demand
+│   ├── FetchEngines.targets         — MSBuild target that downloads the engines on demand
 │   └── BuildNativeHost.targets      — Windows-only: framework-dependent startup
 ├── src/Backspace.Host/              — native startup and .NET runtime setup
 └── tests/Backspace.Tests/           — see TESTING.md for the layout + harness
@@ -545,10 +510,10 @@ service (administrator access), the sign-in start entry, and the WinFsp driver.
 - `<exe-dir>/Backspace.config/vault.bin` — the saved credentials (storage passwords, cloud sign-ins, API keys), one file for the app and the background service. See "Saved passwords (the vault)" below.
 - `<exe-dir>/Backspace.config/pending-removals.json` — removed backups whose stored copies are still to be erased; absent when nothing is waiting
 - `<exe-dir>/Backspace.config/maintenance.json` (and the service's `Backspace.config/service/maintenance.json`) — Backspace's own maintenance records (`MaintenanceRecords`, U175): each repository's last full prune, each plan's last backup start and finish and the snapshot it made (the next backup's parent once restic confirms it). See "Backups run restic directly".
-- `%LOCALAPPDATA%/Backspace/engine/<16 hex of SHA-256 of the upper-case configuration folder>/` — this computer's engine working files (`EngineWorkPaths`): `backrest/` (the GUI-owned Backrest data directory: its config.json holds every repository password in readable form, plus its sign-in files, operation database, operation logs and mount cache), `rclone-remotes/` (one generated remote per cloud destination, with its token), `rclone.conf`, `engine-runs/` (isolated directories for scheduled runs and elevated VSS helpers, so one process cannot shut down another's daemon), `filters/<plan id>.txt` (each plan's exclude file: the backup's Filters text, written unchanged before every use of the plan, U151), repositories.json (the repositories this computer has opened or created for a backup, so the next backup skips `restic cat config`, U175) and, for the background service, `scratch/`. Never in the synced folder; rebuilt at start from the settings and the vault (seed configuration, sign-in, plans and repositories through `EnsurePlanAndRepo`, rclone remotes). Backrest's operation database starts empty on a new computer; run history is unaffected (below). The service's folder is named after `Backspace.config\service`. `BACKSPACE_MACHINE_ROOT` overrides `%LOCALAPPDATA%\Backspace` (tests; the service sets it to the owner's folder); a test configuration outside an executable's folder without it uses `<config>\engine`.
+- `%LOCALAPPDATA%/Backspace/engine/<16 hex of SHA-256 of the upper-case configuration folder>/` — this computer's engine working files (`EngineWorkPaths`): `rclone-remotes/` (one generated remote per cloud destination, with its token), `rclone.conf`, `filters/<plan id>.txt` (each plan's exclude file: the backup's Filters text, written unchanged before every use of the plan, U151), repositories.json (the repositories this computer has opened or created for a backup, so the next backup skips `restic cat config`, U175), `mount-cache/<backup id>/` (the mounted drive's copies of files read so far) and, for the background service, `scratch/`. Never in the synced folder; rebuilt from the settings and the vault when missing. (Backrest's `backrest/`, `backrest-N/` and `engine-runs/` folders from before U175 are removed at start, above.) The service's folder is named after `Backspace.config\service`. `BACKSPACE_MACHINE_ROOT` overrides `%LOCALAPPDATA%\Backspace` (tests; the service sets it to the owner's folder); a test configuration outside an executable's folder without it uses `<config>\engine`.
 - `<exe-dir>/Backspace.config/test-restores/` — saved test-restore plans, completed batch results and sample history. Temporary recovered files live separately under `verify/`.
 - `<exe-dir>/Backspace.config/logs/app/` — Serilog daily-rolling Backspace logs
-- `<exe-dir>/Backspace.config/logs/engine/<backup-name>/` — per-run engine transcripts (restic's output: written by `ResticRunner` for backups and their cleanup, U175, through Backrest for the rest). Each engine line starts with the UTC time it was written (`LogLineStamp`, `2026-11-10T06:00:00.569Z [setup] ...`), and `[section] <backup> · backup|check|cleanup` lines mark where each part starts (`LogSection`, U176). Activity & logs parses them with `ConsoleLogParser` and `ConsoleLineClassifier` into coloured rows of a virtualizing list; lines without a stamp (older logs, restore logs) show no time.
+- `<exe-dir>/Backspace.config/logs/engine/<backup-name>/` — per-run engine transcripts (restic's output, written by `ResticRunner`, U175; older transcripts keep Backrest's `[backrest]`, `[repo-manager]` and `[tasklog]` lines, which the log view still reads). Each engine line starts with the UTC time it was written (`LogLineStamp`, `2026-11-10T06:00:00.569Z [setup] ...`), and `[section] <backup> · backup|check|cleanup` lines mark where each part starts (`LogSection`, U176). Activity & logs parses them with `ConsoleLogParser` and `ConsoleLineClassifier` into coloured rows of a virtualizing list; lines without a stamp (older logs, restore logs) show no time.
 - `%LOCALAPPDATA%/Backspace/change-lists/` — outside the portable folder, a reproducible cache: per backup cell, the source's file list (path hash, size, last write) at its last successful backup and the pace it measured, compressed. `ChangePlan` compares the source with it at the next start to know what restic will read (U144); when missing or made for another snapshot, progress falls back to restic's own totals. A configuration outside the copy's folder (tests) keeps it under its own `change-lists/`.
 - The actual restic repositories live wherever the user pointed each
   destination (a local folder, an external drive, a cloud bucket via
@@ -661,20 +626,17 @@ only those files has no vault, and the first save asks for a password.
    Cached metadata reads do not run a provider connection probe. Real repository
    reads, restores, backups and maintenance still check the cloud connection;
    initializing a new cloud repository also checks before creating it.
-   Backspace also refreshes its owned plan fields when settings change, while
-   preserving unknown daemon fields. Backup plans use keep-all retention;
-   cleanup is a forget command with the configured retention and both the
-   backup's plan and instance tags: restic run directly after a backup, a
-   tracked Backrest command on the cleanup schedule.
-   That forget command is the only thing that deletes snapshots. Its options
+   Cleanup is a forget command with the configured retention and both the
+   backup's plan and instance tags, restic run directly after a backup or on
+   the cleanup schedule. That forget command is the only thing that deletes
+   snapshots. Its options
    come from `KeepPolicyRules.cs`: Duplicacy `n:m` rules become `--keep-within`
    for the newest window and `--keep-within-daily|weekly|monthly|yearly` up to
-   the next rule's age (U172); Backrest's retention policy has no keep-within
-   form, so it cannot carry them. A policy that does not parse deletes nothing.
+   the next rule's age (U172). A policy that does not parse deletes nothing.
    A backup's previous snapshot (restic's `--parent`, its "[setup]" log line,
    the change plan, the changed-files list) is the snapshot the plan's last
    finished backup made once restic confirms it, otherwise the latest in the
-   plan's snapshot list, as Backrest chose it (U175).
+   plan's snapshot list (U175).
    A worker the service's schedule starts gets `BACKSPACE_RUN_AUTOMATIC=1`, so
    its history says automatic; an owner request (`start-cli`) never does. A
    run's `QueuedFor` is left out of its duration.
@@ -684,16 +646,10 @@ only those files has no vault, and the first save asks for a password.
    has that mark, `RunBackupAsync` runs the check for that destination once,
    right after a backup whose parts there all succeeded (U174). No state is
    saved besides the history.
-   It never temporarily changes a shared plan's retention. This prevents Backrest's automatic cleanup
-   from running ahead of Backspace's schedule or duplicating its inline request.
-   Healthy tasks do not run an unconditional unlock first. A confirmed lock
-   failure can try one normal stale-lock removal and retry; unknown outcomes
-   cannot trigger that recovery. Active locks are never force-removed. Brief Windows config
-   replacement conflicts reread and retry at most four times; unrelated failures
-   and persistent permission errors remain failures.
-   Backups no longer go through Backrest, so nothing waits for Backrest's
-   snapshot index after them (U175; see GOTCHAS, "Backrest's background
-   snapshot index").
+   Healthy tasks do not run an unconditional unlock first. A lock failure
+   (restic's exit code 11) can try one normal stale-lock removal
+   (`restic unlock`) and retry; unknown outcomes cannot trigger that recovery.
+   Active locks are never force-removed.
    **Backups at once (U156).** `AppConfig.Limits` (`BackupLimits`, Settings ›
    Backups at once) holds "per destination" (default 1) and "in total"
    (default 2), 1 to 8; the window, scheduled runs and the service's workers
@@ -875,12 +831,11 @@ only those files has no vault, and the first save asks for a password.
    the reason in the run's history), connects network shares with their saved
    credentials, sets its configuration and scratch to the service's folders
    (scratch on this computer, U153) and runs the ordinary orchestrator. Its
-   report (`last-service-run.json`) names the vault it used. Each worker
-   claims its own Backrest folder (`EngineSlot`: `backrest`, `backrest-1`â€¦
-   `backrest-7` beside it, with `worker-slot-N.lock`), kept between runs so its
-   operation history (when it last pruned) stays; two engines never share one.
-   The host passes its run ID as the worker's revision, so each worker has its
-   own reason file (`worker-reason-<run>.txt`). Workers share the service's
+   report (`last-service-run.json`) names the vault it used. Each worker runs
+   its own restic (U175); when each repository was last pruned is in the
+   service's maintenance.json, shared by its workers. The host passes its run
+   ID as the worker's revision, so each worker has its own reason file
+   (`worker-reason-<run>.txt`). Workers share the service's
    scratch folder and rclone remotes; restic and rclone name their temporary
    files uniquely.
 
@@ -923,9 +878,12 @@ only those files has no vault, and the first save asks for a password.
    spaced ten seconds apart.
 
 4. **Single executable.** `Backspace.exe` carries the pinned versions and
-   SHA-256 fingerprints of `backrest`, `restic`, and `rclone`; on first
+   SHA-256 fingerprints of `restic` and `rclone`; on first
    start it downloads them from those projects' releases into
    `%LOCALAPPDATA%\Backspace\bin` and checks them. No separate install step.
+   A file with the same fingerprint in an earlier set is copied instead of
+   downloaded (as when Backrest left the set, U175), and the earlier set is
+   then removed.
 5. **Volume-name matching is first-class** for any local destination —
    never failed-state when an external drive is simply unmounted, always
    "skipped". `DriveRepositoryGuard` keeps an external drive or network
@@ -953,41 +911,37 @@ only those files has no vault, and the first save asks for a password.
 - The `--run` / `--run-all` code path must be usable **without** the GUI
   loaded (no `App.Current`-style references). It spins up only what it
   needs via `ServiceLocator.InitializeCore`.
-- The engine pump (`BackupProgressService` + `ConnectStreamReader`) must
-  consume Backrest's operation-event stream incrementally, never
-  `ReadToEnd()`. Real backups produce GB of log over multi-day runs; a
-  buffered read would blow heap before the first checkpoint. `ResticRunner`
-  reads restic the same way, a line at a time, cutting lines over 128 KiB.
-- A backup, with its cleanup, never starts Backrest (U175): the window,
-  `--run` and the service's worker all go through `BackupPruneCheckAsync` and
-  `ResticRunner`. A new step inside a backup must run restic directly too, or
-  every scheduled backup starts the daemon again. Its checks (U179) and the
-  stand-alone cleanup run restic directly too (step 2).
-  `DirectBackupTests.A_scheduled_backup_never_starts_Backrest` watches every
-  process under two `--run` runs. The password reaches restic only through its
-  environment, never its command line or the transcript.
+- restic's output must be read incrementally, never `ReadToEnd()`: real
+  backups produce GB of output over multi-day runs, and a buffered read would
+  blow the heap before the first checkpoint. `ResticRunner` and
+  `StreamingRestoreProcess` read it a line at a time, cutting lines over
+  128 KiB, and keep only a bounded summary.
+- No daemon (U175): the window, `--run` and the service's worker run restic
+  themselves (`ResticRunner`, `StreamingRestoreProcess`), and nothing of the
+  engine runs between operations. `DirectBackupTests.A_scheduled_backup_never_starts_Backrest`
+  watches every process under two `--run` runs; E61 checks that a backup,
+  browsing and a restore leave no restic or rclone running. The password
+  reaches restic only through its environment, never its command line or the
+  transcript.
 - Config file reads and writes must be **atomic** (write to `.tmp`,
   rename) — a scheduled run losing config due to a power cut is
-  unacceptable. Same applies to `rclone.conf`, the sidecar's PID file,
-  and the per-backup history JSON.
+  unacceptable. Same applies to `rclone.conf`, maintenance.json and the
+  per-backup history JSON.
 - New S4U registration never happens, and no Windows task runs a backup. A
   missed run is caught up by `ScheduleState` (survive sleep and shutdown, run
   missed slots once later) without logging on as the user.
   See the unattended-access limitations
   in [GOTCHAS.md](GOTCHAS.md#unattended-windows-access). The task-pause policy
   controls whether work starts; it does not grant additional access.
-- `ResticBackrestEngine.IsValidBackrestGuid` is the `SetConfig` safety
-  net for the Backrest 1.13.0+ contract: every persisted repo guid must
-  be 64-char hex AND mutually exclusive with `auto_initialize`. Don't
-  loosen the validation — earlier 36-char UUID guids will fail
-  `SetConfig` and the migration path in `EnsurePlanAndRepoCoreAsync` is
-  the only thing that lets users recover without manually editing
-  Backrest's config.
+- `ResticBackrestEngine.IsValidBackrestGuid` is the check for a restic id
+  (64 hex characters): a snapshot id read from restic's output, the
+  remembered parent, an id the window passes back. Don't loosen it: an id
+  that is not one never reaches a restic command line.
 - A backup's Filters text is restic's exclude file (U151). The engine writes it
-  unchanged (`ResticBackrestEngine.WriteExcludeFile`) and the plan passes it
+  unchanged (`ResticBackrestEngine.WriteExcludeFile`) and the backup passes it
   with `--iexclude-file` on Windows, `--exclude-file` elsewhere
-  (`FilterTranslator.ExcludeFileFlag`); the plan's `excludes`/`iexcludes`
-  stay empty. Never rewrite, bind or append rules on the way: restic expands
+  (`FilterTranslator.ExcludeFileFlag`); no rule is ever a command-line
+  argument. Never rewrite, bind or append rules on the way: restic expands
   `$NAME` in a file but not in an argument, and the owner's rules must work
   with restic alone. Left out, the size estimates, the change listing
   and test-restore completeness read the same text with
@@ -1206,18 +1160,17 @@ fails rather than silently creating an empty credential map. Recovery of that
 case is explicit; an unacknowledged pending credential write is never imported
 automatically over newer credentials.
 
-Settings and the local Backrest configuration also retain their previous
-`.bak` and pending file when publication fails. Neither initializes a fresh
-configuration if its primary is missing while that backup exists. Settings
-saves retry known temporary replacement errors briefly; engine startup keeps
-its existing visible, cancellable wait. Neither retries Windows errors that
-may have already renamed the original file.
+Settings also retain their previous `.bak` and pending file when publication
+fails, and never initialize a fresh configuration if the primary is missing
+while that backup exists. Settings saves retry known temporary replacement
+errors briefly; they never retry Windows errors that may have already renamed
+the original file.
 
-`MaintenanceCoordinator` keeps a read lease for the lifetime of backups, restores, verification and mounted-file engine reads. Destructive maintenance and password changes require exclusive access, including a portable-config file handle that coordinates separate Backspace processes. Cancelling an operation is not proof it stopped: restore cancellation sends the daemon Cancel request and waits for a terminal acknowledgement. An unacknowledged daemon operation blocks further repository work until restart. Repository locks are never force-removed for password rotation.
+`MaintenanceCoordinator` keeps a read lease for the lifetime of backups, restores, verification and mounted-file engine reads. Destructive maintenance and password changes require exclusive access, including a portable-config file handle that coordinates separate Backspace processes. Cancelling an operation is not proof it stopped: every restic run returns only once restic has exited (after Ctrl+Break, then the end of its job), so the lease ends only then. A process whose end cannot be confirmed blocks further repository work until restart. Repository locks are never force-removed for password rotation.
 
 Restores pin the immutable snapshot ID selected by the user; display revision numbers never identify an already selected snapshot. Output first goes into a private staging directory. Only confirmed complete selected files are moved to the target; bracket-pattern cleanup never sweeps that target. The replacement and folder-layout options apply during publication. Duplicate flattened names are rejected before replacing any file, and linked targets or ancestors are rejected before staging. Whole-folder restores also preserve empty directories. If cancellation or a disk error occurs while publishing completed files, files already moved remain and the result reports how many were copied. Restore sessions retain their own wizard state, progress and result until dismissed.
 
-Cleanup asks Backrest for snapshots belonging to each configured backup/source plan and forgets explicit snapshot IDs. It never deletes repository directories by their names. Removing a destination preserves unconfigured snapshots, unrelated files and reusable repository settings. Destination ownership is removed from configuration before its exclusive maintenance lease is released.
+Cleanup asks restic for the snapshots belonging to each configured backup/source plan (both labels) and forgets explicit snapshot IDs. It never deletes repository directories by their names. Removing a destination preserves unconfigured snapshots, unrelated files and reusable repository settings. Destination ownership is removed from configuration before its exclusive maintenance lease is released.
 
 Backups and standalone maintenance refresh saved configuration after acquiring
 their operation lease, before touching repositories. This includes a scheduled
@@ -1226,7 +1179,7 @@ An unreadable configuration stops the operation. A run that finishes only some
 sources or destinations reports incomplete coverage; it neither advances the
 last complete-backup timestamp nor sends a successful monitoring ping.
 
-Startup cleanup trusts persisted process identity records (owner PID plus start time; child PID plus start time and executable) and leaves unknown/live owners alone. Windows job ownership covers the daemon and inherited child processes. There is no process-name or bundled-path sweep.
+Startup cleanup trusts persisted process identity records (owner PID plus start time; child PID plus start time and executable) and leaves unknown/live owners alone. Windows job ownership covers restic and the rclone it starts. There is no process-name or bundled-path sweep.
 
 On Windows, executable identity comes from `QueryFullProcessImageNameW` on
 the process handle. Reading `Process.MainModule` immediately after launch

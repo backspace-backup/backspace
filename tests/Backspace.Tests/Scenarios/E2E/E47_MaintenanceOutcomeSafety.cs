@@ -94,7 +94,7 @@ public sealed class E47_MaintenanceOutcomeSafety : BackupE2EBase
         ctx.Report.RecordNote("Normal retry and original contents",
             "One uninterrupted production check covered the repository shared by both sources. Both encrypted snapshots then restored their exact original file contents.");
         ctx.Report.RecordNote("Scope of this proof",
-            "Actual bundled Backrest and restic against an isolated local encrypted repository. The cancellation timing is controlled between engine calls. " +
+            "Actual bundled restic against an isolated local encrypted repository. The cancellation timing is controlled between engine calls. " +
             "This does not test Windows Task Scheduler launch, a live cloud account, or a computer losing power.");
     }
 

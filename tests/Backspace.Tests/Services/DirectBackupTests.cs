@@ -66,7 +66,10 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         foreach (var flag in ResticBackrestEngine.BuildRepoFlagsForBackup(backup, destination)) arguments.AddRange(ShellSplit(flag));
         arguments.AddRange(["-o", "sftp.args=-oBatchMode=yes", "--exclude-caches", "--tag", "plan:" + planId, "--tag", "created-by:backspace"]);
         if (parent is not null) arguments.AddRange(["--parent", parent]);
-        foreach (var flag in ResticBackrestEngine.BuildPlanFromBackup(planId, "repo", backup, source).BackupFlags) arguments.AddRange(ShellSplit(flag));
+        // Backrest's plan options: the backup's own options, then the exclude
+        // file, its path single-quoted for Backrest's shell-style split.
+        foreach (var flag in ResticBackrestEngine.BuildBackupFlags(backup)) arguments.AddRange(ShellSplit(flag));
+        arguments.AddRange(ShellSplit(FilterTranslator.ExcludeFileFlag + " '" + ResticBackrestEngine.ExcludeFilePath(planId) + "'"));
         return arguments;
     }
 
@@ -193,7 +196,6 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         public readonly Backup Backup;
         public readonly string Source;
         public readonly string Password = Guid.NewGuid().ToString("N");
-        public readonly BackrestSidecar Sidecar;
         public readonly ResticBackrestEngine Engine;
         public readonly ConcurrentQueue<(ResticCommand Command, ResticResult Result)> Commands = new();
         public readonly ConcurrentQueue<string> Log = new();
@@ -211,10 +213,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
                 VssDisabledAcknowledged = true, KeepPolicy = "2",
                 PruneSchedule = inline ? null : new BackupSchedule(),
                 Targets = { new BackupTarget { DestinationId = "dest-" + label, StorageName = "default" } } };
-            // A daemon that is never started: any use of Backrest would try to.
-            Sidecar = new BackrestSidecar(Path.Combine(Workspace.Root, "no-backrest", "backrest.exe"), AppPaths.ResticBinary,
-                Path.Combine(Workspace.Root, "never-backrest"));
-            Engine = new ResticBackrestEngine(Sidecar, Secrets);
+            Engine = new ResticBackrestEngine(Secrets);
             Engine.ResticCommandFinished += (command, result) => Commands.Enqueue((command, result));
         }
 
@@ -310,10 +309,6 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         Assert.Contains(rig.Log, l => l.StartsWith("[setup] Previous backup to «", StringComparison.Ordinal) && l.Contains(snapshot1.Id[..8]));
         Assert.Contains(rig.Log, l => l.StartsWith(BackupLiveProgress.RecapPrefix, StringComparison.Ordinal));
 
-        // Never Backrest: no daemon, no data folder, no process.
-        Assert.False(rig.Sidecar.IsRunning);
-        Assert.Null(rig.Sidecar.ProcessId);
-        Assert.False(Directory.Exists(rig.Sidecar.DataDir));
         // The log shows each command, never the password.
         Assert.Contains(rig.Log, l => l.Contains("\tinfo\tcommand: ", StringComparison.Ordinal) && l.Contains(" backup --json ", StringComparison.Ordinal));
         Assert.DoesNotContain(rig.Log, l => l.Contains(rig.Password, StringComparison.Ordinal));
@@ -571,8 +566,8 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
 
         // Nothing of Backrest's was ever made: no data folder, no per-run
         // folder, no daemon record.
-        Assert.False(Directory.Exists(EngineWorkPaths.BackrestDataDir), EngineWorkPaths.BackrestDataDir);
-        Assert.False(Directory.Exists(EngineWorkPaths.EngineRunsDir), EngineWorkPaths.EngineRunsDir);
+        Assert.False(Directory.Exists(Path.Combine(EngineWorkPaths.Root, "backrest")));
+        Assert.False(Directory.Exists(Path.Combine(EngineWorkPaths.Root, "engine-runs")));
         Assert.Empty(Directory.GetFiles(ws.Root, "sidecar.pid", SearchOption.AllDirectories));
         // Both runs are in the history, with their cleanup, and the
         // repository holds both backups; the second one's parent is the first.

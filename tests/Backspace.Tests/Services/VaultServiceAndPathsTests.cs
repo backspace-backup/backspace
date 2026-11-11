@@ -106,11 +106,10 @@ public sealed class VaultServiceAndPathsTests
             Assert.Matches("^[0-9a-f]{16}$", EngineWorkPaths.ConfigHash(ws.ConfigRoot));
             Assert.Equal(EngineWorkPaths.ConfigHash(ws.ConfigRoot.ToUpperInvariant()), EngineWorkPaths.ConfigHash(ws.ConfigRoot.ToLowerInvariant() + "\\"));
             Assert.NotEqual(EngineWorkPaths.ConfigHash(ws.ConfigRoot), EngineWorkPaths.ConfigHash(Path.Combine(ws.ConfigRoot, "service")));
-            Assert.Equal(Path.Combine(root, "backrest"), AppPaths.BackrestDataDir);
+            Assert.Equal(Path.Combine(root, "mount-cache"), EngineWorkPaths.MountCacheDir);
             Assert.Equal(Path.Combine(root, "rclone.conf"), RcloneConfigBuilder.DefaultPath);
-            Assert.StartsWith(Path.Combine(root, "engine-runs"), BackrestSidecar.CreateIsolatedDataDirectory("scheduled"));
             Assert.Equal(Path.Combine(machine, "keys"), EngineWorkPaths.KeysDirectory);
-            foreach (var path in new[] { AppPaths.BackrestDataDir, RcloneConfigBuilder.DefaultPath, EngineWorkPaths.RcloneRemotesDir, EngineWorkPaths.ScratchDir, EngineWorkPaths.KeysDirectory })
+            foreach (var path in new[] { EngineWorkPaths.MountCacheDir, RcloneConfigBuilder.DefaultPath, EngineWorkPaths.RcloneRemotesDir, EngineWorkPaths.ScratchDir, EngineWorkPaths.KeysDirectory })
                 Assert.False(path.StartsWith(ws.ConfigRoot, StringComparison.OrdinalIgnoreCase), path);
         }
         finally { Environment.SetEnvironmentVariable(EngineWorkPaths.MachineRootVariable, null); }

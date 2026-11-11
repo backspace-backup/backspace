@@ -26,10 +26,10 @@ public sealed class S86_ProgressOfTheChanges : ScenarioBase
 
     [AvaloniaFact] public async Task Run_S86() => await Run();
 
-    private static JsonElement Status(long bytesDone, long totalBytes, long filesDone, long totalFiles, string current)
-        => JsonSerializer.SerializeToElement(new { lastStatus = new { status = new {
-            percentDone = bytesDone / (double)totalBytes, totalBytes = totalBytes.ToString(), bytesDone = bytesDone.ToString(),
-            totalFiles = totalFiles.ToString(), filesDone = filesDone.ToString(), currentFile = new[] { current } } } });
+    private static BackupLiveProgress.Sample? Status(long bytesDone, long totalBytes, long filesDone, long totalFiles, string current)
+        => BackupLiveProgress.FromResticStatus(JsonSerializer.SerializeToElement(new { message_type = "status",
+            percent_done = bytesDone / (double)totalBytes, total_bytes = totalBytes.ToString(), bytes_done = bytesDone.ToString(),
+            total_files = totalFiles.ToString(), files_done = filesDone.ToString(), current_files = new[] { current } }));
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
@@ -85,7 +85,7 @@ public sealed class S86_ProgressOfTheChanges : ScenarioBase
                     sent += 5 * 3_600_000L;
                     current = System.IO.Path.Combine(drive, "d0550", "zz-large.vhdx");
                 }
-                if (live.Next(Status(bytesDone, total, filesDone, 600_001, current), start.AddSeconds(t)) is { } line)
+                if (live.NextStatus(Status(bytesDone, total, filesDone, 600_001, current), start.AddSeconds(t)) is { } line)
                     progress.ReportLine(backup.Id, drive, dest.Name, line);
             }
             await ctx.Driver.PumpAsync(200);

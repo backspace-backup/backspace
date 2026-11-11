@@ -9,7 +9,7 @@ public static class DestinationKindExtensions
 {
     /// <summary>
     /// Default upload concurrency hint when the user hasn't chosen a
-    /// value. The engine (restic via Backrest, talking to rclone for
+    /// value. The engine (restic, talking to rclone for
     /// cloud destinations) picks this up as a parallelism budget.
     ///
     /// Rationale:

@@ -25,10 +25,10 @@ public sealed class S85_RunningSizeAndTimeLeft : ScenarioBase
 
     [AvaloniaFact] public async Task Run_S85() => await Run();
 
-    private static JsonElement Status(double fraction, long done, long total, long filesDone, long files)
-        => JsonSerializer.SerializeToElement(new { lastStatus = new { status = new {
-            percentDone = fraction, totalBytes = total.ToString(), bytesDone = done.ToString(),
-            totalFiles = files.ToString(), filesDone = filesDone.ToString() } } });
+    private static BackupLiveProgress.Sample? Status(double fraction, long done, long total, long filesDone, long files)
+        => BackupLiveProgress.FromResticStatus(JsonSerializer.SerializeToElement(new { message_type = "status",
+            percent_done = fraction, total_bytes = total.ToString(), bytes_done = done.ToString(),
+            total_files = files.ToString(), files_done = filesDone.ToString() }));
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
@@ -60,7 +60,7 @@ public sealed class S85_RunningSizeAndTimeLeft : ScenarioBase
             // Unchanged files at 400 MB/s, then a large changed file sent at 3.8 MB/s.
             long done = t <= 360 ? 40_000_000_000 + t * 400_000_000L : 184_000_000_000 + (t - 360) * 3_800_000L;
             if (t > 360) sent += 19_000_000;
-            line = live.Next(Status(done / (double)total, done, total, 500_000, 601_922), start.AddSeconds(t)) ?? line;
+            line = live.NextStatus(Status(done / (double)total, done, total, 500_000, 601_922), start.AddSeconds(t)) ?? line;
             progress.ReportLine(backup.Id, drive, dest.Name, line!);
         }
         await ctx.Driver.PumpAsync(200);

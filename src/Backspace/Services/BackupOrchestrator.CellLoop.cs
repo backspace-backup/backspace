@@ -142,16 +142,16 @@ public sealed partial class BackupOrchestrator
             // doesn't fan out into multiple identical cells. Identical
             // cells previously truncated each other's per-cell .log
             // file (BuildCellLogPath returns the same path) and
-            // produced indistinguishable Backrest operation event
-            // streams (same planId). The editor blocks dupes upstream;
+            // produced indistinguishable runs of the same plan
+            // (same planId). The editor blocks dupes upstream;
             // this defends against direct config-file edits and the
             // migrator's bulk-import path.
             // Lowercase the StorageName component so a hand-edited
             // config with "default" vs "Default" doesn't bypass the
             // dedup. MakeRepoId / Slug downstream lowercase the entire
-            // id, so two casing-only variants reach the same Backrest
+            // id, so two casing-only variants reach the same
             // repo — fanning out as two cells would re-introduce the
-            // truncated-log + ambiguous-event-stream bug.
+            // truncated-log + ambiguous-run bug.
             var distinctTargets = DistinctTargets(backup.Targets);
             foreach (var sourcePath in sources)
             {
@@ -563,7 +563,7 @@ public sealed partial class BackupOrchestrator
                 if (lastRun.Status == BackupRunStatus.Failed)
                 {
                     // Completed engine failures need the same classification
-                    // as thrown failures. Backrest reports failures as results,
+                    // as thrown failures. The engine reports failures as results,
                     // so restricting this to the catch path loses their cause.
                     var reason = lastRun.Errors.Count > 0 ? string.Join("\n", lastRun.Errors) : lastRun.Summary;
                     if (string.IsNullOrWhiteSpace(reason)) reason = "The backup engine reported a failure without an explanation.";

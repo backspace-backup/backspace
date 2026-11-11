@@ -105,22 +105,4 @@ public sealed class BackgroundQueueTests : IDisposable
         Assert.Equal(2, entries.Count);
         Assert.All(entries, e => { Assert.Null(e.RunningSlotUtc); Assert.True(e.NextUtc > now); });
     }
-
-    [Fact]
-    public async Task Each_worker_claims_its_own_engine_folder_and_frees_it_after()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "backspace-u156-slots-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            var first = Path.Combine(root, "backrest");
-            using var one = await EngineSlot.ClaimAsync(first, CancellationToken.None);
-            var two = await EngineSlot.ClaimAsync(first, CancellationToken.None);
-            Assert.Equal(first, one.DataDirectory);
-            Assert.Equal(first + "-1", two.DataDirectory);
-            two.Dispose();
-            using var again = await EngineSlot.ClaimAsync(first, CancellationToken.None);
-            Assert.Equal(first + "-1", again.DataDirectory);
-        }
-        finally { try { Directory.Delete(root, recursive: true); } catch { } }
-    }
 }

@@ -29,11 +29,10 @@ POSSIBILITY OF SUCH DAMAGE.
 
 Notes on bundled binaries
 
-Backspace ships alongside three independent third-party binaries which it
+Backspace ships alongside two independent third-party binaries which it
 launches as subprocesses to do the actual backup work:
 
   - restic — https://github.com/restic/restic
-  - Backrest — https://github.com/garethgeorge/backrest
   - rclone — https://github.com/rclone/rclone
 
 Each is distributed by its own project under its own license terms. The

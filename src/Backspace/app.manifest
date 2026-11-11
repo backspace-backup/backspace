@@ -28,7 +28,7 @@
              ceremony.
              VSS shadow copies need admin. Interactive snapshot
              backups automatically launch an elevated helper that
-             owns its own elevated Backrest/restic processes.
+             owns its own elevated restic processes.
              Declining UAC stops that backup; it does not silently
              disable snapshots. Task Scheduler launches scheduled
              runs with "highest available"

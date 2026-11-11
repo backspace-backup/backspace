@@ -13,7 +13,7 @@ public sealed class FileAccessRetryTests
 {
     [Theory]
     [InlineData("progress")]
-    [InlineData("engine")]
+    [InlineData("exclude")]
     [InlineData("cleanup")]
     [InlineData("quit")]
     public async Task A_lock_lasting_over_ten_seconds_waits_then_recovers_without_losing_existing_data(string operation)
@@ -22,18 +22,17 @@ public sealed class FileAccessRetryTests
         using var workspace = new TempWorkspace("long-file-wait");
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         stop.CancelAfter(TimeSpan.FromSeconds(30));
-        await using var sidecar = new BackrestSidecar("unused", "unused", workspace.Sub("engine"));
         var tasks = new SessionTaskControl(workspace.ConfigRoot, new Sessions());
         var stage = workspace.Sub("temporary-restore");
         var path = operation switch
         {
             "progress" => Path.Combine(workspace.Root, "progress.json"),
-            "engine" => Path.Combine(sidecar.DataDir, "config.json"),
+            "exclude" => ResticBackrestEngine.ExcludeFilePath("long-wait-plan"),
             "cleanup" => Path.Combine(stage, "temporary.txt"),
             _ => PreparePause(tasks, workspace.ConfigRoot)
         };
-        if (operation == "engine") BackrestSidecar.WriteSeedConfig(path);
-        else if (operation != "quit") File.WriteAllText(path, "previous confirmed contents");
+        if (operation == "exclude") Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (operation != "quit") File.WriteAllText(path, "previous confirmed contents");
         var previous = File.ReadAllBytes(path);
         var sibling = Path.Combine(workspace.Root, "unrelated-original.txt");
         File.WriteAllText(sibling, "must not change");
@@ -45,7 +44,7 @@ public sealed class FileAccessRetryTests
             switch (operation)
             {
                 case "progress": TestRestoreContext.WriteAtomic(path, new { Saved = true }, stop.Token); break;
-                case "engine": sidecar.PrepareAuthentication(stop.Token); break;
+                case "exclude": ResticBackrestEngine.WriteExcludeFile("long-wait-plan", "*.tmp", stop.Token); break;
                 case "cleanup": ResticBackrestEngine.DeleteRestoreStaging(stage, stop.Token); break;
                 default: tasks.PauseForCurrentSession(ct: stop.Token); break;
             }
@@ -54,7 +53,7 @@ public sealed class FileAccessRetryTests
         {
             // One variant proves a lock past ten seconds still waits (no hidden
             // deadline); the others only need the visible wait, shown sooner (U092).
-            var proveLongWait = operation == "engine";
+            var proveLongWait = operation == "exclude";
             if (!proveLongWait) FileAccessRetry.NoticeDelay = TimeSpan.FromMilliseconds(300);
             try { await Task.Delay(proveLongWait ? 10_500 : 1_500, stop.Token); }
             finally { FileAccessRetry.NoticeDelay = TimeSpan.FromSeconds(5); }

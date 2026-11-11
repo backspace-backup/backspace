@@ -14,8 +14,7 @@ namespace Backspace.Tests.TestHelpers;
 /// <summary>
 /// A real restic repository in a disposable folder, with the engine that runs
 /// restic directly (U175) and every restic command it ran through
-/// <see cref="ResticRunner"/>. Backrest is never started: its daemon is given
-/// a folder that is never created, so any use of it would show.
+/// <see cref="ResticRunner"/>.
 /// </summary>
 internal sealed class ResticRig : IAsyncDisposable
 {
@@ -25,7 +24,6 @@ internal sealed class ResticRig : IAsyncDisposable
     public readonly Backup Backup;
     public readonly string Source;
     public readonly string Password = Guid.NewGuid().ToString("N");
-    public readonly BackrestSidecar Sidecar;
     public readonly ResticBackrestEngine Engine;
     public readonly ConcurrentQueue<(ResticCommand Command, ResticResult Result)> Commands = new();
     public readonly ConcurrentQueue<string> Log = new();
@@ -45,9 +43,7 @@ internal sealed class ResticRig : IAsyncDisposable
         Backup = new Backup { Id = "backup-" + label, Name = "Rig " + label, SourcePaths = { Source }, UseVss = false,
             VssDisabledAcknowledged = true, PruneSchedule = new BackupSchedule(),
             Targets = { new BackupTarget { DestinationId = Destination.Id, StorageName = "default" } } };
-        Sidecar = new BackrestSidecar(Path.Combine(Workspace.Root, "no-backrest", "backrest.exe"), AppPaths.ResticBinary,
-            Path.Combine(Workspace.Root, "never-backrest"));
-        Engine = new ResticBackrestEngine(Sidecar, Secrets);
+        Engine = new ResticBackrestEngine(Secrets);
         Engine.ResticCommandFinished += (command, result) => Commands.Enqueue((command, result));
     }
 
@@ -73,14 +69,6 @@ internal sealed class ResticRig : IAsyncDisposable
             null, null, CancellationToken.None);
         Assert.True(result.Succeeded, string.Join(' ', arguments) + ": " + result.ErrorText);
         return result;
-    }
-
-    /// <summary>Backrest was never started: no daemon, no data folder.</summary>
-    public void AssertBackrestNeverStarted()
-    {
-        Assert.False(Sidecar.IsRunning);
-        Assert.Null(Sidecar.ProcessId);
-        Assert.False(Directory.Exists(Sidecar.DataDir));
     }
 
     public ValueTask DisposeAsync()

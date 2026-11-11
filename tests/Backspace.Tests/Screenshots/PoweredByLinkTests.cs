@@ -15,7 +15,7 @@ using Xunit;
 namespace Backspace.Tests.Screenshots;
 
 /// <summary>
-/// Diagnostic for the "Powered by Backrest" sidebar footer link.
+/// Diagnostic for the "Powered by restic" sidebar footer link.
 /// History: the link's leading whitespace > the configured
 /// StackPanel.Spacing and the dotted underline only appeared on
 /// hover; both were fixed via this test's bounds + decoration
@@ -29,7 +29,7 @@ public class PoweredByLinkTests
     public PoweredByLinkTests(ITestOutputHelper output) => _out = output;
 
     [AvaloniaFact]
-    public void Shot_PoweredByBackrest_RestingState()
+    public void Shot_PoweredByRestic_RestingState()
     {
         var window = new Window
         {
@@ -51,7 +51,7 @@ public class PoweredByLinkTests
 
         var linkLabel = new TextBlock
         {
-            Text = "Backrest",
+            Text = "restic",
             FontSize = 12,
         };
 
@@ -86,7 +86,7 @@ public class PoweredByLinkTests
         _out.WriteLine($"    .Margin               = {linkButton.Margin}");
         _out.WriteLine($"    .MinWidth             = {linkButton.MinWidth}");
         _out.WriteLine($"    .HorizontalContentAlignment = {linkButton.HorizontalContentAlignment}");
-        _out.WriteLine($"    inner TextBlock 'Backrest' bounds = {linkLabel.Bounds}");
+        _out.WriteLine($"    inner TextBlock 'restic' bounds = {linkLabel.Bounds}");
         _out.WriteLine($"      .Margin             = {linkLabel.Margin}");
         _out.WriteLine($"      .TextDecorations    = {DescribeDecorations(linkLabel.TextDecorations)}");
 
@@ -96,13 +96,13 @@ public class PoweredByLinkTests
             _out.WriteLine($"    visualDescendant {v.GetType().Name} bounds={v.Bounds}");
         }
 
-        // Compute the actual gap between "Powered by" and "Backrest"
+        // Compute the actual gap between "Powered by" and "restic"
         // in screen pixels.
         var gap = linkLabel.Bounds.X
                   + linkButton.Bounds.X
                   + stack.Bounds.X
                   - (poweredBy.Bounds.X + stack.Bounds.X + poweredBy.Bounds.Width);
-        _out.WriteLine($"  effective gap between 'Powered by' end and 'Backrest' start = {gap:F1} px " +
+        _out.WriteLine($"  effective gap between 'Powered by' end and 'restic' start = {gap:F1} px " +
                        "(StackPanel.Spacing=4 ⇒ anything over ~5px is the bug)");
 
         Directory.CreateDirectory(OutputDir);

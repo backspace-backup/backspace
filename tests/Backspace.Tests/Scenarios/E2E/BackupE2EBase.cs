@@ -22,7 +22,7 @@ namespace Backspace.Tests.Scenarios.E2E;
 ///      before the body runs, so <see cref="ServiceLocator.Orchestrator"/>
 ///      hits a live restic + rclone instead of the in-memory fake.
 ///      If the bundled binaries aren't present on disk, the scenario
-///      skips with a logged reason (`-p:SkipBackrestDownload=true`
+///      skips with a logged reason (`-p:SkipEngineDownload=true`
 ///      hosts and machines that haven't built once).
 ///   2. A <see cref="RunBackupViaUiAsync"/> setup helper that checks
 ///      the view model's RunNowCommand guard, calls the real orchestrator,

@@ -67,7 +67,7 @@ need an elevated runner: symbolic links, shadow copies) and builds with
 `restic_<version>_windows_amd64.zip` (plus its SHA-256 and the patches) as the
 GitHub release `engine-restic-<resticBackspace>` of this repository.
 
-- Builds: `src/Backspace/fetch-backrest.ps1` downloads that asset.
+- Builds: `src/Backspace/fetch-engines.ps1` downloads that asset.
 - Installed copies: `EngineInstallation` downloads it into
   `%LOCALAPPDATA%\Backspace\bin` when missing, checked against the SHA-256 built
   into Backspace.exe, as for the other engines.

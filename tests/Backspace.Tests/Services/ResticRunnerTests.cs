@@ -121,10 +121,6 @@ public sealed class ResticRunnerTests(ITestOutputHelper output)
         var sample = BackupLiveProgress.FromResticStatus(System.Text.Json.JsonDocument.Parse(
             """{"message_type":"status","percent_done":0.5,"total_files":10,"files_done":5,"total_bytes":1000,"bytes_done":500,"current_files":["C:\\a","C:\\b"]}""").RootElement);
         Assert.Equal(new BackupLiveProgress.Sample(50, 1000, 500, 10, 5, "C:\\a\nC:\\b"), sample);
-        // The same figures Backrest copied into its operation record.
-        var backrest = System.Text.Json.JsonDocument.Parse(
-            """{"lastStatus":{"status":{"percentDone":0.5,"totalFiles":"10","filesDone":"5","totalBytes":"1000","bytesDone":"500","currentFile":["C:\\a","C:\\b"]}}}""").RootElement;
-        Assert.Equal(BackupLiveProgress.Parse(backrest), sample);
     }
 
     [Fact]

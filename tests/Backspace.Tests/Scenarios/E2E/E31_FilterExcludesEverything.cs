@@ -86,9 +86,9 @@ public sealed class E31_FilterExcludesEverything : BackupE2EBase
 
         var record = await RunBackupViaUiAsync(ctx, backup, view, CancellationToken.None);
         // The contract is "engine doesn't crash on an empty-snapshot
-        // edge case". Backrest reports Success when restic creates an
-        // empty snapshot; Warning is also acceptable if the daemon
-        // surfaces the no-files-matched message at warn-level. Failed
+        // edge case". The run is a Success when restic creates an
+        // empty snapshot; Warning is also acceptable if restic
+        // reports the no-files-matched case as a warning. Failed
         // would be a bug.
         Assert.True(
             record.Status is BackupRunStatus.Success or BackupRunStatus.Warning,

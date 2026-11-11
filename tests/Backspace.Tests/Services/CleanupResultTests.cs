@@ -9,7 +9,7 @@ namespace Backspace.Tests.Services;
 /// <summary>U142: what a cleanup removed, from restic's forget and prune output.</summary>
 public sealed class CleanupResultTests
 {
-    // restic 0.19.1's output of "forget … --prune", as Backrest keeps it.
+    // restic 0.19.1's output of "forget … --prune", as a run's transcript keeps it.
     private const string ForgetAndPrune = """
         Applying Policy: keep 1 latest snapshots
         keep 1 snapshots:

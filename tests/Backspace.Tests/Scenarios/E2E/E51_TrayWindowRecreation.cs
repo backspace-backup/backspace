@@ -82,7 +82,7 @@ public sealed class E51_TrayWindowRecreation(ITestOutputHelper output) : BackupE
                 Assert.NotSame(current, reopened); Assert.Same(model, reopened.DataContext);
                 Assert.Equal("Restore complete", model.Restore.SummaryHeading);
             }
-            ctx.Report.RecordNote("Adversarial checks", "A real throttled restore remained active after the window Closed event and finished with matching bytes. Three further close/reopen cycles retained the same result and model while creating distinct windows. Explicit Quit was never set by closing to tray. This is headless interface input with actual Backrest/restic; native tray CPU is measured separately.");
+            ctx.Report.RecordNote("Adversarial checks", "A real throttled restore remained active after the window Closed event and finished with matching bytes. Three further close/reopen cycles retained the same result and model while creating distinct windows. Explicit Quit was never set by closing to tray. This is headless interface input with the actual restic; native tray CPU is measured separately.");
         }
         finally
         {

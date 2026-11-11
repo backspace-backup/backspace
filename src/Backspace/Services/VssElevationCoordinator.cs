@@ -177,9 +177,8 @@ public sealed class VssElevationCoordinator
         }
         if (args.ConfigRoot is not null)
             Environment.SetEnvironmentVariable("BACKSPACE_CONFIG_ROOT", Path.GetFullPath(args.ConfigRoot));
-        // Elevating the RPC client does not elevate a daemon it connects to.
-        // This helper must launch and own its own elevated daemon/restic tree.
-        ServiceLocator.InitializeCore(BackrestSidecar.CreateIsolatedDataDirectory("vss"));
+        // This elevated helper runs its own restic (U175), elevated with it.
+        ServiceLocator.InitializeCore();
 
         var cfg = ServiceLocator.Config.Current;
         var backup = cfg.Backups.FirstOrDefault(b => b.Id == args.BackupId);
@@ -318,7 +317,6 @@ public sealed class VssElevationCoordinator
             {
                 try { await watchdogTask.ConfigureAwait(false); } catch { /* expected on cancel */ }
             }
-            await ServiceLocator.BackrestSidecar.DisposeAsync().ConfigureAwait(false);
             operationLease?.Dispose();
         }
     }

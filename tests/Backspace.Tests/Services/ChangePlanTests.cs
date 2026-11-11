@@ -16,18 +16,12 @@ namespace Backspace.Tests.Services;
 /// progress now follows the work, from the changes Backspace finds itself.</summary>
 public sealed class ChangePlanTests
 {
-    private static JsonElement Status(long bytesDone, long totalBytes, long filesDone, long totalFiles, string? current)
-        => JsonSerializer.SerializeToElement(new
+    private static BackupLiveProgress.Sample? Status(long bytesDone, long totalBytes, long filesDone, long totalFiles, string? current)
+        => BackupLiveProgress.FromResticStatus(JsonSerializer.SerializeToElement(new
         {
-            lastStatus = new
-            {
-                status = new
-                {
-                    percentDone = totalBytes == 0 ? 0 : bytesDone / (double)totalBytes, totalFiles = totalFiles.ToString(), totalBytes = totalBytes.ToString(),
-                    filesDone = filesDone.ToString(), bytesDone = bytesDone.ToString(), currentFile = current is null ? Array.Empty<string>() : new[] { current },
-                },
-            },
-        });
+            message_type = "status", percent_done = totalBytes == 0 ? 0 : bytesDone / (double)totalBytes, total_files = totalFiles, total_bytes = totalBytes,
+            files_done = filesDone, bytes_done = bytesDone, current_files = current is null ? Array.Empty<string>() : new[] { current },
+        }));
 
     [Fact]
     public void Files_are_in_restics_order_depth_first_with_names_in_byte_order()
@@ -141,7 +135,7 @@ public sealed class ChangePlanTests
                 bytesDone = Math.Min(551_000L * 300_000 + 9_000_000_000, bytesDone + 5 * 3_800_000L); // the large file at 3.8 MB/s
                 current = @"C:\d0550\zz-large.vhdx";
             }
-            var line = live.Next(Status(bytesDone, total, filesDone, 600_001, current), start.AddSeconds(t));
+            var line = live.NextStatus(Status(bytesDone, total, filesDone, 600_001, current), start.AddSeconds(t));
             if (t == 365) atCheckEnd = line;
             if (t >= 355 && t <= 385) trace += t + ": " + line + " | ";
             if (t == 600) sending = line;
@@ -164,7 +158,7 @@ public sealed class ChangePlanTests
     public void Without_a_plan_the_line_is_as_before()
     {
         var live = new BackupLiveProgress(() => 0, null, () => null, () => null);
-        var line = live.Next(Status(5_000_000_000, 50_000_000_000, 1_000, 10_000, null), new DateTime(2026, 11, 5, 0, 0, 0, DateTimeKind.Utc));
+        var line = live.NextStatus(Status(5_000_000_000, 50_000_000_000, 1_000, 10_000, null), new DateTime(2026, 11, 5, 0, 0, 0, DateTimeKind.Utc));
         Assert.Equal("[progress] 0.0% · Backing up · 1,000 of 10,000+ files checked (4.7 GB)", line);
     }
 
@@ -184,7 +178,7 @@ public sealed class ChangePlanTests
         var plan = new ChangePlan(@"C:\", files, before);
         long sent = 52_428_800;
         var live = new BackupLiveProgress(() => 0, () => sent, () => plan, () => null);
-        var line = live.Next(Status(1_500_000_000, 0, 500, 0, @"C:\f0500"), new DateTime(2026, 11, 7, 0, 0, 0, DateTimeKind.Utc))!;
+        var line = live.NextStatus(Status(1_500_000_000, 0, 500, 0, @"C:\f0500"), new DateTime(2026, 11, 7, 0, 0, 0, DateTimeKind.Utc))!;
         // No totals from restic (--no-scan): the plan's, marked "~".
         Assert.Matches(@"^\[progress\] [0-9.]+% · Backing up · 500 of ~1,001 files checked \(~2\.8 GB\) · [0-9.]+ [KMG]?B of ~1\.9 GB changed files backed up · 50 MB of new data uploaded$", line);
         Assert.DoesNotContain("changes ", line);
@@ -194,7 +188,7 @@ public sealed class ChangePlanTests
         // Nothing changed since the last backup: said so, not "0 of ~0 B".
         var same = new ChangePlan(@"C:\", files.Take(1_000).ToList(), before);
         var quiet = new BackupLiveProgress(() => 0, () => null, () => same, () => null);
-        var unchanged = quiet.Next(Status(500_000_000, 0, 500, 0, @"C:\f0500"), new DateTime(2026, 11, 7, 0, 0, 0, DateTimeKind.Utc))!;
+        var unchanged = quiet.NextStatus(Status(500_000_000, 0, 500, 0, @"C:\f0500"), new DateTime(2026, 11, 7, 0, 0, 0, DateTimeKind.Utc))!;
         Assert.Equal("[progress] 50.0% · Backing up · 500 of ~1,000 files checked (~954 MB) · no changed files", unchanged);
     }
 
@@ -220,8 +214,8 @@ public sealed class RunAddedTests
     [Fact]
     public void The_figures_come_from_restics_summary_or_its_recap_line()
     {
-        var op = JsonSerializer.SerializeToElement(new { lastStatus = new { summary = new { filesNew = "476", filesChanged = "157", dataAdded = "1717986918", totalDuration = 1154.0 } } });
-        Assert.Equal((476, 157, 1_717_986_918L), BackupLiveProgress.Stats(op));
+        var summary = BackupLiveProgress.FromResticSummary(JsonSerializer.SerializeToElement(new { message_type = "summary", files_new = 476, files_changed = 157, data_added = 1717986918, total_duration = 1154.0 }))!;
+        Assert.Equal((476, 157, 1_717_986_918L), BackupLiveProgress.StatsOf(summary));
         Assert.Equal((14_145, 239, 12L << 30), BackupLiveProgress.StatsFromRecap(Recap));
         Assert.Null(BackupLiveProgress.StatsFromRecap("[progress] 12% · Backing up"));
     }

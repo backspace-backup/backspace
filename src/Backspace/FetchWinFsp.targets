@@ -24,8 +24,8 @@
         verifying ABI is a regression risk).
 
     Escape hatches:
-      • Set -p:SkipBackrestDownload=true to build offline (mirrors
-        the backrest/restic/rclone fetch policy — Mount degrades to
+      • Set -p:SkipEngineDownload=true to build offline (mirrors
+        the restic/rclone fetch policy — Mount degrades to
         an actionable error toast if the runtime is unavailable).
       • Drop your own winfsp.msi into Assets/ manually; the target
         will skip if it's already there.
@@ -36,7 +36,7 @@
   -->
 
   <PropertyGroup>
-    <SkipBackrestDownload Condition="'$(SkipBackrestDownload)' == ''">false</SkipBackrestDownload>
+    <SkipEngineDownload Condition="'$(SkipEngineDownload)' == ''">false</SkipEngineDownload>
     <WinFspMsiPath>$(MSBuildThisFileDirectory)Assets/winfsp.msi</WinFspMsiPath>
     <!-- Pin the WinFSP version. WinFsp.Net 2.0.x targets the 2.x
          runtime ABI; bumping past 2.x risks ABI drift, so the bump
@@ -48,7 +48,7 @@
 
   <Target Name="EnsureWinFspMsi"
           BeforeTargets="GenerateAvaloniaResources;PrepareResources;BeforeBuild"
-          Condition="'$(SkipBackrestDownload)' != 'true' and !Exists('$(WinFspMsiPath)')">
+          Condition="'$(SkipEngineDownload)' != 'true' and !Exists('$(WinFspMsiPath)')">
 
     <Message Importance="high"
              Text="[Backspace] Fetching WinFSP runtime MSI ($(WinFspMsiUrl))..."/>
@@ -58,7 +58,7 @@
           ContinueOnError="false"/>
 
     <Error Condition="!Exists('$(WinFspMsiPath)')"
-           Text="Failed to fetch winfsp.msi. Either set -p:SkipBackrestDownload=true, or manually download winfsp-X.Y.ZZZZZ.msi from https://github.com/winfsp/winfsp/releases/latest and save it to $(WinFspMsiPath)."/>
+           Text="Failed to fetch winfsp.msi. Either set -p:SkipEngineDownload=true, or manually download winfsp-X.Y.ZZZZZ.msi from https://github.com/winfsp/winfsp/releases/latest and save it to $(WinFspMsiPath)."/>
   </Target>
 
 </Project>

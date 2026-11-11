@@ -76,9 +76,9 @@ internal static class ServiceApprovedWorker
 
         // Several workers run at once (U156): how many back up together is
         // up to the destination and total limits (RepositoryAccess), which
-        // also say "Queued" while one waits. Each worker has its own engine
-        // folder (EngineSlot, below) and its own reason file; the host passes
-        // its run identity as the revision.
+        // also say "Queued" while one waits. Each worker runs its own restic
+        // (U175) and has its own reason file; the host passes its run
+        // identity as the revision.
         var reasonPath = Path.Combine(binding.DataDirectory, ServiceNetworkShares.ReasonFileFor(revision));
         try { File.Delete(reasonPath); } catch (IOException) { }
         var vault = OpenVault(binding, installation, reasonPath);
@@ -107,11 +107,12 @@ internal static class ServiceApprovedWorker
         Environment.SetEnvironmentVariable("BACKSPACE_NO_UPDATE_CHECK", "1");
         Environment.CurrentDirectory = binding.DataDirectory;
         HasVerifiedVssIdentity = true;
-        // This worker's own engine folder: two engines can't share one.
-        using var engineSlot = await EngineSlot.ClaimAsync(EngineWorkPaths.BackrestDataDir, stop).ConfigureAwait(false);
+        // Each worker runs its own restic (U175); Backrest's old folders,
+        // with their readable repository passwords, go.
+        BackrestLeftovers.Remove();
         try
         {
-            ServiceLocator.InitializeCore(engineSlot.DataDirectory, vault, new WorkerScheduler());
+            ServiceLocator.InitializeCore(vault, new WorkerScheduler());
             if (!ServiceLocator.Config.IsLoaded) throw new IOException("The service settings could not be read. No operation was started.");
             ServiceLocator.Config.ApplyServiceApproval(run.Configuration);
             var notifications = new ServiceNotificationQueue(binding.DataDirectory);
@@ -132,7 +133,6 @@ internal static class ServiceApprovedWorker
                 RunKind.Prune => await ServiceLocator.Orchestrator.RunPruneAsync(backup, stop).ConfigureAwait(false),
                 _ => throw new SecurityException("Unapproved operation."),
             };
-            await ServiceLocator.BackrestSidecar.DisposeAsync().ConfigureAwait(false);
             ServiceLocator.Maintenance.ReleaseEngineOwnershipAfterStop();
             var report = JsonSerializer.SerializeToUtf8Bytes(new
             {
@@ -148,11 +148,7 @@ internal static class ServiceApprovedWorker
         }
         finally
         {
-            if (ServiceLocator.Initialized)
-            {
-                await ServiceLocator.BackrestSidecar.DisposeAsync().ConfigureAwait(false);
-                ServiceLocator.Updates.Dispose();
-            }
+            if (ServiceLocator.Initialized) ServiceLocator.Updates.Dispose();
             HasVerifiedVssIdentity = false;
             AppLogger.Shutdown();
         }

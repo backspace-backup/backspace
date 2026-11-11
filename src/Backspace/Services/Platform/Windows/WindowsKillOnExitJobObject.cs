@@ -7,12 +7,11 @@ namespace Backspace.Services.Platform.Windows;
 
 /// <summary>
 /// Windows Job Object configured with KILL_ON_JOB_CLOSE. Every engine
-/// child process (backrest.exe + the restic / rclone processes it
-/// spawns) is assigned to this job; when Backspace exits or crashes,
-/// Windows tears the job down and every member process with it.
-/// Without this safety net, a backrest.exe whose parent died
-/// ungracefully would keep running until it finished — accumulating
-/// across crashes into dozens of orphans in Task Manager.
+/// child process (restic and the rclone it starts) is assigned to this
+/// job; when Backspace exits or crashes, Windows tears the job down and
+/// every member process with it. Without this safety net, a restic whose
+/// parent died ungracefully would keep running until it finished —
+/// accumulating across crashes into orphans in Task Manager.
 ///
 /// CancellationToken-based <c>process.Kill(entireProcessTree: true)</c>
 /// covers the cooperative path; the job object is the safety net for
@@ -92,8 +91,8 @@ internal static class WindowsKillOnExitJobObject
 
             // Configure the job so closing the LAST handle (i.e. when
             // Backspace process dies) terminates every member.
-            // Do not enable SILENT_BREAKAWAY_OK: that flag lets Backrest's
-            // restic/rclone children escape THIS job and survive Backspace.
+            // Do not enable SILENT_BREAKAWAY_OK: that flag lets restic's
+            // rclone children escape THIS job and survive Backspace.
             // Modern Windows supports nested jobs; assignment failures are
             // reported to callers instead of weakening descendant ownership.
             var info = new JOBOBJECT_BASIC_LIMIT_INFORMATION

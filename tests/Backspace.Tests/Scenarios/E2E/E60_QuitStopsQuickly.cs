@@ -60,7 +60,7 @@ public sealed class E60_QuitStopsQuickly : BackupE2EBase
         void OnLine(string line) { if (line.StartsWith(BackupLiveProgress.Prefix, StringComparison.Ordinal) && !line.Contains("· 0 B done")) moving.TrySetResult(); }
         ServiceLocator.Engine.LineWritten += OnLine;
         RunRecord record;
-        TimeSpan cancelToEnd, engineStop;
+        TimeSpan cancelToEnd;
         try
         {
             var run = Task.Run(() => ServiceLocator.Orchestrator.RunBackupAsync(backup, stop.Token));
@@ -69,17 +69,13 @@ public sealed class E60_QuitStopsQuickly : BackupE2EBase
             stop.Cancel();
             record = await run;
             cancelToEnd = watch.Elapsed;
-            // What the worker does next: stop the engine.
-            watch.Restart();
-            await fixture.Sidecar.StopAsync();
-            engineStop = watch.Elapsed;
         }
         finally { ServiceLocator.Engine.LineWritten -= OnLine; }
 
-        ctx.Report.RecordNote("Timings", $"stop to end of run: {cancelToEnd.TotalSeconds:0.0} s; engine stop: {engineStop.TotalSeconds:0.0} s; run status: {record.Status}");
-        Output.WriteLine($"stop to end of run: {cancelToEnd.TotalSeconds:0.0} s; engine stop: {engineStop.TotalSeconds:0.0} s; status {record.Status}");
+        // No engine to stop after it: the run's restic has ended with it (U175).
+        ctx.Report.RecordNote("Timings", $"stop to end of run: {cancelToEnd.TotalSeconds:0.0} s; run status: {record.Status}");
+        Output.WriteLine($"stop to end of run: {cancelToEnd.TotalSeconds:0.0} s; status {record.Status}");
         Assert.NotEqual(BackupRunStatus.Success, record.Status);
         Assert.True(cancelToEnd < TimeSpan.FromSeconds(5), $"The run took {cancelToEnd.TotalSeconds:0.0} s to end after Stop.");
-        Assert.True(engineStop < TimeSpan.FromSeconds(3), $"The engine took {engineStop.TotalSeconds:0.0} s to stop.");
     }
 }

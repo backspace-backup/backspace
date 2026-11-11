@@ -266,7 +266,7 @@ public sealed class MountedSnapshotRegistry : ISnapshotMountRegistry
         WinFspMountCoordinator coord;
         try
         {
-            var cacheDir = System.IO.Path.Combine(AppPaths.BackrestDataDir, "mount-cache", backup.Id);
+            var cacheDir = System.IO.Path.Combine(EngineWorkPaths.MountCacheDir, backup.Id);
             coord = new WinFspMountCoordinator(new BackupMountTreeProvider(
                 ServiceLocator.Engine, backup, destination, target.StorageName, cacheDir, selection), OpenExplorer);
         }

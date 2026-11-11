@@ -211,11 +211,8 @@ and retained transcripts, re-enable automatic backups, run a real backup and
 remove them again. Compare repository contents and credential canaries before
 and after, and preserve unsuccessful attempts alongside the final result.
 
-`InfrastructureLifecycleE2ETests` also measures normal shutdown of the actual
-windowless Backrest process and confirms a separate daemon stays usable. The
-default shutdown must not wait five seconds for an undelivered window-close
-message. Measure complete scheduled dispatch separately from the backup's own
-duration: engine shutdown and completion polling can otherwise hide delays.
+Measure complete scheduled dispatch separately from the backup's own duration:
+process start and shutdown can otherwise hide delays.
 
 `ServiceInstallationSecurityTests` rejects unsafe installation ownership,
 write/delete-child permissions, null access lists, readable private storage,
@@ -286,7 +283,7 @@ controls, checks a same-size/same-date changed original with comparison off
 and on, and preserves the distinction in the actual run summary. These UI
 checks use headless Avalonia; they do not prove native Windows input behavior.
 
-S33 now exercises persisted ownership records with injected process inspection/termination actions. It never sweeps the developer's running processes. Real-engine tests use disposable data and exclusively owned daemons; live cloud tests require explicit credentials and their opt-in gate.
+S33 now exercises persisted ownership records with injected process inspection/termination actions. It never sweeps the developer's running processes. Real-engine tests use disposable data and their own restic processes; live cloud tests require explicit credentials and their opt-in gate.
 
 `ProcessOwnershipStartupTests` creates its own suspended Windows process,
 before its executable module has loaded. It verifies that the actual image
@@ -330,8 +327,8 @@ configuration. After reopening, the same invocation must reach normal config
 loading. Two additional native checks interrupt an actual encrypted local
 backup through ordinary Quit and Force quit, verify that its restic process
 has stopped (and, for Quit, that restic removed its own lock after Ctrl+Break
-sent from a program without a console), that Backrest was never started, and
-reject another run while the pause remains in effect.
+sent from a program without a console), and reject another run while the
+pause remains in effect.
 `S60_ReviewFeedback` clicks the close-to-tray setting and the quit
 dialogs. These checks do not log the user out or reboot the computer; actual
 before-sign-in execution and live cloud access need separate acceptance proof.
@@ -368,12 +365,12 @@ optional maintenance reported separately.
 `E54_PlanUpdatesAndCleanupSchedule` uses a real encrypted repository to verify
 that editing exclusions affects the next backup, old snapshots remain intact,
 independent cleanup does not run during backup, and explicit cleanup uses the
-latest retention setting. It counts the actual cleanup commands (restic's,
-run directly after a backup, and Backrest's on the schedule) to catch duplicate
-inline work, checks the backup's command line (exclude file, upload limit), and
-verifies that another backup's snapshots survive.
-`PlanSettingsTests` also checks that removing settings
-clears earlier values without dropping unknown daemon fields.
+latest retention setting. It counts the actual cleanup commands (restic's
+forget, after a backup and on the schedule) to catch duplicate inline work,
+checks the backup's command line (exclude file, upload limit), and verifies
+that another backup's snapshots survive. `PlanSettingsTests` checks the forget
+command itself: this plan's snapshots only, nothing for a policy that keeps
+everything.
 
 `E55_OnDemandLockRecovery` uses a real restic child waiting on standard input.
 The cleanup after a backup (restic run directly) meets its live lock: one
@@ -390,9 +387,9 @@ transcript), each JSON message type, cut and unfinished lines, bounded error
 text, every documented exit code, and stopping: Ctrl+Break that makes a real
 restic remove its lock, the end of the whole tree when a program ignores it,
 and both with rclone in the tree. `DirectBackupTests` (step 1) compares the
-direct command lines with Backrest's, option for option, and with the owner's
-transcript; maps every backup exit code to the status history reads; and runs
-real restic with a Backrest that is never started: backups with their
+direct command lines with the ones Backrest ran, option for option, and with
+the owner's transcript; maps every backup exit code to the status history
+reads; and runs real restic: backups with their
 cleanup and no check inside them (checks are entries of their own, U179), the
 remembered parent (used without a list when restic confirms it;
 missing, another plan's, another folder's, unreadable, none remembered or an
@@ -400,7 +397,10 @@ unfinished previous run fall back to the plan's latest), exit code 3, a wrong
 password, a live lock, a stopped backup and the full prune after it.
 `A_scheduled_backup_never_starts_Backrest` runs `Backspace.exe --run` twice and
 watches every process under it: restic appears, backrest.exe never does, and
-Backrest's folders are never made. `BackupFixedCostBenchmark` (opt-in:
+Backrest's old folders are never made. `BackrestLeftoversTests` checks the
+removal of those folders on computers that ran an earlier version: only
+Backrest's names in the engine folder, never a similarly named folder or
+anything through a link. `BackupFixedCostBenchmark` (opt-in:
 `BACKSPACE_FIXED_COST_BENCH=<folder>`, `BACKSPACE_FIXED_COST_BENCH_RUNS`,
 `BACKSPACE_FIXED_COST_BENCH_LABEL`) times unchanged backups end to end and
 splits each into the time before restic's backup starts, the backup and the
@@ -432,9 +432,8 @@ Cancelling a later comparison must leave both the card and the overall banner
 requiring attention. View-model tests also cover overdue checks, fresh passing
 retries, and retaining a failed backup's higher severity.
 
-`BackrestRpcModelsTests` checks the pinned 1.14.1 request and response
-fields. `DirectReadAndRestoreTests` (U175 step 3) runs the bundled restic
-against a real repository with a Backrest that is never started: snapshot
+`DirectReadAndRestoreTests` (U175 step 3) runs the bundled restic
+against a real repository: snapshot
 lists (newest first, restic's file counts, the plan's labels, no lock),
 source-relative file lists, one folder at a time ("no such folder" for a
 missing path or a file), one file's bytes, which snapshot ids are read without
@@ -449,24 +448,24 @@ record their binary versions with `scripts/record-engine-versions.ps1` when
 upgrading.
 
 `E48_EngineUpgradeContinuity` creates two encrypted backup versions with
-Backrest 1.13.0 and restic 0.18.1, then starts the current bundled engines
-against the same disposable repository and daemon data. It checks preserved
-configuration, authentication, operation history and snapshot identities,
-adds a third backup version, and compares exact contents across four real
-restores. It never opens user repositories or replaces installed binaries.
-This tests engine/data continuity, not the updater, cloud accounts or a
-power failure.
+restic 0.18.1 (the restic bundled with Backrest 1.13.0, with Backspace's
+labels), then continues with the current engine on the same disposable
+repository and nothing remembered: it lists and browses both snapshots,
+restores the oldest, adds a third backup whose parent is the old engine's
+latest snapshot, and compares exact contents across four real restores. It
+never opens user repositories or replaces installed binaries. This tests
+engine/data continuity, not the updater, cloud accounts or a power failure.
 
-On Windows, put the previous executables in a separate test-input folder,
-named exactly `backrest-1.13.0.exe` and `restic-0.18.1.exe`, then run:
+On Windows, put the previous restic in a separate test-input folder, named
+exactly `restic-0.18.1.exe`, then run:
 
 ```powershell
 $env:BACKSPACE_PREVIOUS_ENGINE_DIRECTORY = 'C:\test-tools\backspace-previous-engines'
 dotnet test tests/Backspace.Tests --filter "FullyQualifiedName~E48_EngineUpgradeContinuity"
 ```
 
-E48 explicitly skips when the environment variable, either previous
-executable, or any current bundled engine binary is missing. A skipped
+E48 explicitly skips when the environment variable, the previous restic, or
+any current bundled engine binary is missing. A skipped
 rehearsal is not upgrade proof. Require both completed scenario steps and
 a passing final test-runner result, and retain the recorded engine versions.
 
@@ -500,7 +499,7 @@ skipped and unexpected outcomes; those simulations are not live-cloud proof.
 
 `E50_ScheduledDataCheck` uses the real editor checkbox with headless keyboard
 input, persists the opt-in setting, and runs the production check coordinator
-against bundled Backrest/restic. It verifies the default structure-only path,
+against the bundled restic. It verifies the default structure-only path,
 a sampled data check, a changed local original that must not cause failure,
 and a deliberately truncated disposable pack that must fail in saved history.
 The damaged pack's original bytes are restored in `finally`. This tests
@@ -525,7 +524,7 @@ with injected activity and log signals, rather than concurrent real engines.
 ### Production scale
 
 `E49_TestRestoreProgress` clicks the actual sample/full chooser and Cancel
-button, using headless Avalonia with real Backrest/restic and an encrypted
+button, using headless Avalonia with the real restic and an encrypted
 local repository. It verifies byte progress, two non-overlapping 25% samples,
 exact comparison of each recovered file, truthful cancellation, and the
 readable backup-card label at 1024 × 768. `E16_TestRestoreVerifyDrill` covers
@@ -543,17 +542,8 @@ application recovery path. It must retain the original snapshot and download
 only unfinished files. Its dated report belongs in the local Review desk;
 the headless scenario alone does not establish process-crash recovery.
 
-`BackrestAuthenticationTests` also holds the real engine configuration open
-while authentication setup replaces it. A brief Windows lock must recover;
-a cancelled wait must leave the previous file unchanged and no usable engine
-client. They also start actual bundled Backrest with its configuration locked
-for more than ten seconds: failed startup attempts must recover after unlock.
-Stale log errors and unrelated fatal errors must not cause automatic restart.
-A separate interrupted-repair test checks the saved password against its hash.
-These tests use disposable engine credentials, not Windows Credential Manager.
-
 `FileAccessRetryTests` holds actual Windows file handles for more than ten
-seconds in all four paths: Test restore progress, engine configuration,
+seconds in all four paths: Test restore progress, a backup's exclude file,
 temporary cleanup and Quit. It verifies that the old data stays intact while
 waiting, that releasing the lock completes the operation, and that a running
 scheduled-task monitor is not falsely cancelled by the pending Quit save.
@@ -573,7 +563,7 @@ filesystem rollback and a concurrent edit that must survive cancellation;
 operation finishes. A separate native-process probe verifies saved Pause across
 an actual process exit and relaunch. No Windows reboot is needed for that test.
 
-`E53_CheckHistoryAndAutomaticRestore` uses real Backrest/restic and an encrypted
+`E53_CheckHistoryAndAutomaticRestore` uses the real restic and an encrypted
 local repository. It opens the single Activity view through the actual card
 control, checks its backup/check filters, selects the explicit deeper-check
 choices in the editor, preserves an existing both-enabled configuration, and exercises both the
@@ -620,10 +610,10 @@ disposable repository: no staged output may replace either existing target file.
 `StreamingRestoreProcessTests` separately checks bounded memory with 100,000
 synthetic progress messages and rejects oversized output lines. These checks
 do not establish live cloud behavior, a multi-day run or an OS refusing to kill
-a process. Direct restores do not enter Backrest's operation history.
+a process.
 
 `E43_CloudSourceChangeDetection` is an architecture experiment, not a shipped
-cloud feature. It uses real WinFSP, Backrest and restic with simulated remote
+cloud feature. It uses real WinFSP and restic with simulated remote
 files. Four separately mounted rounds establish initial reads, complete
 unchanged snapshots without content reads, the negative same-size/same-date
 case (old contents reused), and a distinct virtual timestamp that causes only
@@ -646,14 +636,6 @@ exclusion blocks, clicks Apply twice, and verifies that both custom rules
 survive in one block while obsolete generated rules are removed. It also
 checks Cancel, Save and reopening the stored configuration. The related
 rule tests preserve malformed custom blocks without losing user rules.
-
-`BackrestAuthenticationTests` injects failed login and an empty token and
-rejects any use of unprotected setup RPCs. `BackrestSidecarTests` verifies
-password preparation before launch, retention of unrelated configuration,
-and refusal to overwrite corrupt or newer engine data.
-`InfrastructureLifecycleE2ETests` probes the real bundled daemon during first
-startup and missing-password recovery: anonymous requests with an untrusted
-website origin must be rejected, while the authenticated application works.
 
 Set `BACKSPACE_E2E_SCALE=huge` to lift the shared E2E source builders and manual E11/E30/E31/E34/E35 fixtures to production-sized input. The standard huge fixture has at least 20,000 files and approximately 2 GiB; exact edge fixtures retain their special files in addition to the scale payload. Multi-source or multi-backup tests can create multiple such payloads, and backup/restore copies need additional free space. The default remains small. This switch increases local I/O and, for explicitly enabled cloud scenarios, upload/download traffic.
 
@@ -689,8 +671,8 @@ Neither variant proves the Settings update flow or live GitHub delivery.
 dotnet test tests/Backspace.Tests \
   --filter "FullyQualifiedName!~E2E"
 
-# Local restic round-trip tests (boots the Backrest sidecar + runs real
-# restic against a temp local repo)
+# Local restic round-trip tests (runs the real restic against temp local
+# repos)
 dotnet test tests/Backspace.Tests --filter "FullyQualifiedName~E2E&FullyQualifiedName!~E2E_WindowsUpdateBundle&FullyQualifiedName!~E07_DropboxRoundTrip&FullyQualifiedName!~E08_OneDriveRoundTrip&FullyQualifiedName!~E09_GoogleDriveRoundTrip&FullyQualifiedName!~E10_TwoConcurrentMultiCloud"
 
 # Live cloud tests (real Dropbox, OneDrive Personal and Google Drive)
@@ -888,7 +870,6 @@ older scenario comments that describe broader coverage.
 |---|---|---|
 | Mount snapshot as readable Windows volumes (WinFSP) | `E04_SnapshotMountWindows` mounts two real volumes, enumerates and compares every file's bytes, unmounts one without breaking the other. Requires WinFSP. | ✅ |
 | Mount from the packaged app's card and open Explorer | E04 exercises developer-build coordinators; S49 exercises the card with a fake mount registry. Neither launches the distributed executable. | 🟡 |
-| Open Backrest's snapshot UI in the default browser | `S57_SnapshotBrowserLaunch` pointer-clicks the actual Browse button, cold-starts an isolated real daemon, checks its HTTP UI and exact plan URL at an injected opener; opener failure produces the actual notification. Shell launch and web-page interaction remain separate acceptance. | ✅ bounded launch path |
 
 ### Maintenance
 
@@ -898,7 +879,7 @@ older scenario comments that describe broader coverage.
 | Standalone prune (cadence) | `RuntimeGuardCoverageTests` verifies actual unregistered weekly trigger/action and real orchestration cancellation/opt-out; `S39` covers fake-engine invocation. OS due-time firing unexercised | ⛔ OS acceptance |
 | Check after each backup (an entry of its own, U179) | `E15_CheckAfterBackupRealEngine`: the backup runs restic and no check, then the structure check runs as its own run (`restic check`, run directly) | ✅ |
 | Standalone check (cadence) | Actual unregistered monthly trigger/action and real orchestration cancellation/opt-out; `S39` covers fake-engine invocation. OS due-time firing unexercised | ⛔ OS acceptance |
-| Test-restore drill | `E16_TestRestoreVerifyDrill`: actual button pointer clicks in headless Avalonia; real Backrest/restic, two sources, an empty file, all file counts, persisted runs, and a second-source same-size mismatch that must fail. Screenshots show the result beside the button. | ✅ |
+| Test-restore drill | `E16_TestRestoreVerifyDrill`: actual button pointer clicks in headless Avalonia; the real restic, two sources, an empty file, all file counts, persisted runs, and a second-source same-size mismatch that must fail. Screenshots show the result beside the button. | ✅ |
 | Drill skips mid-flight-edited files | E16 deliberately retains the source modification time to test byte mismatch detection; it does not simulate a concurrent edit. `BackupVerifierMidFlightDirtyTests` covers record state and retry replacement only. | 🟡 |
 | Maintenance policy cards rendered | `S26_MaintenancePolicyCards` | ✅ |
 | Checks as a list (U179): Add a check, edit, Remove; Easy mode sentence; conversion of the old single check; checks due together run one after another; the test restore limit never exceeded | `S99_ChecksList` (pointer clicks on + Structure check and Remove, invalid share refused, light and dark, Easy step 3). `BackupChecksTests` (the owner's saved shapes in the app and the service's strict reader, defaults, sentence, yearly, one plan per check, plain summaries, card lines), `MaintenanceOutcomeTests.Checks_started_together_run_one_after_another`, `CheckOverdueTests` (each entry waits on its own), `TestRestoreJournalTests` (limit) | ✅ |

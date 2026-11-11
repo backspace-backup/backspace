@@ -67,8 +67,7 @@ public static class EngineErrorClassifier
     /// Pass the FULL error message — both the exception's Message and
     /// any embedded restic/rclone stderr. The classifier is text-based
     /// because restic doesn't emit a network-unreachable exit code
-    /// (rolls into exit 1) and Backrest's Connect-RPC layer doesn't
-    /// distinguish transient vs permanent either.
+    /// (rolls into exit 1), so transient and permanent failures share it.
     /// </summary>
     public static Verdict Classify(string? errorText)
     {

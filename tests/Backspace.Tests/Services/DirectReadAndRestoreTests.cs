@@ -15,8 +15,7 @@ namespace Backspace.Tests.Services;
 
 /// <summary>
 /// U175 step 3: snapshot lists, folder listings, the mounted drive's reads and
-/// every restore run restic directly. Real restic, a real repository, never
-/// Backrest. What Backrest's path guaranteed still holds: newest first,
+/// every restore run restic directly. Real restic, a real repository. What Backrest's path guaranteed still holds: newest first,
 /// source-relative paths, only the requested files promoted, an original kept
 /// through an error or a cancel, and nothing restored is an error.
 /// </summary>
@@ -75,7 +74,7 @@ public sealed class DirectReadAndRestoreTests(ITestOutputHelper output)
         var files = await rig.Engine.ListSnapshotFilesAsync(rig.Backup, rig.Source, rig.Destination, "default", 1, default, first);
         Assert.Equal(AllFiles, files.Select(f => f.Path));
         Assert.Equal(4, files.Single(f => f.Path == "kept.txt").SizeBytes);
-        Assert.Contains(await rig.Engine.ListSnapshotFilesAsync(rig.Backup, rig.Source, rig.Destination, "default", 2, default),
+        Assert.Contains(await rig.Engine.ListSnapshotFilesAsync(rig.Backup, rig.Source, rig.Destination, "default", 2, default, second),
             f => f.Path == "second.txt");
 
         // One folder at a time (the mounted drive's fallback): its children only.
@@ -98,7 +97,6 @@ public sealed class DirectReadAndRestoreTests(ITestOutputHelper output)
         Assert.Equal("unicode and brackets", Encoding.UTF8.GetString(bytes.ToArray()));
         // Everything after the first list read the snapshot it knew.
         Assert.Single(rig.Commands, IsList);
-        rig.AssertBackrestNeverStarted();
     }
 
     [Fact]
@@ -186,7 +184,6 @@ public sealed class DirectReadAndRestoreTests(ITestOutputHelper output)
         Assert.False(File.Exists(Path.Combine(target, "kept.txt")));
         Assert.False(Directory.Exists(Path.Combine(target, "nested", "empty")));
         Assert.Empty(Directory.GetDirectories(target, ".backspace-restore-*"));
-        rig.AssertBackrestNeverStarted();
     }
 
     [Fact]

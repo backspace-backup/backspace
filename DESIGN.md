@@ -290,5 +290,5 @@ Type-to-confirm. Always.
 - doesn't use emoji as punctuation
 - doesn't celebrate with confetti
 - doesn't hide technical details from users who want them (the
-  Advanced editor surfaces every restic / Backrest knob)
+  Advanced editor surfaces every restic knob)
 - doesn't pretend backups are fun — makes them *feel cared for*

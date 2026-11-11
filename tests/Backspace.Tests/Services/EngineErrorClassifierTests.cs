@@ -153,8 +153,8 @@ public class EngineErrorClassifierTests
     public void Classify_MissingEngine_IsAFailure_NotAnOfflineDestination()
     {
         var missing = new EngineBinaryMissingException(
-            "Backspace couldn't download its backup engine (backrest.exe): No such host is known. (github.com:443) It downloads automatically once this computer is online.",
-            @"C:\Users\me\AppData\Local\Backspace\bin\x\backrest.exe");
+            "Backspace couldn't download its backup engine (restic.exe): No such host is known. (github.com:443) It downloads automatically once this computer is online.",
+            @"C:\Users\me\AppData\Local\Backspace\bin\x\restic.exe");
         Assert.Equal(EngineErrorClassifier.Verdict.Intolerable, EngineErrorClassifier.Classify(missing));
         Assert.Equal(EngineErrorClassifier.Verdict.Intolerable, EngineErrorClassifier.Classify(new System.IO.IOException("wrapped", missing)));
         Assert.Equal(EngineErrorClassifier.Verdict.Tolerable, EngineErrorClassifier.Classify(new System.Net.Http.HttpRequestException("No such host is known. (s3.example.com:443)")));
@@ -183,7 +183,7 @@ public class EngineErrorClassifierTests
         var inner = new System.Exception(
             "Fatal: repository does not exist: " +
             "CreateFile \\\\nas\\backups\\config: The network path was not found.");
-        var outer = new System.Exception("/v1.Backrest/Backup failed: unknown", inner);
+        var outer = new System.Exception("The backup failed", inner);
         Assert.Equal(EngineErrorClassifier.Verdict.Tolerable, EngineErrorClassifier.Classify(outer));
     }
 

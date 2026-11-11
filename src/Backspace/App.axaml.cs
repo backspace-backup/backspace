@@ -73,11 +73,10 @@ public partial class App : Application
 
         // Catastrophic-exit hook: if the app dies without going
         // through Avalonia's ShutdownRequested (unhandled exception,
-        // SIGTERM, parent terminal closes), still try to stop the
-        // Backrest engine AND unmount any in-place snapshot mounts.
-        // The job-object KILL_ON_JOB_CLOSE wired up in
-        // BackrestSidecar.StartAsync is the real safety net for the
-        // engine process; the unmount cleanup matters because
+        // SIGTERM, parent terminal closes), still try to unmount any
+        // in-place snapshot mounts. The job object with
+        // KILL_ON_JOB_CLOSE that every restic joins is the safety net
+        // for the engine processes; the unmount cleanup matters because
         // `net use` drive-letter mappings persist past process exit
         // and would otherwise leave the user with a half-dead
         // Z:\ drive until reboot.
@@ -86,8 +85,6 @@ public partial class App : Application
             if (ForceQuitRequested) return;
             try { ServiceLocator.SnapshotMounts?.DisposeAllAsync().GetAwaiter().GetResult(); }
             catch { /* dying process — best-effort */ }
-            try { ServiceLocator.BackrestSidecar?.DisposeAsync().GetAwaiter().GetResult(); }
-            catch { /* dying process, log won't reach disk anyway */ }
         };
 
         // Sweep stale shell-integration verbs left by predecessor
@@ -196,11 +193,9 @@ public partial class App : Application
             //    mapping lingers as a half-dead drive until the user
             //    reboots / runs `net use /delete`. Windows-only.
             //
-            // 2. Stop the Backrest engine cleanly. Best-effort — the
-            //    job-object safety net in BackrestSidecar.StartAsync
-            //    catches whatever this misses, but a graceful stop
-            //    drains stderr / flushes the sqlite oplog properly
-            //    where a Kill-via-job-object would not.
+            // 2. Release the engine's ownership: each restic run has
+            //    ended by now (runs return only once restic has), and
+            //    the kill-on-close job catches whatever this misses.
             // ShutdownRequested is cancellable. Never tear down a live
             // engine before the main window has finished its safe-quit flow.
             desktop.ShutdownRequested += (_, e) =>
@@ -224,12 +219,8 @@ public partial class App : Application
                 if (ForceQuitRequested) return;
                 try { ServiceLocator.SnapshotMounts?.DisposeAllAsync().GetAwaiter().GetResult(); }
                 catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Unmount-on-shutdown threw"); }
-                try
-                {
-                    ServiceLocator.BackrestSidecar?.DisposeAsync().GetAwaiter().GetResult();
-                    ServiceLocator.Maintenance?.ReleaseEngineOwnershipAfterStop();
-                }
-                catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Backrest engine stop-on-shutdown threw"); }
+                try { ServiceLocator.Maintenance?.ReleaseEngineOwnershipAfterStop(); }
+                catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Engine release on shutdown threw"); }
             };
 
             // Post-init startup: broken-install probe + deferred
@@ -264,8 +255,6 @@ public partial class App : Application
                 if (taskResume.IsCancellationRequested || QuitRequested) return;
                 // Schedules run while Backspace runs, including a start at sign-in (U043).
                 DesktopSchedule.Start();
-                // The engine runs only while needed (U125).
-                EngineIdleStop.Start();
                 if (!startedInBackground) Program.RunPostInitStartup();
                 try { await ServiceLocator.TestRestores.ResumeInterruptedAsync(); }
                 catch (Exception ex) { AppLogger.For<App>().Error(ex, "Could not load interrupted test restores"); }

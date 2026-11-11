@@ -31,13 +31,15 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
 {
     private static ILogger _log => AppLogger.For<ResticBackrestEngine>();
 
-    private readonly BackrestSidecar _sidecar;
     private readonly SecretsStore _secrets;
+    private readonly string? _resticOverride;
 
-    public ResticBackrestEngine(BackrestSidecar sidecar, SecretsStore secrets)
+    /// <param name="resticBinary">The restic to run; this build's own
+    /// (<see cref="AppPaths.ResticBinary"/>) when null.</param>
+    public ResticBackrestEngine(SecretsStore secrets, string? resticBinary = null)
     {
-        _sidecar = sidecar;
         _secrets = secrets;
+        _resticOverride = resticBinary;
     }
 
     public event Action<string>? LineWritten;
@@ -69,12 +71,11 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
     }
 
     /// <summary>
-    /// Backrest's terminal operation-status enum values, surfaced as
-    /// wire-format strings. Backrest's GetOperationEvents stream
-    /// publishes one of these for every op transition; we match
-    /// against them in <see cref="StatusFromBackrestTerminal"/> and
-    /// the wait-for-terminal pumps. Single source of truth instead
-    /// of bare string literals scattered through the file.
+    /// How a run ended, in the words Backrest used for its operations
+    /// (<c>STATUS_SUCCESS</c>…): run summaries keep them (<c>Backup result:
+    /// STATUS_…</c>), and run history and <see cref="WasStoppedOnRequest"/>
+    /// read them, so records from before and after U175 read alike.
+    /// <see cref="StatusFromBackrestTerminal"/> maps them to Backspace's.
     /// </summary>
     private static class BackrestStatus
     {
@@ -148,26 +149,17 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
     /// leftovers no record shows (a backup cut short where nothing recorded it).</summary>
     internal static readonly TimeSpan PruneAtLeastEvery = TimeSpan.FromDays(7);
 
-    /// <summary>The forget command that applies the backup's retention
-    /// policy (<see cref="KeepPolicyRules.ResticOptions"/>), or null when it
-    /// keeps everything. This is the only path that deletes snapshots: every
-    /// plan carries Backrest's keep-all retention, so Backrest's own
-    /// after-backup forget never removes anything (U172).</summary>
-    internal static string? BuildRetentionCommand(string planId, string instance, IReadOnlyList<string> keepOptions)
-        => RetentionArguments(planId, instance, keepOptions) is null ? null
-            : "forget --tag " + QuoteArg("plan:" + planId + ",created-by:" + instance) + " --group-by= " + string.Join(' ', keepOptions);
-
-    /// <summary>The same forget as <see cref="BuildRetentionCommand"/>, as
-    /// restic's arguments (run directly, U175), or null when the policy keeps
-    /// everything.</summary>
+    /// <summary>The forget that applies the backup's retention policy
+    /// (<see cref="KeepPolicyRules.ResticOptions"/>, U172) to this plan's
+    /// snapshots only, as restic's arguments, or null when the policy keeps
+    /// everything. This is the only path that deletes snapshots.</summary>
     internal static List<string>? RetentionArguments(string planId, string instance, IReadOnlyList<string> keepOptions)
     {
         // An empty policy must never delete history: restic refuses a forget
         // without keep options, and Backspace never sends one.
         if (keepOptions.Count == 0) return null;
-        // Match Backrest's own snapshot-list scope: AND the plan and instance
-        // tags. Never change the shared plan temporarily while a browser may
-        // also be reading it.
+        // The plan's snapshots only: both its labels (plan and instance),
+        // as every snapshot list reads them.
         if (string.IsNullOrWhiteSpace(planId) || string.IsNullOrWhiteSpace(instance) ||
             planId.Contains(',') || instance.Contains(',') || planId.Any(char.IsControl) || instance.Any(char.IsControl))
             throw new InvalidOperationException("The backup engine could not identify this backup's cleanup scope. Nothing was removed.");
@@ -187,13 +179,6 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         return ServiceLocator.SizeProbe?.TryGetCached(sourcePath, SourceSizeRules.For(backup))
             is { Completed: true, Approximate: false, Bytes: > 0 } estimate ? estimate.Bytes : 0;
     }
-
-    internal BackrestSidecar Sidecar => _sidecar;
-
-    private long _lastUseTicks = DateTime.UtcNow.Ticks;
-
-    /// <summary>When the engine was last asked for anything (U125).</summary>
-    internal DateTime LastUseUtc => new(Interlocked.Read(ref _lastUseTicks), DateTimeKind.Utc);
 
     /// <summary>The size expected, known at once or counted in the background
     /// while the backup starts (U129, 4 November 2026: backups run by the
@@ -1280,21 +1265,6 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         return newestFirstSorted[newestFirstSorted.Count - revision].Id;
     }
 
-    /// <summary>
-    /// Quote an argv element for Backrest's RunCommand RPC. Backrest
-    /// passes the command string through <c>github.com/google/shlex</c>
-    /// (POSIX-shell tokenizer) before spawning restic — which means
-    /// any unquoted Windows backslash gets eaten as an escape char.
-    /// A path like <c>C:\Users\erwin\Dropbox</c> arrives at restic
-    /// as <c>C:Userserwindropbox</c>, restore fails with exit 1, and
-    /// the only signal back is the bare exit code. We single-quote
-    /// every argument: shlex preserves backslashes inside single
-    /// quotes verbatim, and embedded single quotes are escaped using
-    /// the standard POSIX <c>'\''</c> trick.
-    /// </summary>
-    private static string QuoteArg(string s)
-        => "'" + s.Replace("'", "'\\''") + "'";
-
     internal static string? FindRestoredFile(string targetPath, string sourcePath, string relativePath)
     {
         var rel = relativePath.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar);
@@ -1475,36 +1445,13 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
 
     // ---- internals ----
 
-    /// <summary>Stable repo id for a (Destination, storageName) pair.
-    /// Used as the human-readable Backrest repo ID; uniqueness across
-    /// the user's whole config is required by Backrest's schema.</summary>
+    /// <summary>Stable repo id for a (Destination, storageName) pair: the
+    /// key of Backspace's records about a repository (maintenance.json,
+    /// repositories.json), as it was Backrest's repo id.</summary>
     internal static string MakeRepoId(Destination destination, string storageName)
     {
         var name = string.IsNullOrEmpty(storageName) ? "default" : storageName;
         return Slug($"{destination.Id}-{name}");
-    }
-
-    /// <summary>
-    /// Deterministic 64-char lowercase-hex Backrest repo guid derived
-    /// from the human <c>repoId</c>. Backrest 1.13.0's SetConfig
-    /// validator rejects any guid that isn't exactly 64 chars
-    /// ("guid '…' invalid: must be 64 characters") — the format
-    /// mirrors restic's own repo-config-id (sha256 hex, also 64
-    /// chars). The previous canonical-UUID shape (36 chars with
-    /// dashes) is now rejected.
-    ///
-    /// This helper is the fallback used by tests and forward-looking
-    /// code paths. In production
-    /// <see cref="BuildRepoFromDestination"/> emits an empty guid
-    /// and lets Backrest's auto-init flow assign the real
-    /// restic-config-id as the canonical guid — see the comment on
-    /// that method for why.
-    /// </summary>
-    internal static string MakeRepoGuid(string repoId)
-    {
-        using var sha = System.Security.Cryptography.SHA256.Create();
-        var bytes = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(repoId));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     /// <summary>A restic id: exactly 64 hex characters (a snapshot's or a
@@ -1532,82 +1479,6 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         return Slug($"{backup.Id}-{destination.Id}-{name}-{sourceTag}");
     }
 
-    internal static bool IsRetryableConfigWrite(string message) =>
-        (message.Contains("write config file", StringComparison.OrdinalIgnoreCase) ||
-         message.Contains("backup config file", StringComparison.OrdinalIgnoreCase)) &&
-        message.Contains("replace", StringComparison.OrdinalIgnoreCase) &&
-        (message.Contains("Access is denied", StringComparison.OrdinalIgnoreCase) ||
-         message.Contains("used by another process", StringComparison.OrdinalIgnoreCase) ||
-         message.Contains("sharing violation", StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>
-    /// Detect Backrest's "plan not found" / "repo not found" errors.
-    /// Backrest surfaces them as plain messages like
-    /// <c>get plan "&lt;id&gt;": plan not found</c> or
-    /// <c>get repo "&lt;id&gt;": repo not found</c>. Match on the
-    /// trailing phrase so we catch both shapes without coupling to
-    /// the verb. Surfaces as <see cref="EngineConfigOutOfSyncException"/>
-    /// which is <see cref="INonRetriable"/> — re-running the same
-    /// cell won't put the missing entry back in Backrest's config.
-    /// </summary>
-    private static bool IsMissingPlanOrRepo(BackrestRpcException ex)
-    {
-        var m = ex.Message;
-        return m.Contains("plan not found", StringComparison.OrdinalIgnoreCase)
-            || m.Contains("repo not found", StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// Translate a Backrest RPC error into the right typed exception.
-    /// Connect-Go codes that indicate a client-side issue (wrong
-    /// credentials, malformed request, missing-in-config) all get
-    /// mapped to <see cref="INonRetriable"/> subtypes so the
-    /// orchestrator's retry cascade gives up immediately. Anything
-    /// transient (Internal, Unavailable, DeadlineExceeded) flows
-    /// through unchanged so the cascade can recover from a
-    /// momentary glitch. Single source of truth — every RPC call
-    /// site that catches <see cref="BackrestRpcException"/> should
-    /// route through this so the classification stays consistent.
-    /// </summary>
-    internal static Exception TranslateRpcError(BackrestRpcException ex, string context)
-    {
-        if (ex.Endpoint == "/v1.Backrest/AddRepo" && HasInterruptedInitializationError(ex.Message))
-            return new EngineRepositoryInitializationException(UnfinishedSetupMessage + ex.Message, ex);
-        // U045: the folder already holds a backup, for example one made by
-        // another Backspace copy or another program, with a password this
-        // backup does not have. Refusing is right; repeating it four times
-        // with restic's wording was not.
-        if (ex.Endpoint == "/v1.Backrest/AddRepo" && ex.Message.Contains("config file already exists", StringComparison.OrdinalIgnoreCase))
-            return new EngineRepositoryInitializationException(AnotherBackupMessage + ex.Message, ex);
-        if (IsMissingPlanOrRepo(ex))
-        {
-            return new EngineConfigOutOfSyncException(
-                "The backup engine could not find the backup or destination that Backspace just configured. " +
-                "Quit and reopen Backspace, then try again. If it happens again, save the run details for troubleshooting. " +
-                "Keep your Backspace.config folder intact. Details: " + ex.Message, ex);
-        }
-        // Connect-Go canonical codes:
-        //   https://connectrpc.com/docs/protocol#error-codes
-        if (string.Equals(ex.Code, "unauthenticated", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(ex.Code, "permission_denied", StringComparison.OrdinalIgnoreCase))
-        {
-            return new EngineAuthFailedException(
-                $"{context}: the backup engine reported an authentication failure (Connect code {ex.Code}). " +
-                "Check the repository password / cloud OAuth token / storage credentials for this destination. " +
-                "(Underlying error: " + ex.Message + ")", ex);
-        }
-        if (string.Equals(ex.Code, "invalid_argument", StringComparison.OrdinalIgnoreCase))
-        {
-            return new EngineInvalidArgumentException(
-                $"{context}: the backup engine rejected the request as malformed (Connect code invalid_argument). " +
-                "Check the destination's URI / region / bucket / subpath configuration. " +
-                "(Underlying error: " + ex.Message + ")", ex);
-        }
-        // Anything else (Internal, Unavailable, DeadlineExceeded, …)
-        // — let it bubble so the retry cascade can have a go.
-        return ex;
-    }
-
     /// <summary>An interrupted repository setup left keys without a
     /// configuration: setup stops, never repeated or replaced.</summary>
     internal const string UnfinishedSetupMessage =
@@ -1620,90 +1491,10 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         "This folder already holds another backup, made by another copy of Backspace or another program. " +
         "Backspace leaves it untouched. Choose an empty folder for this backup, or a new subfolder of this one. Details: ";
 
-    private static bool HasInterruptedInitializationError(string message)
-    {
-        // Require restic's structured terminal error, not a matching filename or
-        // a Backrest log line. Unknown or malformed output retains normal retries.
-        foreach (var line in message.Split('\n'))
-        {
-            if (!line.TrimStart().StartsWith('{')) continue;
-            try
-            {
-                using var document = JsonDocument.Parse(line);
-                var root = document.RootElement;
-                if (root.ValueKind == JsonValueKind.Object &&
-                    root.TryGetProperty("message_type", out var type) && type.ValueKind == JsonValueKind.String &&
-                    type.GetString() == "exit_error" &&
-                    root.TryGetProperty("message", out var detail) && detail.ValueKind == JsonValueKind.String &&
-                    IsInterruptedInitialization(detail.GetString()))
-                    return true;
-            }
-            catch (JsonException) { }
-        }
-        return false;
-    }
-
     /// <summary>restic's closing message for an init that found keys without
     /// a configuration (its exit_error message).</summary>
     internal static bool IsInterruptedInitialization(string? exitMessage)
         => exitMessage?.EndsWith(": repository already contains keys", StringComparison.Ordinal) == true;
-
-    internal BackrestRepo BuildRepoFromDestination(string repoId, Destination destination, Backup? backup = null)
-    {
-        var password = destination.StoragePasswordRef is null
-            ? ""
-            : _secrets.Get(destination.StoragePasswordRef);
-
-        // Cloud-kind destinations need rclone.conf materialised before
-        // restic spawns rclone; the resolver knows whether this
-        // destination kind reaches into rclone and emits the matching
-        // RCLONE_CONFIG / AWS_* env vars onto Repo.env. Custom OAuth
-        // apps (if any) come along for the ride so the user's higher
-        // rate-limit quota lands in rclone.conf.
-        var rclonePath = RcloneConfigBuilder.DefaultPath;
-        if (RcloneConfigBuilder.NeedsRcloneRemote(destination))
-        {
-            var oauthApps = ServiceLocator.Config?.Current?.RcloneOAuthApps;
-            rclonePath = new RcloneConfigBuilder(_secrets).MaterialiseDestination(destination, oauthApps);
-        }
-        var resticEnv = ResticUriResolver.Resolve(destination, _secrets, rclonePath);
-
-        // Repo-level Flags apply to EVERY restic invocation Backrest
-        // spawns against this repo: backup, restore, check, prune,
-        // stats, forget, snapshots. Routing the bandwidth limit
-        // through here covers the maintenance ops (which previously
-        // ran unthrottled because they go through TaskCheck /
-        // TaskPrune RPCs that don't read plan.backup_flags). Plan-
-        // level backup_flags still carries --limit-upload too for
-        // the backup-specific path; restic accepts repeated flags
-        // and uses the last occurrence, so the per-op flag wins
-        // when both are present.
-        var repoFlags = BuildRepoFlagsForBackup(backup, destination);
-
-        return new BackrestRepo
-        {
-            Id = repoId,
-            // Sent through /AddRepo rather than SetConfig — the handler runs
-            // `restic init` and stamps the canonical 64-char
-            // config-id into Guid, returning the persisted stanza.
-            // We leave Guid empty and AutoInitialize=false on the
-            // wire because AddRepo writes the Guid for us; even
-            // sending AutoInitialize=true here would be ignored
-            // (AddRepo's path always runs init). After Phase 1 the
-            // live config carries the canonical Guid and Phase 2's
-            // SetConfig leaves it untouched.
-            Guid = "",
-            Uri = resticEnv.Uri,
-            Password = password,
-            // An inherited positive FPS override bypasses restic's --quiet.
-            // Zero keeps ordinary commands at their default rate. Native and
-            // direct restores explicitly enable bounded progress reporting.
-            Env = resticEnv.Env.Concat(new[] { "RESTIC_PROGRESS_FPS=0" }).ToList(),
-            Flags = repoFlags,
-            AutoInitialize = false,
-            AutoUnlock = false, // owned tasks recover on a confirmed lock failure
-        };
-    }
 
     /// <summary>The options every restic command gets for this repository
     /// (backup, restore, check, prune, stats, forget, snapshots, init): the
@@ -1726,8 +1517,8 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         // Earlier versions accepted "" silently, which is what
         // Backspace's Encrypted=false destinations have been relying
         // on. Plumb the flag through the repo-level Flags so it
-        // reaches every restic command Backrest spawns (including
-        // the init that runs as part of /AddRepo). Tests and the UI
+        // reaches every restic command Backspace runs (including
+        // init). Tests and the UI
         // copy treat Encrypted=false as "no password" — the empty
         // string was never going to provide real protection, and
         // the explicit flag makes the contract honest at the
@@ -1757,37 +1548,6 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         //     escalate to Failed.
         // Leaving rclone's defaults intact lets each layer do its job.
         return flags;
-    }
-
-    /// <summary>Order-sensitive equality so the drift check
-    /// distinguishes "same flags, same order" from any change.
-    /// Backrest accepts the flags in the order we sent them, so order
-    /// matters for the round-trip read back.</summary>
-    internal static bool RepoFlagsEqual(List<string>? a, List<string>? b)
-    {
-        if (a is null && b is null) return true;
-        if (a is null || b is null) return (a?.Count ?? 0) == 0 && (b?.Count ?? 0) == 0;
-        if (a.Count != b.Count) return false;
-        for (int i = 0; i < a.Count; i++) if (!string.Equals(a[i], b[i], StringComparison.Ordinal)) return false;
-        return true;
-    }
-
-    /// <summary>Update fields owned by Backspace without discarding newer daemon fields.</summary>
-    internal static bool ApplyPlanSettings(BackrestPlan existing, BackrestPlan wanted)
-    {
-        var changed = existing.Repo != wanted.Repo || !RepoFlagsEqual(existing.Paths, wanted.Paths)
-            || !RepoFlagsEqual(existing.Excludes, wanted.Excludes) || !RepoFlagsEqual(existing.IExcludes, wanted.IExcludes)
-            || !RepoFlagsEqual(existing.BackupFlags, wanted.BackupFlags) || existing.SkipIfUnchanged != wanted.SkipIfUnchanged
-            || System.Text.Json.JsonSerializer.Serialize(existing.Retention) != System.Text.Json.JsonSerializer.Serialize(wanted.Retention);
-        if (!changed) return false;
-        existing.Repo = wanted.Repo;
-        existing.Paths = wanted.Paths;
-        existing.Excludes = wanted.Excludes;
-        existing.IExcludes = wanted.IExcludes;
-        existing.BackupFlags = wanted.BackupFlags;
-        existing.SkipIfUnchanged = wanted.SkipIfUnchanged;
-        existing.Retention = wanted.Retention;
-        return true;
     }
 
     /// <summary>The rules as written, each once. restic applies them in order
@@ -1826,36 +1586,6 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         return path;
     }
 
-    internal static BackrestPlan BuildPlanFromBackup(string planId, string repoId, Backup backup, string sourcePath)
-    {
-        var paths = new List<string> { sourcePath };
-        // The Filters text is restic's exclude file, handed over unchanged
-        // (U151): --iexclude-file on Windows, --exclude-file elsewhere. Not
-        // as --iexclude arguments: restic expands $NAME in an exclude file
-        // (a literal $ is written $$) but not in an argument, so the same
-        // text would mean something else. Backrest splits each flag like a
-        // shell, so the path is quoted.
-        var backupFlags = BuildBackupFlags(backup);
-        backupFlags.Add(FilterTranslator.ExcludeFileFlag);
-        backupFlags.Add(QuoteArg(ExcludeFilePath(planId)));
-        return new BackrestPlan
-        {
-            Id = planId,
-            Repo = repoId,
-            Paths = paths,
-            Excludes = new(),
-            IExcludes = new(),
-            BackupFlags = backupFlags,
-            // Backrest needs a retention policy on every plan, and runs its
-            // own forget with it after each backup. Keep-all makes that a
-            // no-op: Backspace applies the backup's KeepPolicy itself, with
-            // the exact restic options Backrest's policy can't express
-            // (keep-within-daily and friends; U172). See RunRetentionAsync.
-            Retention = new BackrestRetentionPolicy { PolicyKeepAll = true },
-            SkipIfUnchanged = false,
-        };
-    }
-
     /// <summary>Restic-side <c>backup</c> command flags derived from
     /// the user's per-backup toggles. Windows-only flags are guarded
     /// behind <see cref="Services.Platform.PlatformInfo.IsWindows"/>
@@ -1890,9 +1620,8 @@ public sealed partial class ResticBackrestEngine : IBackupEngine
         // or after the subcommand. The model field is KB/s, restic
         // wants KiB/s — close enough (≈2.4% delta) to pass the user's
         // number through verbatim rather than confuse them with
-        // base-2 conversion. Backup is upload-dominated, so wire the
-        // upload limit here; the matching download limit goes onto
-        // the restore command line in RestoreFilesAsync.
+        // base-2 conversion. The repository's options carry both
+        // limits for every command (BuildRepoFlagsForBackup).
         if (backup.BandwidthLimitKBps > 0)
         {
             flags.Add("--limit-upload");

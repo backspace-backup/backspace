@@ -91,6 +91,7 @@ public sealed class WindowsUpdateTests
     [InlineData("C:/Backspace.exe")]
     [InlineData("Backspace.exe:secret")]
     [InlineData("unrelated.exe")]
+    [InlineData("backrest.exe")] // no longer one of Backspace's engines (U175)
     public void Unsafe_archive_paths_are_rejected_without_changing_the_installation(string entry)
     {
         using var ws = new TempWorkspace();
@@ -112,7 +113,7 @@ public sealed class WindowsUpdateTests
         var archive = Path.Combine(work, "download.zip");
         using (var zip = ZipFile.Open(archive, ZipArchiveMode.Create))
         {
-            foreach (var name in new[] { "Backspace.exe", "backrest.exe", "restic.exe", "rclone.exe", extra })
+            foreach (var name in new[] { "Backspace.exe", "restic.exe", "rclone.exe", extra })
             {
                 if (name != extra) File.WriteAllText(Path.Combine(root, name), "old " + name);
                 using var file = zip.CreateEntry(name).Open(); file.Write(Encoding.UTF8.GetBytes("MZnew " + name));
@@ -184,8 +185,10 @@ public sealed class WindowsUpdateTests
     }
 
     [Theory]
-    [InlineData(1)] [InlineData(2)] [InlineData(3)] [InlineData(4)] [InlineData(5)]
-    [InlineData(6)] [InlineData(7)] [InlineData(8)] [InlineData(9)] [InlineData(10)]
+    // Two moves for each of the bundle's four files (Backspace.exe, restic.exe,
+    // rclone.exe and a new library): every step.
+    [InlineData(1)] [InlineData(2)] [InlineData(3)] [InlineData(4)]
+    [InlineData(5)] [InlineData(6)] [InlineData(7)] [InlineData(8)]
     public void Failure_after_every_replacement_step_restores_the_complete_previous_bundle(int failAfter)
     {
         using var ws = new TempWorkspace(); var root = ws.Sub("app"); var plan = Prepare(root);
@@ -193,7 +196,7 @@ public sealed class WindowsUpdateTests
         Assert.Throws<IOException>(() => WindowsUpdatePackage.Install(plan, _ => launched = true,
             n => { if (n == failAfter) throw new IOException("Injected disk failure"); }));
         Assert.False(launched);
-        foreach (var name in new[] { "Backspace.exe", "backrest.exe", "restic.exe", "rclone.exe" })
+        foreach (var name in new[] { "Backspace.exe", "restic.exe", "rclone.exe" })
             Assert.Equal("old " + name, File.ReadAllText(Path.Combine(root, name)));
         Assert.False(File.Exists(Path.Combine(root, "new-library.dll")));
         Assert.Equal("unrelated", File.ReadAllText(Path.Combine(root, "personal-notes.txt")));
@@ -232,11 +235,11 @@ public sealed class WindowsUpdateTests
         File.Move(Path.Combine(root, "Backspace.exe"), Path.Combine(plan.Work, "previous", "Backspace.exe"));
         File.Move(Path.Combine(plan.Work, "incoming", "Backspace.exe"), Path.Combine(root, "Backspace.exe"));
         // Stop between moving the next old file and installing its replacement.
-        File.Move(Path.Combine(root, "backrest.exe"), Path.Combine(plan.Work, "previous", "backrest.exe"));
+        File.Move(Path.Combine(root, "restic.exe"), Path.Combine(plan.Work, "previous", "restic.exe"));
         var recovered = WindowsUpdateRuntime.ReadPlan(Path.Combine(plan.Work, "plan.json"));
         WindowsUpdatePackage.RollBack(recovered);
         Assert.Equal("old Backspace.exe", File.ReadAllText(Path.Combine(root, "Backspace.exe")));
-        Assert.Equal("old backrest.exe", File.ReadAllText(Path.Combine(root, "backrest.exe")));
+        Assert.Equal("old restic.exe", File.ReadAllText(Path.Combine(root, "restic.exe")));
         Assert.Equal("credentials must remain byte-for-byte unchanged", File.ReadAllText(Path.Combine(root, "Backspace.config", "vault.bin")));
     }
 

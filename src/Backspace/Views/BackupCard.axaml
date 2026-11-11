@@ -427,7 +427,7 @@
 
           <Button Grid.Column="2" Name="MoreActionsButton" Classes="ghost subtle" VerticalAlignment="Top" Margin="0,0,0,6"
                   Content="More" Click="OnMoreActions" AutomationProperties.Name="More backup actions"
-                  ToolTip.Tip="Edit settings, browse snapshots, or remove this backup."/>
+                  ToolTip.Tip="Edit settings or remove this backup."/>
 
           <!-- The mounted drive, from the click (U158): what the mount is
                doing, then the drive and Open in Explorer, or why it failed. -->

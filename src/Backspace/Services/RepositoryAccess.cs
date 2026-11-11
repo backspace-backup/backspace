@@ -128,7 +128,7 @@ internal sealed class RepositoryAccess : IDisposable
     private void ReleaseSetup() { _setup?.Dispose(); _setup = null; }
 
     /// <summary>The engine holds this part back for another task (one task
-    /// per repository in an engine, one at a time in Backrest's queue).</summary>
+    /// per repository in a Backspace process).</summary>
     internal const string EngineRepositoryReason = "waiting for the backup engine to finish another task on this destination";
     internal const string EngineQueueReason = "waiting for the backup engine to finish another backup";
     internal const string SnapshotReason = "waiting for another backup's Windows snapshot";

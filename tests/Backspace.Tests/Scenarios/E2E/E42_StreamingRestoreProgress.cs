@@ -167,7 +167,7 @@ public sealed class E42_StreamingRestoreProgress : BackupE2EBase
         Assert.False(ServiceLocator.Maintenance.HasReaders);
         ctx.Driver.Pump();
         ctx.Report.RecordNote("Real failure control", "After the successful/cancelled cases, the fixture deliberately damaged the large content packs in its own disposable repository. Restic reported an error, zero files were promoted, both existing target files stayed unchanged, and the repository read lease was released only after the process stopped.");
-        ctx.Report.RecordNote("Scope", "The bundled restic, run directly (U175), created the encrypted snapshot and restored the scattered selection with a per-backup limit; Backrest was not involved. Every selected file matched; an overmatching bracket sibling and another unselected file were excluded. A real headless pointer click on Cancel cancelled the second run. No live cloud account was used.");
+        ctx.Report.RecordNote("Scope", "The bundled restic, run directly (U175), created the encrypted snapshot and restored the scattered selection with a per-backup limit. Every selected file matched; an overmatching bracket sibling and another unselected file were excluded. A real headless pointer click on Cancel cancelled the second run. No live cloud account was used.");
 
         async Task<ActiveRestoreSession> WaitForProgress(Task<RestoreOutcome> task, string output)
         {

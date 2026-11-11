@@ -50,7 +50,7 @@ Files written by the service take their folder's permissions. Restricting a
 file to "the current user" means Windows itself under the service, which shuts
 out the owner and Dropbox: the engine's sign-in file did this until 1.1.2
 ("give Dropbox permission to access it", 4 November 2026). Backspace changes
-no permissions; it replaces such a file instead (`BackrestSidecar.AuthFileIsShutOff`).
+no permissions; it replaces such a file instead.
 
 Explicit Quit pauses scheduled work for the current sign-in session only.
 Closing to the tray leaves schedules running. Reopening the GUI, signing out or
@@ -65,14 +65,15 @@ restart are requested.
 ## Saved passwords that travel (U153)
 
 `vault.bin` sits in the synced folder; anything else that holds a credential
-in readable form must not. Backrest writes every repository password into its
-own `config.json` (by design), and rclone keeps cloud tokens in its
-configuration. Those are kept in `%LOCALAPPDATA%\Backspace\engine\<16 hex>`
-(`EngineWorkPaths`) and rebuilt there. A new feature that writes an engine
-file, scratch file or diagnostic under `AppPaths.ConfigRoot` can silently
-undo this: E63 scans every byte under the configuration folder for the
-storage password after a real backup, with a positive control in the
-engine's folder. Run history and transcripts stay in `Backspace.config\logs`
+in readable form must not. rclone keeps cloud tokens in its configuration;
+it is kept in `%LOCALAPPDATA%\Backspace\engine\<16 hex>` (`EngineWorkPaths`)
+and rebuilt there. Repository passwords reach restic only in its environment
+(U175); Backrest, before it, kept every one in its own `config.json`, and
+those old folders are removed at start (`BackrestLeftovers`). A new feature
+that writes an engine file, scratch file or diagnostic under
+`AppPaths.ConfigRoot` can silently undo this: E63 scans every byte under the
+configuration folder and the engine folder for the storage password after a
+real backup and a listing, with a positive control. Run history and transcripts stay in `Backspace.config\logs`
 and `service\logs` (U138); they must never carry a credential.
 
 Two computers that save credentials at the same time each rewrite `vault.bin`;
@@ -105,9 +106,9 @@ only the test helper `ReviewSignInFile` reads them.
 
 ## OAuth first-run flow (Dropbox / OneDrive / Google Drive)
 
-Backrest can return a completed failed operation instead of throwing an RPC
-exception. Keep its explanation in the run's saved error list for backup and
-maintenance. The backup orchestrator must classify those returned failures
+A run can end with a failed result (restic's exit code and its words) instead
+of throwing an exception. Keep its explanation in the run's saved error list
+for backup and maintenance. The backup orchestrator must classify those returned failures
 the same way it classifies exceptions: known network unavailability is
 skipped, explicit rejected credentials fail without another identical attempt,
 and unfamiliar errors remain failures. A successful or warning result must
@@ -124,7 +125,7 @@ instruction; recognised network unavailability follows the normal skipped
 backup policy. A slow probe or a transient server error still proceeds to
 restic, so a new repository can be created and ordinary
 transfer retries remain enabled. This read-only probe has its own 30-second
-limit and runs outside the shared Backrest configuration lock. Classify only
+limit and runs outside the repository's turn. Classify only
 its stderr diagnostics; directory names from stdout must never be treated as
 provider error messages.
 
@@ -142,16 +143,13 @@ config` runs only the first time this computer uses the repository. These extra
 commands are most of the remaining difference from tools that make a single
 connection.
 
-Backrest's working directory is its data directory; a portable install does
-not put rclone on the system PATH. Before starting Backrest, prepend the
-absolute bundled-engine directory to that child process's PATH. Its restic
-children then find the bundled rclone during `AddRepo` and every later
-operation. Direct password changes need the same child environment; direct
-restores and `ResticRunner` (backups and their cleanup) already include the
-bundled directory. Do not put the executable
-path into repository flags: Backrest reparses each flag with shell-style
-quoting before restic parses its own options. Paths with spaces, backslashes
-or punctuation must survive without relying on those extra parsing layers.
+A portable install does not put rclone on the system PATH. Every restic
+Backspace starts (`ResticRunner`, the restores and listings, the password
+change) gets the absolute bundled-engine directory first on its PATH
+(`BundledEngineEnvironment`), so restic finds the bundled rclone. Do not put
+the executable path into repository options instead: paths with spaces,
+backslashes or punctuation must reach restic as one argument each, which
+`ProcessStartInfo.ArgumentList` guarantees.
 
 `OAuthFlowCoordinator` runs a PKCE round-trip through a local listener.
 Connect receives the token automatically; pasted tokens remain an advanced
@@ -201,82 +199,45 @@ restart, is recorded separately in the Review desk.
 ## Engine upgrades require a compatibility check
 
 Build downloads use the versions in `src/Backspace/engine-versions.json`.
-The current pins are Backrest 1.14.1 and restic 0.19.1; on Windows, restic is
+The current pins are restic 0.19.1 and rclone 1.74.1; on Windows, restic is
 Backspace's build of 0.19.1 with a faster exclusion matcher
 (`resticBackspace`, [engine/restic/README.md](../engine/restic/README.md)): an
 upgrade rebases its patch and builds a new one. Do not replace
 those tags with `latest`: a successful backup alone does not establish
-compatibility. Backrest 1.14.1 lists snapshot files using its configured
-`repo_id`; operation queries still use the canonical repository guid.
-Cancellation takes `operationId`, and scheduled-task responses return
-that same field. Maintenance and Restore can acknowledge scheduling before
-the operation appears in polling results. Wait for the identified operation
-to finish; an HTTP success is not a completed backup, restore or check.
-File-tree listing starts at the selected source's absolute snapshot path,
-then visits only its nested directories. Starting at `/` would open another
-restic/rclone session for every source ancestor before reaching any files;
-on cloud repositories, this can add several minutes. Keep the source-relative
-output and immutable snapshot selection when changing this traversal.
+compatibility. File-tree listing starts at the selected source's absolute
+snapshot path. Starting at `/` would open another restic/rclone session for
+every source ancestor before reaching any files; on cloud repositories, this
+can add several minutes. Keep the source-relative output and immutable
+snapshot selection when changing this traversal.
 Existing local binaries are not overwritten by the downloader, so an upgrade
 must replace them deliberately and verify the versions in the test output
 directory as well as in the source assets. Run real backup, restore,
 cancellation and maintenance checks against those binaries.
 
-Since U175 Backspace reads restic's backup output itself, so a restic upgrade
-must also pass `ResticRunnerTests` and `DirectBackupTests` with the new binary:
+Since U175 Backspace reads restic's output itself, so a restic upgrade must
+also pass `ResticRunnerTests`, `DirectBackupTests` and
+`DirectReadAndRestoreTests` with the new binary:
 the JSON messages (`status`, `summary`, `error`, `exit_error`), the exit codes
 (3, 10, 11, 12, 130), the "signal interrupt received, cleaning up" line after
 Ctrl+Break, and `snapshots --json <id>` answering a missing or unreadable
 snapshot with `[]` and exit code 0 (the remembered parent's check relies on
 it).
 
-## Backrest 1.13.0+ `SetConfig` guid contract
+## Repository setup contract
 
-Plan backup options must use the explicit JSON name `backup_flags`, not
-`backupFlags`. The latter can be silently ignored: VSS, cloud-placeholder
-exclusion and bandwidth limits then disappear even though a local unit
-test sees the right list. The real-daemon configuration test writes and
-reads these options through Backrest. Consult the pinned version's proto
-for each field; naming is not uniformly camel case.
-
-Guids must be 64-char hex; `auto_initialize=true` is rejected when a
-guid is set; the validator reruns over the entire on-disk config on
-every write, so an old 36-char UUID-shaped guid (Backspace pre-2026-06)
-makes every `SetConfig` fail. Recovery is automatic via the
-legacy-guid drop in `EnsurePlanAndRepoCoreAsync`.
-
-A plan written right after `AddRepo` can be saved but not loaded: on a fresh
-setup in the lab VM (31 October 2026, U048) the first backup was refused with
-"plan not found" on every retry while the plan sat in Backrest's config file,
-until another settings write. Backups no longer go through Backrest (U175):
-the snapshot listing that first registers a backup's plan with Backrest
-(`ListSnapshotsSortedAsync`) therefore writes Backrest's settings back
-unchanged once and retries. The refused request has started no work. Remove
-this recovery only after a Backrest release fixes the race and a fresh-setup
-first listing passes without it.
-
-## Backrest re-init contract
-
-On first contact for a fresh destination, we send `Guid = ""` +
-`AutoInitialize = true` and let Backrest assign the canonical 64-char
-guid by adopting the on-disk restic repo (or initialising one).
-Subsequent `SetConfig` passes leave the existing repo stanza alone.
-Never round-trip our own deterministic guid through `SetConfig` —
-restic's actual config-id is the source of truth.
-
-Since backups run restic directly (U175), Backrest often meets a
-repository this computer's backups have used for a long time. That one is
-added through `SetConfig` with restic's own id for it, read by `cat config`
-or `init --json` and kept in `KnownRepositories`, not through `AddRepo`:
-`AddRepo` runs `cat config` then `init`, so a password that no longer opens
-the repository came back as "config file already exists", which reads as
-another program's repository (U045) instead of a wrong password.
-`CompletedEngineFailureTests` checks the wrong-password message after a
-direct backup.
+A repository this computer has not used yet is opened with `restic cat
+config`; only when restic says there is none (exit code 10) does
+`restic init` create one. A password that does not open the repository (exit
+code 12) is "this folder already holds another backup" (U045), never a new
+repository beside it. The repositories this computer has opened or created
+are in repositories.json in its engine folder (`KnownRepositories`), with
+restic's own id for each. `CompletedEngineFailureTests` checks the
+wrong-password message after a direct backup.
 
 An interrupted repository initialization can leave encryption keys without a
-usable repository configuration. If `AddRepo` returns the structured terminal
-error `repository already contains keys`, Backspace stops after one attempt.
+usable repository configuration. If `restic init` ends with the closing
+message (`exit_error`) `repository already contains keys`, Backspace stops
+after one attempt.
 It preserves the destination and asks the user to keep that folder for recovery
 and choose a new empty folder for a new backup. It must not erase keys, recreate
 the repository in place, or repeat setup through the normal retry cascade.
@@ -316,8 +277,8 @@ Snapshot listing and restore processes retain their repository lease
 until process exit is confirmed; a cancelled HTTP wait alone is not sufficient.
 
 Never ask the engine for a mounted snapshot one folder at a time (U158). Each
-folder cost a restic process (repository index load) behind a Backrest call,
-and on a cloud destination also a separate sign-in check, so every folder of a
+folder cost a restic process (repository index load), and on a cloud
+destination also a separate sign-in check, so every folder of a
 large cloud backup took seconds. The mount reads the whole tree with
 `restic ls --recursive` (shared out between processes by top-level folder)
 before the drive appears and answers from memory; the per-folder call remains
@@ -393,19 +354,8 @@ one at a time: if cancellation or a disk error occurs during that phase,
 already copied files remain and the result reports the copied count. There
 is no transaction or rollback spanning all restored files.
 
-The [Backrest Windows bracket fix](https://github.com/garethgeorge/backrest/pull/1254)
-was merged on June 30, 2026 (status rechecked October 12). It is included in
-our bundled v1.14.1. Backspace passes the original literal path to native
-Restore and lets Backrest escape it. That release still substitutes
-wildcards, so it can read extra matching files into staging. The exact
-selection check prevents those files from reaching the user's target.
-Direct restic restores can use the literal-bracket pattern described above.
-The [follow-up exact-match fix](https://github.com/garethgeorge/backrest/pull/1411)
-was submitted on 12 October with real-restic regression tests. It is not
-part of bundled Backrest 1.14.1; keep that distinction when describing
-which engine protection the app currently relies on.
-Every restore runs one owned bundled restic process (U175 step 3; Backrest's
-native Restore is no longer used): `restore <id>:/<source>`, the selection in
+Every restore runs one owned bundled restic process (U175):
+`restore <id>:/<source>`, the selection in
 an include file with each opening bracket escaped, none for the whole source,
 and the backup's download limit among the repository's options. The output is
 staged and filtered before publication. It is consumed continuously: progress
@@ -419,72 +369,22 @@ brackets literally. Keep staging and target-preservation checks when changing
 engine versions or pattern handling; they also protect against partial output,
 unsafe paths and an engine that does not honor the requested selection.
 
-### Reviewing the upstream bracket fix
-
-A merge of Backrest PR #1411 does not change the binary already bundled
-with Backspace. First identify a stable release containing the fix, then
-verify that the version actually bundled and run by our tests includes it.
-The due-date instruction for the next agent is in **AGENTS.md**. Record
-the review results in Review desk **R007**; no scheduled automation is used.
-
-The native restore path already passes literal names to Backrest; Backspace's
-own native bracket substitution was removed during the 1.14.1 upgrade.
-The upstream fix should stop extra, similarly named files from being read
-into staging. It does not by itself unlock a large deletion of local code.
-Review any remaining compatibility branches and the adjustment that reports
-progress for the files actually copied to the destination. Remove them only
-if tests show they no longer serve another purpose. Update obsolete wildcard
-explanations when the bundled engine no longer has that behavior.
-
-Keep the direct-restic bracket escaping: those restores bypass Backrest, so
-its fix cannot replace that helper. Also keep staging, exact selection and
-path checks, overwrite rules, completed-file publication, and cancellation
-ownership. These protect against failures beyond bracket matching.
-
-Before simplifying anything, run real-engine bracket-file and bracket-folder
-restores beside deceptive sibling names, both with empty targets and existing
-files. Check cancellation and both native and direct restore paths. E40–E42
-cover these cases; the restore safety regressions and E48 upgrade rehearsal
-cover the surrounding boundaries. Retain the negative assertions: unrelated
-files must stay absent or unchanged. Attach the results to R007 before
-claiming a workaround is safe to remove.
+Before changing pattern handling or the bundled restic, run real-engine
+bracket-file and bracket-folder restores beside deceptive sibling names, both
+with empty targets and existing files, and with cancellation. E40–E42 and
+`DirectReadAndRestoreTests` cover these cases. Retain the negative
+assertions: unrelated files must stay absent or unchanged.
 
 ## Repository command lifetime and cancellation
 
-Some Backrest RPCs hold their HTTP response until restic finishes.
-Cancelling that HTTP request is not confirmation that restic stopped.
-Track the actual operation, request daemon cancellation with an independent
-token, and hold the operation's read lease until terminal acknowledgement.
-If ownership cannot be resolved, fail closed until restart rather than
-unlocking maintenance over a possibly live writer. GetLogs returns a
-protobuf BytesValue: decode its base64 payload before parsing restic JSON.
-
-Backrest (1.14.1) also resets its task queue when it detects a clock jump
-(the computer waking from sleep) or applies a settings change. Queued tasks
-that had not started are removed and their pending operations deleted, but
-their callbacks are never called, so a `Backup` request waiting on such a
-task never answers. Backspace treats an operation that disappears for 15
-seconds, or a `Backup` whose queued operation never appears within 60
-seconds, as discarded (`EngineTaskDroppedException`); nothing is running,
-so the run's ordinary retry submits it again (U093). Found when the PC
-hibernated during the two-cloud test and the test waited for hours.
-
-A status poll that goes unanswered is not, by itself, a stopped task: while
-restic scans a whole drive, Backrest can answer slowly for minutes, and
-counting 30 s of slow polls as an uncertainty cancelled a working backup
-(U111). Unanswered polls start the uncertainty countdown only after a stop or
-once the request has ended. Patience still has limits
-(`ResticBackrestEngine.EngineSilenceLimit`, 10 minutes of no answer at all,
-and `ProgressStallLimit`, 60 minutes of a running backup whose counts don't
-move): the task is cancelled and the run fails with
+Every restic run, a backup's or a restore's, returns only once restic has
+exited: the caller's repository lease and a restore's staging folder stay
+owned until then, including a kill that cannot be confirmed (that case blocks
+further repository work until restart rather than unlocking maintenance over
+a possibly live writer). A backup whose counts don't move for
+`ProgressStallLimit` (60 minutes) is stopped and fails with
 `EngineStalledException`, which is non-retriable so a stuck network doesn't
-cost another hour at once. If cancellation can't be confirmed, the usual
-fail-closed block applies.
-
-Since U175 step 3 every operation runs restic directly (backups, their
-cleanup, checks, the erase tools, lists, browsing and restores), so the notes
-above about Backrest's tasks no longer apply to any of them;
-`ProgressStallLimit` also stops a direct backup.
+cost another hour at once (U111).
 A direct command stops in two steps (`ResticRunner.StopAsync`): Ctrl+Break to
 restic's own process group, then, after `GentleStopWait` (3 s), the end of its
 whole job, rclone included, and a wait for the exit. restic is started in a new
@@ -498,7 +398,12 @@ The window and the service's worker are Windows applications without a console:
 to send the break, `ConsoleBreak` attaches to restic's console, then detaches.
 A test host has a console and shares it with restic. The guard handler that
 ignores Ctrl+Break in Backspace itself must stay installed: without it, a
-break that reaches Backspace would end it. Unix has no gentle step yet.
+break that reaches Backspace would end it. On macOS and Linux the gentle step
+is SIGINT through the system's `kill -INT` (restic handles it as Ctrl+C);
+that path compiles but has not been exercised on either OS. Restores, listings
+and file reads (`StreamingRestoreProcess`) are ended without a gentle step: a
+listing and a file read take no lock, and a stopped restore's lock is stale (its
+process is gone), removed by the next cleanup's one `restic unlock`.
 
 ## Password changes and test restore
 
@@ -520,24 +425,6 @@ must stop recovery. Persist an explicit cancellation before stopping the
 engine, and preserve the first terminal result when cancellation races with
 completion. If saving a stop request fails, say that the check may resume
 on the next launch. Sample success is not a full-restore guarantee.
-
-## Backrest's background snapshot index
-
-Backrest 1.14.1 schedules an index after the operations it runs (a backup, a
-forget, adding a repository), and that task has no pending operation record.
-An empty pending-operation query therefore does not establish that the
-repository is idle. A second reader can overlap the index and encounter a
-disappearing lock file on a cloud backend (U012 in the local Review desk holds
-the measured cloud evidence).
-
-Until U175, Backspace waited after each saved backup for Backrest's
-`index_snapshots` counter and the snapshot's index record. Backups, checks,
-lists and restores now run restic directly; Backrest adds no repository and
-indexes nothing, and those waits were removed. A listing takes no lock
-(`snapshots --no-lock`), so it never meets one. A cleanup meeting another
-program's lock (exit code 11) gets the usual one `restic unlock`, which leaves
-a live lock, and one retry; if the lock is still held, the run ends with a
-cleanup warning and the next backup's cleanup catches up.
 
 ## A stopped Windows service and Fast Startup
 
@@ -632,14 +519,11 @@ Left out, the estimates and the run's own listing. Keep the two equal.
 ## Filters are restic's exclude file (U151)
 
 A backup's Filters text goes to restic unchanged, as a file
-(`EngineWorkPaths.Root\filters\<plan id>.txt`), through the plan's
-`backup_flags`: `--iexclude-file` on Windows, `--exclude-file` elsewhere. Not
-as `excludes`/`iexcludes` arguments, which Backrest passes as `--iexclude X`:
-restic expands `$NAME` (and `${NAME}`) in an exclude file but not in an
-argument, so the same text would mean two things. Backrest splits each
-`backup_flags` element like a shell (`shlex`), so the path is single-quoted
-(`QuoteArg`). The file is rewritten before every use of the plan; the plan's
-flags only change when the path does.
+(`EngineWorkPaths.Root\filters\<plan id>.txt`), on the backup's command
+line: `--iexclude-file` on Windows, `--exclude-file` elsewhere. Not
+as `--iexclude X` arguments: restic expands `$NAME` (and `${NAME}`) in an
+exclude file but not in an argument, so the same text would mean two things.
+The file is rewritten before every backup, only when its text changed.
 
 Traps, each checked with restic 0.19.1:
 
@@ -682,8 +566,8 @@ the upstream fix (`engine/restic/patches/0002`), and official restic's bound
 elsewhere (below). On Windows a rule starting with
 `/` matches nothing in restic (a path starts with its drive); Left out
 lists such rules (`RulesMatchingNothing`) without changing them. The
-environment is this process's; Backrest's restic inherits the daemon's, which
-for the background service is the service's own. E57 compares both with
+environment is this process's; the background service's restic gets the
+service's own. E57 compares both with
 `restic backup --dry-run` on the same file. On 6 November 2026 the owner's
 converted lists, on real folders, kept the same files in Simulate and in
 restic (local_c 26,639 plus 17 files Chrome held locked, which restic could
@@ -794,8 +678,8 @@ Both answers come from Backspace's own records since U175 (maintenance.json,
 `MaintenanceRecords`): a plan whose `lastBackupStartedUtc` is later than its
 `lastBackupFinishedUtc` did not finish, and `lastFullPruneUtc` is written by a
 successful full prune after a backup or on the cleanup schedule. Backrest's
-operation history answered before, and each Backrest instance (the window's,
-each service worker's) had its own. The records were not converted: a
+operation history answered before U175, and each Backrest instance (the
+window's, each service worker's) had its own. The records were not converted: a
 repository with no `lastFullPruneUtc` gets a full prune at its next cleanup
 after a backup.
 
@@ -807,10 +691,9 @@ keep-within options (`KeepPolicyRules.cs`). Before 9 November 2026 any `n:m` pol
 became a fixed `--keep-last=10 --keep-daily=7 --keep-weekly=4 --keep-monthly=12
 --keep-yearly=5`, whatever the rules said. Things to know before changing it:
 
-- Backrest's plan retention can't express keep-within, so every plan carries
-  keep-all. Backrest runs its own forget after each backup; with keep-all it
-  removes nothing. Never put the real policy on the plan as well: two
-  forgets with different rules would delete the union.
+- Only Backspace's forget removes snapshots. Never add a second forget
+  with other rules (another tool, a second schedule): two forgets with
+  different rules would delete the union.
 - `--keep-within*` durations count back from the **latest snapshot** in the
   group, not from now (restic's documented behaviour). Duplicacy counts from
   now. So restic never deletes more for age reasons, and deletes nothing more

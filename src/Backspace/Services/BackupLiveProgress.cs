@@ -6,11 +6,11 @@ using System.Text.Json;
 namespace Backspace.Services;
 
 /// <summary>
-/// Turns the progress Backrest records on a running backup operation
-/// (restic's status: percent, bytes and files done of the totals found so far)
-/// into one readable line every few seconds (U112, 3 November 2026). Before,
-/// only the operation's state was read, so a backup showed no progress at all
-/// while it uploaded at full speed.
+/// Turns restic's progress on a running backup (its status messages: percent,
+/// bytes and files done of the totals found so far) into one readable line
+/// every few seconds (U112, 3 November 2026). Before, only the operation's
+/// state was read, so a backup showed no progress at all while it uploaded at
+/// full speed.
 ///
 /// Restic counts the files while it backs them up, so its totals are only
 /// what it has found so far until they stop growing, and its bytes done
@@ -122,9 +122,6 @@ internal sealed class BackupLiveProgress
 
     /// <summary>Called when the engine holds the backup back for another task.</summary>
     internal Action? HeldBack { get; set; }
-
-    /// <summary>The line to show now, or null when it is too soon or nothing changed.</summary>
-    internal string? Next(JsonElement? operationBackup, DateTime nowUtc) => NextStatus(Parse(operationBackup), nowUtc);
 
     /// <summary>The line to show now for a status sample (restic's own status
     /// message, <see cref="FromResticStatus"/>), or null when it is too soon
@@ -301,23 +298,8 @@ internal sealed class BackupLiveProgress
         return steps.Count(d => d >= ContinuousBytes) >= steps.Length - 1;
     }
 
-    internal static Sample? Parse(JsonElement? operationBackup)
-    {
-        if (operationBackup is not { ValueKind: JsonValueKind.Object } backup
-            || !backup.TryGetProperty("lastStatus", out var last) || last.ValueKind != JsonValueKind.Object
-            || !last.TryGetProperty("status", out var status) || status.ValueKind != JsonValueKind.Object) return null;
-        // Every file restic is reading, one per line: a string keeps the
-        // sample comparable, so an unchanged status is not shown again.
-        string? current = null;
-        if (status.TryGetProperty("currentFile", out var files) && files.ValueKind == JsonValueKind.Array)
-            current = string.Join('\n', files.EnumerateArray().Where(f => f.ValueKind == JsonValueKind.String).Select(f => f.GetString()));
-        return new(Number(status, "percentDone") * 100, (long)Number(status, "totalBytes"), (long)Number(status, "bytesDone"),
-            (long)Number(status, "totalFiles"), (long)Number(status, "filesDone"), current);
-    }
-
     /// <summary>restic's own status message (<c>backup --json</c>, message_type
-    /// "status", U175): the same figures Backrest copied into its operation
-    /// record (percent_done is a fraction, as Backrest's percentDone was).</summary>
+    /// "status", U175); percent_done is a fraction.</summary>
     internal static Sample? FromResticStatus(JsonElement status)
     {
         if (status.ValueKind != JsonValueKind.Object) return null;
@@ -328,7 +310,7 @@ internal sealed class BackupLiveProgress
             (long)Number(status, "total_files"), (long)Number(status, "files_done"), current);
     }
 
-    // Protocol buffers write 64-bit numbers as strings in JSON.
+    // A number, or one written as a string.
     private static double Number(JsonElement element, string name)
         => !element.TryGetProperty(name, out var value) ? 0
             : value.ValueKind == JsonValueKind.Number ? value.GetDouble()
@@ -419,11 +401,8 @@ internal sealed class BackupLiveProgress
     internal const string RecapPrefix = "[recap] ";
 
     /// <summary>The closing summary of a finished backup, like the totals
-    /// Duplicacy wrote at the end of its log (U112), or null when Backrest
-    /// kept no summary (a failed or cancelled run).</summary>
-    internal static string? Recap(JsonElement? operationBackup) => BackrestSummary(operationBackup) is { } summary ? RecapOf(summary) : null;
-
-    /// <summary>The closing summary from restic's own summary message (U175).</summary>
+    /// Duplicacy wrote at the end of its log (U112), from restic's own summary
+    /// message (U175). A failed or cancelled run has none.</summary>
     internal static string RecapOf(ResticBackupSummary s)
     {
         static string Count(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
@@ -438,23 +417,8 @@ internal sealed class BackupLiveProgress
     }
 
     /// <summary>New and changed files and the data added, from restic's
-    /// summary of a finished backup (U142), or null without one.</summary>
-    internal static (int New, int Changed, long Added)? Stats(JsonElement? operationBackup)
-        => BackrestSummary(operationBackup) is { } summary ? StatsOf(summary) : null;
-
+    /// summary of a finished backup (U142).</summary>
     internal static (int New, int Changed, long Added) StatsOf(ResticBackupSummary s) => ((int)s.FilesNew, (int)s.FilesChanged, s.DataAdded);
-
-    /// <summary>The summary Backrest kept on its operation record (camel case,
-    /// 64-bit numbers as strings).</summary>
-    private static ResticBackupSummary? BackrestSummary(JsonElement? operationBackup)
-    {
-        if (operationBackup is not { ValueKind: JsonValueKind.Object } backup
-            || !backup.TryGetProperty("lastStatus", out var last) || last.ValueKind != JsonValueKind.Object
-            || !last.TryGetProperty("summary", out var s) || s.ValueKind != JsonValueKind.Object) return null;
-        return new((long)Number(s, "filesNew"), (long)Number(s, "filesChanged"), (long)Number(s, "filesUnmodified"),
-            (long)Number(s, "dataAdded"), (long)Number(s, "totalFilesProcessed"), (long)Number(s, "totalBytesProcessed"),
-            Number(s, "totalDuration"), s.TryGetProperty("snapshotId", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null);
-    }
 
     /// <summary>restic's own summary message (<c>backup --json</c>, message_type
     /// "summary"), or null when it is not one.</summary>

@@ -21,7 +21,7 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// <summary>
 /// Test-restore (verify drill) end-to-end against the real engine.
 /// Clicks the actual Test restore control through headless pointer input.
-/// Real Backrest/restic restores both sources, including an empty file,
+/// The real restic restores both sources, including an empty file,
 /// then compares them with the originals. A second click must detect a
 /// same-length source mismatch with its original modification time retained.
 /// </summary>
@@ -135,7 +135,7 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
             ctx.Driver.Pump();
         }
         await HoverResult();
-        ctx.Snapshot(host, "test-restore-button-success", $"Actual Test restore click: all {expectedFiles} files from two sources, including an empty file, restored and compared using real Backrest/restic.");
+        ctx.Snapshot(host, "test-restore-button-success", $"Actual Test restore click: all {expectedFiles} files from two sources, including an empty file, restored and compared using the real restic.");
 
         // Negative control: equal size and unchanged mtime must not conceal changed bytes.
         File.WriteAllText(changedPath, "modified bytes");

@@ -233,11 +233,10 @@
             <!-- Footer: dropped the redundant app-name line — the
                  sidebar masthead already says "Backspace". What's
                  actually useful here:
-                   1. Attribution + provenance — "Powered by Backrest"
-                      with the engine name as a clickable link to the
-                      Backrest GitHub repo (the upstream Go daemon
-                      this app embeds for the restic-driven backup
-                      engine).
+                   1. Attribution + provenance — "Powered by restic"
+                      with the engine name as a clickable link to
+                      restic's website (the backup program this app
+                      runs for every backup and restore).
                    2. Repo link — GitHub Octocat for "where do I
                       report a bug / read the source".
                    3. Version — small, dim, on its own line so it stays
@@ -249,9 +248,9 @@
             <!-- Two-line footer:
                    Row 1: GitHub Octocat (the only interactive control —
                           for bug reports / source) + version text.
-                   Row 2: "Powered by Backrest" attribution; the engine
-                          name is a small text-link that opens the
-                          Backrest GitHub.
+                   Row 2: "Powered by restic" attribution; the engine
+                          name is a small text-link that opens
+                          restic's website.
                  Tight Spacing="2" between the two rows so the block
                  reads as one footer unit, not two stacked items. -->
             <StackPanel Margin="26,0,16,0" Spacing="2">
@@ -280,22 +279,21 @@
                   </StackPanel>
                 </Button>
               </Grid>
-              <!-- "Powered by Backrest" with the engine name as a
-                   clickable link to the Backrest GitHub repo. -->
+              <!-- "Powered by restic" with the engine name as a
+                   clickable link to restic's website. -->
               <!-- Spacing=2 (was 4) — the natural font sidebearings of
-                   the trailing "y" + leading "B" already provide ~6px
-                   of visual whitespace, so a 4px container gap on top
-                   produced "Powered by   Backrest" with a too-wide
-                   hole. -->
+                   the trailing "y" + leading letter already provide
+                   visual whitespace, so a 4px container gap on top
+                   produced a too-wide hole. -->
               <StackPanel Orientation="Horizontal" Spacing="2"
                           Margin="0,0,0,2">
                 <TextBlock Text="Powered by"
                            Classes="dim" FontSize="12"
                            VerticalAlignment="Center"/>
                 <Button Classes="text-link"
-                        Click="OnOpenBackrest"
-                        ToolTip.Tip="Open the Backrest GitHub repo">
-                  <TextBlock Text="Backrest" FontSize="12"/>
+                        Click="OnOpenRestic"
+                        ToolTip.Tip="Open restic's website">
+                  <TextBlock Text="restic" FontSize="12"/>
                 </Button>
               </StackPanel>
             </StackPanel>

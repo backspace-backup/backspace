@@ -98,7 +98,7 @@ off in **Settings → Startup and tray**.
 The tray icon's check mark means the backups ran successfully; a backup that
 failed shows an exclamation mark, and one that hasn't completed a run yet a
 grey dash. A backup that has never run has nothing to restore yet, so its
-Mount, Restore files, Test restore and Browse snapshots are greyed out.
+Mount, Restore files and Test restore are greyed out.
 
 Closing the window keeps Backspace in the tray, so schedules keep running.
 **Quit** from the tray menu stops Backspace completely, including the
@@ -111,8 +111,7 @@ Backspace registers no Windows scheduled task. Between runs it only waits for
 the next due time, so it uses no CPU while idle. The backup engine runs only
 while needed. Backups, their cleanup and checks, listing, browsing and
 restoring backups run restic (and rclone, for a cloud destination), which end
-with them. Backrest starts only for **Browse snapshots in browser**; the open
-app stops it after 5 minutes without use.
+with them; nothing of the engine stays running in between.
 
 After each backup (or on its own schedule, if the backup has one), the
 cleanup removes the snapshots its keep policy no longer
@@ -874,11 +873,12 @@ which the old password still opens), then you enter your storage passwords and
 sign in to cloud destinations again.
 
 Files that would show a password in readable form are kept on each computer,
-not in the folder: the engines' working files (Backrest's settings and
-database, cloud connection files) in `%LOCALAPPDATA%\Backspace\engine`, rebuilt
-when missing, and each computer's key in `%LOCALAPPDATA%\Backspace\keys`. On a
-new computer the engine's own list of past operations starts empty; your run
-history, which lives in `Backspace.config`, is unaffected.
+not in the folder: the engines' working files (cloud connection files) in
+`%LOCALAPPDATA%\Backspace\engine`, rebuilt when missing, and each computer's key
+in `%LOCALAPPDATA%\Backspace\keys`. Your run history lives in
+`Backspace.config` and travels with it. Earlier versions also kept the
+Backrest engine's settings there, with a readable copy of your storage
+passwords; Backspace removes those folders when it starts.
 
 Settings outside that folder are ones Backspace can recreate: the sign-in start
 entry, the optional background service, the WinFsp driver for mounting, and

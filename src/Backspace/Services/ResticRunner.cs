@@ -51,7 +51,8 @@ internal enum ResticStop
 {
     /// <summary>It ended without being asked.</summary>
     None,
-    /// <summary>Asked with Ctrl+Break, it ended by itself (and removed its lock).</summary>
+    /// <summary>Asked with Ctrl+Break (SIGINT elsewhere), it ended by itself
+    /// (and removed its lock).</summary>
     Gentle,
     /// <summary>It did not end in time and was ended with everything it started.</summary>
     Ended,
@@ -67,8 +68,8 @@ internal sealed record ResticResult(int ExitCode, bool Cancelled, ResticStop Sto
 }
 
 /// <summary>
-/// Runs restic itself (U175, step 0): the piece that replaces Backrest for
-/// the operations moved to it. Grown from <see cref="StreamingRestoreProcess"/>:
+/// Runs restic itself (U175, step 0), in place of the Backrest daemon that
+/// ran it before. Grown from <see cref="StreamingRestoreProcess"/>:
 /// <list type="bullet">
 /// <item>The password goes only in restic's environment, never on its command
 /// line; an inherited password file, password command or repository file is
@@ -83,9 +84,10 @@ internal sealed record ResticResult(int ExitCode, bool Cancelled, ResticStop Sto
 /// 1,000 characters of its error output); the whole output goes to the log.</item>
 /// <item>The log gets the command line (no password: it is never on it), restic's
 /// errors and warnings, and how it ended.</item>
-/// <item>Stopping: Ctrl+Break first (restic then removes its own lock), up to
-/// <see cref="GentleStopWait"/>, then the whole job; the call returns only
-/// once restic has ended.</item>
+/// <item>Stopping: Ctrl+Break first on Windows, SIGINT elsewhere (restic then
+/// removes its own lock), up to <see cref="GentleStopWait"/>, then the whole
+/// job (the whole process tree elsewhere); the call returns only once restic
+/// has ended.</item>
 /// </list>
 /// restic's exit codes and JSON messages are documented in its
 /// <c>doc/075_scripting.rst</c>.
@@ -276,7 +278,7 @@ internal static class ResticRunner
 #if WINDOWS
                 stop = await StopAsync(process, job, sharedConsole, gentle: first == cancellation.Task).ConfigureAwait(false);
 #else
-                stop = await StopAsync(process, gentle: false).ConfigureAwait(false);
+                stop = await StopAsync(process, gentle: first == cancellation.Task).ConfigureAwait(false);
 #endif
             }
             await WaitForEndAsync(process).ConfigureAwait(false);
@@ -345,11 +347,39 @@ internal static class ResticRunner
         return ResticStop.Ended;
     }
 #else
-    private static Task<ResticStop> StopAsync(Process process, bool gentle)
+    /// <summary>SIGINT first, as Ctrl+C in a terminal (restic removes its
+    /// lock and stops), then the whole process tree.</summary>
+    private static async Task<ResticStop> StopAsync(Process process, bool gentle)
     {
-        if (process.HasExited) return Task.FromResult(ResticStop.None);
-        try { process.Kill(entireProcessTree: true); } catch (Exception ex) { AppLogger.For(nameof(ResticRunner)).Debug(ex, "Killing restic's tree failed"); }
-        return Task.FromResult(ResticStop.Ended);
+        if (process.HasExited) return ResticStop.None;
+        if (gentle && Interrupt(process.Id))
+        {
+            try
+            {
+                await process.WaitForExitAsync(CancellationToken.None).WaitAsync(GentleStopWait).ConfigureAwait(false);
+                return ResticStop.Gentle;
+            }
+            catch (TimeoutException) { }
+        }
+        try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (Exception ex) { AppLogger.For(nameof(ResticRunner)).Debug(ex, "Killing restic's tree failed"); }
+        return ResticStop.Ended;
+    }
+
+    /// <summary>Sends SIGINT with the system's own <c>kill</c> command.</summary>
+    private static bool Interrupt(int pid)
+    {
+        try
+        {
+            using var kill = Process.Start(new ProcessStartInfo("kill", ["-INT", pid.ToString(CultureInfo.InvariantCulture)])
+                { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true });
+            if (kill is null || !kill.WaitForExit(2000)) return false;
+            return kill.ExitCode == 0;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            AppLogger.For(nameof(ResticRunner)).Debug(ex, "Could not interrupt restic");
+            return false;
+        }
     }
 #endif
 

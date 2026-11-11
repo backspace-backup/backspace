@@ -26,8 +26,8 @@ namespace Backspace.Services;
 ///
 /// Credentials returned in <see cref="ResticEnvironment.Env"/> are the
 /// process-environment shape both restic and rclone expect (e.g.
-/// <c>AWS_ACCESS_KEY_ID=...</c>). Backrest accepts them verbatim on
-/// <c>Repo.env</c>.
+/// <c>AWS_ACCESS_KEY_ID=...</c>); <see cref="ResticRunner"/> puts them in
+/// restic's environment.
 /// </summary>
 public static class ResticUriResolver
 {
@@ -172,7 +172,6 @@ public static class ResticUriResolver
 }
 
 /// <summary>The restic URI for a destination + the environment variables
-/// that need to be set on the process invoking restic. Backrest's
-/// <see cref="BackrestRepo.Env"/> takes the <see cref="Env"/> list
-/// verbatim.</summary>
+/// that need to be set on the process invoking restic
+/// (<see cref="ResticRepository.Env"/>).</summary>
 public sealed record ResticEnvironment(string Uri, IReadOnlyList<string> Env);

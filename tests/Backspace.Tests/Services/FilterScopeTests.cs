@@ -22,15 +22,14 @@ public sealed class FilterScopeTests
         using var workspace = new Backspace.Tests.TestHelpers.TempWorkspace("u151-plan");
         var filters = "?:/Intel/\r\n/build/\n# note\n*.TMP\n?:/$$Recycle.Bin/\n";
         var backup = new Backup { FiltersText = filters };
-        var plan = ResticBackrestEngine.BuildPlanFromBackup("plan-a", "r", backup, @"D:\Projects");
+        var trailing = ResticBackrestEngine.BackupTrailing(backup, "plan-a", null);
         // No rules as arguments: they would mean something else ($ is literal there).
-        Assert.Empty(plan.Excludes);
-        Assert.Empty(plan.IExcludes);
+        Assert.DoesNotContain(trailing, t => t.Contains("Intel", StringComparison.Ordinal) || t.Contains("build", StringComparison.Ordinal));
         var file = ResticBackrestEngine.ExcludeFilePath("plan-a");
-        var at = plan.BackupFlags.IndexOf(FilterTranslator.ExcludeFileFlag);
-        Assert.True(at >= 0, string.Join(" ", plan.BackupFlags));
-        // Backrest splits each flag like a shell: the path is single-quoted.
-        Assert.Equal("'" + file + "'", plan.BackupFlags[at + 1]);
+        var at = trailing.IndexOf(FilterTranslator.ExcludeFileFlag);
+        Assert.True(at >= 0, string.Join(" ", trailing));
+        // One argument, unquoted: restic gets it as it is.
+        Assert.Equal(file, trailing[at + 1]);
         Assert.StartsWith(EngineWorkPaths.Root, file, StringComparison.OrdinalIgnoreCase);
 
         ResticBackrestEngine.WriteExcludeFile("plan-a", filters);

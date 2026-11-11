@@ -90,18 +90,6 @@ public sealed class BackupFixedCostBenchmark(ITestOutputHelper output)
                 + (inline ? $"; cleanup {Stats(maintenance)}" : ""));
         }
 
-        // What each background-service run paid before U175: its own daemon.
-        var starts = new List<double>();
-        for (var i = 0; i < 3; i++)
-        {
-            var directory = Path.Combine(work, "daemon-" + i);
-            var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, directory);
-            var watch = Stopwatch.StartNew();
-            await sidecar.StartAsync(CancellationToken.None);
-            await sidecar.StopAsync();
-            starts.Add(watch.Elapsed.TotalSeconds);
-        }
-        Note($"Backrest daemon start and stop (once per background-service run before U175): {Stats(starts)}");
         File.AppendAllText(Path.Combine(root!, "results.txt"), report.ToString());
     }
 

@@ -8,8 +8,8 @@ using Backspace.Models;
 namespace Backspace.Services;
 
 /// <summary>
-/// Coordinates restore requests through the engine's native Backrest or
-/// owned bundled restic path:
+/// Coordinates restore requests through the engine's owned bundled restic
+/// process:
 /// ONE call into the engine per restore request, OVERALL progress
 /// reporting, no per-file callbacks, no synthetic retry cascade.
 ///
@@ -229,7 +229,7 @@ public sealed class RestoreRequest
     public int Threads { get; init; } = 4;
 
     /// <summary>Legacy field — Phase-2 retry cascade was dropped in the
-    /// 2026-06-12 refactor to match Backrest semantics. Kept on the
+    /// 2026-06-12 refactor (overall results only). Kept on the
     /// shape for source-compatibility; the engine ignores it.</summary>
     public IReadOnlyList<int>? RetryDelaysSeconds { get; init; }
 }

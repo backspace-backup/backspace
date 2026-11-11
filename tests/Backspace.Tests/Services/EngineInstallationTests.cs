@@ -17,7 +17,7 @@ public sealed class EngineInstallationTests
     {
         var source = ws.Sub("release");
         var files = new Dictionary<string, string>();
-        foreach (var name in new[] { "backrest.exe", "restic.exe", "rclone.exe" })
+        foreach (var name in new[] { "restic.exe", "rclone.exe" })
         {
             var bytes = RandomNumberGenerator.GetBytes(4096);
             File.WriteAllBytes(Path.Combine(source, name), bytes);
@@ -79,6 +79,47 @@ public sealed class EngineInstallationTests
         });
     }
 
+    /// <summary>U175 step 4: Backrest leaving the set gives it a new id. The
+    /// unchanged restic and rclone are copied from the earlier set, not
+    /// downloaded again (the source here is unreachable), and the earlier set,
+    /// with its backrest.exe, goes. A copy that does not match is never taken.</summary>
+    [Fact]
+    public async Task A_new_set_copies_matching_engines_from_an_earlier_set_instead_of_downloading()
+    {
+        using var ws = new TempWorkspace("engines-earlier");
+        var (manifest, source) = Release(ws);
+        var root = ws.Sub("bin");
+        var set = Path.Combine(root, EngineInstallation.SetId(manifest));
+        var earlier = Directory.CreateDirectory(Path.Combine(root, "0000000000000000")).FullName;
+        foreach (var name in new[] { "restic.exe", "rclone.exe" }) File.Copy(Path.Combine(source, name), Path.Combine(earlier, name));
+        File.WriteAllText(Path.Combine(earlier, "backrest.exe"), "the old daemon");
+        await WithSource("http://127.0.0.1:1/unreachable", root, async () =>
+        {
+            await EngineInstallation.EnsureAsync(manifest, set, null, TestContext.Current.CancellationToken);
+            Assert.True(EngineInstallation.IsComplete(set, manifest));
+            Assert.False(Directory.Exists(earlier));
+            Assert.Empty(Directory.GetFiles(root, "backrest*", SearchOption.AllDirectories));
+        });
+
+        // Negative: an earlier rclone with other bytes is not taken; with no
+        // download possible, the set stays without it.
+        using var ws2 = new TempWorkspace("engines-earlier-mismatch");
+        var (manifest2, source2) = Release(ws2);
+        var root2 = ws2.Sub("bin");
+        var set2 = Path.Combine(root2, EngineInstallation.SetId(manifest2));
+        var earlier2 = Directory.CreateDirectory(Path.Combine(root2, "0000000000000000")).FullName;
+        File.Copy(Path.Combine(source2, "restic.exe"), Path.Combine(earlier2, "restic.exe"));
+        File.WriteAllBytes(Path.Combine(earlier2, "rclone.exe"), RandomNumberGenerator.GetBytes(4096));
+        await WithSource("http://127.0.0.1:1/unreachable", root2, async () =>
+        {
+            await Assert.ThrowsAsync<EngineBinaryMissingException>(
+                () => EngineInstallation.EnsureAsync(manifest2, set2, null, TestContext.Current.CancellationToken));
+            Assert.True(EngineInstallation.Matches(Path.Combine(set2, "restic.exe"), manifest2.Files["restic.exe"]));
+            Assert.False(File.Exists(Path.Combine(set2, "rclone.exe")));
+            Assert.True(Directory.Exists(earlier2)); // nothing removed before the new set is complete
+        });
+    }
+
     [Fact]
     public async Task A_download_that_does_not_match_is_never_used()
     {
@@ -122,7 +163,8 @@ public sealed class EngineInstallationTests
         Assert.NotEqual(EngineInstallation.SetId(a), EngineInstallation.SetId(c));
         // This build carries its own manifest: the release download is pinned.
         Assert.NotNull(EngineInstallation.Current);
-        Assert.Equal(3, EngineInstallation.Current!.Files.Count);
+        // restic and rclone, nothing else (Backrest left with U175).
+        Assert.Equal(new[] { "rclone.exe", "restic.exe" }, System.Linq.Enumerable.Order(EngineInstallation.Current!.Files.Keys, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>U102: each engine comes from its own project's Windows archive
@@ -131,9 +173,7 @@ public sealed class EngineInstallationTests
     public void Engines_come_from_their_own_projects_at_the_pinned_versions()
     {
         var manifest = new EngineInstallation.Manifest("1.1.1", new Dictionary<string, string>(), true,
-            new Dictionary<string, string> { ["backrest"] = "v1.14.1", ["restic"] = "v0.19.1", ["rclone"] = "v1.74.1" });
-        Assert.Equal(("https://github.com/garethgeorge/backrest/releases/download/v1.14.1/backrest_Windows_x86_64.zip", "backrest.exe"),
-            EngineInstallation.Origin(manifest, "backrest.exe"));
+            new Dictionary<string, string> { ["restic"] = "v0.19.1", ["rclone"] = "v1.74.1" });
         Assert.Equal(("https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_windows_amd64.zip", "restic_0.19.1_windows_amd64.exe"),
             EngineInstallation.Origin(manifest, "restic.exe"));
         Assert.Equal(("https://downloads.rclone.org/v1.74.1/rclone-v1.74.1-windows-amd64.zip", "rclone-v1.74.1-windows-amd64/rclone.exe"),

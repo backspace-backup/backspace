@@ -14,7 +14,7 @@ using Backspace.Services.Platform;
 namespace Backspace.Services;
 
 /// <summary>
-/// Where restic, Backrest and rclone live (U100). Releases ship Backspace.exe
+/// Where restic and rclone live (U100). Releases ship Backspace.exe
 /// alone; the engines are fetched from the same GitHub release into
 /// %LOCALAPPDATA%\Backspace\bin\&lt;set&gt;, checked against SHA-256 values built
 /// into Backspace.exe, and fetched again whenever missing, so a copy moved to
@@ -38,10 +38,10 @@ internal static class EngineInstallation
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Verified = new(StringComparer.OrdinalIgnoreCase);
 
     internal static string Extension => PlatformInfo.IsWindows ? ".exe" : "";
-    internal static string[] Names => new[] { "backrest", "restic", "rclone" }.Select(n => n + Extension).ToArray();
+    internal static string[] Names => new[] { "restic", "rclone" }.Select(n => n + Extension).ToArray();
 
     /// <summary>The engines this build was made with, or null for a build
-    /// without them (tests, -p:SkipBackrestDownload).</summary>
+    /// without them (tests, -p:SkipEngineDownload).</summary>
     internal static Manifest? Current => Embedded.Value;
 
     /// <summary>Folder holding every engine set. BACKSPACE_ENGINE_ROOT lets
@@ -94,6 +94,10 @@ internal static class EngineInstallation
                 // take those instead of downloading them again.
                 var beside = Path.Combine(AppPaths.ExeDirectory, name);
                 if (Matches(beside, hash) && TryAdopt(beside, target)) continue;
+                // The same file in an earlier set (only another engine
+                // changed, as when Backrest left the set, U175): copied, not
+                // downloaded again.
+                if (EarlierCopy(directory, name, hash) is { } earlier && TryAdopt(earlier, target)) continue;
                 progress?.Report($"Downloading the backup engine ({name})…");
                 await FetchAsync(http, manifest, name, hash, target, ct).ConfigureAwait(false);
             }
@@ -115,8 +119,6 @@ internal static class EngineInstallation
         string? Pinned(string engine) => manifest.Engines?.GetValueOrDefault(engine) is { Length: > 1 } v && v.StartsWith('v') ? v : null;
         return name switch
         {
-            "backrest.exe" when Pinned("backrest") is { } v
-                => ($"https://github.com/garethgeorge/backrest/releases/download/{v}/backrest_Windows_x86_64.zip", "backrest.exe"),
             // Backspace's restic build (engine/restic, U137): the official
             // source with a faster exclusion matcher, until restic ships it.
             "restic.exe" when Pinned("resticBackspace") is { } b
@@ -218,6 +220,25 @@ internal static class EngineInstallation
     /// check (a damaged or replaced file) makes the next start hash them again.</summary>
     private static string Signature(string directory, Manifest manifest) => string.Join("|", manifest.Files.Keys.Order(StringComparer.Ordinal)
         .Select(n => new FileInfo(Path.Combine(directory, n))).Select(f => f.Exists ? $"{f.Length}:{f.LastWriteTimeUtc.Ticks}" : "-"));
+
+    /// <summary>The same engine file, by name and fingerprint, in another set
+    /// under <see cref="Root"/>, or null.</summary>
+    private static string? EarlierCopy(string directory, string name, string hash)
+    {
+        try
+        {
+            if (!System.IO.Directory.Exists(Root)) return null;
+            foreach (var set in System.IO.Directory.EnumerateDirectories(Root))
+            {
+                if (string.Equals(Path.GetFullPath(set), Path.GetFullPath(directory), StringComparison.OrdinalIgnoreCase)) continue;
+                var candidate = Path.Combine(set, name);
+                if (Matches(candidate, hash)) return candidate;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { AppLogger.For(nameof(EngineInstallation)).Debug(ex, "Could not look for {Engine} in earlier sets", name); }
+        return null;
+    }
 
     private static bool TryAdopt(string source, string target)
     {

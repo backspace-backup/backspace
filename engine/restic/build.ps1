@@ -26,7 +26,7 @@ try {
             git apply --whitespace=nowarn $patch.FullName
             if ($LASTEXITCODE -ne 0) { throw "patch $($patch.Name) does not apply to $tag" }
         }
-        # Mark the build in "restic version" (Backrest reads only the x.y.z part).
+        # Mark the build in "restic version" (only its x.y.z part is a version number).
         $global = Join-Path $work 'internal/global/global.go'
         $text = [IO.File]::ReadAllText($global)
         $marked = $text -replace ('const Version = "' + [regex]::Escape($tag.Substring(1)) + '"'), ('const Version = "' + $version + '"')

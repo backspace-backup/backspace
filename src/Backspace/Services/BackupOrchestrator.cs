@@ -32,7 +32,7 @@ public sealed partial class BackupOrchestrator
     /// this grouping — otherwise a hand-edited config with duplicate
     /// targets fans out into multiple identical cells, truncates
     /// per-cell logs (BuildCellLogPath returns the same path), and
-    /// produces indistinguishable Backrest operation event streams.
+    /// produces indistinguishable runs of the same plan.
     /// Lowercasing matches MakeRepoId / Slug downstream which
     /// lowercase the entire repo id.
     /// Exposed as `internal static` so the regression test suite can
@@ -225,7 +225,7 @@ public sealed partial class BackupOrchestrator
     {
         // Queue the actual engine repository, not the spelling used by the
         // caller. Casing, empty/default names and normalized punctuation can
-        // all address the same Backrest repo.
+        // all address the same repository.
         var key = ResticBackrestEngine.MakeRepoId(new Destination { Id = destinationId ?? "" }, storageName);
         var h = System.Security.Cryptography.SHA1.HashData(
             System.Text.Encoding.UTF8.GetBytes(key));

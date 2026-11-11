@@ -1,0 +1,90 @@
+<Project>
+
+  <!--
+    Auto-fetches the engines Backspace runs, restic and rclone, into Assets/
+    before Avalonia collects embedded resources. Runs exactly once per clean
+    checkout: each binary is skipped if it already exists on disk.
+
+    What it fetches, by host:
+      • Windows  → Assets/restic.exe, Assets/rclone.exe
+      • macOS    → Assets/restic,     Assets/rclone
+      • Linux    → Assets/restic,     Assets/rclone
+
+    Source repos:
+      Versions are selected in engine-versions.json. Both fetch scripts
+      use those exact release tags rather than moving latest aliases.
+
+    Cross-host fetch:
+      • Windows builds invoke fetch-engines.ps1 (PowerShell 5.1+).
+      • Unix builds invoke fetch-engines.sh (bash + curl + jq).
+
+    Escape hatches:
+      • Set -p:SkipEngineDownload=true to build offline.
+      • Drop your own restic/rclone executables into Assets/ manually; the
+        target will skip whichever is already present.
+  -->
+
+  <PropertyGroup>
+    <SkipEngineDownload Condition="'$(SkipEngineDownload)' == ''">false</SkipEngineDownload>
+
+    <EngineAssetExt Condition="'$(OS)' == 'Windows_NT'">.exe</EngineAssetExt>
+    <EngineAssetExt Condition="'$(OS)' != 'Windows_NT'"></EngineAssetExt>
+
+    <!-- Forward slashes so the bash invocation on macOS/Linux gets a
+         path it can pass to curl + unzip + mv without backslash-as-
+         escape headaches. Windows MSBuild + cmd.exe also accept
+         forward slashes in passed paths. -->
+    <ResticAssetPath>$(MSBuildThisFileDirectory)Assets/restic$(EngineAssetExt)</ResticAssetPath>
+    <RcloneAssetPath>$(MSBuildThisFileDirectory)Assets/rclone$(EngineAssetExt)</RcloneAssetPath>
+  </PropertyGroup>
+
+  <!--
+    Idempotent fetch: only re-runs when one of the assets is missing.
+    The fetch scripts use engine-versions.json. To upgrade, change the
+    selected version deliberately, preserve the existing binaries outside
+    Assets, and rebuild. Run release checks before accepting the upgrade.
+    The commands below remove the current copies; preserve them first:
+
+      del src\Backspace\Assets\restic.exe ^
+          src\Backspace\Assets\rclone.exe
+      dotnet build src\Backspace
+
+    On macOS / Linux:
+
+      rm -f src/Backspace/Assets/{restic,rclone}
+      dotnet build src/Backspace
+
+    The next build downloads the selected versions into Assets/.
+    Version pinning prevents silent protocol upgrades; it does not
+    itself verify archive authenticity. A reviewed cross-platform
+    SHA-256 manifest remains separate work.
+  -->
+  <Target Name="EnsureEngineBinaries"
+          BeforeTargets="GenerateAvaloniaResources;PrepareResources;BeforeBuild"
+          Condition="'$(SkipEngineDownload)' != 'true' and (!Exists('$(ResticAssetPath)') or !Exists('$(RcloneAssetPath)'))">
+
+    <Message Importance="high"
+             Text="[Backspace] Fetching missing engine binaries (restic/rclone)..."/>
+
+    <!-- Windows host: PowerShell 5.1 ships with every Windows install.
+         The script is idempotent — it skips any binary that already
+         exists, so passing both paths every time is safe. -->
+    <Exec Condition="'$(OS)' == 'Windows_NT'"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)fetch-engines.ps1&quot; -ResticOutPath &quot;$(ResticAssetPath)&quot; -RcloneOutPath &quot;$(RcloneAssetPath)&quot;"
+          IgnoreExitCode="false"
+          ContinueOnError="false"/>
+
+    <!-- macOS / Linux host: bash + curl + jq. Same idempotency
+         semantics as the Windows path. -->
+    <Exec Condition="'$(OS)' != 'Windows_NT'"
+          Command="bash &quot;$(MSBuildThisFileDirectory)fetch-engines.sh&quot; &quot;$(ResticAssetPath)&quot; &quot;$(RcloneAssetPath)&quot;"
+          IgnoreExitCode="false"
+          ContinueOnError="false"/>
+
+    <Error Condition="!Exists('$(ResticAssetPath)')"
+           Text="Failed to fetch restic$(EngineAssetExt). Use the Restic release selected in engine-versions.json, extract the matching OS/architecture binary, and save it to $(ResticAssetPath). SkipEngineDownload=true is available for offline development."/>
+    <Error Condition="!Exists('$(RcloneAssetPath)')"
+           Text="Failed to fetch rclone$(EngineAssetExt). Use the rclone release selected in engine-versions.json, extract the matching OS/architecture binary, and save it to $(RcloneAssetPath). SkipEngineDownload=true is available for offline development."/>
+  </Target>
+
+</Project>

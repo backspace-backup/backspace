@@ -6,12 +6,12 @@ decisions, current results and remaining user checks. A test listed here
 may require credentials or an installed driver and skip without them;
 read its runner result and scenario report before claiming it passed.
 
-The `Exx` scenarios below run against the **real Backrest sidecar**
+The `Exx` scenarios below run against the **real bundled restic**
 (via `BackupE2EBase` / `RealEngineFixture`). Other tests referenced
 under `tests/Backspace.Tests/E2E/` include both real-engine and
 `InMemoryBackupEngine` tests. Check each fixture. An in-memory test
-can establish orchestrator logic but cannot establish the Backrest
-protocol, real storage behavior or native Windows integration.
+can establish orchestrator logic but cannot establish restic's
+behavior, real storage behavior or native Windows integration.
 
 ---
 
@@ -101,7 +101,7 @@ work. Planning and acceptance belong in the Review desk.
 3.5 Stop / cancel
     3.5.1 pre-cancelled token                  ↘ BackupLifecycleTests (InMemory)
     3.5.2 stop via UI button mid-run           □ E02 tests a second incremental run, not cancellation
-    3.5.3 sidecar killed mid-run               □ no dedicated real-engine scenario
+    3.5.3 restic killed mid-run                □ no dedicated real-engine scenario
 3.6 Crash recovery
     3.6.1 lock left by killed restic           ✓ E55 (live-lock refusal + stale-lock recovery)
     3.6.2 partial run, re-run completes        ↘ E02
@@ -179,11 +179,11 @@ work. Planning and acceptance belong in the Review desk.
 
 ```
 7.1 Brand-new repo registration
-    7.1.1 /AddRepo flow assigns canonical 64-char Guid      ✓ E12 (regression-pinned)
-    7.1.2 reject invalid GUID format                       ↘ BackrestRpcModelsTests (not a live migration)
+    7.1.1 cat config, then init only when there is none     ✓ E12 (regression-pinned)
+    7.1.2 a folder holding another backup (wrong password)  ↘ CompletedEngineFailureTests
     7.1.3 unencrypted + --insecure-no-password              ✓ E12 (implicit)
-7.2 SetConfig drift (per-backup Flags rewrite)              ✓ E14 / E15 (prune/check change repo state)
-7.3 Modno mismatch retry                                    □ no dedicated real-engine scenario
+7.2 Repository options on every command                     ✓ E14 / E15 (prune/check change repo state)
+7.3 Lock left by another process: one unlock, one retry     ✓ E55
 7.4 Repo / plan disappearance detection                     □ no dedicated real-engine scenario
 ```
 
@@ -207,9 +207,9 @@ not decisions to park work; current checks and decisions live in the desk.
 - **OS scheduled-task firing.** Definition and generated-action
   process tests check arguments, execution and exit handling. They
   do not prove task registration, S4U permissions or sleep/reboot firing.
-- **Sidecar process crash mid-run.** E55 kills a separate real restic child
-  and checks on-demand stale-lock recovery. It does not kill the daemon itself
-  during a backup or establish recovery of every interrupted daemon task.
+- **Engine process crash mid-run.** E55 kills a separate real restic process
+  and checks on-demand stale-lock recovery. It does not kill a backup's own
+  restic during the backup or establish recovery of every interrupted task.
 - **Concurrent edit of a file during snapshot.** Source-change tests
   for the verification drill do not establish atomic capture of a file
   being written while backup runs. Do not infer that guarantee from
@@ -230,7 +230,7 @@ not decisions to park work; current checks and decisions live in the desk.
    where the bug actually lives.
 3. Use `RealEngineFixture` via `BackupE2EBase`. The in-memory engine
    is suitable for deterministic S-suite scenarios, but it cannot prove
-   the Backrest protocol or real backup contents.
+   restic's behavior or real backup contents.
 4. Assert a precise user-visible outcome plus byte-equality, count or
    state checks. Add the relevant negative case; a warning must not be
    accepted as success without checking what it means for this fixture.

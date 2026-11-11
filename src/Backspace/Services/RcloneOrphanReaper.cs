@@ -4,7 +4,7 @@ namespace Backspace.Services;
 
 /// <summary>Recovers only registered children of a confirmed dead owner. Older
 /// unregistered rclone instances are left alone: their name, path or age cannot
-/// prove ownership. Backrest's descendants stay in its kill-on-exit Windows job.</summary>
+/// prove ownership. restic and the rclone it starts stay in their kill-on-exit Windows jobs.</summary>
 public static class RcloneOrphanReaper
 {
     public static void Sweep()

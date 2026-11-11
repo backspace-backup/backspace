@@ -24,7 +24,7 @@ namespace Backspace.Tests.E2E;
 ///
 /// The real-engine ("does Restic+VSS preserve all this for real?")
 /// test belongs in a manual smoke-test against a fetched
-/// backrest.exe; recording the manifest's documented gaps here makes
+/// restic.exe; recording the manifest's documented gaps here makes
 /// it easy to spot regressions when that manual run lands.
 ///
 /// Skipped at the class level on non-Windows hosts (every edge case

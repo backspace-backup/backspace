@@ -62,7 +62,7 @@ public sealed class DataCheckLimitTests(ITestOutputHelper output)
         Assert.DoesNotContain("not a full-data check", ResticBackrestEngine.RepositoryCheckDescription(full));
         // A copy without a limit (settings from before U179) keeps 1 GiB.
         Assert.Contains("up to 1 GiB", ResticBackrestEngine.RepositoryCheckDescription(new Backup { CheckReadDataSample = true }));
-        Assert.True(new ResticBackrestEngine(new BackrestSidecar("none", "none", "none"), new SecretsStore()).HonoursDataCheckLimit);
+        Assert.True(new ResticBackrestEngine(new SecretsStore()).HonoursDataCheckLimit);
     }
 
     /// <summary>The real engine, through the stand-alone check (restic run
@@ -81,8 +81,7 @@ public sealed class DataCheckLimitTests(ITestOutputHelper output)
             Encrypted = true, StoragePasswordRef = secrets.PutNew("data-check", Guid.NewGuid().ToString("N")) };
         var backup = new Backup { Name = "Data check", SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
             PruneSchedule = new BackupSchedule(), Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
-        await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, workspace.Sub("backrest"));
-        var engine = new ResticBackrestEngine(sidecar, secrets);
+        var engine = new ResticBackrestEngine(secrets);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
         Assert.Equal(BackupRunStatus.Success, (await engine.BackupPruneCheckAsync(backup, source, destination, "default", deadline.Token)).Status);
 

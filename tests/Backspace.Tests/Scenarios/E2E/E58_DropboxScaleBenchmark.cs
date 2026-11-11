@@ -36,7 +36,7 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// incremental. <c>tool</c> runs the bundled restic or rclone
 /// (BACKSPACE_BENCHMARK_TOOL) with the JSON string array in
 /// BACKSPACE_BENCHMARK_ARGS against the same repository and sign-in, for
-/// profiling outside Backrest; <c>{remote}</c> in an argument becomes the
+/// profiling restic or rclone on its own; <c>{remote}</c> in an argument becomes the
 /// rclone remote name. Output lines are appended with timestamps to
 /// BACKSPACE_BENCHMARK_LOG. Without the action variable the test does nothing.
 /// </summary>
@@ -173,13 +173,10 @@ public sealed class E58_DropboxScaleBenchmark
             AbortOnMeteredNetwork = false, UseVss = false, VssDisabledAcknowledged = true,
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } },
         };
-        await using var sidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, Path.Combine(dir, "engine"));
-        var engine = new ResticBackrestEngine(sidecar, secrets);
-        // The desktop app keeps its engine running, so time its start apart.
+        var engine = new ResticBackrestEngine(secrets);
+        // restic starts with the backup (U175): there is no engine start apart.
+        var engineSeconds = 0.0;
         var watch = Stopwatch.StartNew();
-        await sidecar.StartAsync(CancellationToken.None);
-        var engineSeconds = watch.Elapsed.TotalSeconds;
-        watch.Restart();
         var record = await engine.BackupPruneCheckAsync(backup, source, destination, "default", CancellationToken.None);
         watch.Stop();
         if (cred is not null) CloudCredentialsLoader.SaveRefreshedToken(cred, destination, secrets);

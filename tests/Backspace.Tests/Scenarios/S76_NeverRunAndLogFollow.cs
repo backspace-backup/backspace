@@ -71,7 +71,7 @@ public sealed class S76_NeverRunAndLogFollow : ScenarioBase
         }
         var neverVm = (BackupCardViewModel)neverCard.DataContext!;
         var ranVm = (BackupCardViewModel)ranCard.DataContext!;
-        Assert.False(neverVm.CanUseSnapshots);  // Mount and Browse snapshots bind to this
+        Assert.False(neverVm.CanUseSnapshots);  // Mount and Restore bind to this
         Assert.True(ranVm.CanUseSnapshots);
         var failedVm = main.Backups.Cards.Single(c => c.Id == failed.Id);
         Assert.False(failedVm.CanUseSnapshots, "A backup whose only run failed offered Mount and Restore.");
@@ -82,13 +82,12 @@ public sealed class S76_NeverRunAndLogFollow : ScenarioBase
             Assert.False(ButtonOf(neverCard, "Mount").IsEffectivelyEnabled);
         ctx.Snapshot(host, "never-run card",
             "The never-run backup's Mount, Restore files and Test restore are greyed out; the backup that ran keeps them enabled.");
-        // The More menu's Browse snapshots item follows the same rule.
+        // The More menu has no Browse snapshots in browser any more (U175):
+        // Restore and the mounted drive browse a backup.
         var more = neverCard.GetVisualDescendants().OfType<Button>().Single(b => b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "More"));
         more.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         await ctx.Driver.PumpAsync(100);
-        var browse = ((MenuFlyout)more.Flyout!).Items.OfType<MenuItem>().Single(i => (i.Header as string) == "Browse snapshots in browser");
-        Assert.False(browse.IsEnabled);
-        ctx.Snapshot(host, "never-run more menu", "More menu of the never-run backup: Browse snapshots in browser is greyed out.");
+        Assert.DoesNotContain(((MenuFlyout)more.Flyout!).Items.OfType<MenuItem>(), i => (i.Header as string)?.Contains("browser", StringComparison.OrdinalIgnoreCase) == true);
         ((MenuFlyout)more.Flyout!).Hide();
 
         // ---- U083: the log follows like a terminal ----

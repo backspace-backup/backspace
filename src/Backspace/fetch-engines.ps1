@@ -1,13 +1,12 @@
-# Downloads the host-arch backrest + restic + rclone executables from
-# their respective GitHub releases / official download URLs and writes
-# them to the given -*OutPath. Invoked by FetchBackrest.targets.
+# Downloads the host-arch restic + rclone executables from their
+# respective GitHub releases / official download URLs and writes them to
+# the given -*OutPath. Invoked by FetchEngines.targets.
 #
 # Self-contained: no dependencies outside stock Windows PowerShell 5.1.
 # Re-runs are idempotent — each binary is skipped if it already exists.
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)] [string] $BackrestOutPath,
     [Parameter(Mandatory = $true)] [string] $ResticOutPath,
     [Parameter(Mandatory = $true)] [string] $RcloneOutPath
 )
@@ -43,14 +42,14 @@ function Ensure-Dir([string] $path) {
 
 function Fetch-FromGitHubRelease {
     param(
-        [string] $RepoSlug,         # e.g. 'garethgeorge/backrest'
+        [string] $RepoSlug,         # e.g. 'restic/restic'
         [string] $ReleaseTag,
         [string] $AssetPattern,     # regex matching the asset filename
         [string] $InnerBinaryName,  # filename inside the archive to extract
         [string] $OutPath
     )
 
-    Write-Host "[fetch-backrest] Querying GitHub for $RepoSlug $ReleaseTag..."
+    Write-Host "[fetch-engines] Querying GitHub for $RepoSlug $ReleaseTag..."
     $release = Invoke-RestMethod `
         -Uri "https://api.github.com/repos/$RepoSlug/releases/tags/$ReleaseTag" `
         -Headers $apiHeaders -TimeoutSec 30
@@ -60,7 +59,7 @@ function Fetch-FromGitHubRelease {
         throw "Could not find an asset matching '$AssetPattern' in $RepoSlug $ReleaseTag."
     }
 
-    Write-Host ("[fetch-backrest] Downloading {0} ({1:N1} MB)" -f $asset.name, ($asset.size / 1MB))
+    Write-Host ("[fetch-engines] Downloading {0} ({1:N1} MB)" -f $asset.name, ($asset.size / 1MB))
 
     Ensure-Dir $OutPath
     $tmpDir = Join-Path ([IO.Path]::GetTempPath()) ("backspace-fetch-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -74,7 +73,7 @@ function Fetch-FromGitHubRelease {
             # repository's release files on 8 November 2026 while the API
             # served them: fetch the same asset through the API (U163).
             # The hash checks below still apply.
-            Write-Host "[fetch-backrest] Download from github.com failed ($($_.Exception.Message)); trying the GitHub API"
+            Write-Host "[fetch-engines] Download from github.com failed ($($_.Exception.Message)); trying the GitHub API"
             $assetHeaders = $apiHeaders.Clone()
             $assetHeaders['Accept'] = 'application/octet-stream'
             Invoke-WebRequest -Uri $asset.url -OutFile $archivePath -Headers $assetHeaders -TimeoutSec 600 -UseBasicParsing
@@ -90,7 +89,7 @@ function Fetch-FromGitHubRelease {
         # warning but doesn't block — the bootstrap path for a brand
         # new dev is "no manifest yet; record the hash you got".
         $hash = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash
-        Write-Host ("[fetch-backrest]   sha256 = {0}" -f $hash)
+        Write-Host ("[fetch-engines]   sha256 = {0}" -f $hash)
         $manifestPath = Join-Path $PSScriptRoot 'fetch-manifest.json'
         if (Test-Path $manifestPath) {
             try {
@@ -100,16 +99,16 @@ function Fetch-FromGitHubRelease {
                     if ($expected.Value -ne $hash) {
                         throw ("Supply-chain integrity failure: $RepoSlug/$($asset.name) hash $hash does not match the pinned value $($expected.Value) in fetch-manifest.json. Refusing to use.")
                     }
-                    Write-Host "[fetch-backrest]   sha256 matches pinned manifest entry"
+                    Write-Host "[fetch-engines]   sha256 matches pinned manifest entry"
                 } else {
-                    Write-Host "[fetch-backrest]   WARN: no manifest entry for $RepoSlug/$($asset.name); add the hash above to fetch-manifest.json to pin"
+                    Write-Host "[fetch-engines]   WARN: no manifest entry for $RepoSlug/$($asset.name); add the hash above to fetch-manifest.json to pin"
                 }
             } catch {
                 # A mismatch or malformed manifest must not become a warning.
                 throw
             }
         } else {
-            Write-Host "[fetch-backrest]   note: no fetch-manifest.json present; copy the sha256 above into one to enable pinning"
+            Write-Host "[fetch-engines]   note: no fetch-manifest.json present; copy the sha256 above into one to enable pinning"
         }
 
         # Extract — handle .zip natively; .tar.gz / .bz2 not expected on Windows hosts.
@@ -122,7 +121,7 @@ function Fetch-FromGitHubRelease {
         $inner = Get-ChildItem -Path $tmpDir -Recurse -Filter $InnerBinaryName | Select-Object -First 1
         if (-not $inner) { throw "Archive '$($asset.name)' did not contain '$InnerBinaryName'." }
         Copy-Item -Path $inner.FullName -Destination $OutPath -Force
-        Write-Host ("[fetch-backrest] Wrote {0}" -f $OutPath)
+        Write-Host ("[fetch-engines] Wrote {0}" -f $OutPath)
     } finally {
         Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -136,7 +135,7 @@ function Fetch-Rclone {
     $version = $versions.rclone
     $url = "https://downloads.rclone.org/$version/rclone-$version-windows-$rcloneArch.zip"
 
-    Write-Host "[fetch-backrest] Downloading rclone from $url"
+    Write-Host "[fetch-engines] Downloading rclone from $url"
 
     Ensure-Dir $OutPath
     $tmpDir = Join-Path ([IO.Path]::GetTempPath()) ("backspace-fetch-rclone-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -149,21 +148,10 @@ function Fetch-Rclone {
         $inner = Get-ChildItem -Path $tmpDir -Recurse -Filter 'rclone.exe' | Select-Object -First 1
         if (-not $inner) { throw "rclone archive did not contain rclone.exe." }
         Copy-Item -Path $inner.FullName -Destination $OutPath -Force
-        Write-Host ("[fetch-backrest] Wrote {0}" -f $OutPath)
+        Write-Host ("[fetch-engines] Wrote {0}" -f $OutPath)
     } finally {
         Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
     }
-}
-
-if (-not (Test-Path $BackrestOutPath)) {
-    Fetch-FromGitHubRelease `
-        -RepoSlug 'garethgeorge/backrest' `
-        -ReleaseTag $versions.backrest `
-        -AssetPattern "^backrest_Windows_$arch\.zip$" `
-        -InnerBinaryName 'backrest.exe' `
-        -OutPath $BackrestOutPath
-} else {
-    Write-Host "[fetch-backrest] $BackrestOutPath already present, skipping."
 }
 
 if (-not (Test-Path $ResticOutPath)) {
@@ -187,11 +175,11 @@ if (-not (Test-Path $ResticOutPath)) {
             -OutPath $ResticOutPath
     }
 } else {
-    Write-Host "[fetch-backrest] $ResticOutPath already present, skipping."
+    Write-Host "[fetch-engines] $ResticOutPath already present, skipping."
 }
 
 if (-not (Test-Path $RcloneOutPath)) {
     Fetch-Rclone -Arch $arch -OutPath $RcloneOutPath
 } else {
-    Write-Host "[fetch-backrest] $RcloneOutPath already present, skipping."
+    Write-Host "[fetch-engines] $RcloneOutPath already present, skipping."
 }

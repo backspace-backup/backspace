@@ -137,7 +137,7 @@ public sealed class CellOutcome
     public string DestinationName { get; set; } = "";
 
     /// <summary>Which BackupTarget.StorageName the cell ran against
-    /// (per-target alias; maps onto a Backrest repo id).</summary>
+    /// (per-target alias; part of the repo id).</summary>
     public string StorageName { get; set; } = "default";
 
     public BackupRunStatus Status { get; set; }

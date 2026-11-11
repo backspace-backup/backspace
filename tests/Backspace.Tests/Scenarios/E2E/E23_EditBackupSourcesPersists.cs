@@ -24,7 +24,7 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// This pins the editor → orchestrator path: a saved edit MUST
 /// reach the next run. Coverage gap before this scenario: nothing
 /// asserted that an in-place source-list edit actually propagated
-/// to the plan registered with Backrest.
+/// to the next backup.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E23_EditBackupSourcesPersists : BackupE2EBase

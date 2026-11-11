@@ -213,7 +213,7 @@ internal static class KnownRepositories
     }
 
     /// <summary>restic's id for a repository this computer knows at
-    /// <paramref name="uri"/> (the guid Backrest gives it), or null.</summary>
+    /// <paramref name="uri"/> (what Backrest called its guid), or null.</summary>
     internal static string? ResticId(string repoId, string uri, CancellationToken ct = default)
     {
         try

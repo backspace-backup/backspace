@@ -29,9 +29,8 @@ namespace Backspace.Services;
 /// </summary>
 public sealed partial class ResticBackrestEngine
 {
-    /// <summary>The instance Backrest was set up with (BackrestSidecar's seed
-    /// configuration): every snapshot Backspace made carries
-    /// <c>created-by:backspace</c>.</summary>
+    /// <summary>The instance label every snapshot Backspace made carries
+    /// (<c>created-by:backspace</c>, Backrest's instance name before U175).</summary>
     internal const string InstanceTag = "backspace";
 
     /// <summary>Raised after each restic command run directly, with what it
@@ -277,7 +276,7 @@ public sealed partial class ResticBackrestEngine
     private async Task<string> ResticBinaryAsync(CancellationToken ct)
     {
         await EngineInstallation.EnsureAsync(null, ct).ConfigureAwait(false);
-        var binary = _sidecar.ResticBinaryPath;
+        var binary = _resticOverride ?? AppPaths.ResticBinary;
         if (!File.Exists(binary))
             throw new EngineBinaryMissingException("A required backup component is missing. Restart Backspace while online to download it again. " +
                 "Your Backspace.config folder is not affected.", binary);
@@ -302,8 +301,8 @@ public sealed partial class ResticBackrestEngine
         }
     }
 
-    // This process runs one task per repository (with Backrest's tasks: the
-    // same gates): a backup waiting here is not running, and its card says
+    // This process runs one task per repository: a backup waiting here is
+    // not running, and its card says
     // so (U156). Backups to the same destination stay queued in one process,
     // as before (owner's answer to U175's question 6).
     private async Task<ResticResult> RunResticOnceAsync(string repoId, ResticCommand command, Action<string>? lineSink, CancellationToken ct,

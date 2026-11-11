@@ -14,13 +14,6 @@ public static class ServiceLocator
     public static SecretsStore Secrets { get; private set; } = default!;
     public static IBackupEngine Engine { get; private set; } = default!;
 
-    /// <summary>
-    /// Backrest sidecar — registered eagerly but lifecycle is lazy.
-    /// <see cref="ResticBackrestEngine.EnsureClientAsync"/> calls
-    /// <see cref="BackrestSidecar.EnsureStartedAsync"/> on first
-    /// touch, so callers don't need to know about StartAsync.
-    /// </summary>
-    public static BackrestSidecar BackrestSidecar { get; private set; } = default!;
     public static LogStore Logs { get; private set; } = default!;
     public static HealthcheckService Healthcheck { get; private set; } = default!;
     public static MailService Mail { get; private set; } = default!;
@@ -54,15 +47,6 @@ public static class ServiceLocator
     public static MaintenanceCoordinator Maintenance { get; private set; } = default!;
 
     /// <summary>
-    /// Launches the bundled Backrest web UI in the user's default
-    /// browser. Used by the "Browse snapshots" command on backup
-    /// cards. Initialized after <see cref="BackrestSidecar"/> so the
-    /// launcher always has a sidecar reference to read the live
-    /// port from.
-    /// </summary>
-    public static SnapshotBrowserLauncher SnapshotBrowser { get; private set; } = default!;
-
-    /// <summary>
     /// Drives the in-app OAuth 2.0 + PKCE flow for cloud
     /// destinations. The "Connect" button on the destination
     /// editor delegates here; the coordinator opens the user's
@@ -94,7 +78,7 @@ public static class ServiceLocator
     /// alone — the default is a real <see cref="ResticBackrestEngine"/>.
     /// Tests set this BEFORE <see cref="InitializeCore"/> runs to
     /// substitute an in-memory engine so orchestrator-touching tests
-    /// don't need a backrest.exe on disk. Visible only via
+    /// don't need restic on disk. Visible only via
     /// <c>InternalsVisibleTo</c> to the test assembly; production
     /// callers can't reach it.
     /// </summary>
@@ -105,13 +89,13 @@ public static class ServiceLocator
     /// <see cref="EngineOverride"/>.</summary>
     internal static Func<IScheduler>? SchedulerOverride { get; set; }
 
-    public static void InitializeCore(string? backrestDataDir = null)
-        => InitializeCore(backrestDataDir, null, null);
+    public static void InitializeCore()
+        => InitializeCore(null, null);
 
     // The protected service worker supplies its canonical vault and a scheduler
     // that cannot register interactive-user tasks. Ordinary startup never takes
     // these overrides from configuration or environment variables.
-    internal static void InitializeCore(string? backrestDataDir, SecretsStore? secrets, IScheduler? scheduler)
+    internal static void InitializeCore(SecretsStore? secrets, IScheduler? scheduler)
     {
         if (Initialized) return;
         AppPaths.EnsureAll();
@@ -124,13 +108,8 @@ public static class ServiceLocator
         Config.Changed += (_, __) => AppLogger.Initialize(Config.Current.Logging);
 
         Secrets = secrets ?? new SecretsStore();
-        BackrestSidecar = new BackrestSidecar(
-            backrestBinaryPath: AppPaths.BackrestBinary,
-            resticBinaryPath: AppPaths.ResticBinary,
-            dataDir: backrestDataDir ?? AppPaths.BackrestDataDir,
-            deleteDataOnDispose: backrestDataDir is not null);
         Engine = EngineOverride?.Invoke(Secrets)
-            ?? new ResticBackrestEngine(BackrestSidecar, Secrets);
+            ?? new ResticBackrestEngine(Secrets);
         Logs = new LogStore();
         Healthcheck = new HealthcheckService(Config, Secrets);
         Mail = new MailService(Config, Secrets);
@@ -162,7 +141,6 @@ public static class ServiceLocator
         // handle on a restored file when the recursive cleanup ran.
         // Without this sweep the portable config dir grows unbounded.
         BackupVerifier.SweepStaleScratchDirs();
-        SnapshotBrowser = new SnapshotBrowserLauncher(BackrestSidecar);
         OAuthFlow = new OAuth.OAuthFlowCoordinator();
         // MountedSnapshotRegistry is excluded from the cross-platform
         // TFM at the csproj level, so we can only reference it from
@@ -193,7 +171,7 @@ public static class ServiceLocator
     /// pointing at the OLD engine — the orchestrator routes Backup RPCs
     /// to the fake even though the swap "succeeded" on paper. We hit
     /// this in the scenario suite: every E2E that claimed to run
-    /// against the real Backrest sidecar was actually hitting the
+    /// against the real engine was actually hitting the
     /// in-memory fake because the orchestrator had captured it at
     /// <see cref="InitializeCore"/> time. <see cref="RealEngineFixture"/>
     /// now calls this after its swap so the next orchestrator call

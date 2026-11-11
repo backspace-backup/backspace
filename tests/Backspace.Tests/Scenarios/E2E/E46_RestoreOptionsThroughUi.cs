@@ -102,7 +102,7 @@ public sealed class E46_RestoreOptionsThroughUi : BackupE2EBase
         Assert.Contains("existing item(s) unchanged", File.ReadAllText(saved.LogPath));
         await ctx.Driver.PumpAsync(180);
         ctx.Snapshot(window, "restore-preserved-original", "The result reports attention needed: one missing file was recovered and the existing file was left unchanged. Actual file contents were checked after the button-triggered restore.");
-        ctx.Report.RecordNote("Real engine and adversarial checks", "The actual RestoreView picker received a pointer click and the buttons received keyboard input. After choosing revision 2, retention removed revision 1: recovery still produced version 2 rather than version 3. Both folder preservation and replacement were turned off. The original file stayed byte-for-byte unchanged, the missing file appeared at the chosen root, and no unwanted notes folder appeared. This is headless Avalonia input on Windows with bundled Backrest/restic, not a native desktop screenshot or cloud-account test.");
+        ctx.Report.RecordNote("Real engine and adversarial checks", "The actual RestoreView picker received a pointer click and the buttons received keyboard input. After choosing revision 2, retention removed revision 1: recovery still produced version 2 rather than version 3. Both folder preservation and replacement were turned off. The original file stayed byte-for-byte unchanged, the missing file appeared at the chosen root, and no unwanted notes folder appeared. This is headless Avalonia input on Windows with the bundled restic, not a native desktop screenshot or cloud-account test.");
 
         async Task Toggle(string name)
         {

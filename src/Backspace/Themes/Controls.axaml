@@ -2390,7 +2390,7 @@
   </Style>
 
   <!-- Inline text link — used for the engine attribution in the
-       sidebar footer ("Powered by Backrest"). Looks like normal
+       sidebar footer ("Powered by restic"). Looks like normal
        copy at rest (subtle accent foreground, no chrome),
        underlines on hover. Padding kept tight so it slots inline
        next to a "Powered by " TextBlock without breaking the
@@ -2455,7 +2455,7 @@
   <!-- Inline text link — chrome-less Button rendered as a hyperlink
        (FgSecondary at rest, AccentDeep underlined on hover). Used in
        prose contexts where the visible word IS the link
-       (e.g. "Powered by Backrest" in the sidebar footer). -->
+       (e.g. "Powered by restic" in the sidebar footer). -->
   <Style Selector="Button.text-link">
     <Setter Property="Background" Value="Transparent"/>
     <Setter Property="BorderBrush" Value="Transparent"/>

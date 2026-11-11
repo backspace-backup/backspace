@@ -13,33 +13,28 @@ namespace Backspace.Tests.TestHelpers;
 /// in-memory test double. Used by the E2E scenarios that need to
 /// exercise real cloud or local-restic flows.
 ///
-/// Preconditions: backrest, restic, and rclone executables must be
-/// on disk at <see cref="AppPaths.BackrestBinary"/> /
+/// Preconditions: restic and rclone executables must be on disk at
 /// <see cref="AppPaths.ResticBinary"/> / <see cref="AppPaths.RcloneBinary"/>.
-/// CI runs default to <c>-p:SkipBackrestDownload=true</c> so the
+/// CI runs default to <c>-p:SkipEngineDownload=true</c> so the
 /// fixture skips cleanly when the binaries aren't present — point
 /// the suite at a checkout that built without that flag and the
 /// real-engine scenarios light up automatically.
 ///
 /// The fixture is intentionally short-lived: each scenario creates
-/// its own instance, runs, disposes. The sidecar process gets killed
-/// on dispose so leftover backrest.exe instances don't accumulate
-/// during a test run.
+/// its own instance, runs, disposes.
 /// </summary>
 public sealed class RealEngineFixture : IAsyncDisposable
 {
     private readonly ITestOutputHelper _log;
     private readonly Func<SecretsStore, IBackupEngine>? _previousOverride;
     private readonly IBackupEngine _previousActiveEngine;
-    private readonly BackrestSidecar _sidecar;
     private readonly ResticBackrestEngine _engine;
     private bool _disposed;
 
-    private RealEngineFixture(ITestOutputHelper log, BackrestSidecar sidecar, ResticBackrestEngine engine,
+    private RealEngineFixture(ITestOutputHelper log, ResticBackrestEngine engine,
         Func<SecretsStore, IBackupEngine>? previousOverride, IBackupEngine previousActiveEngine)
     {
         _log = log;
-        _sidecar = sidecar;
         _engine = engine;
         _previousOverride = previousOverride;
         _previousActiveEngine = previousActiveEngine;
@@ -50,12 +45,10 @@ public sealed class RealEngineFixture : IAsyncDisposable
     /// property for scenarios that want to call engine-specific
     /// helpers (e.g. for direct cleanup).</summary>
     public ResticBackrestEngine Engine => _engine;
-    public BackrestSidecar Sidecar => _sidecar;
 
     /// <summary>True iff every required binary is on disk. Tests
     /// short-circuit with a Skipped log line when this is false.</summary>
     public static bool BinariesPresent =>
-        File.Exists(AppPaths.BackrestBinary) &&
         File.Exists(AppPaths.ResticBinary) &&
         File.Exists(AppPaths.RcloneBinary);
 
@@ -65,14 +58,13 @@ public sealed class RealEngineFixture : IAsyncDisposable
     public static string MissingBinariesReason()
     {
         var missing = new System.Collections.Generic.List<string>();
-        if (!File.Exists(AppPaths.BackrestBinary)) missing.Add("backrest");
         if (!File.Exists(AppPaths.ResticBinary))   missing.Add("restic");
         if (!File.Exists(AppPaths.RcloneBinary))   missing.Add("rclone");
         return missing.Count == 0
             ? "All required binaries present."
             : $"Skipped: missing engine binaries ({string.Join(", ", missing)}). " +
-              $"Run `dotnet build -p:SkipBackrestDownload=false` once so FetchBackrest.targets " +
-              $"populates {Path.GetDirectoryName(AppPaths.BackrestBinary)}.";
+              $"Run `dotnet build -p:SkipEngineDownload=false` once so FetchEngines.targets " +
+              $"populates {Path.GetDirectoryName(AppPaths.ResticBinary)}.";
     }
 
     /// <summary>Build the fixture if binaries are present; returns
@@ -96,15 +88,8 @@ public sealed class RealEngineFixture : IAsyncDisposable
         var previousOverride = ServiceLocator.EngineOverride;
         var previousActiveEngine = ServiceLocator.Engine;
 
-        // The engine runs restic directly (U175): Backrest is never
-        // started for it. A fresh, unstarted sidecar per fixture serves the
-        // scenarios that still start Backrest themselves (the snapshot
-        // browser); its folder lives under TEMP and is removed on dispose.
-        var dataDir = Path.Combine(Path.GetTempPath(),
-            "backspace-real-engine-" + Guid.NewGuid().ToString("N"));
-        var sidecar = new BackrestSidecar(
-            AppPaths.BackrestBinary, AppPaths.ResticBinary, dataDir);
-        var engine = new ResticBackrestEngine(sidecar, ServiceLocator.Secrets);
+        // The engine runs the bundled restic directly (U175).
+        var engine = new ResticBackrestEngine(ServiceLocator.Secrets);
 
         // Reach into the locator, swap the engine pointer, and
         // rebuild every service that captured the old engine
@@ -113,13 +98,13 @@ public sealed class RealEngineFixture : IAsyncDisposable
         // cleaner / verifier keep the OLD engine for life — the
         // scenario suite was silently running every "real engine"
         // test against the InMemory fake because of this. No env-var
-        // gate: scenarios MUST exercise the real Backrest path or
+        // gate: scenarios MUST exercise the real restic path or
         // they aren't earning their keep.
         SwapActiveEngine(engine);
         ServiceLocator.RebuildEngineDependents();
 
-        log.WriteLine("RealEngineFixture: the engine runs restic directly; Backrest is not started.");
-        return new RealEngineFixture(log, sidecar, engine, previousOverride, previousActiveEngine);
+        log.WriteLine("RealEngineFixture: the engine runs restic directly.");
+        return new RealEngineFixture(log, engine, previousOverride, previousActiveEngine);
     }
 
     public async ValueTask DisposeAsync()
@@ -134,43 +119,6 @@ public sealed class RealEngineFixture : IAsyncDisposable
         SwapActiveEngine(_previousActiveEngine);
         ServiceLocator.RebuildEngineDependents();
         ServiceLocator.EngineOverride = _previousOverride;
-
-        // If BACKSPACE_E2E_KEEP_DATA=1, also copy the data dir
-        // contents into the scenario's artifacts folder before
-        // disposing the sidecar — so a developer chasing a real-
-        // engine failure has access to Backrest's per-op logs
-        // (tasklogs/*.log), config.json, sqlite oplog, etc.
-        if (string.Equals(Environment.GetEnvironmentVariable("BACKSPACE_E2E_KEEP_DATA"), "1", StringComparison.Ordinal))
-        {
-            try { _log.WriteLine($"RealEngineFixture: BACKSPACE_E2E_KEEP_DATA=1 — preserving {_sidecar.DataDir}"); }
-            catch { }
-        }
-        try { await _sidecar.StopAsync().ConfigureAwait(false); }
-        catch (Exception ex) { _log.WriteLine($"RealEngineFixture: sidecar stop threw: {ex.Message}"); }
-        if (string.Equals(Environment.GetEnvironmentVariable("BACKSPACE_E2E_KEEP_DATA"), "1", StringComparison.Ordinal))
-        {
-            return; // skip the data-dir cleanup so the developer can inspect it
-        }
-        // AV scanners or restic's own brief-held handles can defeat a
-        // single delete attempt. Retry briefly so we don't accumulate
-        // orphan temp dirs in %TEMP% across hundreds of test runs.
-        for (int attempt = 0; attempt < 3; attempt++)
-        {
-            try
-            {
-                if (Directory.Exists(_sidecar.DataDir))
-                    Directory.Delete(_sidecar.DataDir, recursive: true);
-                break;
-            }
-            catch when (attempt < 2)
-            {
-                await Task.Delay(200).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _log.WriteLine($"RealEngineFixture: data-dir cleanup gave up after 3 attempts: {ex.Message}");
-            }
-        }
     }
 
     /// <summary>Reflectively swap the ServiceLocator's Engine

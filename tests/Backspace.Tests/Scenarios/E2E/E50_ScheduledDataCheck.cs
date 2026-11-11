@@ -69,7 +69,7 @@ public sealed class E50_ScheduledDataCheck(ITestOutputHelper output) : BackupE2E
         Assert.True(healthy.Status == BackupRunStatus.Success, string.Join("\n", healthy.Cells.Select(c => c.Summary).Concat(healthy.Errors)));
         Assert.Contains("sample of saved data", Assert.Single(healthy.Cells).Summary);
         Assert.Contains("not a full-data check", healthy.Cells[0].Summary);
-        ctx.Report.RecordNote("Real sample and changed local file", "The scheduler's production check path invoked bundled Backrest/restic, sized and read a data sample, and succeeded. Changing the original file did not produce a corruption warning. The result explicitly says this is not a full-data check.");
+        ctx.Report.RecordNote("Real sample and changed local file", "The scheduler's production check path invoked the bundled restic, sized and read a data sample, and succeeded. Changing the original file did not produce a corruption warning. The result explicitly says this is not a full-data check.");
 
         // Only a disposable repository is damaged, and its original bytes are
         // restored in finally. Length corruption is deterministic even when a

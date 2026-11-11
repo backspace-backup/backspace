@@ -219,7 +219,7 @@ internal static class WindowsUpdatePackage
             ct.ThrowIfCancellationRequested();
             if (!IsProgramFile(entry.FullName) || !names.Add(entry.FullName)
                 || (entry.FullName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                    && !new[] { "Backspace.exe", "backrest.exe", "restic.exe", "rclone.exe" }.Contains(entry.FullName, StringComparer.OrdinalIgnoreCase))
+                    && !new[] { "Backspace.exe", "restic.exe", "rclone.exe" }.Contains(entry.FullName, StringComparer.OrdinalIgnoreCase))
                 || ((entry.ExternalAttributes >> 16) & 0xF000) == 0xA000)
                 throw new InvalidDataException("The update contains an unsafe or unexpected path: " + entry.FullName);
             expanded = checked(expanded + entry.Length);
@@ -244,7 +244,7 @@ internal static class WindowsUpdatePackage
             }
             plan.Files.Add(new FileEntry(targetName, entry.Length, Hash(path)));
         }
-        foreach (var required in new[] { "Backspace.exe", "backrest.exe", "restic.exe", "rclone.exe" })
+        foreach (var required in new[] { "Backspace.exe", "restic.exe", "rclone.exe" })
         {
             if (!names.Contains(required)) throw new InvalidDataException("The update is missing " + required + ".");
             using var pe = File.OpenRead(Path.Combine(incoming, required == "Backspace.exe" ? exeName : required));

@@ -34,7 +34,7 @@ public class WinFspInstallerTests
         // copying it through.
         if (path is null)
         {
-            // Tolerable: a SkipBackrestDownload=true build leaves the
+            // Tolerable: a SkipEngineDownload=true build leaves the
             // asset missing. We treat both branches as valid — the
             // assertion is "if the path is non-null, the file exists".
             return;

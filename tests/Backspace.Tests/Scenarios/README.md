@@ -95,7 +95,7 @@ forever".
 ## Evidence boundaries
 
 - **Real local engine:** `Scenarios/E2E` and `E2E/LocalBackupRestoreTests.cs`
-  use bundled Backrest/restic with disposable repositories. Most `Sxx`
+  use the bundled restic with disposable repositories. Most `Sxx`
   scenarios use an in-memory engine; check each report's scope.
 - **OAuth:** local callback/provider simulations exercise deterministic
   contracts and editor controls. E07–E10 require live accounts for actual

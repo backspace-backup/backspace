@@ -56,27 +56,22 @@
   </ItemGroup>
 
   <!--
-    Copy the engine sidecar binaries (backrest + restic + rclone) from
-    the main project's Assets/ folder into the test host's bin/ so
-    AppPaths.{BackrestBinary,ResticBinary,RcloneBinary} (which resolve
-    relative to the process exe) find them when the test launches
-    BackrestSidecar. AvaloniaResource embedding is only active in the
-    app's single-file Release publish; Debug + test runs use loose
-    files.
+    Copy the engine binaries (restic + rclone) from the main project's
+    Assets/ folder into the test host's bin/ so
+    AppPaths.{ResticBinary,RcloneBinary} (which resolve relative to the
+    process exe) find them when a test runs restic. AvaloniaResource
+    embedding is only active in the app's single-file Release publish;
+    Debug + test runs use loose files.
 
     Evaluate after Build, when the referenced app has fetched its engines.
     Each entry is Condition'd on the file existing so a build with
-    `-p:SkipBackrestDownload=true` (or a checkout that hasn't run
-    FetchBackrest.targets yet) doesn't fail; the RealEngineFixture's
+    `-p:SkipEngineDownload=true` (or a checkout that hasn't run
+    FetchEngines.targets yet) doesn't fail; the RealEngineFixture's
     BinariesPresent check reports missing engines. Release checks must
     reject that condition instead of treating an omitted scenario as proof.
   -->
   <Target Name="CopyEngineBinariesForTests" AfterTargets="Build">
   <ItemGroup>
-    <TestEngineBinary Include="..\..\src\Backspace\Assets\backrest.exe"
-             Condition="Exists('..\..\src\Backspace\Assets\backrest.exe')"
-             Link="backrest.exe"
-             CopyToOutputDirectory="PreserveNewest" />
     <TestEngineBinary Include="..\..\src\Backspace\Assets\restic.exe"
              Condition="Exists('..\..\src\Backspace\Assets\restic.exe')"
              Link="restic.exe"

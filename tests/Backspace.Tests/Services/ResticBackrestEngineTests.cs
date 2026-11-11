@@ -9,10 +9,9 @@ namespace Backspace.Tests.Services;
 
 /// <summary>
 /// Verifies the parts of <see cref="ResticBackrestEngine"/> that don't
-/// need a running Backrest daemon: deterministic ID generation, schema
-/// translation from Backspace Backup/Destination → Backrest Plan/Repo,
-/// and the NotImplementedException markers on the restic-shaped
-/// methods Backrest's RPC doesn't currently cover.
+/// need restic: deterministic ID generation, the command lines built from
+/// a Backspace Backup/Destination, restore output parsing, and a missing
+/// restic reported as a missing component.
 /// </summary>
 public class ResticBackrestEngineTests
 {
@@ -50,10 +49,10 @@ public class ResticBackrestEngineTests
     }
 
     [Fact]
-    public void MakeRepoId_ProducesBackrestCompatibleSlug()
+    public void MakeRepoId_ProducesSafeSlug()
     {
-        // Backrest's repo IDs are surfaced in UI and used as URL path
-        // components in some places — keep them lower-kebab, no spaces,
+        // Repo ids keep the shape Backrest's repo ids had (they appear in
+        // logs and key the repository's turn): lower-kebab, no spaces,
         // no slashes.
         var dest = new Destination { Id = "DEST 1 / awkward", Name = "X", Kind = DestinationKind.LocalFolder, PathOrSubpath = "/tmp" };
         var id = ResticBackrestEngine.MakeRepoId(dest, "DEFAULT");
@@ -89,27 +88,14 @@ public class ResticBackrestEngineTests
     }
 
     [Fact]
-    public void BuildPlanFromBackup_PutsSingleSourcePathIntoPaths()
-    {
-        var backup = new Backup { Id = "bk-1", Name = "Photos" };
-
-        var plan = ResticBackrestEngine.BuildPlanFromBackup(
-            planId: "plan-x",
-            repoId: "repo-y",
-            backup: backup,
-            sourcePath: "/data/photos");
-
-        Assert.Equal("plan-x", plan.Id);
-        Assert.Equal("repo-y", plan.Repo);
-        Assert.Single(plan.Paths);
-        Assert.Equal("/data/photos", plan.Paths[0]);
-    }
+    public void The_backup_command_holds_the_one_source_path()
+        => Assert.Equal(new[] { "backup", "--json", "/data/photos" }, ResticBackrestEngine.BackupArguments("/data/photos"));
 
     [Fact]
-    public void BuildPlanFromBackup_HandsTheFiltersTextToResticAsAnExcludeFile()
+    public void The_filters_text_reaches_restic_as_an_exclude_file()
     {
         // U151: restic gets the Filters text as written, in a file; the
-        // plan carries no rules of its own.
+        // command carries no rules of its own.
         var backup = new Backup
         {
             Id = "bk-1",
@@ -117,12 +103,10 @@ public class ResticBackrestEngineTests
             FiltersText = "*.tmp\nnode_modules/\n# comment\n\n",
         };
 
-        var plan = ResticBackrestEngine.BuildPlanFromBackup(
-            planId: "p", repoId: "r", backup: backup, sourcePath: "/x");
+        var trailing = ResticBackrestEngine.BackupTrailing(backup, "p", null);
 
-        Assert.Empty(plan.Excludes);
-        Assert.Empty(plan.IExcludes);
-        Assert.Equal(new[] { FilterTranslator.ExcludeFileFlag, "'" + ResticBackrestEngine.ExcludeFilePath("p") + "'" }, plan.BackupFlags.TakeLast(2));
+        Assert.DoesNotContain(trailing, t => t.Contains("node_modules", System.StringComparison.Ordinal));
+        Assert.Equal(new[] { FilterTranslator.ExcludeFileFlag, ResticBackrestEngine.ExcludeFilePath("p") }, trailing.TakeLast(2));
     }
 
     /// <summary>U133: restic gets the rules as written. A repeated rule is
@@ -425,26 +409,49 @@ public class ResticBackrestEngineTests
     }
 
     [Fact]
-    public async Task BackupPruneCheckAsync_LazyStartsSidecarOnFirstUse()
+    public async Task BackupPruneCheckAsync_WithoutRestic_SaysTheComponentIsMissing()
     {
-        // With lazy auto-start, the engine attempts to launch the
-        // sidecar at first touch. Pointing at a nonexistent binary
-        // surfaces FileNotFoundException -- proving the lazy path
-        // fires, where the old InvalidOperationException would have
-        // signalled the caller forgot StartAsync().
+        // A missing restic surfaces as a FileNotFoundException (a component
+        // is missing) before anything else is tried.
         var engine = MakeEngineWithoutSidecar();
         await Assert.ThrowsAnyAsync<System.IO.FileNotFoundException>(() =>
             engine.BackupPruneCheckAsync(new Backup(), "/x", new Destination(), "default", default));
     }
 
+    /// <summary>A restic id (a snapshot's, a repository's) is exactly 64 hex
+    /// characters; anything else is never taken for one.</summary>
+    [Theory]
+    [InlineData("",                                                                   false)]
+    [InlineData("bf683127-2b82-b9e3-86c6-419f9615a2c5",                               false)] // UUID shape
+    [InlineData("a3b1c2d4e5f60123456789abcdef0123456789abcdef0123456789abcdef0123",   true)]
+    [InlineData("a3b1c2d4e5f60123456789abcdef0123456789abcdef0123456789abcdef012",    false)] // 63
+    [InlineData("a3b1c2d4e5f60123456789abcdef0123456789abcdef0123456789abcdef01234",  false)] // 65
+    [InlineData("z3b1c2d4e5f60123456789abcdef0123456789abcdef0123456789abcdef0123",   false)] // non-hex
+    public void IsValidBackrestGuid_acceptsOnly64CharLowerOrMixedHex(string guid, bool expected)
+    {
+        Assert.Equal(expected, ResticBackrestEngine.IsValidBackrestGuid(guid));
+    }
+
+    /// <summary>
+    /// Regression for the silent-success class bug: an unknown or empty
+    /// result word was once a success. A run that never said it succeeded
+    /// is NOT a success.
+    /// </summary>
+    [Theory]
+    [InlineData("STATUS_SUCCESS",        Backspace.Models.BackupRunStatus.Success)]
+    [InlineData("STATUS_WARNING",        Backspace.Models.BackupRunStatus.Warning)]
+    [InlineData("STATUS_ERROR",          Backspace.Models.BackupRunStatus.Failed)]
+    [InlineData("STATUS_USER_CANCELLED", Backspace.Models.BackupRunStatus.Skipped)]
+    [InlineData("",                      Backspace.Models.BackupRunStatus.Failed)]
+    [InlineData("STATUS_UNKNOWN",        Backspace.Models.BackupRunStatus.Failed)]
+    [InlineData("something_weird",       Backspace.Models.BackupRunStatus.Failed)]
+    public void StatusFromBackrestTerminal_unknownOrEmpty_defaultsToFailed(string input, Backspace.Models.BackupRunStatus expected)
+    {
+        Assert.Equal(expected, ResticBackrestEngine.StatusFromBackrestTerminal(input));
+    }
+
     // ---- helpers ----
 
     private static ResticBackrestEngine MakeEngineWithoutSidecar()
-    {
-        var sidecar = new BackrestSidecar(
-            backrestBinaryPath: "/nonexistent/backrest",
-            resticBinaryPath: "/nonexistent/restic",
-            dataDir: "/nonexistent/data");
-        return new ResticBackrestEngine(sidecar, new SecretsStore());
-    }
+        => new(new SecretsStore(), resticBinary: "/nonexistent/restic");
 }

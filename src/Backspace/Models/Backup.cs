@@ -9,8 +9,8 @@ namespace Backspace.Models;
 /// A backup = one or more source folders + one or more destinations + policy.
 ///
 /// Multi-source semantics: each entry in <see cref="SourcePaths"/>
-/// becomes its own (source × destination × storageName) plan in
-/// the Backrest sidecar — see <see cref="Services.ResticBackrestEngine.MakePlanId"/>.
+/// becomes its own (source × destination × storageName) plan, whose id
+/// labels its snapshots — see <see cref="Services.ResticBackrestEngine.MakePlanId"/>.
 /// The orchestrator loops over sources × destinations, so a backup
 /// named "computer" with sources
 /// <c>[C:\Users\me\Documents, C:\Users\me\Pictures]</c> and one
@@ -128,7 +128,7 @@ public sealed class Backup : IJsonOnDeserialized
     /// <summary>
     /// Absolute paths to back up. At least one is required; the editor UI
     /// enforces that. Order matters only cosmetically (the list displays
-    /// and iterates in this order). Each path becomes its own Backrest
+    /// and iterates in this order). Each path becomes its own
     /// plan id (<c>&lt;backup-id&gt;-&lt;dest-id&gt;-&lt;storage&gt;-&lt;hash(source)&gt;</c>),
     /// so renaming the backup keeps history while adding a source
     /// starts a fresh plan beside the existing ones.
@@ -197,8 +197,8 @@ public sealed class Backup : IJsonOnDeserialized
     /// to 365 days, one every 7 days back to 90, one a day back
     /// to 14". 0 in the interval slot means exhaustive. The
     /// migrator parses this same shape from imported Duplicacy
-    /// configs; the engine maps it onto Backrest's RetentionPolicy
-    /// (time-bucketed counts) at plan-build time.
+    /// configs; the engine maps it onto restic's keep options
+    /// (<see cref="Services.KeepPolicyRules"/>, U172).
     /// </summary>
     public string KeepPolicy { get; set; } = "0:365 30:90 7:30 1:7";
 
@@ -271,8 +271,8 @@ public sealed class Backup : IJsonOnDeserialized
 
     // ---- advanced options (collapsed by default in the UI) ----
 
-    /// <summary>Average chunk size in bytes. Dead in the Backrest +
-    /// restic engine path — restic owns chunk sizing through its
+    /// <summary>Average chunk size in bytes. Dead in the restic
+    /// engine path — restic owns chunk sizing through its
     /// own --pack-size knob; the field stays in the model for
     /// backwards-compatible config-file load only.</summary>
     public int? ChunkSize { get; set; }
@@ -504,7 +504,7 @@ public sealed class BackupTarget
     /// Storage label that distinguishes targets when one backup
     /// fans out to several destinations. Defaults to "default";
     /// the engine layer maps (DestinationId, StorageName) onto a
-    /// single Backrest repo id, so two targets pointing at the
+    /// single repo id, so two targets pointing at the
     /// same Destination with different StorageNames produce two
     /// distinct repo chains. Imported from the equivalent "name"
     /// field in legacy yaml storage[] arrays.

@@ -1,12 +1,12 @@
 name: CI
 
 # Build + unit + ViewModel tests on every push + PR. Doesn't run the
-# heavy E2E suite (which spawns the bundled Backrest daemon + restic
-# and takes 10+ minutes) or the Cloud suite (which needs real OAuth
+# heavy E2E suite (which runs the bundled restic and rclone and takes
+# 10+ minutes) or the Cloud suite (which needs real OAuth
 # tokens stored as repo secrets). Those run on a separate scheduled
 # nightly workflow when one exists.
 #
-# The fetch step downloads restic / Backrest / rclone the first time
+# The fetch step downloads restic / rclone the first time
 # the runner sees the assets cache miss; subsequent runs reuse it.
 
 on:
@@ -52,11 +52,11 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-
 
-      - name: Cache fetched binaries (restic / Backrest / rclone)
+      - name: Cache fetched binaries (restic / rclone)
         uses: actions/cache@v4
         with:
           path: src/Backspace/Assets
-          key: backspace-assets-${{ runner.os }}-${{ hashFiles('src/Backspace/fetch-backrest.ps1', 'src/Backspace/engine-versions.json') }}
+          key: backspace-assets-${{ runner.os }}-${{ hashFiles('src/Backspace/fetch-engines.ps1', 'src/Backspace/engine-versions.json') }}
 
       - name: Fetch the bundled engines
         # Authenticated API lookups: hosted runners share an anonymous limit.
@@ -65,7 +65,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File src/Backspace/fetch-backrest.ps1 -BackrestOutPath src/Backspace/Assets/backrest.exe -ResticOutPath src/Backspace/Assets/restic.exe -RcloneOutPath src/Backspace/Assets/rclone.exe
+          powershell -NoProfile -ExecutionPolicy Bypass -File src/Backspace/fetch-engines.ps1 -ResticOutPath src/Backspace/Assets/restic.exe -RcloneOutPath src/Backspace/Assets/rclone.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Restore
@@ -84,7 +84,7 @@ jobs:
         run: |
           dotnet test tests/Backspace.Tests/Backspace.Tests.csproj `
             `
-            -p:SkipBackrestDownload=true `
+            -p:SkipEngineDownload=true `
             -f net10.0-windows `
             --filter "(FullyQualifiedName~Services|FullyQualifiedName~Models|FullyQualifiedName~ViewModels.Editor|FullyQualifiedName~ViewModels.BackupsViewModelTests|FullyQualifiedName~ViewModels.DestinationsViewModelTests)&FullyQualifiedName!~E2E_WindowsUpdateBundle" `
             --nologo `
@@ -99,7 +99,7 @@ jobs:
           dotnet test tests/Backspace.Tests/Backspace.Tests.csproj `
             -c Release `
             `
-            -p:SkipBackrestDownload=true `
+            -p:SkipEngineDownload=true `
             -f net10.0-windows `
             --filter "FullyQualifiedName~ServiceMigrationProtocolTests|FullyQualifiedName~ServiceSetupTests|FullyQualifiedName~ServiceScheduledRunTests|FullyQualifiedName~Secrets" `
             --nologo `

@@ -58,8 +58,9 @@ desktop.ini
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
-## Backrest sidecar binaries (embedded as resources at build time, fetched
-## by FetchBackrest.targets — too large to commit, change with upstream)
+## Engine binaries (copied beside the app at build time, fetched by
+## FetchEngines.targets — too large to commit, change with upstream;
+## backrest is listed for checkouts that still hold the old one)
 src/Backspace/Assets/backrest
 src/Backspace/Assets/backrest.exe
 src/Backspace/Assets/restic

@@ -64,12 +64,9 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
         });
 
         // A second engine: what a second background worker has. It runs
-        // restic directly (U175); its Backrest is never started.
-        var secondDir = Path.Combine(Path.GetTempPath(), "backspace-e64-second-" + Guid.NewGuid().ToString("N"));
-        var secondSidecar = new BackrestSidecar(AppPaths.BackrestBinary, AppPaths.ResticBinary, secondDir);
-        try
+        // restic directly (U175).
         {
-            var secondEngine = new ResticBackrestEngine(secondSidecar, ServiceLocator.Secrets);
+            var secondEngine = new ResticBackrestEngine(ServiceLocator.Secrets);
             var second = new BackupOrchestrator(ServiceLocator.Config, ServiceLocator.Secrets, secondEngine, ServiceLocator.Logs,
                 ServiceLocator.Healthcheck, ServiceLocator.Mail, ServiceLocator.Notifier, new BackupProgressService());
             var first = ServiceLocator.Orchestrator;
@@ -121,11 +118,6 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
                 $"Check of the repository afterwards: {check.Status}, {check.Summary}\n" +
                 $"Snapshots: A {snapshotsA.Count}, B {snapshotsB.Count}\n");
             Output.WriteLine(File.ReadAllText(report));
-        }
-        finally
-        {
-            try { await secondSidecar.StopAsync(); } catch { }
-            try { Directory.Delete(secondDir, recursive: true); } catch { }
         }
 
         // ---- Part 2: the defaults, one engine (the window) ----

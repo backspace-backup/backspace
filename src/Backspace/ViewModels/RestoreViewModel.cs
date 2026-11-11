@@ -1628,7 +1628,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     private async Task RetryAllFailedAsync()
     {
         // Phase-2 per-failed-file retry dropped in the 2026-06-12
-        // restore-stack refactor (match Backrest native semantics).
+        // restore-stack refactor (overall results only).
         // The Summary screen's "Retry all failed" button now re-runs
         // the WHOLE restore against the original request — same
         // semantics restic users get from the CLI when a restore
@@ -2127,8 +2127,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             InFlightCount = s.InFlight;
         });
 
-    // Backrest reports overall results rather than a reliable per-file
-    // failure list. Show that result directly; never fabricate file rows.
+    // restic's restore reports overall results rather than a reliable
+    // per-file failure list. Show that result directly; never fabricate file rows.
 
     // ---- misc ----
 

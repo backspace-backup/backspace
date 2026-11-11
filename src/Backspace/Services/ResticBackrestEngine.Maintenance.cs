@@ -18,8 +18,7 @@ namespace Backspace.Services;
 /// for them: <c>forget</c> with the keep rules, <c>prune</c>, <c>check</c>
 /// (or <c>stats</c> then <c>check --read-data-subset</c>, or
 /// <c>check --read-data</c>), <c>forget &lt;id&gt;</c> and
-/// <c>prune --max-unused 25%</c>. A backup with any check or cleanup never
-/// starts Backrest.
+/// <c>prune --max-unused 25%</c>.
 /// </summary>
 public sealed partial class ResticBackrestEngine
 {

@@ -53,7 +53,6 @@ public partial class BackupCard : UserControl
             Items =
             {
                 Action("Edit backup settings", backups.EditCommand, card),
-                Action("Browse snapshots in browser", card.BrowseSnapshotsCommand, enabledWhen: nameof(BackupCardViewModel.CanUseSnapshots)),
                 new Separator(),
                 Action("Remove backup…", backups.DeleteCommand, card),
             },

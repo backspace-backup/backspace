@@ -49,8 +49,8 @@ public sealed class RestoreSafetyRegressionTests
     }
 
     /// <summary>A junction chosen as the target, or above it, is refused
-    /// before restic is even asked for the snapshot (U175: no Backrest; this
-    /// engine has no restic either, so any start would show).</summary>
+    /// before restic is even asked for the snapshot (this engine has no
+    /// restic, so any start would show).</summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -70,7 +70,7 @@ public sealed class RestoreSafetyRegressionTests
         }
         try
         {
-            var engine = new ResticBackrestEngine(new BackrestSidecar("unused", Path.Combine(workspace.Root, "no-restic.exe"), "unused"), new SecretsStore());
+            var engine = new ResticBackrestEngine(new SecretsStore(), Path.Combine(workspace.Root, "no-restic.exe"));
             var commands = 0;
             engine.ResticCommandFinished += (_, _) => commands++;
             var target = nestedTarget ? Path.Combine(junction, "new-child") : junction;

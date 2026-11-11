@@ -17,9 +17,8 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// The stale-lock rule with real restic: healthy work never unlocks; a
 /// command refused by a lock (exit code 11) gets one ordinary unlock, which
 /// removes stale locks only, and one retry. A live lock survives; a crashed
-/// process's lock is cleared. Checked on the cleanup after a backup, which
-/// runs restic directly (U175), and on the stand-alone cleanup, which still
-/// goes through Backrest until step 2.
+/// process's lock is cleared. Checked on the cleanup after a backup and on
+/// the stand-alone cleanup, both run by restic directly (U175).
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E55_OnDemandLockRecovery(ITestOutputHelper output) : BackupE2EBase(output)
@@ -61,7 +60,7 @@ public sealed class E55_OnDemandLockRecovery(ITestOutputHelper output) : BackupE
 
         // A real restic backup waiting on its input keeps a shared lock.
         var locks = Path.Combine(destination.PathOrSubpath, "locks");
-        var held = Hold(fixture.Sidecar.ResticBinaryPath, destination.PathOrSubpath, password);
+        var held = Hold(AppPaths.ResticBinary, destination.PathOrSubpath, password);
         var released = false;
         var stdout = held.StandardOutput.ReadToEndAsync(ct);
         var stderr = held.StandardError.ReadToEndAsync(ct);

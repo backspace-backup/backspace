@@ -88,16 +88,8 @@ public static class AppPaths
     /// builds, otherwise the engine set under %LOCALAPPDATA%Backspacein
     /// (<see cref="EngineInstallation"/>, U100).
     /// </summary>
-    public static string BackrestBinary => Path.Combine(EngineInstallation.Directory, "backrest" + EngineInstallation.Extension);
     public static string ResticBinary => Path.Combine(EngineInstallation.Directory, "restic" + EngineInstallation.Extension);
     public static string RcloneBinary => Path.Combine(EngineInstallation.Directory, "rclone" + EngineInstallation.Extension);
-
-    /// <summary>The Backrest daemon's data directory (its config.json with the
-    /// repository passwords, sign-in files, sqlite oplog and operation logs).
-    /// On this computer only, never in the portable folder (U153): it holds
-    /// readable credentials and is rebuilt from the settings and the vault at
-    /// start. Run history stays in <see cref="EngineLogsRoot"/>.</summary>
-    public static string BackrestDataDir => EngineWorkPaths.BackrestDataDir;
 
     public static string LogsRoot  => Path.Combine(ConfigRoot, "logs");
     public static string ReposRoot => Path.Combine(ConfigRoot, "repos");
@@ -111,7 +103,7 @@ public static class AppPaths
     public static string AppLogsDir => Path.Combine(LogsRoot, "app");
 
     /// <summary>Root of raw per-backup-run transcripts emitted by the
-    /// engine (restic via the Backrest sidecar). One folder per
+    /// engine (restic, run by ResticRunner). One folder per
     /// backup, one file per run.</summary>
     public static string EngineLogsRoot => Path.Combine(LogsRoot, "engine");
 
@@ -201,8 +193,8 @@ public static class AppPaths
 
             // MSBuild's Content CopyToOutputDirectory doesn't preserve
             // the executable bit on Linux/macOS — a Backspace shipped
-            // as a tarball with `dotnet publish` output has backrest /
-            // restic / rclone at the default umask mode (typically
+            // as a tarball with `dotnet publish` output has restic /
+            // rclone at the default umask mode (typically
             // 0644). Process.Start then fails with "permission denied"
             // because the kernel refuses to exec a non-executable file.
             // First-launch +x repair: chmod each engine binary to 0755
@@ -212,7 +204,7 @@ public static class AppPaths
             var mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
                      | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
                      | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
-            foreach (var bin in new[] { BackrestBinary, ResticBinary, RcloneBinary })
+            foreach (var bin in new[] { ResticBinary, RcloneBinary })
             {
                 if (!File.Exists(bin)) continue;
                 try { File.SetUnixFileMode(bin, mode); }

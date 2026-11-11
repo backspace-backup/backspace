@@ -127,13 +127,12 @@ internal static class Program
 #endif
                 // Admit before loading secrets, starting engines or checking for
                 // updates. The shared lease survives engine disposal in finally.
-                if (!new SessionTaskControl().TryBeginUnattended(out scheduledSession, async () =>
+                if (!new SessionTaskControl().TryBeginUnattended(out scheduledSession, () =>
                 {
-                    // Force quit: restic run directly (backups, U175) ends at
-                    // once with what it started, not after its gentle stop.
+                    // Force quit: restic (U175) ends at once with what it
+                    // started, not after its gentle stop.
                     ResticRunner.EndAll();
-                    if (ServiceLocator.Initialized)
-                        await ServiceLocator.BackrestSidecar.StopAsync(TimeSpan.Zero).WaitAsync(TimeSpan.FromSeconds(2));
+                    return Task.CompletedTask;
                 }))
                 {
                     Console.WriteLine(SessionTaskControl.PausedMessage);
@@ -164,7 +163,7 @@ internal static class Program
             // a scheduled-task run silently fails to reach the orchestrator.
             // Skip the heavy ServiceLocator.InitializeCore for the
             // print-and-exit modes (Version, Help, UsageError); they
-            // don't need config / secrets / a started Backrest sidecar
+            // don't need config / secrets / the engine
             // and the user shouldn't pay 200ms+ + AppData dir creation
             // for `--help`.
             // VSS helper mode initialises ServiceLocator inside
@@ -179,20 +178,16 @@ internal static class Program
             {
                 if (scheduledSession?.Token.IsCancellationRequested == true) return 0;
                 // A headless scheduled run can overlap an open GUI. It shares
-                // settings through transactional stores, but owns a separate
-                // daemon/database so either process can exit independently.
-                var headless = mode.Mode is RunMode.RunOne or RunMode.RunAll
-                    or RunMode.PruneOne or RunMode.CheckOne;
+                // settings through transactional stores; each runs its own
+                // restic (U175), so either process can exit independently.
                 // Runs never raise a Windows prompt (VssElevationPolicy.PromptAllowed).
-                ServiceLocator.InitializeCore(headless
-                    ? BackrestSidecar.CreateIsolatedDataDirectory("scheduled") : null);
+                ServiceLocator.InitializeCore();
                 AppLogger.For("Program").Information(
                     "Invoked: mode={Mode} args={Args}",
                     mode.Mode, string.Join(" ", args));
 
-                // Reap orphan rclone processes from prior sessions
-                // BEFORE the new Backrest sidecar (and its rclone
-                // children) start. See RcloneOrphanReaper docs for
+                // Reap orphan rclone processes from prior sessions before
+                // new ones start. See RcloneOrphanReaper docs for
                 // persisted ownership checks. Unregistered processes are
                 // never terminated based on their executable name/path.
                 RcloneOrphanReaper.Sweep();
@@ -227,7 +222,7 @@ internal static class Program
             {
                 try
                 {
-                    ServiceLocator.BackrestSidecar.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                    // Every restic run returns only once restic has ended.
                     ServiceLocator.Maintenance.ReleaseEngineOwnershipAfterStop();
                 }
                 catch (Exception ex) { enginesStopped = false; AppLogger.For("Program").Warning(ex, "Engine teardown failed"); }
@@ -305,11 +300,10 @@ internal static class Program
     /// IAssetLoader service is registered, so avares:// URI lookups
     /// (used by <see cref="StubEmbedder"/>) resolve correctly.
     ///
-    /// Engine-binary readiness is handled lazily inside
-    /// <c>BackrestSidecar.StartAsync</c> — a missing backrest /
-    /// restic / rclone surfaces as a FileNotFoundException the
-    /// orchestrator catches and renders as a normal cell failure;
-    /// no need for a synchronous startup probe.
+    /// Engine-binary readiness is handled lazily when restic is first
+    /// run — a missing restic / rclone surfaces as a
+    /// FileNotFoundException the orchestrator catches and renders as a
+    /// normal cell failure; no need for a synchronous startup probe.
     ///
     /// Off-thread housekeeping covers stub extract, scheduled-task
     /// re-upsert, and the missed-run check. Background because
@@ -361,9 +355,9 @@ internal static class Program
     /// Stub-extract + scheduler-task re-upsert + missed-run check. Runs
     /// after first paint so a slow path (user moved the exe → N
     /// schtasks.exe spawns) doesn't freeze the splash. Idempotent and
-    /// failure-tolerant; the GUI is never blocked on this. Backrest is no
-    /// longer started here: backups, lists, restores and the mounted drive
-    /// run restic directly (U175); only the snapshot browser starts it.
+    /// failure-tolerant; the GUI is never blocked on this. Also removes
+    /// Backrest's old working folders, which held a readable copy of
+    /// repository passwords (U175, <see cref="BackrestLeftovers"/>).
     /// </summary>
     private static void RunDeferredStartupHousekeeping()
     {
@@ -377,6 +371,7 @@ internal static class Program
                 catch (Exception ex) { AppLogger.For("Program").Debug(ex, "Leaving {File} in place", leftover); }
             }
             RemovePrePortableLeftovers();
+            BackrestLeftovers.Remove();
         }
         catch (Exception ex)
         {

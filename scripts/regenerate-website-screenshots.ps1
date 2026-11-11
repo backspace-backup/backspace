@@ -38,7 +38,7 @@ Push-Location $repo
 try {
     dotnet test 'tests/Backspace.Tests/Backspace.Tests.csproj' `
         --filter 'FullyQualifiedName~WebsiteScreenshotTests' `
-        -p:SkipBackrestDownload=true `
+        -p:SkipEngineDownload=true `
         --nologo --verbosity quiet
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet test exited with code $LASTEXITCODE - see output above"

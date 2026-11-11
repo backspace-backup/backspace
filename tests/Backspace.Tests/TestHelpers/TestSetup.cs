@@ -35,7 +35,7 @@ internal static class TestSetup
         // Drain the cell-retry backoff to a few hundred milliseconds
         // for the whole suite. Production scenarios benefit from the
         // 0/5/20/60s schedule (transient network blip recovery); the
-        // E2E suite hits real Backrest and a failing scenario would
+        // E2E suite runs the real restic and a failing scenario would
         // otherwise burn ~85s per cell × N cells before surfacing.
         Environment.SetEnvironmentVariable("BACKSPACE_FAST_RETRIES", "1");
 
@@ -87,7 +87,7 @@ internal static class TestSetup
         if (!File.Exists(AppPaths.VaultFile)) new SecretsStore().Create("");
 
         // Tests use an InMemoryBackupEngine so they don't need a real
-        // backrest.exe on disk. Set the factory before InitializeCore
+        // restic.exe on disk. Set the factory before InitializeCore
         // so the locator picks it up; production callers can't see
         // this property (internal + InternalsVisibleTo).
         ServiceLocator.EngineOverride ??= _ => new InMemoryBackupEngine();

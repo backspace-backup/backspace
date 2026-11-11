@@ -26,10 +26,10 @@ public sealed class S81_SizeWithRulesAndHonestProgress : ScenarioBase
 
     [AvaloniaFact] public async Task Run_S81() => await Run();
 
-    private static JsonElement Status(double fraction, long done, long total, long filesDone, long files)
-        => JsonSerializer.SerializeToElement(new { lastStatus = new { status = new {
-            percentDone = fraction, totalBytes = total.ToString(), bytesDone = done.ToString(),
-            totalFiles = files.ToString(), filesDone = filesDone.ToString() } } });
+    private static BackupLiveProgress.Sample? Status(double fraction, long done, long total, long filesDone, long files)
+        => BackupLiveProgress.FromResticStatus(JsonSerializer.SerializeToElement(new { message_type = "status",
+            percent_done = fraction, total_bytes = total.ToString(), bytes_done = done.ToString(),
+            total_files = files.ToString(), files_done = filesDone.ToString() }));
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
@@ -74,7 +74,7 @@ public sealed class S81_SizeWithRulesAndHonestProgress : ScenarioBase
         // Restic said 90.7% of the first 97 MB, then 67.8% of 28 GB found so far.
         foreach (var (pct, done, total, files, found) in new[] { (0.907, 88_000_000L, 97_000_000L, 614L, 683L), (0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564) })
         {
-            line = live.Next(Status(pct, done, total, files, found), t)!;
+            line = live.NextStatus(Status(pct, done, total, files, found), t)!;
             progress.ReportLine(withRules.Id, drive, dest.Name, line);
             t = t.AddSeconds(5);
         }
@@ -90,9 +90,9 @@ public sealed class S81_SizeWithRulesAndHonestProgress : ScenarioBase
         progress.ReportCellStarted(withRules.Id, drive, dest.Name);
         long sent = 0;
         var expected = new BackupLiveProgress(expectedBytes: 190_800_000_000, sentBytes: () => sent);
-        progress.ReportLine(withRules.Id, drive, dest.Name, expected.Next(Status(0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564), t)!);
+        progress.ReportLine(withRules.Id, drive, dest.Name, expected.NextStatus(Status(0.678, 19_000_000_000, 28_000_000_000, 37_113, 62_564), t)!);
         sent = 55_000_000;
-        progress.ReportLine(withRules.Id, drive, dest.Name, expected.Next(Status(0.70, 19_300_000_000, 28_500_000_000, 37_900, 63_000), t.AddSeconds(5))!);
+        progress.ReportLine(withRules.Id, drive, dest.Name, expected.NextStatus(Status(0.70, 19_300_000_000, 28_500_000_000, 37_900, 63_000), t.AddSeconds(5))!);
         await ctx.Driver.PumpAsync(200);
         Assert.Equal(10.1, ruled.Sources.Single().PercentComplete, 1);
         Assert.Equal("Backing up · 37,900 of 63,000+ files checked (18 of ~178 GB) · 52 MB of new data uploaded, 10 MB/s", ruled.ProgressDetail);

@@ -118,8 +118,8 @@ puts your original files back.
    [release page](https://github.com/backspace-backup/backspace/releases/latest) shows its SHA-256.
 2. Put it in the folder where you want to keep Backspace, such as your Documents
    folder. Its settings are created beside it.
-3. Open `Backspace.exe`. On first start it downloads its engines (restic,
-   Backrest, rclone) from their own projects into `%LOCALAPPDATA%\Backspace\bin`,
+3. Open `Backspace.exe`. On first start it downloads its engines (restic and
+   rclone) from their own projects into `%LOCALAPPDATA%\Backspace\bin`,
    checked against fingerprints built into `Backspace.exe`. The wizard then sets
    up your first backup.
 
@@ -184,10 +184,9 @@ left untouched; Backspace starts a fresh restic repository beside it.
 
 ## Building from source
 
-You need the .NET 10 SDK. The build downloads the restic, Backrest and rclone
-binaries it bundles from their official GitHub releases (pass
-`-p:SkipBackrestDownload=true` to build offline with binaries you place under
-`src/Backspace/Assets/`).
+You need the .NET 10 SDK. The build downloads the restic and rclone binaries
+it bundles from their official releases (pass `-p:SkipEngineDownload=true` to
+build offline with binaries you place under `src/Backspace/Assets/`).
 
 ```bash
 # Windows, full feature set
@@ -211,8 +210,8 @@ and [testing](docs/TESTING.md) cover the rest.
 ## License
 
 Backspace is open source under the [BSD 2-Clause License](LICENSE), the same
-license as restic. It covers Backspace's own source code; the bundled restic,
-Backrest and rclone binaries are distributed under their own projects' terms.
+license as restic. It covers Backspace's own source code; the bundled restic
+and rclone binaries are distributed under their own projects' terms.
 
 ## Acknowledgments
 
@@ -220,8 +219,6 @@ Backspace stands on excellent open-source work:
 
 - [restic](https://restic.net) by Alexander Neumann, the backup engine that
   does the hard part.
-- [Backrest](https://github.com/garethgeorge/backrest) by Gareth George, which
-  wraps restic in a clean API; Backspace runs it in the background.
 - [rclone](https://rclone.org) by Nick Craig-Wood, which connects restic to
   Dropbox, OneDrive and Google Drive.
 - [Avalonia](https://avaloniaui.net/), the cross-platform UI framework.
