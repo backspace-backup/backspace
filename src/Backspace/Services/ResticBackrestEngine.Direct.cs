@@ -341,12 +341,15 @@ public sealed partial class ResticBackrestEngine
     /// says there is no repository (exit code 10), <c>restic init</c>. A
     /// repository this computer knows is not asked again (one restic start and
     /// several round trips on a cloud destination); if it is gone, restic's
-    /// backup says so, and nothing creates it again in its place.</summary>
+    /// backup says so, and nothing creates it again in its place.
+    /// <c>cat config</c> takes no lock (U188): a lock left by a stopped run
+    /// once failed it outright, before the backup's own lock recovery
+    /// (<see cref="RunResticAsync"/>) could remove it.</summary>
     private async Task EnsureRepositoryAsync(string restic, string repoId, ResticRepository repository, Destination destination,
         CancellationToken ct, Action<string>? lineSink)
     {
         if (KnownRepositories.Knows(repoId, ct)) return;
-        var config = await RunResticAsync(repoId, new ResticCommand(restic, repository, ["cat", "config"]) { CaptureOutput = 64 * 1024 },
+        var config = await RunResticAsync(repoId, new ResticCommand(restic, repository, ["cat", "--no-lock", "config"]) { CaptureOutput = 64 * 1024 },
             lineSink, ct, gated: false, lockRecovery: false).ConfigureAwait(false);
         if (config.Cancelled) throw new OperationCanceledException(ct);
         if (config.Succeeded) { KnownRepositories.Remember(repoId, RepositoryId(config.Output), repository.Uri, ct); return; }
@@ -370,7 +373,7 @@ public sealed partial class ResticBackrestEngine
             || init.ErrorText.Contains("already initialized", StringComparison.OrdinalIgnoreCase))
         {
             // Created meanwhile by another program: use it if it opens.
-            var again = await RunResticAsync(repoId, new ResticCommand(restic, repository, ["cat", "config"]) { CaptureOutput = 64 * 1024 },
+            var again = await RunResticAsync(repoId, new ResticCommand(restic, repository, ["cat", "--no-lock", "config"]) { CaptureOutput = 64 * 1024 },
                 lineSink, ct, gated: false, lockRecovery: false).ConfigureAwait(false);
             if (again.Cancelled) throw new OperationCanceledException(ct);
             if (again.Succeeded) { KnownRepositories.Remember(repoId, RepositoryId(again.Output), repository.Uri, ct); return; }

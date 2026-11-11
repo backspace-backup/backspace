@@ -279,7 +279,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         var first = await rig.BackUpAsync();
         Assert.True(first.Status == BackupRunStatus.Success, first.Summary);
         Assert.StartsWith("Backup result: STATUS_SUCCESS.", first.Summary);
-        Assert.Contains(rig.Commands, c => c.Command.Arguments.SequenceEqual(["cat", "config"]) && c.Result.ExitCode == 10);
+        Assert.Contains(rig.Commands, c => c.Command.Arguments.SequenceEqual(["cat", "--no-lock", "config"]) && c.Result.ExitCode == 10);
         Assert.Single(rig.Ran("init"));
         Assert.Contains(rig.Commands, IsListing);
         Assert.DoesNotContain(rig.Commands, IsReadingOne);

@@ -91,7 +91,8 @@ engine it replaced. Each restic command goes through `ResticRunner`:
   Force quit, of the window or of a scheduled `--run`, ends every restic at
   once (`ResticRunner.EndAll`).
 - A repository this computer has not used yet is opened with
-  `restic cat config`, and created with `restic init` only when restic says
+  `restic cat --no-lock config` (no lock: a lock left by a stopped run must reach the
+  backup's own stale-lock recovery, U188), and created with `restic init` only when restic says
   there is none (exit code 10). The repositories this computer knows are in
   repositories.json in its engine folder (`KnownRepositories`), so later
   backups skip that step.

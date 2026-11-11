@@ -379,6 +379,12 @@ the live lock and both snapshots kept. The stand-alone cleanup (restic run
 directly too) gets the same one unlock and retry, and fails. After the child exits and the test releases its Windows process
 handle, the next cleanup's one unlock removes the stale lock and it succeeds;
 force removal is forbidden. Healthy backups issue no recovery command.
+U188 recreates the owner's case: a `restic key passwd` child holds the
+exclusive lock (as a check does) and is killed, and repositories.json is
+removed so the next backup reads the repository's settings first. That read
+takes no lock; the first locking command is refused once, the ordinary unlock
+removes the dead process's lock and the backup is saved. While the exclusive
+lock is live the backup fails and the lock survives.
 
 `ResticRunnerTests` (U175 step 0) checks the runner with recorded restic output
 and real processes: the password only in the environment (inherited password

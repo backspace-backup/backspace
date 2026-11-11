@@ -127,14 +127,79 @@ public sealed class E55_OnDemandLockRecovery(ITestOutputHelper output) : BackupE
             if (!released && !held.HasExited) { held.Kill(entireProcessTree: true); await held.WaitForExitAsync(CancellationToken.None); }
             if (!released) held.Dispose();
         }
+
+        // U188, the owner's case (11 November 2026): a check stopped while
+        // quitting left restic's exclusive lock, and the next backup on a
+        // computer that had not used the repository yet failed at its first
+        // command (cat config) without trying to remove the stale lock.
+        // `key passwd` takes the exclusive lock and then waits for a new
+        // password on its input, like a long check.
+        var exclusive = Hold(AppPaths.ResticBinary, destination.PathOrSubpath, password, "key", "passwd");
+        var exclusiveOut = exclusive.StandardOutput.ReadToEndAsync(ct);
+        var exclusiveErr = exclusive.StandardError.ReadToEndAsync(ct);
+        try
+        {
+            var wait = Stopwatch.StartNew();
+            while (!Directory.EnumerateFiles(locks).Any())
+            {
+                if (exclusive.HasExited) throw new IOException("The exclusive lock process exited: " + await exclusiveErr);
+                if (wait.Elapsed > TimeSpan.FromSeconds(10)) throw new TimeoutException("The exclusive lock process did not acquire its lock.");
+                await Task.Delay(50, ct);
+            }
+            await Task.Delay(500, ct);
+
+            // While the exclusive lock is live, the backup is refused: a real failure.
+            File.Delete(KnownRepositories.FilePath);
+            commands.Clear();
+            var blocked = await BackUp("exclusive held");
+            Assert.Equal(BackupRunStatus.Failed, blocked.Status);
+            Assert.Equal(0, Assert.Single(Ran("cat")).Result.ExitCode);
+            Assert.Equal(new[] { 11, 11 }, Ran("backup").Select(b => b.Result.ExitCode));
+            Assert.Single(Ran("unlock"));
+            Assert.False(exclusive.HasExited);
+            Assert.NotEmpty(Directory.EnumerateFiles(locks));
+            ctx.Report.RecordNote("A live exclusive lock still refuses the backup",
+                "While a restic process held the repository alone, the backup asked restic once to remove stale locks, was refused again and failed; the live lock remained.");
+
+            exclusive.Kill(entireProcessTree: true);
+            await exclusive.WaitForExitAsync(ct);
+            await Task.WhenAll(exclusiveOut, exclusiveErr);
+        }
+        finally
+        {
+            if (!exclusive.HasExited) { exclusive.Kill(entireProcessTree: true); await exclusive.WaitForExitAsync(CancellationToken.None); }
+            exclusive.Dispose();
+        }
+        Assert.NotEmpty(Directory.EnumerateFiles(locks));
+
+        // Owner's starting state: the repository is new to this computer and a
+        // killed process's exclusive lock is in it.
+        File.Delete(KnownRepositories.FilePath);
+        commands.Clear();
+        var afterStop = await BackUp("after the stopped check");
+        Assert.True(afterStop.Status == BackupRunStatus.Success, afterStop.Summary);
+        var cat = Assert.Single(Ran("cat"));
+        Assert.Equal(new[] { "cat", "--no-lock", "config" }, cat.Command.Arguments);
+        Assert.Equal(0, cat.Result.ExitCode);
+        // The first command that locks (the snapshot list, or the backup) is
+        // refused once; the ordinary unlock clears the dead process's lock.
+        Assert.Single(commands, c => c.Result.ExitCode == 11);
+        Assert.Equal(0, Assert.Single(Ran("unlock")).Result.ExitCode);
+        Assert.Equal(0, Assert.Single(Ran("backup")).Result.ExitCode);
+        Assert.DoesNotContain(commands, c => ResticRunner.Arguments(c.Command).Contains("--remove-all"));
+        Assert.Empty(Directory.EnumerateFiles(locks));
+        ctx.Report.RecordNote("A stopped run's exclusive lock no longer fails the next backup (U188)",
+            "The repository was new to this computer and held a killed restic's exclusive lock. Reading its settings took no lock and succeeded; " +
+            "the backup was refused once, removed the stale lock with an ordinary unlock and was saved on its retry. No force removal.");
     }
 
-    private static Process Hold(string restic, string repository, string password)
+    private static Process Hold(string restic, string repository, string password, params string[] command)
     {
         var start = new ProcessStartInfo(restic) { UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
         start.Environment["RESTIC_PASSWORD"] = password;
-        foreach (var arg in new[] { "--repo", repository, "backup", "--stdin", "--stdin-filename", "held-input.txt", "--quiet" })
+        if (command.Length == 0) command = ["backup", "--stdin", "--stdin-filename", "held-input.txt", "--quiet"];
+        foreach (var arg in new[] { "--repo", repository }.Concat(command))
             start.ArgumentList.Add(arg);
         return Process.Start(start)!;
     }
