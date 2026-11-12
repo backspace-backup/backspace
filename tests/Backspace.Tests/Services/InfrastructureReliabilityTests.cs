@@ -340,7 +340,7 @@ public sealed class InfrastructureReliabilityTests
     {
         using var workspace = new TempWorkspace();
         var path = Path.Combine(workspace.Root, "sidecar.pid");
-        File.WriteAllText(path, "42|bundled-backrest.exe");
+        File.WriteAllText(path, "42|bundled-engine.exe");
         OwnedProcessRegistry.Reap(path, _ => throw new Exception("Must not inspect ambiguous record"),
             _ => throw new Exception("Must not kill from ambiguous record"));
         Assert.True(File.Exists(path));

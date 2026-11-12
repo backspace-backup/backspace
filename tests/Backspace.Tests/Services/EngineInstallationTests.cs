@@ -79,10 +79,9 @@ public sealed class EngineInstallationTests
         });
     }
 
-    /// <summary>U175 step 4: Backrest leaving the set gives it a new id. The
-    /// unchanged restic and rclone are copied from the earlier set, not
-    /// downloaded again (the source here is unreachable), and the earlier set,
-    /// with its backrest.exe, goes. A copy that does not match is never taken.</summary>
+    /// <summary>A changed engine set gets a new id. The unchanged restic and
+    /// rclone are copied from the earlier set, not downloaded again (the source
+    /// here is unreachable), and the earlier set, with its other files, goes. A copy that does not match is never taken.</summary>
     [Fact]
     public async Task A_new_set_copies_matching_engines_from_an_earlier_set_instead_of_downloading()
     {
@@ -92,13 +91,13 @@ public sealed class EngineInstallationTests
         var set = Path.Combine(root, EngineInstallation.SetId(manifest));
         var earlier = Directory.CreateDirectory(Path.Combine(root, "0000000000000000")).FullName;
         foreach (var name in new[] { "restic.exe", "rclone.exe" }) File.Copy(Path.Combine(source, name), Path.Combine(earlier, name));
-        File.WriteAllText(Path.Combine(earlier, "backrest.exe"), "the old daemon");
+        File.WriteAllText(Path.Combine(earlier, "retired-engine.exe"), "an engine no longer in the set");
         await WithSource("http://127.0.0.1:1/unreachable", root, async () =>
         {
             await EngineInstallation.EnsureAsync(manifest, set, null, TestContext.Current.CancellationToken);
             Assert.True(EngineInstallation.IsComplete(set, manifest));
             Assert.False(Directory.Exists(earlier));
-            Assert.Empty(Directory.GetFiles(root, "backrest*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetFiles(root, "retired-engine*", SearchOption.AllDirectories));
         });
 
         // Negative: an earlier rclone with other bytes is not taken; with no
@@ -163,7 +162,7 @@ public sealed class EngineInstallationTests
         Assert.NotEqual(EngineInstallation.SetId(a), EngineInstallation.SetId(c));
         // This build carries its own manifest: the release download is pinned.
         Assert.NotNull(EngineInstallation.Current);
-        // restic and rclone, nothing else (Backrest left with U175).
+        // restic and rclone, nothing else.
         Assert.Equal(new[] { "rclone.exe", "restic.exe" }, System.Linq.Enumerable.Order(EngineInstallation.Current!.Files.Keys, StringComparer.OrdinalIgnoreCase));
     }
 

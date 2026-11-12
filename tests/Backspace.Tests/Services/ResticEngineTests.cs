@@ -51,7 +51,7 @@ public class ResticEngineTests
     [Fact]
     public void MakeRepoId_ProducesSafeSlug()
     {
-        // Repo ids keep the shape Backrest's repo ids had (they appear in
+        // Repo ids keep their shape (they appear in
         // logs and key the repository's turn): lower-kebab, no spaces,
         // no slashes.
         var dest = new Destination { Id = "DEST 1 / awkward", Name = "X", Kind = DestinationKind.LocalFolder, PathOrSubpath = "/tmp" };

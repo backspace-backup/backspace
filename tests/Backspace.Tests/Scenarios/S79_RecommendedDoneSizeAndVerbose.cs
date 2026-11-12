@@ -121,8 +121,7 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         var logPath = Path.Combine(ctx.RootDir, "engine-run.log");
         File.WriteAllText(logPath, string.Join("\n",
             "[orchestrator] attempt 1 starting at 2026-11-03T07:29:25Z",
-            "[backrest] op=1 status=STATUS_PENDING",
-            "[backrest] op=1 status=STATUS_INPROGRESS",
+            "[restic] 20:04:46.637Z\tdebug\tcommand: restic backup --json C:\\Data",
             "[repo-manager] 21:31:49.992Z\tdebug\trepo orchestrator starting backup",
             "[restic] 21:32:01.583Z\tdebug\tcommand: restic.exe backup --json",
             "[progress] 42.5% · Backing up · 21 GB of 50 GB · 4,200 of 10,000 files · 31 MB/s",
@@ -162,7 +161,7 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         Assert.True(verbose.IsEffectivelyVisible);
         Assert.False(verbose.IsChecked);
         Assert.DoesNotContain("\tdebug\t", main.Logs.DisplayText);
-        Assert.DoesNotContain("STATUS_INPROGRESS", main.Logs.DisplayText);
+        Assert.DoesNotContain("command: restic backup", main.Logs.DisplayText);
         Assert.Contains("[progress] 42.5%", main.Logs.DisplayText);
         ctx.Snapshot(host, "readable log, verbose off",
             "Activity & logs with Verbose unticked (left of Clear view's place): the run shows the attempt, progress and recap lines only.");
@@ -171,9 +170,9 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         await ctx.Driver.PumpAsync(200);
         Assert.True(VerboseLogFilter.IsVerboseOn());
         Assert.True(ctx.Driver.WaitFor(() => main.Logs.DisplayText.Contains("\tdebug\t")), "Verbose did not reveal the saved debug lines.");
-        Assert.Contains("STATUS_INPROGRESS", main.Logs.DisplayText);
+        Assert.Contains("command: restic backup", main.Logs.DisplayText);
         ctx.Snapshot(host, "verbose on shows earlier lines",
-            "Verbose ticked: the same saved run now also shows Backrest's debug lines and state polls, without rerunning anything.");
+            "Verbose ticked: the same saved run now also shows restic's debug lines, without rerunning anything.");
         // U113 follow-up: long lines (the recap) wrap; no horizontal bar.
         var scroll = view.FindControl<ScrollViewer>("LogScroll")!;
         Assert.True(scroll.Extent.Width <= scroll.Viewport.Width + 1, $"The log is wider ({scroll.Extent.Width}) than its pane ({scroll.Viewport.Width}).");

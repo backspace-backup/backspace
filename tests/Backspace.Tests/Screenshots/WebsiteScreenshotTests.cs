@@ -442,7 +442,7 @@ public class WebsiteScreenshotTests : IDisposable
                     $"[progress] {i * 12.5:0.0}% · Backing up · {i * 1_551:N0} of ~12,408 files checked (~8.7 GB) · {i * 46} MB of new data uploaded, 2.1 MB/s · about {8 - i} min left"));
             if (record.Status == BackupRunStatus.Warning)
             {
-                L(330, "[backrest] op=12 status=STATUS_WARNING Partial backup, some files may not have been read completely.");
+                L(330, "[restic] 20:05:30.000Z\twarn\tbackup finished: exit code 3 (some source data could not be read) after 5 min 30 s");
                 L(330, "[restic] {\"item\":\"C:\\\\Users\\\\sam\\\\Music\\\\iTunes Library.itl\",\"during\":\"archival\",\"message\":\"access denied\"}");
             }
             L(340, $"[recap] Backup complete: {record.Summary} · snapshot 4bd48ee6");

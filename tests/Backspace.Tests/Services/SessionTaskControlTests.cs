@@ -213,7 +213,6 @@ public sealed class SessionTaskControlTests
             Assert.True(result.code == 0, result.output);
             Assert.Contains(SessionTaskControl.PausedMessage, result.output);
         }
-        Assert.False(Directory.Exists(Path.Combine(ws.ConfigRoot, "backrest")));
         Assert.Equal("deliberately invalid config", File.ReadAllText(Path.Combine(ws.ConfigRoot, "config.json")));
         control.ResumeOnGuiLaunch();
         var unpaused = await Invoke("--run");
@@ -290,8 +289,6 @@ public sealed class SessionTaskControlTests
             Assert.NotNull(engine);
             Assert.True(Directory.Exists(locks) && Directory.GetFiles(locks).Length > 0, "A real restic repository operation must have started before Quit.");
             Assert.Equal(OwnedProcessRegistry.Presence.Matching, OwnedProcessRegistry.Inspect(engine.Child));
-            // No Backrest: a scheduled backup never starts it (U175).
-            Assert.False(Directory.Exists(Path.Combine(ws.ConfigRoot, "engine", "engine-runs")));
             // Keep the controller on the same disposable config as the child.
             // The default constructor can resolve a registered desktop service
             // and would otherwise read or pause a different task set.

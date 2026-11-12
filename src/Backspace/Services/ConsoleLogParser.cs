@@ -101,8 +101,7 @@ internal sealed class ConsoleLogParser
         }
         if (kind is not (ConsoleLineKind.Setup or ConsoleLineKind.Meta or ConsoleLineKind.Blank or ConsoleLineKind.Detail))
             _sectionHasContent = true;
-        // A message Backrest wrote over several lines ("failed to backup: …"
-        // then "output processing: no summary event found") keeps the colour
+        // A message written over several lines keeps the colour
         // of the line it continues, up to a blank line.
         if (kind == ConsoleLineKind.Plain && !text.StartsWith('[') && _lastKind is ConsoleLineKind.Warning or ConsoleLineKind.Error)
             kind = _lastKind;

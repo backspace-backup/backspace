@@ -18,16 +18,15 @@ using Xunit;
 namespace Backspace.Tests.Services;
 
 /// <summary>
-/// U175 step 1: backups and the cleanup after them run restic directly. The
-/// command line is Backrest's, option for option; the parent is the
-/// remembered snapshot once restic confirms it, otherwise the plan's latest
-/// (the owner's answer to question 4, 10 November 2026); exit codes keep
-/// their meaning; Backrest is never started.
+/// Backups and the cleanup after them run restic directly. The command line
+/// is checked option for option; the parent is the remembered snapshot once
+/// restic confirms it, otherwise the plan's latest (the owner's answer to
+/// question 4, 10 November 2026); exit codes keep their meaning.
 /// </summary>
 public sealed class DirectBackupTests(ITestOutputHelper output)
 {
-    /// <summary>Splits a string the way Backrest split plan and repository
-    /// options (a POSIX shell's words: quotes, backslash escapes).</summary>
+    /// <summary>Splits a string into a POSIX shell's words (quotes,
+    /// backslash escapes), the way plan and repository options are written.</summary>
     internal static List<string> ShellSplit(string text)
     {
         var words = new List<string>();
@@ -56,18 +55,18 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         return words;
     }
 
-    /// <summary>Backrest's backup: <c>backup --json &lt;path&gt;</c>, the
+    /// <summary>The expected backup: <c>backup --json &lt;path&gt;</c>, the
     /// repository's options split like a shell, the sftp option, then
     /// <c>--exclude-caches</c>, the plan and instance labels, <c>--parent</c>
-    /// and the plan's options split like a shell (its repo.go, Backup).</summary>
-    private static List<string> BackrestBackupArguments(Backup backup, Destination destination, string source, string planId, string? parent)
+    /// and the plan's options split like a shell.</summary>
+    private static List<string> ExpectedBackupArguments(Backup backup, Destination destination, string source, string planId, string? parent)
     {
         var arguments = new List<string> { "backup", "--json", source };
         foreach (var flag in ResticEngine.BuildRepoFlagsForBackup(backup, destination)) arguments.AddRange(ShellSplit(flag));
         arguments.AddRange(["-o", "sftp.args=-oBatchMode=yes", "--exclude-caches", "--tag", "plan:" + planId, "--tag", "created-by:backspace"]);
         if (parent is not null) arguments.AddRange(["--parent", parent]);
-        // Backrest's plan options: the backup's own options, then the exclude
-        // file, its path single-quoted for Backrest's shell-style split.
+        // The plan's options: the backup's own options, then the exclude
+        // file, its path single-quoted for the shell-style split.
         foreach (var flag in ResticEngine.BuildBackupFlags(backup)) arguments.AddRange(ShellSplit(flag));
         arguments.AddRange(ShellSplit(FilterTranslator.ExcludeFileFlag + " '" + ResticEngine.ExcludeFilePath(planId) + "'"));
         return arguments;
@@ -89,8 +88,8 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         var planId = ResticEngine.MakePlanId(backup, @"D:\", destination, "default");
         var parentId = parent ? new string('c', 64) : null;
         var direct = DirectBackupArguments(backup, destination, @"D:\", planId, parentId);
-        Assert.Equal(BackrestBackupArguments(backup, destination, @"D:\", planId, parentId), direct);
-        // Falsifiable: the options Backrest added without saying so.
+        Assert.Equal(ExpectedBackupArguments(backup, destination, @"D:\", planId, parentId), direct);
+        // Falsifiable: the options every backup gets without saying so.
         Assert.Contains("--exclude-caches", direct);
         Assert.Equal("plan:" + planId, direct[direct.ToList().IndexOf("--tag") + 1]);
         Assert.Contains("created-by:backspace", direct);
@@ -147,7 +146,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         Assert.False(ResticEngine.SamePath(@"D:\a", @"D:\ab"));
     }
 
-    // ---- restic's exit codes in Backrest's words ----
+    // ---- restic's exit codes in run summaries ----
 
     private static ResticResult Result(int code, bool cancelled = false, string error = "") =>
         new(code, cancelled, ResticStop.None, TimeSpan.FromSeconds(1), null, error + $" (restic exit code {code})", "", 0);
@@ -155,7 +154,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
     private static readonly ResticBackupSummary Saved = new(1, 0, 3, 10, 4, 40, 1, new string('a', 64));
     private static readonly ResticBackupSummary NothingSaved = new(0, 0, 0, 0, 0, 0, 1, null);
 
-    /// <summary>restic's exit codes become Backrest's words, which run
+    /// <summary>restic's exit codes become the run's status words, which run
     /// history, the card and <see cref="ResticEngine.WasStoppedOnRequest"/>
     /// read. The negative cases matter as much: no summary is no success.</summary>
     [Fact]
@@ -186,7 +185,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         Assert.Equal("STATUS_SUCCESS", ResticEngine.BackupOutcome(Result(0, cancelled: true), Saved).Status);
     }
 
-    // ---- real restic, no Backrest ----
+    // ---- real restic ----
 
     private sealed class Rig : IAsyncDisposable
     {
@@ -267,8 +266,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
     }
 
     /// <summary>A backup with its cleanup after it (checks are entries of
-    /// their own since U179, never inside a backup): restic only,
-    /// Backrest never started (its folder never even created); the parent
+    /// their own since U179, never inside a backup): restic only; the parent
     /// of the second backup is the first one's snapshot, confirmed by reading
     /// that one snapshot instead of listing them all; the records hold what
     /// the next backup needs.</summary>
@@ -351,7 +349,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
             case "other folder":
             {
                 // This plan's labels on another folder, made before the
-                // plan's latest (the list, like Backrest's, takes the latest).
+                // plan's latest (the list takes the latest).
                 var folder = rig.Workspace.Sub("elsewhere");
                 File.WriteAllText(Path.Combine(folder, "y.txt"), "elsewhere");
                 var made = await rig.ResticAsync("backup", "--json", folder, "--tag", "plan:" + rig.PlanId, "--tag", "created-by:backspace",
@@ -401,7 +399,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
             .GetProperty("snapshot_id").GetString()!;
 
     /// <summary>Exit code 3: a file restic could not read. The backup is
-    /// saved with a warning, in Backrest's words, and remembered.</summary>
+    /// saved with a warning, and remembered.</summary>
     [Fact]
     public async Task A_file_restic_cannot_read_gives_a_saved_backup_with_a_warning()
     {
@@ -472,7 +470,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
     }
 
     /// <summary>A backup stopped part way: restic stops gently (no lock left),
-    /// the run says "stopped on request" in Backrest's words, and the next
+    /// the run says "stopped on request", and the next
     /// backup knows the previous one did not finish: it lists the snapshots
     /// rather than trust its memory, and prunes everything after its cleanup.</summary>
     [Fact]
@@ -512,22 +510,20 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
     /// <summary>A scheduled backup is Backspace.exe --run (Task Scheduler, and
     /// the service's worker runs the same orchestrator). Two runs, with their
     /// cleanup: every process under Backspace is watched while it
-    /// lasts. restic appears (so the watch sees short-lived processes),
-    /// backrest.exe never does, and Backrest's folders are never made. The
-    /// backup has no checks: they are entries of their own (U179), run
-    /// through Backrest until step 2 of U175.</summary>
+    /// lasts: restic appears (so the watch sees short-lived processes). The
+    /// backup has no checks: they are entries of their own (U179).</summary>
     [Fact]
-    public async Task A_scheduled_backup_never_starts_Backrest()
+    public async Task A_scheduled_backup_runs_restic_and_keeps_its_records()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var ws = new TempWorkspace("scheduled-no-backrest");
+        using var ws = new TempWorkspace("scheduled-backup");
         var source = ws.Sub("source");
         for (var i = 0; i < 40; i++) File.WriteAllBytes(Path.Combine(source, $"file{i:00}.bin"), RandomNumberGenerator.GetBytes(64 * 1024));
         var config = new ConfigStore(); config.Load();
         var secrets = new SecretsStore();
         var password = Guid.NewGuid().ToString("N");
         var destination = new Destination { Name = "Scheduled repository", Kind = DestinationKind.LocalFolder,
-            PathOrSubpath = ws.Sub("repository"), Encrypted = true, StoragePasswordRef = secrets.PutNew("scheduled-no-backrest", password) };
+            PathOrSubpath = ws.Sub("repository"), Encrypted = true, StoragePasswordRef = secrets.PutNew("scheduled-backup", password) };
         var backup = new Backup { Name = "Scheduled backup", SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
             KeepPolicy = "2", PruneSchedule = null, // cleanup right after the backup
             Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
@@ -560,15 +556,9 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
             Assert.True(process.ExitCode == 0, text);
             Assert.Contains("Scheduled backup: Success - ", text);
             Assert.Contains("restic.exe", names); // the watch does see what Backspace starts
-            Assert.DoesNotContain("backrest.exe", names);
             seen.UnionWith(names);
         }
 
-        // Nothing of Backrest's was ever made: no data folder, no per-run
-        // folder, no daemon record.
-        Assert.False(Directory.Exists(Path.Combine(EngineWorkPaths.Root, "backrest")));
-        Assert.False(Directory.Exists(Path.Combine(EngineWorkPaths.Root, "engine-runs")));
-        Assert.Empty(Directory.GetFiles(ws.Root, "sidecar.pid", SearchOption.AllDirectories));
         // Both runs are in the history, with their cleanup, and the
         // repository holds both backups; the second one's parent is the first.
         var history = new LogStore().LoadHistory(backup.Name);
@@ -587,7 +577,6 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         var latest = snapshots.Single(s => s.GetProperty("id").GetString() == remembered);
         Assert.Equal(snapshots.Single(s => s.GetProperty("id").GetString() != remembered).GetProperty("id").GetString(),
             latest.GetProperty("parent").GetString());
-        Assert.DoesNotContain("backrest.exe", seen);
     }
 
     /// <summary>The processes below one process, by name, from a snapshot of

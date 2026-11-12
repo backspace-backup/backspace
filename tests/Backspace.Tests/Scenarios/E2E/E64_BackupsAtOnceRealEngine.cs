@@ -27,7 +27,7 @@ namespace Backspace.Tests.Scenarios.E2E;
 /// another destination runs alongside; a third waits for the total.
 ///
 /// Part 3, one process (the window), two destinations: both run at once
-/// (restic run directly, U175; Backrest made one wait for the other).
+/// (restic run directly).
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
@@ -167,9 +167,7 @@ public sealed class E64_BackupsAtOnceRealEngine : BackupE2EBase
         Output.WriteLine(File.ReadAllText(report2));
 
         // ---- Part 3: the window alone, two destinations, one engine ----
-        // Backrest ran one task at a time, so one of two allowed backups in one
-        // process waited ("Queued: waiting for the backup engine to finish
-        // another backup"). Since U175 the window runs restic itself: both
+        // The window runs restic itself: both
         // run at once, neither is held back.
         var x = Backup("window X (E64)", ctx.MakeSource("window-x", seed: 647, targetBytes: 30_000_000), drive, inlineMaintenance: false);
         var y = Backup("window Y (E64)", ctx.MakeSource("window-y", seed: 648, targetBytes: 30_000_000), nas, inlineMaintenance: false);

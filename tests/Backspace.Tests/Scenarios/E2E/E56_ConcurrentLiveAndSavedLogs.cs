@@ -43,11 +43,13 @@ public sealed class E56_ConcurrentLiveAndSavedLogs(ITestOutputHelper output) : B
             ServiceLocator.Config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(dest); });
             await fixture.Engine.EnsureInitializedAsync(backup, source, dest, "default", deadline.Token);
         }
+        // restic's command lines, which carry each run's label, show with
+        // Verbose (U196).
+        ServiceLocator.Config.Update(cfg => cfg.Logging.MinimumLevel = "Verbose");
         using var vm = new LogsViewModel();
         var view = new LogsView { DataContext = vm };
         var window = ctx.Driver.Show(new Window { Content = view, Width = 1180, Height = 840 });
-        // Each run's own label: restic's command lines (shown, not detail)
-        // carry its backup's plan (U175; Backrest's operation ids before).
+        // Each run's own label: restic's command lines carry its backup's plan.
         static string[] OperationIds(string text) => Regex.Matches(text, @"--tag plan:([\w-]+)")
             .Select(m => m.Groups[1].Value).Distinct().ToArray();
         var runs = backups.Select(b => Task.Run(() => ServiceLocator.Orchestrator.RunBackupAsync(b, deadline.Token))).ToArray();

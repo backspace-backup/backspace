@@ -904,9 +904,7 @@ Files that would show a password in readable form are kept on each computer,
 not in the folder: the engines' working files (cloud connection files) in
 `%LOCALAPPDATA%\Backspace\engine`, rebuilt when missing, and each computer's key
 in `%LOCALAPPDATA%\Backspace\keys`. Your run history lives in
-`Backspace.config` and travels with it. Earlier versions also kept the
-Backrest engine's settings there, with a readable copy of your storage
-passwords; Backspace removes those folders when it starts.
+`Backspace.config` and travels with it.
 
 Settings outside that folder are ones Backspace can recreate: the sign-in start
 entry, the optional background service, the WinFsp driver for mounting, and

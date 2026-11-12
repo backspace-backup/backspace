@@ -17,8 +17,8 @@ namespace Backspace.Tests.Scenarios.E2E;
 
 /// <summary>Creates actual old-engine data, then reopens it with the current
 /// engine. The old restic is an explicit local test input (restic 0.18.1, the
-/// version Backspace bundled with Backrest 1.13.0); the backups it makes carry
-/// the labels and command lines every earlier Backspace used (U175 kept them).
+/// version Backspace bundled before 0.19.1); the backups it makes carry the
+/// labels and command lines Backspace uses.
 /// The test never replaces installed binaries or opens the user's repositories.</summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E48_EngineUpgradeContinuity : ScenarioBase

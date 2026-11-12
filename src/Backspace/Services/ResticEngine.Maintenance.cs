@@ -14,8 +14,7 @@ namespace Backspace.Services;
 /// after each backup, the command line's <c>--prune</c> and <c>--check</c>)
 /// and the erase tools ("free up space", removing a backup's snapshots,
 /// erasing a destination's data) run restic directly through
-/// <see cref="ResticRunner"/> (U175, step 2), with the commands Backrest ran
-/// for them: <c>forget</c> with the keep rules, <c>prune</c>, <c>check</c>
+/// <see cref="ResticRunner"/> (U175): <c>forget</c> with the keep rules, <c>prune</c>, <c>check</c>
 /// (or <c>stats</c> then <c>check --read-data-subset</c>, or
 /// <c>check --read-data</c>), <c>forget &lt;id&gt;</c> and
 /// <c>prune --max-unused 25%</c>.
@@ -41,7 +40,7 @@ public sealed partial class ResticEngine
     /// build's restic, the destination's drive identity and connection, its
     /// repository description, and the repository itself when
     /// <paramref name="create"/> (opened, or created when restic says there is
-    /// none, as Backrest's AddRepo did).</summary>
+    /// none).</summary>
     private async Task<(string Restic, string RepoId, ResticRepository Repository)> PrepareDirectAsync(
         Backup? backup, Destination destination, string storageName, bool checkConnection, bool create,
         CancellationToken ct, Action<string>? lineSink)
@@ -187,8 +186,7 @@ public sealed partial class ResticEngine
     }
 
     /// <summary>The stored data no snapshot uses any more, removed with
-    /// <c>restic prune --max-unused 25%</c> (Backrest's own prune, kept as
-    /// it was for the erase tools).</summary>
+    /// <c>restic prune --max-unused 25%</c> (for the erase tools).</summary>
     public async Task PruneExhaustiveAsync(
         Backup backup, string sourcePath, Destination destination, string storageName,
         CancellationToken ct)
@@ -208,7 +206,7 @@ public sealed partial class ResticEngine
     internal static readonly IReadOnlyList<string> ErasePruneArguments = ["prune", "--max-unused", "25%"];
 
     /// <summary>The full prune after a backup's cleanup: restic's own default
-    /// for unused space (the erase tools keep 25%, as Backrest did).</summary>
+    /// for unused space (the erase tools keep 25%).</summary>
     internal const string PruneCommand = "prune";
 
     /// <summary>
@@ -250,7 +248,7 @@ public sealed partial class ResticEngine
     /// 0.17 and later, the files and bytes its backup processed.</summary>
     internal sealed record PlanSnapshot(string Id, long UnixTimeMs, long TotalFiles, long TotalBytes, IReadOnlyList<string> Paths);
 
-    /// <summary>Every snapshot of a backup's plan, as Backrest listed them:
+    /// <summary>Every snapshot of a backup's plan:
     /// <c>restic snapshots --json --tag plan:&lt;id&gt;,created-by:backspace</c>,
     /// with a repository lock. A list that cannot be read is an error.</summary>
     internal async Task<List<PlanSnapshot>> PlanSnapshotsAsync(string restic, string repoId, ResticRepository repository,

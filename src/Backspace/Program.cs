@@ -355,9 +355,7 @@ internal static class Program
     /// Stub-extract + scheduler-task re-upsert + missed-run check. Runs
     /// after first paint so a slow path (user moved the exe → N
     /// schtasks.exe spawns) doesn't freeze the splash. Idempotent and
-    /// failure-tolerant; the GUI is never blocked on this. Also removes
-    /// Backrest's old working folders, which held a readable copy of
-    /// repository passwords (U175, <see cref="BackrestLeftovers"/>).
+    /// failure-tolerant; the GUI is never blocked on this.
     /// </summary>
     private static void RunDeferredStartupHousekeeping()
     {
@@ -371,7 +369,6 @@ internal static class Program
                 catch (Exception ex) { AppLogger.For("Program").Debug(ex, "Leaving {File} in place", leftover); }
             }
             RemovePrePortableLeftovers();
-            BackrestLeftovers.Remove();
         }
         catch (Exception ex)
         {

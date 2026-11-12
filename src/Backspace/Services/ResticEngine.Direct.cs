@@ -12,25 +12,23 @@ namespace Backspace.Services;
 /// <summary>
 /// Backups and what follows them (the cleanup after a backup, the list of
 /// changed files) run restic directly through <see cref="ResticRunner"/>
-/// (U175, step 1): a backup never starts Backrest, in the app or in the
-/// background service. Checks are entries of their own since U179, run after
+/// (U175), in the app and in the background service. Checks are entries of their own since U179, run after
 /// the backup or on their schedule through <see cref="RunCheckOnlyAsync"/>,
 /// which runs restic directly too, as do the stand-alone cleanup and the
 /// erase tools (step 2, ResticEngine.Maintenance.cs).
 ///
-/// <para>Everything Backrest added to a backup is kept, so repositories,
-/// snapshots, their labels and the run history carry on unchanged:
+/// <para>What every backup gets:
 /// <c>--exclude-caches</c>, the labels <c>plan:&lt;id&gt;</c> and
 /// <c>created-by:backspace</c>, <c>--parent</c>, the repository's options
 /// (bandwidth limits, no password) and <c>-o sftp.args=-oBatchMode=yes</c>, in
-/// Backrest's order. Run summaries keep Backrest's words
+/// this order. Run summaries say how it ended
 /// (<c>Backup result: STATUS_…</c>), which history and
 /// <see cref="WasStoppedOnRequest"/> read.</para>
 /// </summary>
 public sealed partial class ResticEngine
 {
     /// <summary>The instance label every snapshot Backspace made carries
-    /// (<c>created-by:backspace</c>, Backrest's instance name before U175).</summary>
+    /// (<c>created-by:backspace</c>).</summary>
     internal const string InstanceTag = "backspace";
 
     /// <summary>Raised after each restic command run directly, with what it
@@ -159,7 +157,7 @@ public sealed partial class ResticEngine
     }
 
     /// <summary>restic's backup itself, with its live progress, and what it
-    /// came to in Backrest's words (status, display message).</summary>
+    /// came to (status, display message).</summary>
     private async Task<(string Status, string Details, ResticBackupSummary? Summary)> RunDirectBackupAsync(string restic, string repoId,
         ResticRepository repository, Backup backup, string sourcePath, string planId, string? parentId, BackupLiveProgress liveProgress,
         Action<int> onStarted, CancellationToken ct, Action<string>? lineSink)
@@ -222,7 +220,7 @@ public sealed partial class ResticEngine
         return (status, details, summary);
     }
 
-    /// <summary>What a backup's restic run comes to, in Backrest's words: exit
+    /// <summary>What a backup's restic run comes to: exit
     /// code 0 with a summary is a success, 3 with a snapshot a backup with
     /// warnings (some files could not be read), a stop Backspace asked for is
     /// STATUS_USER_CANCELLED (<see cref="WasStoppedOnRequest"/>), anything else
@@ -245,7 +243,7 @@ public sealed partial class ResticEngine
 
     internal static IReadOnlyList<string> BackupArguments(string sourcePath) => ["backup", "--json", sourcePath];
 
-    /// <summary>The options after the repository's: Backrest's labels and
+    /// <summary>The options after the repository's: the plan's labels and
     /// parent, then the backup's own options and its exclude file (U151).</summary>
     internal static List<string> BackupTrailing(Backup backup, string planId, string? parentId)
     {
@@ -258,8 +256,7 @@ public sealed partial class ResticEngine
     }
 
     /// <summary>The repository description restic gets: built from the
-    /// destination and the vault for each operation, as Backrest's repository
-    /// settings were (the address, its environment, the password, and the
+    /// destination and the vault for each operation (the address, its environment, the password, and the
     /// options for every command).</summary>
     internal ResticRepository BuildResticRepository(Destination destination, Backup? backup)
     {
@@ -335,8 +332,7 @@ public sealed partial class ResticEngine
 
     // ---- the repository ----
 
-    /// <summary>Makes sure the repository exists, as Backrest's AddRepo did
-    /// for a destination it did not know: for a repository this computer has
+    /// <summary>Makes sure the repository exists: for a repository this computer has
     /// not used yet, <c>restic cat config</c> (it exists), and only when restic
     /// says there is no repository (exit code 10), <c>restic init</c>. A
     /// repository this computer knows is not asked again (one restic start and
@@ -408,8 +404,7 @@ public sealed partial class ResticEngine
     /// when it is still there, carries this plan's two labels, and holds these
     /// folders from this computer. Otherwise (none remembered, the previous
     /// backup did not finish, restic could not read it, or it is gone or
-    /// another's) the plan's snapshots are listed and the latest is taken, as
-    /// Backrest did.
+    /// another's) the plan's snapshots are listed and the latest is taken.
     /// </summary>
     internal async Task<(string Id, DateTime When)?> ChooseParentAsync(string restic, string repoId, ResticRepository repository,
         string planId, string sourcePath, bool previousUnfinished, CancellationToken ct, Action<string>? lineSink)
@@ -500,12 +495,10 @@ public sealed partial class ResticEngine
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
     }
 
-    /// <summary>The plan's latest snapshot, as Backrest chose a backup's
-    /// parent: <c>restic snapshots --json --tag plan:&lt;id&gt;,created-by:backspace</c>,
+    /// <summary>The plan's latest snapshot, the backup's parent: <c>restic snapshots --json --tag plan:&lt;id&gt;,created-by:backspace</c>,
     /// sorted by time, the last one of these folders (every snapshot Backspace
     /// made with this plan's label is; a hand-made one may not be). Null for a
-    /// first backup. A list that cannot be read stops the backup, as it did
-    /// Backrest's.</summary>
+    /// first backup. A list that cannot be read stops the backup.</summary>
     private async Task<(string Id, DateTime When)?> LatestPlanSnapshotAsync(string restic, string repoId, ResticRepository repository,
         string planId, string sourcePath, CancellationToken ct, Action<string>? lineSink)
     {
@@ -538,7 +531,7 @@ public sealed partial class ResticEngine
     }
 
     /// <summary>The newest valid snapshot, or null: sorted by time keeping
-    /// restic's order for equal times, the last one (Backrest's choice).</summary>
+    /// restic's order for equal times, the last one.</summary>
     internal static (string Id, DateTime When)? LatestOf(IEnumerable<(string Id, long UnixMs)> snapshots)
     {
         var latest = snapshots.Where(s => IsValidSnapshotId(s.Id)).OrderBy(s => s.UnixMs).LastOrDefault();
@@ -556,7 +549,7 @@ public sealed partial class ResticEngine
 
     private sealed record DirectOutcome(string Status, string DisplayMessage);
 
-    /// <summary>A maintenance command's result in Backrest's words.</summary>
+    /// <summary>A maintenance command's result.</summary>
     private static DirectOutcome Outcome(ResticResult result) =>
         result.Cancelled ? new(TerminalStatus.UserCancelled, "Stopped on request.")
         : result.ExitCode == 0 ? new(TerminalStatus.Success, "")

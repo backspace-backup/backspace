@@ -175,7 +175,7 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
         var finalLabel = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == cards.Cards.Single().LastRunLabel);
 
         Assert.True(finalLabel.Bounds.Height < 50, "The detailed comparison result must not turn the card header into a paragraph.");
-        ctx.Snapshot(main, "passing-recheck-clears-problem", "A new successful full restore comparison clears the problem. The after-backup check path also completed with real Backrest/restic.");
+        ctx.Snapshot(main, "passing-recheck-clears-problem", "A new successful full restore comparison clears the problem. The after-backup check path also completed with real restic.");
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
         var cancelled = Task.Run(() => ServiceLocator.TestRestores.RunScheduledAsync(saved, restoreCheck.RestoreOptions(), cancel.Token));
         for (var n = 0; n < 500 && !ServiceLocator.TestRestores.IsRunning(saved.Id) && !cancelled.IsCompleted; n++) await ctx.Driver.PumpAsync(5);

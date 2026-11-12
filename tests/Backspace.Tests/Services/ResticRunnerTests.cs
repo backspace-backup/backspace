@@ -299,7 +299,7 @@ public sealed class ResticRunnerTests(ITestOutputHelper output)
     /// <summary>restic carries a cloud destination's data through rclone, a
     /// process it starts. A gentle stop lets rclone delete restic's lock for
     /// it, and restic ends rclone as it ends; ending the tree (Force quit)
-    /// ends rclone too. Backrest's plain kill left rclone running. A local
+    /// ends rclone too. A plain kill would leave rclone running. A local
     /// folder served by rclone stands in for the cloud. The gentle case runs
     /// without a bandwidth limit: a throttled upload in progress does not stop
     /// at once, so restic is then ended after the wait and its lock is cleared

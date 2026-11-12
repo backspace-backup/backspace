@@ -8,24 +8,20 @@ namespace Backspace.Services;
 /// Gives each console line its kind (U176). The rules follow the real lines
 /// Backspace writes: its own <c>[setup]</c>, <c>[progress]</c>, <c>[recap]</c>,
 /// <c>[cleanup]</c>, <c>[backspace]</c> and <c>[orchestrator]</c> lines,
-/// Backrest's <c>[backrest] op=… status=…</c> transitions, its leveled
-/// records (<c>[restic] 20:00:03.582Z	debug	…</c>, <c>[tasklog] … warn …</c>),
+/// the restic runner's leveled records (<c>[restic] 20:00:03.582Z	debug	…</c>),
 /// restic's per-file errors (<c>[restic] {"item":…}</c>) and the restore
 /// wizard's lines. A log file's header and outcome blocks are recognised by
 /// <see cref="ConsoleLogParser"/>, which knows where a block starts.
 /// </summary>
 internal static class ConsoleLineClassifier
 {
-    // Backrest's zap records: "[restic] 21:31:49.992Z<TAB>debug<TAB>…".
+    // The restic runner's records: "[restic] 21:31:49.992Z<TAB>debug<TAB>…".
     private static readonly Regex Leveled = new(
         @"^\[[\w-]+\] \d{2}:\d{2}:\d{2}(?:\.\d+)?Z?\s+(?<level>debug|info|warn|error|dpanic|panic|fatal)\s",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
     // Older engine format: "2026-04-30 14:00:00 INFO …".
     private static readonly Regex Dated = new(
         @"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? (?<level>[A-Z]+) ",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-    private static readonly Regex TerminalStatus = new(
-        @"^\[backrest\] op=\d+ status=STATUS_(?<status>[A-Z_]+)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex OnlineOnly = new(
         @"\bonline-only files? skipped\b", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
@@ -66,16 +62,6 @@ internal static class ConsoleLineClassifier
                 "warn" => ConsoleLineKind.Warning,
                 _ => ConsoleLineKind.Error,
             };
-        if (TerminalStatus.Match(text) is { Success: true } op)
-            return op.Groups["status"].Value switch
-            {
-                "PENDING" or "INPROGRESS" => ConsoleLineKind.Detail,
-                "SUCCESS" => ConsoleLineKind.Setup,
-                "WARNING" or "USER_CANCELLED" or "SYSTEM_CANCELLED" => ConsoleLineKind.Warning,
-                _ => ConsoleLineKind.Error,
-            };
-        if (text.StartsWith("[backrest] ", StringComparison.Ordinal))
-            return Trouble.IsMatch(text) ? ConsoleLineKind.Warning : ConsoleLineKind.Plain;
         // restic's own record of a file it could not read.
         if (text.StartsWith("[restic] {", StringComparison.Ordinal))
             return text.Contains("\"message_type\":\"summary\"", StringComparison.Ordinal) ? ConsoleLineKind.Setup : ConsoleLineKind.Warning;
@@ -147,7 +133,7 @@ internal static class ConsoleLineClassifier
     {
         var spans = new List<Span>(3);
         if (kind is ConsoleLineKind.Section or ConsoleLineKind.Blank or ConsoleLineKind.Notice) return spans;
-        // Backrest's own time and level ("[tasklog] 20:05:02.000Z  error") are
+        // The record's time and level ("[restic] 20:05:02.000Z  error") are
         // quiet like the tag: the message after them is what to read.
         var tag = Leveled.Match(text) is { Success: true } leveled ? leveled : Tag.Match(text);
         if (tag.Success) spans.Add(new Span(0, tag.Value.TrimEnd().Length, SpanKind.Tag));
@@ -167,15 +153,15 @@ internal static class ConsoleLineClassifier
     }
 
     /// <summary>A line's message for the error list: without its tag and
-    /// Backrest's time and level, tabs shown as separators.</summary>
+    /// the record's time and level, tabs shown as separators.</summary>
     internal static string Message(string text)
     {
         var m = Leveled.Match(text);
         string message;
         if (m.Success)
         {
-            // Backrest's record: logger, message, fields. "task failed: <the
-            // error field>" says it; the plan's id doesn't.
+            // A leveled record: its message, then any fields; a JSON error
+            // field says what went wrong.
             var fields = text[m.Length..].Split('\t', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var error = fields.Length > 0 && JsonError.Match(fields[^1]) is { Success: true } e
                 ? System.Text.RegularExpressions.Regex.Unescape(e.Groups["e"].Value) : null;

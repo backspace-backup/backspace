@@ -25,7 +25,7 @@ public sealed class RunDetailsTests
         });
         Assert.Equal((Id('b'), at.UtcDateTime), latest);
         Assert.Null(ResticEngine.LatestOf(Array.Empty<(string, long)>()));
-        // Equal times: restic's order decides, the last one (as Backrest's stable sort).
+        // Equal times: restic's order decides, the last one.
         Assert.Equal(Id('d'), ResticEngine.LatestOf(new[] { (Id('c'), 5L), (Id('d'), 5L) })!.Value.Id);
 
         var dest = new Destination { Name = "Local" };

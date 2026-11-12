@@ -68,8 +68,7 @@ restart are requested.
 in readable form must not. rclone keeps cloud tokens in its configuration;
 it is kept in `%LOCALAPPDATA%\Backspace\engine\<16 hex>` (`EngineWorkPaths`)
 and rebuilt there. Repository passwords reach restic only in its environment
-(U175); Backrest, before it, kept every one in its own `config.json`, and
-those old folders are removed at start (`BackrestLeftovers`). A new feature
+(U175). A new feature
 that writes an engine file, scratch file or diagnostic under
 `AppPaths.ConfigRoot` can silently undo this: E63 scans every byte under the
 configuration folder and the engine folder for the storage password after a
@@ -135,8 +134,7 @@ request. Restic writes its lock, index and snapshot files one at a time, so
 batching added about 10 seconds to every backup in October 2026 measurements,
 without making large uploads faster. Each restic command on Dropbox still pays
 several seconds of fixed round trips (starting rclone, reading the key,
-locking). Backrest 1.14.1 ran `restic snapshots` before each backup and again
-afterwards to index it. Since U175 a backup runs restic itself: before it, one
+locking). Before a backup, one
 `restic snapshots --json --no-lock <id>` reads the remembered previous snapshot
 (no lock, no list of the others), nothing runs afterwards, and `restic cat
 config` runs only the first time this computer uses the repository. These extra
@@ -677,11 +675,8 @@ Before 1.1.10, cleanup ran `forget` alone, so storage never shrank.
 Both answers come from Backspace's own records since U175 (maintenance.json,
 `MaintenanceRecords`): a plan whose `lastBackupStartedUtc` is later than its
 `lastBackupFinishedUtc` did not finish, and `lastFullPruneUtc` is written by a
-successful full prune after a backup or on the cleanup schedule. Backrest's
-operation history answered before U175, and each Backrest instance (the
-window's, each service worker's) had its own. The records were not converted: a
-repository with no `lastFullPruneUtc` gets a full prune at its next cleanup
-after a backup.
+successful full prune after a backup or on the cleanup schedule. A repository
+with no `lastFullPruneUtc` gets a full prune at its next cleanup after a backup.
 
 ## Retention: Duplicacy rules on restic (U172)
 

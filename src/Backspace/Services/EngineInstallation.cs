@@ -95,8 +95,7 @@ internal static class EngineInstallation
                 var beside = Path.Combine(AppPaths.ExeDirectory, name);
                 if (Matches(beside, hash) && TryAdopt(beside, target)) continue;
                 // The same file in an earlier set (only another engine
-                // changed, as when Backrest left the set, U175): copied, not
-                // downloaded again.
+                // changed): copied, not downloaded again.
                 if (EarlierCopy(directory, name, hash) is { } earlier && TryAdopt(earlier, target)) continue;
                 progress?.Report($"Downloading the backup engine ({name})…");
                 await FetchAsync(http, manifest, name, hash, target, ct).ConfigureAwait(false);

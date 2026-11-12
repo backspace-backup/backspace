@@ -392,21 +392,17 @@ file and command variables removed, never on the command line or in the
 transcript), each JSON message type, cut and unfinished lines, bounded error
 text, every documented exit code, and stopping: Ctrl+Break that makes a real
 restic remove its lock, the end of the whole tree when a program ignores it,
-and both with rclone in the tree. `DirectBackupTests` (step 1) compares the
-direct command lines with the ones Backrest ran, option for option, and with
-the owner's transcript; maps every backup exit code to the status history
+and both with rclone in the tree. `DirectBackupTests` checks the direct
+command lines option for option, and against the owner's transcript; maps every backup exit code to the status history
 reads; and runs real restic: backups with their
 cleanup and no check inside them (checks are entries of their own, U179), the
 remembered parent (used without a list when restic confirms it;
 missing, another plan's, another folder's, unreadable, none remembered or an
 unfinished previous run fall back to the plan's latest), exit code 3, a wrong
 password, a live lock, a stopped backup and the full prune after it.
-`A_scheduled_backup_never_starts_Backrest` runs `Backspace.exe --run` twice and
-watches every process under it: restic appears, backrest.exe never does, and
-Backrest's old folders are never made. `BackrestLeftoversTests` checks the
-removal of those folders on computers that ran an earlier version: only
-Backrest's names in the engine folder, never a similarly named folder or
-anything through a link. `BackupFixedCostBenchmark` (opt-in:
+`A_scheduled_backup_runs_restic_and_keeps_its_records` runs `Backspace.exe --run`
+twice and watches every process under it (restic appears), then checks the
+history, the remembered parent and the repository. `BackupFixedCostBenchmark` (opt-in:
 `BACKSPACE_FIXED_COST_BENCH=<folder>`, `BACKSPACE_FIXED_COST_BENCH_RUNS`,
 `BACKSPACE_FIXED_COST_BENCH_LABEL`) times unchanged backups end to end and
 splits each into the time before restic's backup starts, the backup and the
@@ -454,8 +450,7 @@ record their binary versions with `scripts/record-engine-versions.ps1` when
 upgrading.
 
 `E48_EngineUpgradeContinuity` creates two encrypted backup versions with
-restic 0.18.1 (the restic bundled with Backrest 1.13.0, with Backspace's
-labels), then continues with the current engine on the same disposable
+restic 0.18.1 (an earlier bundled restic, with Backspace's labels), then continues with the current engine on the same disposable
 repository and nothing remembered: it lists and browses both snapshots,
 restores the oldest, adds a third backup whose parent is the old engine's
 latest snapshot, and compares exact contents across four real restores. It
@@ -600,8 +595,7 @@ the production selection and restore services; it does not click the wizard's
 folder checkbox or establish that every possible filename has been tested.
 
 `E41_NativeRestoreProgress` restores 128 MiB of incompressible data, the
-whole source, with restic run directly and given no selection (Backrest's
-native Restore until U175 step 3, hence the name). The backup's own download
+whole source, with restic run directly and given no selection. The backup's own download
 limit makes intermediate progress observable; the screenshot records a live
 percentage.
 It compares the recovered contents and verifies that cancelling a second restore
@@ -853,7 +847,7 @@ older scenario comments that describe broader coverage.
 | Require-network → run skips when offline | Actual unregistered Windows task network setting both on/off; no machine connectivity change or registered-task execution | ⛔ OS acceptance |
 | Metered-network watchdog stops mid-run | `RuntimeGuardCoverageTests`: actual backup/prune/check orchestration, injected metered signal after first cell starts, cancellation/persistence and opt-out negatives. `WindowsMeteredNetworkProbeTests` reads the real Windows network cost API (every connected profile must parse to a valid cost type) and checks that the change subscription is released when the watchdog stops. A real metered connection is not exercised automatically | ✅ injected signal + real API read |
 | Catch-up missed runs after sleep | `BackupSchedulerTests` with a fake clock, catch-up on and off and across restarts; no real sleep/resume or reboot | ⛔ OS acceptance |
-| Headless `--run <name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): existing option-shaped name `-h`, real snapshot and both files verified by SHA-256; missing backup exits 2. `DirectBackupTests.A_scheduled_backup_never_starts_Backrest`: two runs with cleanup and check, no backrest.exe under Backspace (U175) | ✅ isolated local repository |
+| Headless `--run <name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): existing option-shaped name `-h`, real snapshot and both files verified by SHA-256; missing backup exits 2. `DirectBackupTests.A_scheduled_backup_runs_restic_and_keeps_its_records`: two runs with cleanup, restic under Backspace | ✅ isolated local repository |
 | Headless `--run-all` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): both enabled/unpaused backups run; paused and disabled repositories remain untouched | ✅ isolated local repositories |
 | Schedule fires at the configured time | `BackupSchedulerTests` and `RuntimeGuardCoverageTests`: daily, hourly, weekly and monthly next times, per-kind runs and conditions with a fake clock; real timing is the VM's check | ⛔ OS acceptance |
 

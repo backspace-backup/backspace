@@ -107,9 +107,6 @@ internal static class ServiceApprovedWorker
         Environment.SetEnvironmentVariable("BACKSPACE_NO_UPDATE_CHECK", "1");
         Environment.CurrentDirectory = binding.DataDirectory;
         HasVerifiedVssIdentity = true;
-        // Each worker runs its own restic (U175); Backrest's old folders,
-        // with their readable repository passwords, go.
-        BackrestLeftovers.Remove();
         try
         {
             ServiceLocator.InitializeCore(vault, new WorkerScheduler());

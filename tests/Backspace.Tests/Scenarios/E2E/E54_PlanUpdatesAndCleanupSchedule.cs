@@ -51,7 +51,7 @@ public sealed class E54_PlanUpdatesAndCleanupSchedule(ITestOutputHelper output) 
         await BackUp();
         await BackUp();
         Assert.Equal(2, (await Snapshots()).Count);
-        ctx.Report.RecordNote("Independent cleanup does not run during backup", "With retention set to keep one and cleanup scheduled separately, two real backups kept both snapshots. Previously Backrest removed the older one during the second backup.");
+        ctx.Report.RecordNote("Independent cleanup does not run during backup", "With retention set to keep one and cleanup scheduled separately, two real backups kept both snapshots.");
 
         backup.FiltersText = "excluded.txt";
         backup.KeepPolicy = "2";

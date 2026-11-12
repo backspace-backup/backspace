@@ -157,7 +157,7 @@
          managed .dll just buries them in a place the runtime can't
          execute. -->
     <AvaloniaResource Include="Assets\**"
-                      Exclude="Assets\backrest;Assets\backrest.exe;Assets\restic;Assets\restic.exe;Assets\rclone;Assets\rclone.exe"/>
+                      Exclude="Assets\restic;Assets\restic.exe;Assets\rclone;Assets\rclone.exe"/>
   </ItemGroup>
 
   <!-- U100: the SHA-256 of each Windows engine, built into Backspace.exe.

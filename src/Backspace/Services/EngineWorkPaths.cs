@@ -15,8 +15,7 @@ namespace Backspace.Services;
 /// <c>%LOCALAPPDATA%\Backspace\engine\&lt;16 hex of SHA-256 of the upper-case
 /// configuration folder&gt;</c>: the generated rclone remotes, the exclude
 /// files, the mounted drive's cache and the background service's scratch
-/// folder. (Backrest's folders, which held repository passwords, are removed
-/// since U175: <see cref="BackrestLeftovers"/>.)
+/// folder.
 /// The per-computer copies of the vault key sit in
 /// <c>%LOCALAPPDATA%\Backspace\keys</c>.</para>
 ///

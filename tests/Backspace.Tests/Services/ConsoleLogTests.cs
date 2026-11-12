@@ -23,7 +23,7 @@ public sealed class ConsoleLogTests
         "[setup] 259 exclusion rules loaded; files kept only in the cloud are skipped.",
         "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive.",
         "[orchestrator] attempt 1 starting at 2026-11-10T06:00:00.5737522Z",
-        "[backrest] op=80 status=STATUS_SUCCESS",
+        "[restic] 20:10:02.120Z\tinfo\trepository opened",
         $"[tasklog] 20:10:03.139Z\tinfo\tbackup for plan {Plan}\tbackup complete\t{{\"plan\": {Plan}}}",
         $"[tasklog] 20:10:03.141Z\tinfo\tbackup for plan {Plan}\ttask finished\t{{\"duration\": 599.5595433}}",
     };
@@ -47,8 +47,8 @@ public sealed class ConsoleLogTests
 
     public static TheoryData<string> WarningLines => new()
     {
-        "[backrest] op=4 status=STATUS_WARNING Partial backup, some files may not have been read completely.",
-        "[backrest] op=9 status=STATUS_USER_CANCELLED",
+        "[restic] 20:10:02.120Z\twarn\tbackup finished: exit code 3 (some source data could not be read) after 12.0 s",
+        "[restic] 20:10:02.120Z\twarn\tbackup stopped on request after 4.4 s: restic ended by itself (exit code 130)",
         "[restic] {\"item\":\"C:\\\\Users\\\\sam\\\\Apps\\\\Phone\\\\calls.xml\",\"during\":\"archival\",\"message\":\"C:\\\\Users\\\\sam\\\\Apps\\\\Phone\\\\calls.xml: unsupported file type \\\"irregular\\\"\"}",
         $"[tasklog] 00:34:35.623Z\twarn\tbackup for plan {Plan}\terror processing item\t{{\"item\": \"C:\\\\Users\\\\sam\\\\Apps\\\\Phone\\\\sms.xml\"}}",
         "[orchestrator] Files that other apps had open may have been skipped, because your latest changes weren't applied to the background service yet. Open Settings → Administrator access and choose Try again to include them.",
@@ -58,7 +58,6 @@ public sealed class ConsoleLogTests
         "[backspace] Cleanup waits: a snapshot is mounted as drive S:. It runs after a later backup, once the drive is unmounted and restores have finished.",
         "[backspace] The list of changed files is incomplete: restic stopped with code 1.",
         "[backspace] The retention policy could not be read, so no backup was removed: bad JSON",
-        "[backrest] The full operation log could not be retrieved. Structured file errors above are retained.",
         "[skip] no snapshots at this destination for C:\\Users\\sam\\Documents",
         "2026-04-30 14:00:02 WARN CHUNK_RETRY retrying upload",
     };
@@ -68,7 +67,7 @@ public sealed class ConsoleLogTests
         "[orchestrator] attempt 1 failed: Backup result: STATUS_ERROR. repository does not exist",
         "[orchestrator] non-retriable failure: Fatal: unable to open config file: stat C:\\backup\\config: The system cannot find the file specified.",
         "[orchestrator] transient retry budget exhausted: dial tcp: i/o timeout",
-        "[backrest] op=12 status=STATUS_ERROR repository does not exist",
+        "[restic] 06:01:02.000Z\terror\tsnapshots finished: exit code 10 (no repository at this address) after 0.6 s",
         $"[tasklog] 06:01:02.000Z\terror\tbackup for plan {Plan}\ttask failed\t{{\"error\": \"exit status 1\"}}",
         "[restore] error: access denied",
         "[restore] failed: the destination is offline",
@@ -85,8 +84,7 @@ public sealed class ConsoleLogTests
         "[restic] 20:04:46.637Z\tdebug\trclone: 2026/11/09 20:04:46 ERROR : data/ba/ba2a25: Post request put error: googleapi: Error 500",
         "[repo-manager] 20:00:03.582Z\tdebug\trepo orchestrator starting backup\t{\"repo\": \"952aab70-target-952aab70\"}",
         "[restic] 00:34:34.743Z\tdebug\t[]",
-        "[backrest] op=77 status=STATUS_INPROGRESS",
-        "[backrest] op=4 status=STATUS_PENDING",
+        "[restic] 20:04:46.637Z\tdebug\tcheck snapshots, trees and blobs",
         "2026-04-30 14:00:01 DEBUG LIST_FILES listing",
     };
 
@@ -159,7 +157,7 @@ public sealed class ConsoleLogTests
         Assert.Equal(DateTimeKind.Utc, parsed.Kind);
         Assert.Equal("[setup] Shadow copy on", rest);
         Assert.Equal("[setup] Shadow copy on", LogLineStamp.Strip(stamped));
-        // Not stamps: the older engine's dated lines, Backrest's times, plain text.
+        // Not stamps: the older engine's dated lines, restic records' times, plain text.
         foreach (var line in new[] { "2026-04-30 14:00:00 INFO RUN_START", "[restic] 20:04:46.637Z\tdebug\tx", "short", "" })
         {
             Assert.False(LogLineStamp.TryParse(line, out _, out var same));
@@ -173,7 +171,7 @@ public sealed class ConsoleLogTests
     {
         var utc = DateTime.UtcNow;
         Assert.True(VerboseLogFilter.IsDetailLine(LogLineStamp.Stamp("[restic] 20:04:46.637Z\tdebug\tx", utc)));
-        Assert.True(VerboseLogFilter.IsDetailLine(LogLineStamp.Stamp("[backrest] op=77 status=STATUS_INPROGRESS", utc)));
+        Assert.True(VerboseLogFilter.IsDetailLine(LogLineStamp.Stamp("[restic] 20:04:46.637Z\tdebug\tcommand: restic backup", utc)));
         Assert.False(VerboseLogFilter.IsDetailLine(LogLineStamp.Stamp("[recap] Backup complete", utc)));
     }
 
@@ -274,7 +272,7 @@ public sealed class ConsoleLogTests
     public void A_message_over_several_lines_keeps_its_colour_up_to_a_blank_line()
     {
         var lines = ConsoleLogParser.ParseText(string.Join("\n",
-            "[backrest] op=2 status=STATUS_USER_CANCELLED failed to backup: command failed",
+            "[restic] 20:05:02.000Z\twarn\tbackup stopped on request after 4.4 s: failed to backup: command failed",
             "output processing: no summary event found",
             "",
             "Snapshot saved."));
@@ -336,7 +334,7 @@ public sealed class ConsoleLogTests
             "[section] Documents · backup\tUSB drive", "[setup] Shadow copy off", "[recap] Backup complete",
             "[section] Documents · cleanup\tUSB drive", "[cleanup] Nothing to remove",
             "[section] Photos · backup\tNAS", "[progress] 1.0% · Backing up",
-            "[section] Photos · check\tNAS", "[backrest] op=5 status=STATUS_SUCCESS",
+            "[section] Photos · check\tNAS", "[restic] 20:05:02.000Z\tinfo\trepository opened",
         }.Select(l => parser.Feed(l, now)).ToList();
         Assert.All(shown, Assert.NotNull);
         Assert.Equal(new[] { "Documents · backup", "Documents · cleanup", "Photos · backup", "Photos · check" },
@@ -363,7 +361,7 @@ public sealed class ConsoleLogTests
             .Select(s => setup.Substring(s.Start, s.Length)).ToList();
         Assert.Equal(new[] { "C:\\Users\\sam\\calls.xml", "\\\\nas\\share\\photos" }, paths);
 
-        // Backrest's own time and level are quiet with the tag.
+        // A record's time and level are quiet with the tag.
         var record = "[tasklog] 20:05:02.000Z\terror\tbackup for plan \"p\"\ttask failed";
         var quiet = Assert.Single(ConsoleLineClassifier.Spans(record, ConsoleLineKind.Error));
         Assert.Equal("[tasklog] 20:05:02.000Z\terror", record.Substring(quiet.Start, quiet.Length));
@@ -378,7 +376,7 @@ public sealed class ConsoleLogTests
     {
         Assert.Equal("attempt 1 failed: repository does not exist",
             ConsoleLineClassifier.Message("[orchestrator] attempt 1 failed: repository does not exist"));
-        // Backrest's record: what failed and its error field, not the plan id.
+        // A leveled record: what failed and its error field, not the plan id.
         Assert.Equal("task failed: Fatal: unable to save snapshot: \"no space\"",
             ConsoleLineClassifier.Message("[tasklog] 06:01:02.000Z\terror\tbackup for plan \"p\"\ttask failed\t{\"error\": \"Fatal: unable to save snapshot: \\\"no space\\\"\"}"));
         Assert.Equal("backup for plan \"p\" · error processing item · {\"item\": \"C:\\x\"}",

@@ -20,7 +20,7 @@ internal sealed record ResticRepository(string Uri, string Password, IReadOnlyLi
 
 /// <summary>One restic command. Its command line is
 /// <c>restic &lt;Arguments&gt; &lt;repository options&gt; -o sftp.args=-oBatchMode=yes &lt;Trailing&gt;</c>:
-/// the order Backrest used, so new command lines read like the old ones.</summary>
+/// always in this order.</summary>
 internal sealed record ResticCommand(string Binary, ResticRepository Repository, IReadOnlyList<string> Arguments,
     IReadOnlyList<string>? Trailing = null)
 {
@@ -68,8 +68,7 @@ internal sealed record ResticResult(int ExitCode, bool Cancelled, ResticStop Sto
 }
 
 /// <summary>
-/// Runs restic itself (U175, step 0), in place of the Backrest daemon that
-/// ran it before. Grown from <see cref="StreamingRestoreProcess"/>:
+/// Runs restic itself (U175). Grown from <see cref="StreamingRestoreProcess"/>:
 /// <list type="bullet">
 /// <item>The password goes only in restic's environment, never on its command
 /// line; an inherited password file, password command or repository file is
@@ -516,9 +515,8 @@ internal static class ResticRunner
                         else _droppedErrorCharacters += shown.Length;
                     }
                 }
-                // The log: restic's JSON errors as they are (shown, like the
-                // file errors Backrest kept), its plain output as detail
-                // (shown with Verbose, as Backrest's command logs were); the
+                // The log: restic's JSON errors as they are (shown), its plain
+                // output as detail (shown with Verbose); the
                 // line that says how it ended carries the reason.
                 if (standardError)
                 {

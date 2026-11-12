@@ -12,13 +12,12 @@ using Xunit;
 namespace Backspace.Tests.Scenarios.E2E;
 
 /// <summary>
-/// U125 (4 November 2026): "make sure that restic and backrest and rclone
+/// U125 (4 November 2026): "make sure that restic and rclone
 /// processes are no longer running once all backups are done (otherwise they
 /// can use a lot of RAM for nothing)". The open app kept its engine running
 /// for as long as it was open. Since U175 there is no engine to keep running:
 /// backups, browsing and restores run restic directly, and nothing of them is
-/// left running once they are done. (The name is from when Backrest, the
-/// engine then, was stopped once idle.)
+/// left running once they are done.
 /// </summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
@@ -80,8 +79,7 @@ public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
             Assert.Contains(live, l => l.Contains("\tdebug\tcommand: ", StringComparison.Ordinal) && l.Contains(" backup --json ", StringComparison.Ordinal));
             Assert.Empty(Children(self, "restic"));
             Assert.Empty(Children(self, "rclone"));
-            Assert.Empty(Children(self, "backrest"));
-            ctx.Report.RecordNote("Nothing left after a backup", "The backup ran restic directly; no restic, rclone or Backrest was left running.");
+            ctx.Report.RecordNote("Nothing left after a backup", "The backup ran restic directly; no restic or rclone was left running.");
 
             // Browsing and restoring run restic directly too: nothing left running.
             var revisions = await ServiceLocator.Revisions.ListRevisionsAsync(backup, source, destination, "default", CancellationToken.None);
@@ -95,8 +93,7 @@ public sealed class E61_EngineStopsWhenIdle : BackupE2EBase
             Assert.Equal(System.IO.File.ReadAllBytes(System.IO.Path.Combine(source, picked)), System.IO.File.ReadAllBytes(System.IO.Path.Combine(target, picked)));
             Assert.Empty(Children(self, "restic"));
             Assert.Empty(Children(self, "rclone"));
-            Assert.Empty(Children(self, "backrest"));
-            ctx.Report.RecordNote("Nothing left after browsing and a restore", $"Listing the snapshots ({revisions.Count}) and files ({files.Count}) and restoring {picked} ran restic directly; no restic, rclone or Backrest was left running.");
+            ctx.Report.RecordNote("Nothing left after browsing and a restore", $"Listing the snapshots ({revisions.Count}) and files ({files.Count}) and restoring {picked} ran restic directly; no restic or rclone was left running.");
 
             // The next backup leaves nothing either.
             System.IO.File.WriteAllText(System.IO.Path.Combine(source, "after-idle.txt"), "second run");

@@ -71,7 +71,7 @@ public sealed class S96_LogConsole : ScenarioBase
         yield return (1, $"[setup] Previous backup to «{dest}»: 2026-11-08 20:00, snapshot 7ee22f0f. Only changes are sent.");
         yield return (1, "[setup] 259 exclusion rules loaded; files kept only in the cloud are skipped.");
         yield return (1, "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive.");
-        yield return (2, "[backrest] op=77 status=STATUS_INPROGRESS");
+        yield return (2, "[restic] 20:00:02.000Z\tdebug\tcommand: restic backup --json C:\\Users\\sam");
         yield return (3, "[repo-manager] 20:00:03.582Z\tdebug\trepo orchestrator starting backup\t{\"repo\": \"952aab70-target-952aab70\"}");
         yield return (3, "[restic] 20:00:03.582Z\tdebug\tcommand: \"restic.exe backup --json C:\\ --exclude-caches\"");
         var files = 0;
@@ -94,12 +94,12 @@ public sealed class S96_LogConsole : ScenarioBase
         yield return (580, "[backspace] 1 online-only file skipped: kept only in the cloud, not downloaded and not in this backup");
         yield return (580, "[backspace] Finishing snapshot history");
         yield return (590, $"[section] local_c · cleanup\t{dest}");
-        yield return (590, "[backrest] op=80 status=STATUS_INPROGRESS");
-        yield return (600, "[backrest] op=80 status=STATUS_SUCCESS");
+        yield return (590, "[restic] 20:09:50.000Z\tdebug\tcommand: restic forget --prune");
+        yield return (600, "[restic] 20:10:00.000Z\tinfo\trepository opened");
         yield return (600, "[cleanup] Nothing to remove: the keep rules keep every backup.");
         yield return (601, $"[section] local_c · check\t{dest}");
         yield return (601, "[backspace] Data check targets 524,288,000 bytes per repository; whole-pack sampling, metadata and retries can change actual traffic.");
-        yield return (630, "[backrest] op=81 status=STATUS_SUCCESS");
+        yield return (630, "[restic] 20:10:30.000Z\tinfo\trepository checked");
     }
 
     private static IEnumerable<(int, string)> FailedLines(string dest)
@@ -113,7 +113,7 @@ public sealed class S96_LogConsole : ScenarioBase
         yield return (300, "[restic] {\"item\":\"C:\\\\Users\\\\sam\\\\Apps\\\\Phone\\\\calls.xml\",\"during\":\"archival\",\"message\":\"C:\\\\Users\\\\sam\\\\Apps\\\\Phone\\\\calls.xml: unsupported file type \\\"irregular\\\"\"}");
         yield return (301, "[tasklog] 20:05:01.000Z\twarn\tbackup for plan \"local_c-target\"\terror processing item\t{\"item\": \"C:\\\\Users\\\\sam\\\\Apps\\\\Phone\\\\sms.xml\"}");
         yield return (302, "[tasklog] 20:05:02.000Z\terror\tbackup for plan \"local_c-target\"\ttask failed\t{\"error\": \"Fatal: unable to save snapshot: no space left on device\"}");
-        yield return (302, "[backrest] op=4 status=STATUS_ERROR Fatal: unable to save snapshot: no space left on device");
+        yield return (302, "[restic] 06:05:02.000Z\terror\tbackup finished: exit code 1 (failed) after 5 min: Fatal: unable to save snapshot: no space left on device");
         yield return (303, "[orchestrator] attempt 1 failed: Backup result: STATUS_ERROR. Fatal: unable to save snapshot: no space left on device");
         yield return (303, "[orchestrator] non-retriable failure: the destination drive is full");
         for (var i = 0; i < 25; i++)
@@ -127,7 +127,7 @@ public sealed class S96_LogConsole : ScenarioBase
         yield return (0, "[orchestrator] Files that other apps had open may have been skipped, because your latest changes weren't applied to the background service yet. Open Settings → Administrator access and choose Try again to include them.");
         yield return (1, "[setup] No earlier backup of this folder in «USB drive (E:)»: everything is read and sent.");
         yield return (1, "[setup] Shadow copy off: files another program keeps locked may be skipped.");
-        yield return (6, "[backrest] op=4 status=STATUS_WARNING Partial backup, some files may not have been read completely.");
+        yield return (6, "[restic] 20:00:06.000Z\twarn\tbackup finished: exit code 3 (some source data could not be read) after 6.0 s");
         foreach (var name in new[] { "calls.xml", "calls.xsl", "sms.xml", "sms.xsl" })
             yield return (6, "[restic] {\"item\":\"C:\\\\Users\\\\sam\\\\Apps\\\\Phone\\\\" + name + "\",\"during\":\"archival\",\"message\":\"C:\\\\Users\\\\sam\\\\Apps\\\\Phone\\\\" + name + ": unsupported file type \\\"irregular\\\"\"}");
         yield return (7, "[recap] Backup complete: 1 files (178 B) checked · 1 new, 0 changed, 0 unchanged · 7.6 KB added to the storage · took 0m 00s · snapshot 446aecc3");
@@ -227,7 +227,7 @@ public sealed class S96_LogConsole : ScenarioBase
             // Colours come from the theme's dark-variant status tokens.
             Assert.Equal(DarkBrush("BS.Brush.AccentTintFg"), Row(l => l.Text.StartsWith("[recap]")).TextBlock.Foreground);
             Assert.Equal(DarkBrush("BS.Brush.AccentTintFg"), Row(l => l.Text.Contains("online-only")).TextBlock.Foreground);
-            Assert.Equal(DarkBrush("BS.Brush.FgDim"), Row(l => l.Text.StartsWith("[backrest] op=80 status=STATUS_SUCCESS")).TextBlock.Foreground);
+            Assert.Equal(DarkBrush("BS.Brush.FgDim"), Row(l => l.Text.Contains("\tinfo\trepository opened")).TextBlock.Foreground);
 
             scroll.Offset = new Vector(0, 0);
             await ctx.Driver.PumpAsync(150);
@@ -338,7 +338,7 @@ public sealed class S96_LogConsole : ScenarioBase
             await ctx.Driver.PumpAsync(150);
             Assert.Equal(DarkBrush("BS.Brush.FgDim"), Row(l => l.Kind == ConsoleLineKind.Detail).TextBlock.Foreground);
             ctx.Snapshot(host, "verbose on",
-                "Verbose ticked: Backrest's state polls (STATUS_INPROGRESS) and debug records appear, dim, between the setup and progress lines.");
+                "Verbose ticked: restic's command lines and debug records appear, dim, between the setup and progress lines.");
             Click(host, view.FindControl<CheckBox>("VerboseLog")!);
             Assert.True(ctx.Driver.WaitFor(() => !vm.DisplayLines.Any(l => l.IsDetail)));
 
@@ -375,7 +375,7 @@ public sealed class S96_LogConsole : ScenarioBase
             Assert.False(errorList.IsEffectivelyVisible);
             Assert.All(Rows().Where(r => r.Line!.Text.StartsWith("[restic] {")), r => Assert.Equal(DarkBrush("BS.Brush.Warn"), r.TextBlock.Foreground));
             ctx.Snapshot(host, "warning run",
-                "A run with warnings: restic's unreadable files and Backrest's STATUS_WARNING in amber, the outcome 'Warning' amber, no error list; the recap below them in the accent blue, semibold.");
+                "A run with warnings: restic's unreadable files and its exit code 3 in amber, the outcome 'Warning' amber, no error list; the recap below them in the accent blue, semibold.");
 
             // The recap stands out by weight as well as colour, and no accent's
             // console tint is the warning or error colour (Terracotta's is

@@ -15,7 +15,7 @@ namespace Backspace.Tests.Services;
 
 /// <summary>
 /// U175 step 3: snapshot lists, folder listings, the mounted drive's reads and
-/// every restore run restic directly. Real restic, a real repository. What Backrest's path guaranteed still holds: newest first,
+/// every restore run restic directly. Real restic, a real repository. It guarantees: newest first,
 /// source-relative paths, only the requested files promoted, an original kept
 /// through an error or a cancel, and nothing restored is an error.
 /// </summary>
@@ -64,7 +64,7 @@ public sealed class DirectReadAndRestoreTests(ITestOutputHelper output)
         Assert.Equal(new[] { second, first }, snapshots.Select(s => s.SnapshotId));
         Assert.Equal(new[] { 2, 1 }, snapshots.Select(s => s.Number));
         Assert.Equal(new[] { 5, 4 }, snapshots.Select(s => s.FileCount));
-        // Backrest's list of a plan's snapshots, without a lock.
+        // A plan's snapshots, without a lock.
         var listing = Assert.Single(rig.Commands);
         Assert.True(IsList(listing));
         Assert.Equal(new[] { "--tag", $"plan:{rig.PlanId},created-by:backspace" }, listing.Command.Trailing!);

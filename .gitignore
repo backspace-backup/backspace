@@ -59,10 +59,7 @@ desktop.ini
 .claude/scheduled_tasks.lock
 
 ## Engine binaries (copied beside the app at build time, fetched by
-## FetchEngines.targets — too large to commit, change with upstream;
-## backrest is listed for checkouts that still hold the old one)
-src/Backspace/Assets/backrest
-src/Backspace/Assets/backrest.exe
+## FetchEngines.targets — too large to commit, change with upstream)
 src/Backspace/Assets/restic
 src/Backspace/Assets/restic.exe
 src/Backspace/Assets/rclone

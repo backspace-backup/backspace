@@ -23,7 +23,7 @@ namespace Backspace.Tests.Services;
 /// their own since U179; the check inside a backup is not timed). Each run's
 /// own log gives the time before restic's backup starts, restic's backup, and
 /// the time from its end to the next step. Also times starting and stopping
-/// the Backrest daemon, which each background-service run did once.
+/// a separate engine program, which each background-service run did once.
 /// Set BACKSPACE_FIXED_COST_BENCH to a folder (outside any synced folder) for
 /// the fixture and results.txt; BACKSPACE_FIXED_COST_BENCH_RUNS (default 8)
 /// and BACKSPACE_FIXED_COST_BENCH_LABEL are optional. Skipped otherwise.
@@ -106,7 +106,7 @@ public sealed class BackupFixedCostBenchmark(ITestOutputHelper output)
     private static readonly Regex BackupEnd = new(@"\s(?:debug|info|warn|error)\s+backup (?:completed|finished)", RegexOptions.CultureInvariant);
 
     /// <summary>Seconds of each part of a run, from its log: the engine's
-    /// own lines carry the time they happened (Backrest wrote local time
+    /// own lines carry the time they happened (an older engine wrote local time
     /// marked "Z"; the offset is found from the log's UTC header).</summary>
     internal static (double? Cell, double? Before, double? Restic, double? After, double? Maintenance) Phases(string? log)
     {
@@ -131,7 +131,7 @@ public sealed class BackupFixedCostBenchmark(ITestOutputHelper output)
         var endIndex = Array.FindIndex(lines, l => BackupEnd.IsMatch(l));
         if (commandIndex < 0 || endIndex < 0 || InnerOf(lines[commandIndex]) is not { } commandTime || InnerOf(lines[endIndex]) is not { } endTime)
             return ((end - start)!.Value.TotalSeconds, null, null, null, null);
-        // Backrest's clock was local time labelled Z: find the whole half-hours.
+        // An older clock was local time labelled Z: find the whole half-hours.
         var offset = TimeSpan.FromMinutes(Math.Round((commandTime - start.Value.TimeOfDay).TotalMinutes / 30) * 30);
         DateTime At(TimeSpan inner)
         {

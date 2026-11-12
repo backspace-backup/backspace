@@ -91,7 +91,6 @@ public sealed class WindowsUpdateTests
     [InlineData("C:/Backspace.exe")]
     [InlineData("Backspace.exe:secret")]
     [InlineData("unrelated.exe")]
-    [InlineData("backrest.exe")] // no longer one of Backspace's engines (U175)
     public void Unsafe_archive_paths_are_rejected_without_changing_the_installation(string entry)
     {
         using var ws = new TempWorkspace();

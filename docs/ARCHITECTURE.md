@@ -41,12 +41,7 @@ a backup needs.
 Backspace runs restic (and, for cloud destinations, rclone) as its own child
 processes: no daemon, no local port, no sign-in, no engine settings file. The
 repository password reaches restic only in its environment while it runs
-(below). Earlier versions ran a Backrest daemon on a loopback port for all of
-this; U175 removed it. Its old working folders, which held a readable copy of
-every repository password, are deleted when the window or a service worker
-starts (`BackrestLeftovers`: `backrest`, `backrest-1` to `backrest-7`, their
-`worker-slot-N.lock` files and `engine-runs`, only directly inside this
-configuration's engine folder, never through a link).
+(below).
 
 ## Backups, checks and restores run restic directly (U175)
 
@@ -56,22 +51,19 @@ schedule or by the background service's worker. So do checks (entries of their o
 their schedule through `RunCheckOnlyAsync`), the stand-alone cleanup and the
 erase tools (`ResticEngine.Maintenance.cs`), snapshot lists, folder
 listings, the mounted drive's reads and every restore
-(`ResticEngine.cs`, below). The class keeps its name from the Backrest
-engine it replaced. Each restic command goes through `ResticRunner`:
+(`ResticEngine.cs`, below). Each restic command goes through `ResticRunner`:
 
 - The password reaches restic only in its environment (`RESTIC_PASSWORD`);
   inherited `RESTIC_PASSWORD_FILE`, `RESTIC_PASSWORD_COMMAND` and
   `RESTIC_REPOSITORY_FILE` are removed so no other source can win. The
   bundled engine folder comes first on `PATH`, for rclone.
-- The command lines are Backrest's, option for option, so repositories,
-  snapshots, their labels and the run history carry on unchanged:
-  `backup --json <folder>`, the repository's options,
+- The command lines: `backup --json <folder>`, the repository's options,
   `-o sftp.args=-oBatchMode=yes`, `--exclude-caches`, `--tag plan:<id>`,
   `--tag created-by:backspace`, `--parent <id>`, then the backup's own options
-  and its exclude file. `DirectBackupTests` compares them with Backrest's.
+  and its exclude file. `DirectBackupTests` checks them option for option.
 - restic's JSON messages (`status`, `summary`, `error`, `verbose_status`, and
   `exit_error` on its error output) drive the live progress, the recap and the
-  run summary, which keeps Backrest's words (`Backup result: STATUS_…`, read by
+  run summary, which says how it ended (`Backup result: STATUS_…`, read by
   the history and `WasStoppedOnRequest`). Exit codes: 0 done; 3 a backup saved
   without some files restic could not read (a warning); 10 no repository;
   11 locked: one `restic unlock` (stale locks only, never `--remove-all`) and
@@ -104,7 +96,7 @@ engine it replaced. Each restic command goes through `ResticRunner`:
   remembered, the previous backup did not finish, restic could not read it, or
   it is another backup's) the plan's snapshots are listed
   (`snapshots --json --tag plan:<id>,created-by:backspace`) and the latest of
-  this folder is taken, as Backrest did.
+  this folder is taken.
 - The cleanup after a backup is `forget --tag plan:<id>,created-by:backspace
   <keep options> --prune`, or `forget` then a full `prune` when the plan's
   previous backup did not finish or the repository has had no full prune for
@@ -122,8 +114,7 @@ engine it replaced. Each restic command goes through `ResticRunner`:
   is `restore <id>:/<source> --target <staging>`, its selection in an include
   file (none for the whole source). The snapshot and paths follow `--`.
 
-The file maintenance.json in the configuration folder holds what Backrest's
-operation history told before: per repository `lastFullPruneUtc`, per plan
+The file maintenance.json in the configuration folder holds, per repository, `lastFullPruneUtc`, per plan
 `lastBackupStartedUtc`, `lastBackupFinishedUtc` and `lastSnapshotId`. The app
 writes `Backspace.config\maintenance.json`, the service
 `Backspace.config\service\maintenance.json`, and both read both. Nothing was
@@ -520,10 +511,10 @@ service (administrator access), the sign-in start entry, and the WinFsp driver.
 - `<exe-dir>/Backspace.config/vault.bin` — the saved credentials (storage passwords, cloud sign-ins, API keys), one file for the app and the background service. See "Saved passwords (the vault)" below.
 - `<exe-dir>/Backspace.config/pending-removals.json` — removed backups whose stored copies are still to be erased; absent when nothing is waiting
 - `<exe-dir>/Backspace.config/maintenance.json` (and the service's `Backspace.config/service/maintenance.json`) — Backspace's own maintenance records (`MaintenanceRecords`, U175): each repository's last full prune, each plan's last backup start and finish and the snapshot it made (the next backup's parent once restic confirms it). See "Backups run restic directly".
-- `%LOCALAPPDATA%/Backspace/engine/<16 hex of SHA-256 of the upper-case configuration folder>/` — this computer's engine working files (`EngineWorkPaths`): `rclone-remotes/` (one generated remote per cloud destination, with its token), `rclone.conf`, `filters/<plan id>.txt` (each plan's exclude file: the backup's Filters text, written unchanged before every use of the plan, U151), repositories.json (the repositories this computer has opened or created for a backup, so the next backup skips `restic cat config`, U175), `mount-cache/<backup id>/` (the mounted drive's copies of files read so far) and, for the background service, `scratch/`. Never in the synced folder; rebuilt from the settings and the vault when missing. (Backrest's `backrest/`, `backrest-N/` and `engine-runs/` folders from before U175 are removed at start, above.) The service's folder is named after `Backspace.config\service`. `BACKSPACE_MACHINE_ROOT` overrides `%LOCALAPPDATA%\Backspace` (tests; the service sets it to the owner's folder); a test configuration outside an executable's folder without it uses `<config>\engine`.
+- `%LOCALAPPDATA%/Backspace/engine/<16 hex of SHA-256 of the upper-case configuration folder>/` — this computer's engine working files (`EngineWorkPaths`): `rclone-remotes/` (one generated remote per cloud destination, with its token), `rclone.conf`, `filters/<plan id>.txt` (each plan's exclude file: the backup's Filters text, written unchanged before every use of the plan, U151), repositories.json (the repositories this computer has opened or created for a backup, so the next backup skips `restic cat config`, U175), `mount-cache/<backup id>/` (the mounted drive's copies of files read so far) and, for the background service, `scratch/`. Never in the synced folder; rebuilt from the settings and the vault when missing. The service's folder is named after `Backspace.config\service`. `BACKSPACE_MACHINE_ROOT` overrides `%LOCALAPPDATA%\Backspace` (tests; the service sets it to the owner's folder); a test configuration outside an executable's folder without it uses `<config>\engine`.
 - `<exe-dir>/Backspace.config/test-restores/` — saved test-restore plans, completed batch results and sample history. Temporary recovered files live separately under `verify/`.
 - `<exe-dir>/Backspace.config/logs/app/` — Serilog daily-rolling Backspace logs
-- `<exe-dir>/Backspace.config/logs/engine/<backup-name>/` — per-run engine transcripts (restic's output, written by `ResticRunner`, U175; older transcripts keep Backrest's `[backrest]`, `[repo-manager]` and `[tasklog]` lines, which the log view still reads). Each engine line starts with the UTC time it was written (`LogLineStamp`, `2026-11-10T06:00:00.569Z [setup] ...`), and `[section] <backup> · backup|check|cleanup` lines mark where each part starts (`LogSection`, U176). Activity & logs parses them with `ConsoleLogParser` and `ConsoleLineClassifier` into coloured rows of a virtualizing list; lines without a stamp (older logs, restore logs) show no time.
+- `<exe-dir>/Backspace.config/logs/engine/<backup-name>/` — per-run engine transcripts (restic's output, written by `ResticRunner`). Each engine line starts with the UTC time it was written (`LogLineStamp`, `2026-11-10T06:00:00.569Z [setup] ...`), and `[section] <backup> · backup|check|cleanup` lines mark where each part starts (`LogSection`, U176). Activity & logs parses them with `ConsoleLogParser` and `ConsoleLineClassifier` into coloured rows of a virtualizing list; lines without a stamp (older logs, restore logs) show no time.
 - `%LOCALAPPDATA%/Backspace/change-lists/` — outside the portable folder, a reproducible cache: per backup cell, the source's file list (path hash, size, last write) at its last successful backup and the pace it measured, compressed. `ChangePlan` compares the source with it at the next start to know what restic will read (U144); when missing or made for another snapshot, progress falls back to restic's own totals. A configuration outside the copy's folder (tests) keeps it under its own `change-lists/`.
 - The actual restic repositories live wherever the user pointed each
   destination (a local folder, an external drive, a cloud bucket via
@@ -692,7 +683,7 @@ only those files has no vault, and the first save asks for a password.
    back (`RepositoryAccess.Waiting`) behind its in-process one-task-per-
    repository gate. Backups run restic directly (U175), so in one process,
    such as the window, two allowed backups to different destinations run
-   together (E64 part 3); before U175, Backrest ran one backup at a time.
+   together (E64 part 3).
    Windows makes one VSS snapshot set at a time, so two backups starting
    together could leave the second without a snapshot: a backup using VSS
    takes `VssSnapshotGate` (one across all Backspace processes) before its
@@ -892,7 +883,7 @@ only those files has no vault, and the first save asks for a password.
    start it downloads them from those projects' releases into
    `%LOCALAPPDATA%\Backspace\bin` and checks them. No separate install step.
    A file with the same fingerprint in an earlier set is copied instead of
-   downloaded (as when Backrest left the set, U175), and the earlier set is
+   downloaded, and the earlier set is
    then removed.
 5. **Volume-name matching is first-class** for any local destination —
    never failed-state when an external drive is simply unmounted, always

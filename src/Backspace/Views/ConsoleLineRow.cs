@@ -149,7 +149,7 @@ public sealed class ConsoleLineRow : Border
         _text.Text = Shown(text);
     }
 
-    // Backrest separates its fields with tabs, which a proportional tab stop
+    // The restic runner separates its fields with tabs, which a proportional tab stop
     // spreads across the line; two spaces read as the same separation.
     private static string Shown(string text) => text.Contains('\t') ? text.Replace("\t", "  ") : text;
 

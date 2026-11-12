@@ -9,8 +9,7 @@ the deeper docs you'll need next.
 
 A friendly desktop GUI for [restic](https://restic.net/) backups: Backspace
 runs the bundled restic (and rclone, for cloud destinations) itself, with no
-daemon in between (U175 removed the Backrest daemon that earlier versions
-used). Avalonia-based, single framework-dependent `.exe`,
+daemon in between. Avalonia-based, single framework-dependent `.exe`,
 portable config folder. Windows is the supported target; macOS / Linux
 compile but the suite has not been exercised on either OS.
 

@@ -11,9 +11,8 @@ namespace Backspace.Services;
 /// <summary>
 /// Backspace's own memory of repository maintenance (U175), read before the
 /// cleanup after a backup: when each repository last had a full prune, and
-/// whether each plan's previous backup finished. Backrest's operation history
-/// answered both before; each Backrest instance (the app's, each background
-/// worker's) kept its own, so the app and the service could disagree.
+/// whether each plan's previous backup finished, shared by the app and the
+/// background service.
 ///
 /// <para>Kept in <c>maintenance.json</c> in the configuration folder: the
 /// app writes <c>Backspace.config\maintenance.json</c>, the background
@@ -187,7 +186,7 @@ internal static class MaintenanceRecords
 /// The repositories this computer has opened or created for backups (U175):
 /// a backup to one of them goes straight to restic, without asking it first
 /// whether the repository exists (on a cloud destination that costs a restic
-/// start and several round trips). Backrest's configuration played this part:
+/// start and several round trips). This record plays that part:
 /// it ran <c>restic init</c> (or adopted an existing repository) only for a
 /// destination it did not know. A repository that disappears later is reported
 /// by restic as missing and is never created again in its place.
@@ -213,7 +212,7 @@ internal static class KnownRepositories
     }
 
     /// <summary>restic's id for a repository this computer knows at
-    /// <paramref name="uri"/> (what Backrest called its guid), or null.</summary>
+    /// <paramref name="uri"/>, or null.</summary>
     internal static string? ResticId(string repoId, string uri, CancellationToken ct = default)
     {
         try

@@ -15,9 +15,8 @@ using Xunit;
 namespace Backspace.Tests.Scenarios.E2E;
 
 /// <summary>A whole-source restore with live progress, its temporary folder on
-/// the card, then a cancelled one. Until U175 step 3 this went through
-/// Backrest's native Restore (hence the name); restic now runs it directly,
-/// with no selection for the whole source.</summary>
+/// the card, then a cancelled one. restic runs it directly, with no
+/// selection for the whole source.</summary>
 [Collection(ScenarioCollection.Name)]
 public sealed class E41_NativeRestoreProgress : BackupE2EBase
 {

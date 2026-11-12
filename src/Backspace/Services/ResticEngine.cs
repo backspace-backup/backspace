@@ -21,8 +21,7 @@ namespace Backspace.Services;
 /// destination and vault (<see cref="ResticRepository"/>); nothing is stored
 /// in another program's settings.
 ///
-/// Naming kept from the Backrest engine, so repositories and snapshots carry
-/// on unchanged: Backspace's per-(backup, sourcePath, storageName) cell is a
+/// Naming: Backspace's per-(backup, sourcePath, storageName) cell is a
 /// "plan" whose id labels its snapshots (<c>plan:&lt;id&gt;</c>), and a
 /// <see cref="Destination"/> with a storage name is a "repo" id. Both ids are
 /// deterministic.
@@ -71,10 +70,9 @@ public sealed partial class ResticEngine : IBackupEngine
     }
 
     /// <summary>
-    /// How a run ended, in the words Backrest used for its operations
-    /// (<c>STATUS_SUCCESS</c>…): run summaries keep them (<c>Backup result:
-    /// STATUS_…</c>), and run history and <see cref="WasStoppedOnRequest"/>
-    /// read them, so records from before and after U175 read alike.
+    /// How a run ended (<c>STATUS_SUCCESS</c>…): run summaries carry them
+    /// (<c>Backup result: STATUS_…</c>), and run history and
+    /// <see cref="WasStoppedOnRequest"/> read them.
     /// <see cref="StatusFromTerminal"/> maps them to Backspace's.
     /// </summary>
     private static class TerminalStatus
@@ -236,7 +234,7 @@ public sealed partial class ResticEngine : IBackupEngine
         : $"{span.TotalSeconds:0.#} seconds";
 
     /// <summary>
-    /// Map Backrest's terminal status enum to our internal status.
+    /// Map a run's terminal status to our internal status.
     /// Unknown / empty status maps to Failed — a backup we can't
     /// confirm succeeded is NOT a success. Earlier this defaulted
     /// to Success, which combined with the 1.5 s pump cutoff to
@@ -349,8 +347,7 @@ public sealed partial class ResticEngine : IBackupEngine
         var folder = "/" + (srcPrefix.Length == 0 ? rel : rel.Length == 0 ? srcPrefix : srcPrefix + "/" + rel);
         // Reads without a repository lock: keep cleanup out meanwhile (U159).
         using var reading = await SnapshotReaders.HoldAsync(destination, storageName, SnapshotReaders.Kind.Restore, null, ct).ConfigureAwait(false);
-        // restic ls names the folder itself, then its children (the command
-        // Backrest's folder listing ran).
+        // restic ls names the folder itself, then its children.
         var listing = new SnapshotTreeListing(folder, snapshot.SnapshotId);
         var result = await StreamingRestoreProcess.RunAsync(ResticRunner.StartInfo(new ResticCommand(snapshot.Restic, snapshot.Repository,
                 ["ls", "--json", "--no-lock"], ["--", snapshot.SnapshotId, folder])), listing.Accept, ct,
@@ -1174,7 +1171,7 @@ public sealed partial class ResticEngine : IBackupEngine
     }
 
     /// <summary><c>restic snapshots --json --no-lock</c> with the plan's two
-    /// labels, as Backrest listed a plan's snapshots, without a repository
+    /// labels, without a repository
     /// lock: a list in the window neither waits for nor stops a cleanup
     /// elsewhere, and snapshots never change. Refreshes which snapshot ids are
     /// known to be this plan's.</summary>
@@ -1307,9 +1304,8 @@ public sealed partial class ResticEngine : IBackupEngine
 
     /// <summary>
     /// Rotates the master-key encryption password on the repo by
-    /// spawning <c>restic.exe key passwd</c> directly (Backrest's
-    /// RunCommand RPC doesn't expose stdin, but we have the bundled
-    /// restic binary on disk via <see cref="AppPaths.ResticBinary"/>).
+    /// spawning <c>restic.exe key passwd</c> directly (the bundled restic
+    /// binary, <see cref="AppPaths.ResticBinary"/>).
     ///
     /// The current password goes into <c>RESTIC_PASSWORD</c> on the
     /// env; the new password is written to a 0700-mode temp file and
@@ -1447,7 +1443,7 @@ public sealed partial class ResticEngine : IBackupEngine
 
     /// <summary>Stable repo id for a (Destination, storageName) pair: the
     /// key of Backspace's records about a repository (maintenance.json,
-    /// repositories.json), as it was Backrest's repo id.</summary>
+    /// repositories.json).</summary>
     internal static string MakeRepoId(Destination destination, string storageName)
     {
         var name = string.IsNullOrEmpty(storageName) ? "default" : storageName;
@@ -1455,7 +1451,7 @@ public sealed partial class ResticEngine : IBackupEngine
     }
 
     /// <summary>A restic id: exactly 64 hex characters (a snapshot's or a
-    /// repository's; Backrest's repository guids had the same shape).</summary>
+    /// repository's).</summary>
     internal static bool IsValidSnapshotId(string? guid)
     {
         if (string.IsNullOrEmpty(guid) || guid.Length != 64) return false;

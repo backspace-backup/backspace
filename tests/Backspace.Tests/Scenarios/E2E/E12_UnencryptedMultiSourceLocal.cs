@@ -16,20 +16,8 @@ namespace Backspace.Tests.Scenarios.E2E;
 
 /// <summary>
 /// Regression coverage for the "brand-new config, two sources, one
-/// local folder, password OFF" path the user hit on first launch:
-///
-///   Backup: Backrest's stored config doesn't have the plan / repo
-///   Backspace just registered. /v1.Backrest/Backup failed: unknown:
-///   get plan "...": plan not found.
-///
-/// Root cause was a Backrest 1.13 contract mismatch — sending
-/// SetConfig with Guid="" + AutoInitialize=true passes SetConfig's
-/// per-repo validator but is rejected by the orchestrator-apply
-/// step ("guid is required for all repos"), so the daemon's in-
-/// memory state never carries our plan and the very next Backup
-/// RPC fails. Fix moved new-repo registration to /v1.Backrest/AddRepo
-/// which runs `restic init` and stamps the canonical 64-char Guid in
-/// a single atomic step (see ResticEngine.EnsurePlanAndRepoCoreAsync).
+/// local folder, password OFF" path the user hit on first launch: the
+/// first backup must create the repository and succeed.
 ///
 /// E01 already covers single-source local round-trip with a password,
 /// E03 covers two concurrent backups. Neither hit this code path
@@ -97,8 +85,7 @@ public sealed class E12_UnencryptedMultiSourceLocal : BackupE2EBase
 
         Assert.True(record.Status is BackupRunStatus.Success or BackupRunStatus.Warning,
             $"Backup ended {record.Status}; errors={string.Join(" | ", record.Errors)}. " +
-            $"This is the exact failure mode (Backrest 1.13 'plan not found') that " +
-            $"the AddRepo fix is meant to prevent — assert NOT regressed.");
+            $"A brand-new two-source backup to an unencrypted folder must succeed on its first run.");
 
         // Both cells should have run independently. Two sources × one
         // destination = 2 cells in RunRecord.Cells; both Success.
