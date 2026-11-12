@@ -637,6 +637,12 @@ internal sealed class SystemBackupService : ServiceBase
 
     private async Task<bool> RunScheduledAsync(SchedulePlan plan, CancellationToken ct)
     {
+        // Waiting destinations removed from the backup meanwhile: nothing to run (U226).
+        if (plan.OnlyTargets is { } only && !plan.Backup.Targets.Any(t => only.Contains(Backup.TargetKey(t.DestinationId, t.StorageName))))
+        {
+            ScheduleLoop.ReportWaiting([], needsChange: false);
+            return true;
+        }
         Task exited;
         WorkerRun run;
         lock (_gate)

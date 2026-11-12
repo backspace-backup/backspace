@@ -397,7 +397,7 @@ public sealed class BackupVerifier
             FatalError: perDestErrors.Count > 0 ? string.Join(" · ", perDestErrors) : null,
             Summary: context is null ? overallSummary : context.Journal.Options.Label + "\n" + overallSummary
                 + (context.Journal.Options.Full ? "" : "\nThis checks a sample, not every file in the backup."))
-            { IsSample = context?.Journal.Options.Full == false, IsScheduled = context?.Journal.Scheduled == true };
+            { IsSample = context?.Journal.Options.Full == false, IsScheduled = context?.Journal is { Scheduled: true, StartedByOwner: false } };
 
         // Persist a RunRecord so the test restore appears in the
         // Activity & logs RUN dropdown alongside backup and restore

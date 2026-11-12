@@ -1019,7 +1019,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         {
             try
             {
-                var record = await ServiceLocator.Orchestrator.RunChecksAsync(backup, checks, stop.Token);
+                var record = await ServiceLocator.Orchestrator.RunChecksAsync(backup, checks, stop.Token, startedByOwner: true);
                 _log.Information("Verify of {Name}: {Status}", backup.Name, record.Status);
             }
             catch (Exception ex) { _log.Error(ex, "Verify threw for {Name}", backup.Name); }

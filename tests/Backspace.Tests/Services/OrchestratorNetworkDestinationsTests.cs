@@ -71,8 +71,13 @@ public sealed class OrchestratorNetworkDestinationsTests
         Assert.Equal(summary, waiting.Summary);
         // The local part was really backed up; the cloud was never touched.
         Assert.NotEmpty(engine.Calls);
-        // Not a full success: the cloud part is still to do.
+        // Not a full success: the cloud part is still to do. The summary says
+        // which and why, not "1 warning", and alerts stay as quiet as for a
+        // skipped run (audit, 12 November 2026).
         Assert.Equal(BackupRunStatus.Warning, record.Status);
+        Assert.Contains("Cloud " + summary.ToLowerInvariant(), record.Summary);
+        Assert.DoesNotContain("warning", record.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.True(BackupOrchestrator.OnlyNetworkWaits(record));
     }
 
     [Fact]

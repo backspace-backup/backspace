@@ -42,6 +42,10 @@ public sealed partial class BackupOrchestrator
         await SendHealthcheckTerminalAsync(backup, record);
         var now = DateTime.UtcNow;
         if (record.Status == BackupRunStatus.Skipped && backup.IsWithinSkipGrace(now)) return;
+        // Backed up, its network destinations waiting for the network (U226):
+        // as quiet as a skipped run. The card says so, and Healthchecks.io
+        // gets no success ping, so an outage longer than its period alerts.
+        if (record.Status == BackupRunStatus.Warning && OnlyNetworkWaits(record) && backup.IsWithinSkipGrace(now)) return;
         // Daily cap: at most one notification per backup per 24h
         // window FOR THE SAME STATUS. A status transition (Success →
         // Failed, Skipped → Failed, Failed → Success "we're back") is
@@ -277,6 +281,11 @@ public sealed partial class BackupOrchestrator
         });
     }
 
+    /// <summary>Everything that ran succeeded; the rest waits for the network (U226).</summary>
+    internal static bool OnlyNetworkWaits(RunRecord record) =>
+        record.Kind == RunKind.Backup && record.Errors.Count == 0 && record.Cells.Any(c => c.WaitingFor is not null)
+        && record.Cells.All(c => c.Status == BackupRunStatus.Success || c.WaitingFor is not null);
+
     private static bool HasIncompleteBackupCoverage(Backup backup, RunRecord record) =>
         record.Kind == RunKind.Backup && (record.Cells.Any(c => c.Status == BackupRunStatus.Skipped)
             || record.Cells.Count > 0 && record.Cells.Count < backup.SourcePaths.Count * DistinctTargets(backup.Targets).Count);
@@ -343,7 +352,21 @@ public sealed partial class BackupOrchestrator
         if (r.FilesNew + r.FilesModified + r.FilesRemoved > 0)
             parts.Add($"{r.FilesNew} new / {r.FilesModified} mod / {r.FilesRemoved} rem");
         if (r.Errors.Count > 0)    parts.Add(r.Errors.Count == 1 ? "1 error" : $"{r.Errors.Count} errors");
-        if (r.Warnings.Count > 0)  parts.Add(r.Warnings.Count == 1 ? "1 warning" : $"{r.Warnings.Count} warnings");
+        // Network destinations waiting for the network say which and why
+        // (U226): "Google Drive waits for an unmetered connection".
+        var waiting = r.Cells.Where(c => c.WaitingFor is not null).ToList();
+        foreach (var group in waiting.GroupBy(c => c.WaitingFor))
+        {
+            var names = string.Join(", ", group.Select(c => c.DestinationName).Distinct());
+            parts.Add(names + (group.Key switch
+            {
+                "unmetered" => " waits for an unmetered connection",
+                "connection" => " waits for a network connection",
+                _ => " couldn't be reached; tried again when the network changes",
+            }));
+        }
+        var warnings = r.Warnings.Count(w => !waiting.Any(c => w.Contains("→ " + c.DestinationName + "] skipped", StringComparison.Ordinal)));
+        if (warnings > 0)  parts.Add(warnings == 1 ? "1 warning" : $"{warnings} warnings");
         // No-op success runs (everything already up-to-date — no
         // bytes uploaded, no file changes) used to surface as
         // "in 6m 10s", which the BackupCard rendered as

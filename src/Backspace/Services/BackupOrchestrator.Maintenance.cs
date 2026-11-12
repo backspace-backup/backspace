@@ -42,8 +42,12 @@ public sealed partial class BackupOrchestrator
     /// <summary>These checks, one after another, in the order given: the
     /// card's Verify (U213) passes the backup's own and, once, others not
     /// saved with it. Returns one record for them all; each saved its own.</summary>
-    public async Task<RunRecord> RunChecksAsync(Backup backup, IReadOnlyList<BackupCheck> checks, CancellationToken ct, IReadOnlyCollection<BackupTarget>? onlyTargets = null)
+    /// <param name="startedByOwner">The card's Verify: a restore check among
+    /// them isn't labelled "Automatic".</param>
+    public async Task<RunRecord> RunChecksAsync(Backup backup, IReadOnlyList<BackupCheck> checks, CancellationToken ct, IReadOnlyCollection<BackupTarget>? onlyTargets = null,
+        bool startedByOwner = false)
     {
+        ChecksStartedByOwner.Value = startedByOwner;
         var records = new List<RunRecord>();
         try
         {
@@ -398,6 +402,9 @@ public sealed partial class BackupOrchestrator
         }
     }
 
+    /// <summary>Checks run from the card's Verify, on this flow.</summary>
+    private static readonly AsyncLocal<bool> ChecksStartedByOwner = new();
+
     /// <summary>Set by tests; the real check asks Windows.</summary>
     internal Func<bool>? NetworkAvailableOverride { get; set; }
     private bool NetworkAvailableNow() => NetworkAvailableOverride?.Invoke() ?? ScheduleConditions.NetworkAvailable();
@@ -504,7 +511,8 @@ public sealed partial class BackupOrchestrator
             using var watching = new CancellationTokenSource();
             var watch = WatchTestRestoreAsync(backup.Id, where, watching.Token);
             VerifyOutcome outcome;
-            try { outcome = await ServiceLocator.TestRestores.RunScheduledAsync(view, check.RestoreOptions(), linked.Token, maintenanceLeaseHeld: true).ConfigureAwait(false); }
+            try { outcome = await ServiceLocator.TestRestores.RunScheduledAsync(view, check.RestoreOptions(), linked.Token, maintenanceLeaseHeld: true,
+                startedByOwner: ChecksStartedByOwner.Value).ConfigureAwait(false); }
             finally { watching.Cancel(); await watch.ConfigureAwait(false); }
             var status = outcome.OverallPass ? BackupRunStatus.Success : BackupRunStatus.Failed;
             foreach (var (target, dest) in reachable)

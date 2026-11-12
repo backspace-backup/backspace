@@ -166,7 +166,9 @@ public sealed class ServiceScheduledRunTests
     [InlineData(DestinationKind.LocalFolder, @"\\nas\backups", true, true)]
     [InlineData(DestinationKind.NetworkShare, @"\\nas\backups", true, true)]
     [InlineData(DestinationKind.DropboxAppScoped, "backups", true, true)]
-    [InlineData(DestinationKind.DropboxAppScoped, "backups", false, false)]
+    // U226: no internet setting any more: a backup that only reaches the
+    // network always waits for one, whatever the old setting said.
+    [InlineData(DestinationKind.DropboxAppScoped, "backups", false, true)]
     public void Only_backups_that_reach_the_network_wait_for_one(DestinationKind kind, string path, bool requireNetwork, bool expected)
     {
         var destination = new Destination { Name = "Target", Kind = kind, PathOrSubpath = path };
@@ -177,7 +179,7 @@ public sealed class ServiceScheduledRunTests
         // and the background service share this condition.
         Assert.Equal(expected, ScheduleConditions.Blocked(plan, new[] { destination }, () => false, () => false) is not null);
         Assert.Null(ScheduleConditions.Blocked(plan, new[] { destination }, () => false, () => true));
-        // A destination that can't be found keeps the safe side.
-        Assert.Equal(requireNetwork, ScheduleConditions.Blocked(plan, Array.Empty<Destination>(), () => false, () => false) is not null);
+        // A destination that can't be found keeps the safe side: it waits (U226: always).
+        Assert.NotNull(ScheduleConditions.Blocked(plan, Array.Empty<Destination>(), () => false, () => false));
     }
 }

@@ -49,13 +49,25 @@ public partial class BackupEditorWindow : Window
         Closed += (_, _) => _vm.Dispose();
         // Closing with unsaved changes asks first (U206). What was there on
         // opening is compared with what the editor would save now.
-        Opened += (_, _) => _opened ??= Fingerprint();
+        // Once the window has settled: a new backup's recommended filters are
+        // written into its rules just after it opens, which is not a change.
+        Opened += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() => _opened ??= Fingerprint(),
+            Avalonia.Threading.DispatcherPriority.ApplicationIdle);
         UnsavedChangesWindow.Guard(this, isNew ? "this new backup" : "this backup's settings",
             () => _opened is not null && Fingerprint() != _opened, () => OnSave(this, new RoutedEventArgs()), () => SwitchToEasy);
     }
 
     private string? _opened;
-    private string Fingerprint() => System.Text.Json.JsonSerializer.Serialize(_vm.BuildSnapshot());
+    /// <summary>What the person entered. A blank name is completed with a
+    /// generated one (random suffix) when the snapshot is built, so the typed
+    /// name is compared instead, and the storage id seed is left out.</summary>
+    private string Fingerprint()
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(_vm.BuildSnapshot()))!.AsObject();
+        node["Name"] = _vm.Name ?? "";
+        node.Remove("SnapshotIdSeed");
+        return node.ToJsonString();
+    }
 
     /// <summary>True when the user confirmed via "Save &amp; Run" rather
     /// than plain "Save". The parent <see cref="ViewModels.BackupsViewModel"/>

@@ -54,7 +54,8 @@ public partial class DestinationEditorWindow : Window
             try { _vm.Dispose(); } catch { /* swallow shutdown errors */ }
         };
         // Closing with unsaved changes asks first (U206).
-        Opened += (_, _) => _opened ??= _vm.InputFingerprint();
+        Opened += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() => _opened ??= _vm.InputFingerprint(),
+            Avalonia.Threading.DispatcherPriority.ApplicationIdle);
         UnsavedChangesWindow.Guard(this, isNew ? "this new destination" : "this destination",
             () => _opened is not null && _vm.InputFingerprint() != _opened, () => OnSave(this, new RoutedEventArgs()));
     }

@@ -35,6 +35,9 @@ internal sealed class TestRestoreJournal
     public string Summary { get; set; } = "Preparing the restore check…";
     public bool Dismissed { get; set; }
     public bool Scheduled { get; set; }
+    /// <summary>Run as a check you started (Verify), not by the schedule: not
+    /// labelled "Automatic" in Activity.</summary>
+    public bool StartedByOwner { get; set; }
     public List<TestRestoreCell> Cells { get; set; } = new();
 }
 

@@ -34,13 +34,14 @@ public sealed class TestRestoreService
     }
 
     /// <summary>A sample test restore check entry (U179), with its options.</summary>
-    public async Task<VerifyOutcome> RunScheduledAsync(Backup backup, TestRestoreOptions options, CancellationToken ct, bool maintenanceLeaseHeld = false)
+    public async Task<VerifyOutcome> RunScheduledAsync(Backup backup, TestRestoreOptions options, CancellationToken ct, bool maintenanceLeaseHeld = false,
+        bool startedByOwner = false)
     {
         ct.ThrowIfCancellationRequested();
         backup = JsonSerializer.Deserialize<Backup>(JsonSerializer.Serialize(backup))!;
         options.Validate();
         var journal = new TestRestoreJournal { BackupId = backup.Id, BackupName = backup.Name,
-            Options = options, Scheduled = true, RouteFingerprint = TestRestoreContext.Fingerprint(backup, _config) };
+            Options = options, Scheduled = true, StartedByOwner = startedByOwner, RouteFingerprint = TestRestoreContext.Fingerprint(backup, _config) };
         var session = Launch(backup, journal, resumed: false, ct, maintenanceLeaseHeld);
         await session.Completion.ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
@@ -191,7 +192,7 @@ public sealed class TestRestoreService
             record.EndedUtc = DateTime.UtcNow;
             record.Status = status;
             record.Summary = summary;
-            record.TriggeredAutomatically = journal.Scheduled;
+            record.TriggeredAutomatically = journal.Scheduled && !journal.StartedByOwner;
             record.Checks = new() { new BackupCheckResult
             {
                 Depth = journal.Options.Full ? CheckDepth.RestoreAllFiles : CheckDepth.RestoreSample,

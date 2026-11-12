@@ -91,6 +91,16 @@ public sealed class S105_SavingWithoutASaveButton : ScenarioBase
         Assert.True(closed.IsCompleted, "An unchanged editor must close without asking.");
         Assert.Empty(owner.OwnedWindows.OfType<UnsavedChangesWindow>());
 
+        // A new backup's editor left untouched closes without asking either:
+        // a blank name is completed with a generated one on save, which is
+        // not a change (audit, 12 November 2026).
+        var fresh = new BackupEditorWindow(new Backup(), isNew: true);
+        var freshClosed = fresh.ShowDialog<Backup?>(owner);
+        await ctx.Driver.PumpAsync(800);
+        fresh.Close();
+        await ctx.Driver.PumpAsync(100);
+        Assert.True(freshClosed.IsCompleted, "An untouched new backup must close without asking.");
+
         // Changed, then Escape: asked. Keep editing keeps it open.
         editor = new BackupEditorWindow(Clone(Saved()), isNew: false) { Width = 980, Height = 760 };
         closed = editor.ShowDialog<Backup?>(owner);
