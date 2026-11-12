@@ -131,7 +131,9 @@ Those checks do not substitute for installer, upgrade or desktop acceptance.
 
 `BackupSchedulerTests` drives the shared schedule loop (tray app and service)
 with a fake clock and runner: one run at the due time and none before, idle
-sleep up to the next run but at most a minute, one catch-up after missed slots
+sleep up to the next run (at most a day with Windows' notifications, U185:
+a wake-up looks again at once; a change to the settings file or the Quit
+state wakes it; Windows accepts the power notifications), one catch-up after missed slots
 (none when catch-up is off and the slot is over 10 minutes late), state kept
 across restarts so a run is not repeated, waiting for battery, network and
 Quit then running once, disabled and snoozed backups passing over their slot,
