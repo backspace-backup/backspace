@@ -161,7 +161,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         {
             if (ShowsTestRestore && _testSession is { } test)
                 return "Restore check" + (test.IsPaused ? " · paused" : "") + " · " + Elapsed(UtcNow() - test.StartedUtc);
-            if (IsQueued && QueuedReason.Length > 0) return "Check queued: " + QueuedReason;
+            // Short, the reason in the hover, as for Last backup (U203, owner,
+            // 12 November 2026: "it should show the reason on hover").
+            if (IsQueued) return (RunningActivity.Length > 0 ? ShortCheckName(RunningActivity) : "Check") + " · queued";
             // The check's name alone beside the turning icon: "Data check (1 of
             // 2) · 7 min", never "Checking · Data check" (U197: "check twice").
             var what = RunningActivity.Length > 0 ? ShortCheckName(RunningActivity) : "Checking";
@@ -189,6 +191,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         get
         {
             var lines = new List<string> { RunningActivity.Length > 0 ? RunningActivity : "A check" };
+            if (IsQueued && QueuedReason.Length > 0) lines.Add("Queued: " + QueuedReason);
             if (RunningActivityWhere.Length > 0) lines.Add("On " + RunningActivityWhere);
             if (RunningActivityStep.Length > 0) lines.Add(RunningActivityStep);
             if (CheckProgressKnown) lines.Add($"About {RunningActivityPercent.ToString("0", System.Globalization.CultureInfo.CurrentCulture)}% of this check done");
