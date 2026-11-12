@@ -72,7 +72,9 @@ public sealed class HealthcheckService
 
     // ---- management ----
 
-    public async Task<HealthcheckRecord?> UpsertCheckAsync(Backup backup, CancellationToken ct)
+    /// <param name="forChecks">The check for the backup's checks (U211),
+    /// not the one for the backup itself.</param>
+    public async Task<HealthcheckRecord?> UpsertCheckAsync(Backup backup, CancellationToken ct, bool forChecks = false)
     {
         if (!TryGetApiKey(out var apiKey))
         {
@@ -80,50 +82,13 @@ public sealed class HealthcheckService
             return null;
         }
 
-        // Translate the backup schedule to a (schedule, tz) Healthchecks understands.
-        // Daily/Weekly/Hourly → pick either "timeout" (simple) or "cron".
-        // We use cron for anything more specific than a fixed cadence.
-        // HC grace = max(user's Skip-grace expressed as seconds, 4h
-        // floor). The 4h floor is the original "slow-but-OK backup
-        // shouldn't page us" default; the SkipNotificationGraceDays
-        // alignment adds defense-in-depth so a HC alarm and an
-        // in-app escalation fire on the same time-scale. With the
-        // user's default 7 days of grace, HC stays green for ~7
-        // days of skipped runs — matching what our orchestrator
-        // would do. The user explicitly asked for this: "Make sure
-        // the Healthcheck.io checks you create match the grace period
-        // desired by the user (it is a secondary protection layer)."
-        var skipGraceSeconds = backup.SkipNotificationGraceDays > 0
-            ? (long)TimeSpan.FromDays(backup.SkipNotificationGraceDays).TotalSeconds
-            : 0;
-        // API v3 accepts up to 365 days, matching the editor's maximum.
-        // Keep the four-hour floor for backups that may take a while.
-        const long HCApiGraceCeilingSeconds = 365L * 24 * 60 * 60;
-        var clamped = Math.Min(HCApiGraceCeilingSeconds, Math.Max((long)TimeSpan.FromHours(4).TotalSeconds, skipGraceSeconds));
-        var graceSeconds = (int)clamped;
-        if (skipGraceSeconds > HCApiGraceCeilingSeconds)
-            _log.Warning("Healthchecks.io grace clamped for {Backup}: user grace = {UserDays} days, API v3 ceiling = 365 days.",
-                backup.Name, backup.SkipNotificationGraceDays);
-        var body = new UpsertRequest
-        {
-            Name = backup.Name,
-            Tags = $"backspace backup-{backup.Name}",
-            Desc = $"Auto-managed by Backspace. Sources: {string.Join(" ; ", backup.SourcePaths)}",
-            Grace = graceSeconds,
-            UniqueBy = new[] { "name", "tags" },
-            Channels = "*",
-        };
-
-        var (isCron, cron) = BuildCron(backup);
-        if (isCron)
-        {
-            body.Schedule = cron;
-            body.Tz = ScheduleTimeZoneId(TimeZoneInfo.Local);
-        }
-        else
-        {
-            body.Timeout = (int)ComputeTimeoutSeconds(backup);
-        }
+        // The expected period is the backup's quiet skipped-run alerts
+        // period, with a grace of 3, 7 or 14 days (U211, owner, 12 November
+        // 2026): Healthchecks.io then says so when the backup (or its checks)
+        // has not succeeded for that long, whatever the reason.
+        var body = Desired(backup, forChecks);
+        body.UniqueBy = new[] { "name", "tags" };
+        body.Channels = "*";
 
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/api/v3/checks/");
         req.Headers.Add("X-Api-Key", apiKey);
@@ -141,7 +106,8 @@ public sealed class HealthcheckService
                 return null;
             }
             var parsed = await resp.Content.ReadFromJsonAsync<HealthcheckRecord>(Json, ct);
-            if (parsed is not null) { backup.HealthcheckPingUrl = parsed.PingUrl; backup.HealthcheckChannelsAssigned = true; }
+            if (parsed is not null && forChecks) backup.HealthcheckChecksPingUrl = parsed.PingUrl;
+            else if (parsed is not null) { backup.HealthcheckPingUrl = parsed.PingUrl; backup.HealthcheckChannelsAssigned = true; }
             // The ping_url is effectively a write-capability bearer
             // token — anyone with the URL can ping success/failure for
             // that check. Log only the trailing 4 chars of the UUID so
@@ -219,6 +185,20 @@ public sealed class HealthcheckService
             });
             made++;
         }
+        // A second check for the backup's checks (U211): down when no check
+        // has passed for its period and grace.
+        foreach (var backup in _config.Current.Backups.Where(b => b.Checks.Count > 0 && string.IsNullOrWhiteSpace(b.HealthcheckChecksPingUrl)
+                     && !string.IsNullOrWhiteSpace(b.HealthcheckPingUrl)).ToList())
+        {
+            if (ct.IsCancellationRequested) break;
+            var copy = JsonSerializer.Deserialize<Backup>(JsonSerializer.Serialize(backup))!;
+            if (await UpsertCheckAsync(copy, ct, forChecks: true).ConfigureAwait(false) is not { PingUrl: { Length: > 0 } checksPing }) continue;
+            _config.Update(c =>
+            {
+                if (c.Backups.FirstOrDefault(b => b.Id == backup.Id) is { } live && string.IsNullOrWhiteSpace(live.HealthcheckChecksPingUrl))
+                    live.HealthcheckChecksPingUrl = checksPing;
+            });
+        }
         if (made > 0) _log.Information("Created a Healthchecks.io check for {Count} backup(s)", made);
         // Checks Backspace made before U210 had no integration, so nothing
         // was sent when a backup stopped pinging: once, every integration of
@@ -228,6 +208,12 @@ public sealed class HealthcheckService
             if (ct.IsCancellationRequested) break;
             if (!await AssignAllChannelsAsync(backup.HealthcheckId!, ct).ConfigureAwait(false)) continue;
             _config.Update(c => { if (c.Backups.FirstOrDefault(b => b.Id == backup.Id) is { } live) live.HealthcheckChannelsAssigned = true; });
+        }
+        // Periods and graces follow the settings (U211).
+        foreach (var backup in _config.Current.Backups.ToList())
+        {
+            if (ct.IsCancellationRequested) break;
+            await SyncAsync(backup, ct).ConfigureAwait(false);
         }
         return made;
     }
@@ -269,16 +255,22 @@ public sealed class HealthcheckService
     /// yourself is kept. Never throws: removing the backup doesn't depend on it.</summary>
     public async Task RemoveCheckOfAsync(Backup backup, CancellationToken ct)
     {
-        if (!Guid.TryParse(backup.HealthcheckId, out _) || !TryGetApiKey(out var apiKey)) return;
+        await RemoveOneAsync(backup, backup.HealthcheckId, ct).ConfigureAwait(false);
+        await RemoveOneAsync(backup, Uuid(backup.HealthcheckChecksPingUrl), ct).ConfigureAwait(false);
+    }
+
+    private async Task RemoveOneAsync(Backup backup, string? uuid, CancellationToken ct)
+    {
+        if (!Guid.TryParse(uuid, out _) || !TryGetApiKey(out var apiKey)) return;
         try
         {
-            var tags = await TagsAsync(backup.HealthcheckId!, apiKey, ct).ConfigureAwait(false);
+            var tags = await TagsAsync(uuid!, apiKey, ct).ConfigureAwait(false);
             if (tags is null || !tags.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("backspace"))
             {
                 _log.Information("Kept the Healthchecks.io check of removed backup {Backup}: not found or not made by Backspace", backup.Name);
                 return;
             }
-            var deleted = await DeleteCheckAsync(backup.HealthcheckId!, ct).ConfigureAwait(false);
+            var deleted = await DeleteCheckAsync(uuid!, ct).ConfigureAwait(false);
             _log.Information(deleted ? "Removed the Healthchecks.io check of removed backup {Backup}" : "Healthchecks.io refused to remove the check of removed backup {Backup}", backup.Name);
         }
         catch (Exception ex) { _log.Warning(ex, "Could not remove the Healthchecks.io check of removed backup {Backup}", backup.Name); }
@@ -491,41 +483,54 @@ public sealed class HealthcheckService
         throw new InvalidOperationException("This Windows time zone cannot be translated for Healthchecks. Choose a standard system time zone before connecting the schedule.");
     }
 
-    private static (bool isCron, string cron) BuildCron(Backup b)
+    /// <summary>What a Backspace check on Healthchecks.io should say (U211):
+    /// its name and tags, and the expected period with its grace.</summary>
+    private static UpsertRequest Desired(Backup backup, bool forChecks)
     {
-        var s = b.Schedule;
-        return s.Frequency switch
+        var (period, grace) = Timing(forChecks ? ChecksPeriodDays(backup) : QuietDays(backup));
+        return new UpsertRequest
         {
-            ScheduleFrequency.Daily  => (true, $"{s.TimeOfDay.Minutes} {s.TimeOfDay.Hours} * * *"),
-            ScheduleFrequency.Weekly => (true, BuildWeeklyCron(s)),
-            ScheduleFrequency.Hourly => (true, $"0 */{Math.Max(1, s.HourlyInterval)} * * *"),
-            _ => (false, ""),
+            Name = forChecks ? backup.Name + " · checks" : backup.Name,
+            Tags = forChecks ? $"backspace backup-{backup.Name} checks" : $"backspace backup-{backup.Name}",
+            Desc = forChecks
+                ? $"Auto-managed by Backspace: the checks of the backup {backup.Name} (structure, data sample, test restore). Down when none has passed for the period and its grace."
+                : $"Auto-managed by Backspace. Down when the backup has not succeeded for the period and its grace. Sources: {string.Join(" ; ", backup.SourcePaths)}",
+            Timeout = (int)period.TotalSeconds,
+            Grace = (int)grace.TotalSeconds,
         };
     }
 
-    private static string BuildWeeklyCron(BackupSchedule s)
+    /// <summary>The quiet skipped-run alerts period, at least a day.</summary>
+    internal static int QuietDays(Backup backup) => Math.Max(1, backup.SkipNotificationGraceDays);
+
+    /// <summary>The checks' period: the longest time between two runs of a
+    /// check (one after each backup counts as the quiet period), and never
+    /// shorter than the quiet period, since a check that finds the drive
+    /// unplugged waits for the next backup there.</summary>
+    internal static int ChecksPeriodDays(Backup backup)
     {
-        // Cron days: 0=Sun..6=Sat. We match our bitmask conventions.
-        var days = new System.Collections.Generic.List<int>();
-        if ((s.WeeklyDaysBitmask & 1)  != 0) days.Add(0);
-        if ((s.WeeklyDaysBitmask & 2)  != 0) days.Add(1);
-        if ((s.WeeklyDaysBitmask & 4)  != 0) days.Add(2);
-        if ((s.WeeklyDaysBitmask & 8)  != 0) days.Add(3);
-        if ((s.WeeklyDaysBitmask & 16) != 0) days.Add(4);
-        if ((s.WeeklyDaysBitmask & 32) != 0) days.Add(5);
-        if ((s.WeeklyDaysBitmask & 64) != 0) days.Add(6);
-        var dayStr = days.Count > 0 ? string.Join(",", days) : "*";
-        return $"{s.TimeOfDay.Minutes} {s.TimeOfDay.Hours} * * {dayStr}";
+        var days = QuietDays(backup);
+        foreach (var check in backup.Checks)
+            days = Math.Max(days, check.Schedule?.Frequency switch
+            {
+                null => QuietDays(backup),
+                ScheduleFrequency.Weekly => 7,
+                ScheduleFrequency.Monthly => 31,
+                ScheduleFrequency.Yearly => 366,
+                _ => 1,
+            });
+        return days;
     }
 
-    private static double ComputeTimeoutSeconds(Backup b) =>
-        b.Schedule.Frequency switch
-        {
-            ScheduleFrequency.Hourly => TimeSpan.FromHours(Math.Max(1, b.Schedule.HourlyInterval) * 1.5).TotalSeconds,
-            ScheduleFrequency.Daily  => TimeSpan.FromHours(30).TotalSeconds,
-            ScheduleFrequency.Weekly => TimeSpan.FromDays(8).TotalSeconds,
-            _ => TimeSpan.FromDays(2).TotalSeconds,
-        };
+    /// <summary>The expected period (at most 365 days, the API's limit) and
+    /// its grace: 3 days under a month, 7 from a month, 14 from six months
+    /// (owner, 12 November 2026).</summary>
+    internal static (TimeSpan Period, TimeSpan Grace) Timing(int days)
+    {
+        var period = TimeSpan.FromDays(Math.Clamp(days, 1, 365));
+        var grace = TimeSpan.FromDays(days >= 180 ? 14 : days >= 30 ? 7 : 3);
+        return (period, grace);
+    }
 
     // ---- shapes ----
 
@@ -546,6 +551,41 @@ public sealed class HealthcheckService
         /// email included (U210, owner: "Can you set Email on by default?").</summary>
         public string? Channels { get; set; }
     }
+
+    /// <summary>Brings Backspace's checks of this backup in line with its
+    /// settings (U211): name, period and grace, when they differ from what
+    /// was last sent. A check you linked yourself is left as it is.</summary>
+    public async Task SyncAsync(Backup backup, CancellationToken ct)
+    {
+        if (!TryGetApiKey(out var apiKey)) return;
+        foreach (var (uuid, forChecks) in new[] { (backup.HealthcheckId, false), (Uuid(backup.HealthcheckChecksPingUrl), true) })
+        {
+            if (!Guid.TryParse(uuid, out _)) continue;
+            var desired = Desired(backup, forChecks);
+            var fingerprint = $"{uuid}|{desired.Name}|{desired.Tags}|{desired.Timeout}|{desired.Grace}";
+            if (_synced.TryGetValue(uuid!, out var last) && last == fingerprint) continue;
+            try
+            {
+                var tags = await TagsAsync(uuid!, apiKey, ct).ConfigureAwait(false);
+                if (tags is null) continue;
+                if (!tags.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("backspace")) { _synced[uuid!] = fingerprint; continue; }
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/api/v3/checks/{uuid}");
+                req.Headers.Add("X-Api-Key", apiKey);
+                req.Content = JsonContent.Create(desired, options: Json);
+                using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+                if (resp.IsSuccessStatusCode) _synced[uuid!] = fingerprint;
+                else _log.Warning("Healthchecks.io refused to update a check of {Backup} (HTTP {Status})", backup.Name, (int)resp.StatusCode);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { _log.Warning(ex, "Could not update a Healthchecks.io check of {Backup}", backup.Name); }
+        }
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _synced = new();
+
+    /// <summary>The UUID at the end of a ping address.</summary>
+    internal static string? Uuid(string? pingUrl)
+        => string.IsNullOrEmpty(pingUrl) ? null : pingUrl.TrimEnd('/').Split('/').Last() is var last && Guid.TryParse(last, out _) ? last : null;
 
     public sealed class HealthcheckRecord
     {

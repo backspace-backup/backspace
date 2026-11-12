@@ -830,7 +830,13 @@ drive is back and backed up to.
 - **Healthchecks.io**: paste your API key and Backspace creates and names one
   check per backup for you (when you save the key, and for a backup added
   later when Backspace starts). Each backup run pings its check when it
-  starts and when it succeeds or fails. Every integration of your project,
+  starts and when it succeeds or fails. A backup with checks gets a second
+  check, "<name> · checks", pinged when a check passes or fails. Each
+  check expects a ping within the backup's quiet skipped-run alerts period
+  (for the checks' check, the longest time between two of its checks, if
+  longer), then waits a grace of 3 days, 7 from a month, 14 from six months,
+  before Healthchecks.io says it is down. Changing the backup's settings
+  updates them. Every integration of your project,
   its email included, is on for these checks, so Healthchecks.io tells you
   when a backup stops pinging. Settings says in green that the key works, or
   in red what is wrong with it. Removing a backup removes its check too; a

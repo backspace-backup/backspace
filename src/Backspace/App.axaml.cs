@@ -260,6 +260,10 @@ public partial class App : Application
                 // Backups without their Healthchecks.io check get one (U187).
                 try { await ServiceLocator.Healthcheck.EnsureChecksAsync(System.Threading.CancellationToken.None); }
                 catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Could not create the Healthchecks.io checks"); }
+                // A changed backup (its quiet period, its checks, its name)
+                // changes its checks on Healthchecks.io too (U211); only what
+                // differs is sent.
+                ServiceLocator.Config.Changed += (_, _) => HealthchecksFollowSettings();
                 try { await ServiceLocator.TestRestores.ResumeInterruptedAsync(); }
                 catch (Exception ex) { AppLogger.For<App>().Error(ex, "Could not load interrupted test restores"); }
                 // Finish deleting removed backups' copies once their drive or
@@ -394,6 +398,24 @@ public partial class App : Application
                 Program.OpenFromBackground(); _windowHost.Show(w => w.HandleForwardedArgs(args));
             });
         return _windowHost;
+    }
+
+    private int _healthchecksPending;
+
+    /// <summary>Once settings stop changing for two seconds, Backspace's
+    /// Healthchecks.io checks follow them (U211).</summary>
+    private void HealthchecksFollowSettings()
+    {
+        // A key that doesn't work waits for Settings (saving the key tries again).
+        if (!ServiceLocator.Config.Current.Monitoring.HealthchecksEnabled || ServiceLocator.Healthcheck.LastProblem is not null) return;
+        if (System.Threading.Interlocked.Exchange(ref _healthchecksPending, 1) == 1) return;
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(2));
+            System.Threading.Volatile.Write(ref _healthchecksPending, 0);
+            try { await ServiceLocator.Healthcheck.EnsureChecksAsync(System.Threading.CancellationToken.None); }
+            catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Could not update the Healthchecks.io checks"); }
+        });
     }
 
     private void OnTrayMenuOpening(object? sender, EventArgs e) => RefreshTrayStatus();

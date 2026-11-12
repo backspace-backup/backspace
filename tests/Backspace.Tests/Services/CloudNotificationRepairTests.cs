@@ -29,24 +29,32 @@ public sealed class CloudNotificationRepairTests
         => Assert.Throws<InvalidOperationException>(() => HealthcheckService.ScheduleTimeZoneId(
             TimeZoneInfo.CreateCustomTimeZone("unknown-review-zone", TimeSpan.FromHours(2), "Review", "Review")));
 
+    /// <summary>U211 (owner, 12 November 2026): the expected period is the
+    /// quiet skipped-run alerts period; the grace 3 days under a month, 7
+    /// from a month, 14 from six months; the API takes at most 365 days.</summary>
     [Theory]
-    [InlineData(7, 604800)]
-    [InlineData(365, 31536000)]
-    [InlineData(400, 31536000)]
-    public async Task Healthchecks_upsert_sends_IANA_zone_without_changing_integration_assignments(int days, int seconds)
+    [InlineData(7, 7, 3)]
+    [InlineData(29, 29, 3)]
+    [InlineData(30, 30, 7)]
+    [InlineData(179, 179, 7)]
+    [InlineData(180, 180, 14)]
+    [InlineData(400, 365, 14)]
+    [InlineData(0, 1, 3)]
+    public async Task Healthchecks_period_is_the_quiet_period_with_its_grace(int quietDays, int periodDays, int graceDays)
     {
         using var setup = new Setup(); var backup = setup.AddBackup();
         setup.Secrets.Set("hc-key", "synthetic-key");
         setup.Config.Update(c => c.Monitoring.HealthchecksApiKeyRef = "hc-key");
         backup.Schedule.Frequency = ScheduleFrequency.Daily;
-        backup.SkipNotificationGraceDays = days;
+
         backup.Schedule.TimeOfDay = TimeSpan.FromHours(3) + TimeSpan.FromMinutes(17);
+        backup.SkipNotificationGraceDays = quietDays;
         using var client = new HttpClient(new Handler(async (request, ct) =>
         {
             using var body = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
-            Assert.Equal("17 3 * * *", body.RootElement.GetProperty("schedule").GetString());
-            Assert.Equal(seconds, body.RootElement.GetProperty("grace").GetInt32());
-            Assert.Equal(HealthcheckService.ScheduleTimeZoneId(TimeZoneInfo.Local), body.RootElement.GetProperty("tz").GetString());
+            Assert.Equal(periodDays * 86400, body.RootElement.GetProperty("timeout").GetInt32());
+            Assert.Equal(graceDays * 86400, body.RootElement.GetProperty("grace").GetInt32());
+            Assert.False(body.RootElement.TryGetProperty("schedule", out _));
             Assert.Equal("*", body.RootElement.GetProperty("channels").GetString()); // every integration, email included (U210)
             Assert.False(body.RootElement.TryGetProperty("unique_by", out _));
             Assert.Equal(new[] { "name", "tags" }, body.RootElement.GetProperty("unique").EnumerateArray().Select(x => x.GetString()));
@@ -117,23 +125,32 @@ public sealed class CloudNotificationRepairTests
         var keys = new List<string>();
         var server = Task.Run(async () =>
         {
-            using var socket = await listener.AcceptTcpClientAsync();
-            using var stream = socket.GetStream();
-            var buffer = new byte[64 * 1024]; var read = 0; string text;
+            // Each request on its own connection, until the listener stops.
             while (true)
             {
-                read += await stream.ReadAsync(buffer.AsMemory(read));
-                text = System.Text.Encoding.ASCII.GetString(buffer, 0, read);
-                var end = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-                if (end < 0) continue;
-                // The JSON body is sent with a length or in chunks.
-                var length = System.Text.RegularExpressions.Regex.Match(text, @"Content-Length: (\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                if (length.Success ? read >= end + 4 + int.Parse(length.Groups[1].Value) : text.EndsWith("\r\n0\r\n\r\n", StringComparison.Ordinal)) break;
+                System.Net.Sockets.TcpClient socket;
+                try { socket = await listener.AcceptTcpClientAsync(); } catch (Exception) { return; }
+                using (socket)
+                {
+                    using var stream = socket.GetStream();
+                    var buffer = new byte[64 * 1024]; var read = 0; string text;
+                    while (true)
+                    {
+                        read += await stream.ReadAsync(buffer.AsMemory(read));
+                        text = System.Text.Encoding.ASCII.GetString(buffer, 0, read);
+                        var end = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+                        if (end < 0) continue;
+                        // The JSON body is sent with a length, in chunks, or not at all.
+                        var length = System.Text.RegularExpressions.Regex.Match(text, @"Content-Length: (\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        var chunked = text.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase);
+                        if (length.Success ? read >= end + 4 + int.Parse(length.Groups[1].Value) : !chunked || text.EndsWith("\r\n0\r\n\r\n", StringComparison.Ordinal)) break;
+                    }
+                    lock (keys) keys.Add(System.Text.RegularExpressions.Regex.Match(text, @"X-Api-Key: ([^\r]*)", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Groups[1].Value);
+                    var body = text.StartsWith("GET", StringComparison.Ordinal) ? "{\"tags\":\"my-own\"}" : "{\"ping_url\":\"https://hc-ping.com/11111111-2222-3333-4444-555555555555\"}";
+                    var reply = System.Text.Encoding.ASCII.GetBytes($"HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n{body}");
+                    await stream.WriteAsync(reply);
+                }
             }
-            keys.Add(System.Text.RegularExpressions.Regex.Match(text, @"X-Api-Key: ([^\r]*)", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Groups[1].Value);
-            var body = "{\"ping_url\":\"https://hc-ping.com/11111111-2222-3333-4444-555555555555\"}";
-            var reply = System.Text.Encoding.ASCII.GetBytes($"HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n{body}");
-            await stream.WriteAsync(reply);
         });
         setup.Secrets.Set("hc-key", pasted);
         setup.Config.Update(c => { c.Monitoring.HealthchecksEnabled = true; c.Monitoring.HealthchecksApiKeyRef = "hc-key"; c.Monitoring.HealthchecksBaseUrl = $"http://127.0.0.1:{port}"; });
@@ -141,8 +158,8 @@ public sealed class CloudNotificationRepairTests
         var service = new HealthcheckService(setup.Config, setup.Secrets, client);
         var made = await service.EnsureChecksAsync(default);
         Assert.True(made == 1, "problem: " + service.LastProblem);
-        await server; listener.Stop();
-        Assert.Equal(new[] { "synthetic-key-123" }, keys);
+        listener.Stop(); await server;
+        Assert.NotEmpty(keys); Assert.All(keys, k => Assert.Equal("synthetic-key-123", k));
         Assert.Null(service.LastProblem);
         Assert.Equal("11111111-2222-3333-4444-555555555555", setup.Config.Current.Backups.Single(b => b.Id == bare.Id).HealthcheckId);
     }
@@ -171,11 +188,97 @@ public sealed class CloudNotificationRepairTests
         }));
         var service = new HealthcheckService(setup.Config, setup.Secrets, client);
         Assert.Equal(0, await service.EnsureChecksAsync(default));
-        Assert.Equal(new[] { "GET ours ", "POST ours {\"channels\":\"*\"}", "GET linked " }, calls);
+        Assert.Equal(new[] { "GET ours ", "POST ours {\"channels\":\"*\"}", "GET linked " }, calls.Take(3));
+        // Then the period and grace are brought in line (U211), only on Backspace's own check.
+        Assert.Equal(new[] { "GET ours ", "GET linked " }, calls.Skip(3).Where(c => c.StartsWith("GET", StringComparison.Ordinal)));
+        Assert.Single(calls.Skip(3), c => c.StartsWith("POST ours {\"name\"", StringComparison.Ordinal));
         Assert.All(setup.Config.Current.Backups, b => Assert.True(b.HealthcheckChannelsAssigned));
         calls.Clear();
         Assert.Equal(0, await service.EnsureChecksAsync(default));
         Assert.Empty(calls);
+    }
+
+    /// <summary>U211: the checks' period is the longest time between two runs
+    /// of a check, never shorter than the quiet period.</summary>
+    [Fact]
+    public void The_checks_period_follows_the_slowest_check()
+    {
+        var backup = new Backup { SkipNotificationGraceDays = 7 };
+        Assert.Equal(7, HealthcheckService.ChecksPeriodDays(backup));
+        backup.Checks.Add(new BackupCheck { Kind = CheckKind.Structure }); // after each backup
+        Assert.Equal(7, HealthcheckService.ChecksPeriodDays(backup));
+        backup.Checks.Add(new BackupCheck { Kind = CheckKind.TestRestore, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Monthly } });
+        Assert.Equal(31, HealthcheckService.ChecksPeriodDays(backup));
+        Assert.Equal((TimeSpan.FromDays(31), TimeSpan.FromDays(7)), HealthcheckService.Timing(31));
+    }
+
+    /// <summary>U211: a backup with checks gets a second check for them; a
+    /// changed quiet period updates both, once; a passed check pings the
+    /// checks' check, a failed one says so.</summary>
+    [Fact]
+    public async Task A_second_check_for_the_checks_follows_the_settings()
+    {
+        using var setup = new Setup();
+        var backup = setup.AddBackup();
+        var ours = "22222222-3333-4444-5555-666666666666";
+        setup.Config.Update(c =>
+        {
+            var b = c.Backups.Single(x => x.Id == backup.Id);
+            b.HealthcheckId = Guid.NewGuid().ToString(); b.HealthcheckChannelsAssigned = true;
+            b.Checks.Add(new BackupCheck { Kind = CheckKind.DataSample, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Weekly } });
+            c.Monitoring.HealthchecksEnabled = true; c.Monitoring.HealthchecksApiKeyRef = "hc-key";
+        });
+        setup.Secrets.Set("hc-key", "synthetic-key");
+        var calls = new List<string>();
+        using var client = new HttpClient(new Handler(async (request, ct) =>
+        {
+            var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
+            calls.Add($"{request.Method} {request.RequestUri!.AbsolutePath} {body}");
+            if (request.Method == HttpMethod.Get) return Json("{\"tags\":\"backspace backup-notification-proof\"}");
+            return Json($"{{\"ping_url\":\"https://hc-ping.com/{ours}\"}}");
+        }));
+        var service = new HealthcheckService(setup.Config, setup.Secrets, client);
+        await service.EnsureChecksAsync(default);
+        var saved = setup.Config.Current.Backups.Single(b => b.Id == backup.Id);
+        Assert.Equal($"https://hc-ping.com/{ours}", saved.HealthcheckChecksPingUrl);
+        var created = calls.Single(c => c.StartsWith("POST /api/v3/checks/ ", StringComparison.Ordinal));
+        using (var json = System.Text.Json.JsonDocument.Parse(created["POST /api/v3/checks/ ".Length..]))
+        {
+            Assert.Equal("notification-proof · checks", json.RootElement.GetProperty("name").GetString());
+            Assert.Equal("backspace backup-notification-proof checks", json.RootElement.GetProperty("tags").GetString());
+        }
+        Assert.Contains($"\"timeout\":{7 * 86400}", created);
+        Assert.Contains($"\"grace\":{3 * 86400}", created);
+        // Both checks were brought in line; nothing more is sent while nothing changes.
+        calls.Clear();
+        await service.EnsureChecksAsync(default);
+        Assert.Empty(calls);
+        // The quiet period becomes 45 days: both checks follow, with 7 days of grace.
+        setup.Config.Update(c => c.Backups.Single(x => x.Id == backup.Id).SkipNotificationGraceDays = 45);
+        await service.EnsureChecksAsync(default);
+        var updates = calls.Where(c => c.StartsWith("POST", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, updates.Count);
+        Assert.All(updates, u => Assert.Contains($"\"timeout\":{45 * 86400},\"grace\":{7 * 86400}", u.Replace("\"desc\"", "\"desc\"")));
+        Assert.Contains(updates, u => u.StartsWith($"POST /api/v3/checks/{ours} ", StringComparison.Ordinal));
+    }
+
+    /// <summary>U211: a check run pings the check for the backup's checks:
+    /// success when it passed, /fail when it failed.</summary>
+    [Fact]
+    public async Task A_check_run_pings_the_checks_check()
+    {
+        using var setup = new Setup(); var backup = setup.AddBackup();
+        var destination = new Destination { Name = "Checked fixture", Kind = DestinationKind.LocalFolder, PathOrSubpath = setup.Source() };
+        backup.SourcePaths.Add(setup.Source()); backup.Targets.Add(new() { DestinationId = destination.Id, StorageName = "default" });
+        backup.HealthcheckChecksPingUrl = "https://hc-ping.com/33333333-4444-5555-6666-777777777777";
+        var check = new BackupCheck { Kind = CheckKind.Structure };
+        backup.Checks.Add(check);
+        setup.Config.Update(c => { c.Backups.Clear(); c.Backups.Add(backup); c.Destinations.Add(destination); });
+        var pings = new List<string>();
+        using var client = new HttpClient(new Handler((r, _) => { lock (pings) pings.Add(r.RequestUri!.AbsolutePath); return Task.FromResult(Json("{}")); }));
+        var run = await setup.Orchestrator(client, client).RunCheckAsync(backup, check, default);
+        Assert.Equal(BackupRunStatus.Success, run.Status);
+        Assert.Equal(new[] { "/33333333-4444-5555-6666-777777777777" }, pings);
     }
 
     /// <summary>U209 (owner: "if we delete a backup, make sure you also remove

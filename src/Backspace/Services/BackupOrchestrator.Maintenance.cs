@@ -79,12 +79,33 @@ public sealed partial class BackupOrchestrator
         // card shows "Checking · …" in the app and through the service.
         var named = string.IsNullOrEmpty(_progress.Snapshot(backup.Id)?.Activity);
         if (named) _progress.ReportActivity(backup.Id, check.Title);
-        try { return await RunStandaloneMaintenanceAsync(backup, RunKind.Check, check, ct, onlyTargets).ConfigureAwait(false); }
+        try
+        {
+            var record = await RunStandaloneMaintenanceAsync(backup, RunKind.Check, check, ct, onlyTargets).ConfigureAwait(false);
+            await PingChecksAsync(backup, record).ConfigureAwait(false);
+            return record;
+        }
         finally
         {
             if (named) _progress.ReportActivity(backup.Id, "");
             queue.Release();
         }
+    }
+
+    /// <summary>The Healthchecks.io check for the backup's checks (U211): a
+    /// check that passed pings it, one that failed says so; one that waited
+    /// for its destination or was stopped says nothing, so the check goes
+    /// down only when none has passed for its period and grace.</summary>
+    private async Task PingChecksAsync(Backup backup, RunRecord record)
+    {
+        var address = (_config.Current.Backups.FirstOrDefault(b => b.Id == backup.Id) ?? backup).HealthcheckChecksPingUrl;
+        if (string.IsNullOrWhiteSpace(address)) return;
+        try
+        {
+            if (record.Status == BackupRunStatus.Success) await _hc.PingSuccessAsync(address, record.Summary ?? "", CancellationToken.None).ConfigureAwait(false);
+            else if (record.Status == BackupRunStatus.Failed) await _hc.PingFailureAsync(address, record.Summary ?? "", CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) { _log.Warning(ex, "Could not ping the Healthchecks.io check of {Backup}'s checks", backup.Name); }
     }
 
     /// <summary>Why a check can't reach this destination now, or null: a

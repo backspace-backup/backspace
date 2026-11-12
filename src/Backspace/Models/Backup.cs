@@ -306,6 +306,9 @@ public sealed class Backup : IJsonOnDeserialized
     /// <summary>Every integration of the Healthchecks.io project (its email
     /// included) is on for this backup's check (U210).</summary>
     public bool HealthcheckChannelsAssigned { get; set; }
+    /// <summary>Ping address of the Healthchecks.io check for this backup's
+    /// checks (U211); null when there is none.</summary>
+    public string? HealthcheckChecksPingUrl { get; set; }
 
     public bool Enabled { get; set; } = true;
 
