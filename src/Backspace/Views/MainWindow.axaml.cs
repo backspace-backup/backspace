@@ -92,7 +92,7 @@ public partial class MainWindow : Window
     private readonly System.Collections.Generic.Dictionary<string, WindowIcon> _iconCache = new();
     private readonly System.Collections.Generic.Dictionary<string, Bitmap> _bitmapCache = new();
 
-    internal bool ReleaseWindowOnTrayClose { get; init; }
+    internal bool ReleaseWindowOnTrayClose { get; set; }
     internal bool WasClosedToTray { get; private set; }
 
     public MainWindow() : this(routeForwardedArguments: true) { }

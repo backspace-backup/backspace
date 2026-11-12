@@ -1213,7 +1213,10 @@ Closing to the tray destroys the native main window and releases its visual
 tree, icon resources and view subscriptions. `TrayWindowHost` retains the main
 view model so an active restore, editor draft and selected page survive.
 Opening from the tray, a forwarded launch or a notification creates a new
-window around that same model. Explicit Quit still uses the operation drain
+window around that same model. Only one window exists at a time: a request
+that arrives while the window is being made (a tray double-click right after a
+start at sign-in opened two windows, U201) waits for it and shows that window.
+Explicit Quit still uses the operation drain
 and disposes the model only when the application exits. A paused or running
 operation must never be cancelled merely because the user closed the window.
 

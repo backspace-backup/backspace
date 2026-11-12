@@ -64,7 +64,7 @@ public sealed class E51_TrayWindowRecreation(ITestOutputHelper output) : BackupE
             Assert.Null(attached); Assert.Null(host.Window); Assert.Null(first.DataContext);
             Assert.False(App.QuitRequested); Assert.True(restore.IsRunning);
             Assert.True(ServiceLocator.ActiveRestores.HasRunning);
-            var second = ctx.Driver.Show(host.Show());
+            var second = ctx.Driver.Show(ShowWindow(host));
             Assert.NotSame(first, second); Assert.Same(model, second.DataContext);
             Assert.Same(restore, model.Restore);
             await ctx.Driver.PumpAsync(150);
@@ -78,7 +78,7 @@ public sealed class E51_TrayWindowRecreation(ITestOutputHelper output) : BackupE
             {
                 var current = host.Window!; current.Close(); await ctx.Driver.PumpAsync(30);
                 Assert.Null(host.Window);
-                var reopened = ctx.Driver.Show(host.Show());
+                var reopened = ctx.Driver.Show(ShowWindow(host));
                 Assert.NotSame(current, reopened); Assert.Same(model, reopened.DataContext);
                 Assert.Equal("Restore complete", model.Restore.SummaryHeading);
             }
@@ -92,6 +92,51 @@ public sealed class E51_TrayWindowRecreation(ITestOutputHelper output) : BackupE
         async Task Until(Func<bool> ready)
         {
             while (!ready()) { deadline.Token.ThrowIfCancellationRequested(); await ctx.Driver.PumpAsync(50); }
+        }
+    }
+
+    private static MainWindow ShowWindow(TrayWindowHost host)
+    {
+        host.Show();
+        return host.Window!;
+    }
+}
+
+/// <summary>U201 (11 November 2026): after a start at sign-in, a double-click
+/// on the tray icon opened two windows. Making the first window let the
+/// second click through before the window existed. Here the second request
+/// arrives while the window is being made, as the second click did.</summary>
+public sealed class TrayWindowSingleTests
+{
+    [AvaloniaFact]
+    public void A_second_request_while_the_window_is_being_made_shows_the_same_window()
+    {
+        var previousQuit = App.QuitRequested; App.QuitRequested = false;
+        var made = 0;
+        TrayWindowHost? host = null;
+        var shownWith = new System.Collections.Generic.List<MainWindow>();
+        host = new TrayWindowHost(_ => { }, model =>
+        {
+            made++;
+            // Windows delivers the double-click's second click now.
+            Assert.True(host!.IsCreating);
+            host.Show(w => shownWith.Add(w));
+            return new MainWindow(routeForwardedArguments: false) { DataContext = model };
+        });
+        try
+        {
+            host.Show(w => shownWith.Add(w));
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.Equal(1, made);
+            Assert.Equal(2, shownWith.Count);
+            Assert.All(shownWith, w => Assert.Same(host.Window, w));
+            Assert.True(host.Window!.IsVisible);
+        }
+        finally
+        {
+            App.QuitRequested = true; host.Window?.Close();
+            App.QuitRequested = previousQuit;
+            host.Dispose();
         }
     }
 }

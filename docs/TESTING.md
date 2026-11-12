@@ -518,6 +518,9 @@ the detached visual tree, a newly created window with the same restore model,
 and the recovered file's exact bytes. Three more close/open cycles preserve
 the completed result. This headless lifecycle test does not measure native
 tray CPU or substitute for a Windows tray interaction check.
+`TrayWindowSingleTests` asks for the window again while it is being made, as
+the second click of a tray double-click did (U201): one window is made and
+both requests show it.
 
 `S63_SettingsPersistence` uses actual Settings controls and fresh reads of
 the saved JSON for provider/domain/recipient changes, clearing credentials,

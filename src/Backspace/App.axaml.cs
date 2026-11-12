@@ -204,7 +204,7 @@ public partial class App : Application
                 e.Cancel = true;
                 Dispatcher.UIThread.Post(() =>
                 {
-                    _windowHost!.GetOrCreate().RequestQuit();
+                    _windowHost!.With(w => w.RequestQuit());
                 });
             };
             desktop.Exit += (_, __) =>
@@ -244,7 +244,8 @@ public partial class App : Application
                 catch (Exception ex)
                 {
                     AppLogger.For<App>().Error(ex, "Could not resume scheduled tasks");
-                    await DestructiveConfirmWindow.ShowInfoAsync(_windowHost!.Show(), "Scheduled tasks are still paused",
+                    _windowHost!.Show();
+                    await DestructiveConfirmWindow.ShowInfoAsync(_windowHost.GetOrCreate(), "Scheduled tasks are still paused",
                         "Backspace could not save the change that resumes them. Reopen the app to try again. " + ex.Message);
                 }
                 finally
@@ -389,8 +390,8 @@ public partial class App : Application
             {
                 if (QuitRequested) return;
                 // Another copy is taking over (InstallationHandover, U100).
-                if (args is [SingleInstanceCoordinator.QuitArgument]) { _windowHost.GetOrCreate().RequestQuit(); return; }
-                Program.OpenFromBackground(); _windowHost.Show().HandleForwardedArgs(args);
+                if (args is [SingleInstanceCoordinator.QuitArgument]) { _windowHost.With(w => w.RequestQuit()); return; }
+                Program.OpenFromBackground(); _windowHost.Show(w => w.HandleForwardedArgs(args));
             });
         return _windowHost;
     }
@@ -471,7 +472,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            if (_windowHost is not null) _windowHost.GetOrCreate().RequestQuit();
+            if (_windowHost is not null) _windowHost.With(w => w.RequestQuit());
             else if (desktop.MainWindow is MainWindow window) window.RequestQuit();
             else desktop.Shutdown();
         }
