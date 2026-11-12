@@ -177,11 +177,14 @@ public sealed class TestRestoreService
         }
     }
 
-    private static void PersistInterruptedAttempt(TestRestoreContext context, BackupRunStatus status, string summary)
+    private static void PersistInterruptedAttempt(TestRestoreContext context, BackupRunStatus status, string summary) =>
+        PersistInterruptedAttempt(context.Journal, status, summary);
+
+    /// <summary>The attempt's record in the backup's Activity.</summary>
+    private static void PersistInterruptedAttempt(TestRestoreJournal journal, BackupRunStatus status, string summary)
     {
         try
         {
-            var journal = context.Journal;
             var record = ServiceLocator.Logs.LoadHistoryByBackupId(journal.BackupId).FirstOrDefault(r => r.Id == journal.Id)
                 ?? new RunRecord { Id = journal.Id, BackupId = journal.BackupId, BackupName = journal.BackupName,
                     Kind = RunKind.TestRestore, StartedUtc = journal.StartedUtc };
@@ -231,19 +234,21 @@ public sealed class TestRestoreService
                 journal.Options.Validate();
                 if (journal.Dismissed) continue;
                 var backup = _config.Current.Backups.FirstOrDefault(b => b.Id == journal.BackupId);
-                if (journal.State is not ("running" or "paused"))
-                {
-                    if (journal.EndedUtc < DateTime.UtcNow.AddDays(-30)) continue;
-                    ShowSavedResult(backup, journal, path);
-                    continue;
-                }
+                // Finished: its result is in Activity (U205).
+                if (journal.State is not ("running" or "paused")) { _loaded[journal.Id] = 0; continue; }
+                // Pause is gone with the Restores entry (U205): a test restore
+                // paused by an earlier version simply continues.
+                if (journal.State == "paused") journal.State = "running";
                 if (_running.ContainsKey(journal.BackupId)) continue;
                 if (backup is null || TestRestoreContext.Fingerprint(backup, _config) != journal.RouteFingerprint)
                 {
                     journal.State = "failed"; journal.Summary = "Cannot resume: the backup sources or destination settings changed. Start a new test restore.";
                     journal.EndedUtc = DateTime.UtcNow;
                     await Task.Run(() => TestRestoreContext.WriteAtomic(path, journal, reason: FileWaitReason.Result));
-                    ShowSavedResult(backup, journal, path);
+                    // Said in the backup's Activity, now that test restores
+                    // aren't listed in Restores (U205).
+                    PersistInterruptedAttempt(journal, BackupRunStatus.Failed, journal.Summary);
+                    _loaded[journal.Id] = 0;
                     continue;
                 }
                 // Run registration on the UI thread, just like an explicit click.
@@ -252,23 +257,6 @@ public sealed class TestRestoreService
             catch (IOException ex) { RecoveryError(path, ex); }
             catch (Exception ex) { RecoveryError(path, ex); }
         }
-    }
-
-    private void ShowSavedResult(Backup? backup, TestRestoreJournal journal, string path)
-    {
-        var saved = ServiceLocator.ActiveRestores.BeginTest(backup ?? new Backup { Id = journal.BackupId, Name = journal.BackupName }, journal.Options.Label, journal.StartedUtc, null);
-        ServiceLocator.ActiveRestores.Describe(saved, journal.Summary);
-        ServiceLocator.ActiveRestores.UpdateProgress(saved, journal.Cells.Sum(c => c.Files.Count), journal.Cells.Sum(c => c.Results.Count(r => r.Path != "(restore operation)")),
-            journal.Cells.Sum(c => c.Files.Sum(f => Math.Max(0, f.SizeBytes))), journal.Cells.Sum(c => c.Results.Sum(r => Math.Max(0, r.ExpectedBytes))));
-        ServiceLocator.ActiveRestores.End(saved, journal.State == "completed" ? RestoreTerminalStatus.Success : journal.State == "cancelled" ? RestoreTerminalStatus.Cancelled : RestoreTerminalStatus.Error,
-            journal.State == "failed" ? journal.Summary : null);
-        saved.DismissAction = () =>
-        {
-            journal.Dismissed = true;
-            try { TestRestoreContext.WriteAtomic(path, journal, reason: FileWaitReason.Dismiss); }
-            catch { journal.Dismissed = false; throw; }
-        };
-        _loaded[journal.Id] = 0;
     }
 
     private void RecoveryError(string path, Exception error)

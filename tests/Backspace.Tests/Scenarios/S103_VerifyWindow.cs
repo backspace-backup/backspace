@@ -83,10 +83,11 @@ public sealed class S103_VerifyWindow : ScenarioBase
         model.RestoreOptions.Percentage = 5;
         Assert.Equal("Run 3 checks", model.RunLabel);
         var chosen = model.Selected();
-        Assert.Equal(new[] { CheckKind.DataSample, CheckKind.Structure }, chosen.Select(c => c.Kind));
+        // U203, U205: the test restore once runs last, as a check with its own choices.
+        Assert.Equal(new[] { CheckKind.DataSample, CheckKind.Structure, CheckKind.TestRestore }, chosen.Select(c => c.Kind));
         Assert.Same(backup.Checks[0], chosen[0]);
-        // The test restore runs last, as one you start yourself (followed in Restores).
-        Assert.Equal(5, model.OnceRestore()!.SamplePercent);
+        Assert.Equal(5, chosen[2].RestoreOptions().SamplePercent);
+        Assert.False(chosen[2].OnceOptions!.Full); Assert.Null(chosen[2].Schedule);
         Assert.All(chosen.Skip(1), c => { Assert.DoesNotContain(backup.Checks, s => s.Id == c.Id); Assert.Null(c.Schedule); });
         var tickedAgain = new VerifyWindow(model);
         ctx.Driver.Show(tickedAgain);

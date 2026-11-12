@@ -418,8 +418,8 @@
                 <TextBlock Text="Run now" VerticalAlignment="Center"/>
               </StackPanel>
             </Button>
-            <Button Classes="danger"
-                    IsVisible="{Binding IsRunning}"
+            <Button Classes="danger" Name="StopButton"
+                    IsVisible="{Binding ShowsStop}"
                     Margin="0,0,8,6"
                     Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).CancelRunCommand}"
                     CommandParameter="{Binding}">

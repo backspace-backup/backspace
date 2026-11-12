@@ -10,7 +10,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Backspace.ViewModels;
 
 /// <summary>The Verify window's answer: checks to run, then a test restore once.</summary>
-public sealed record VerifyChoices(IReadOnlyList<BackupCheck> Checks, TestRestoreOptions? OnceRestore);
+public sealed record VerifyChoices(IReadOnlyList<BackupCheck> Checks);
 
 /// <summary>One line of the Verify window: a check to tick.</summary>
 public sealed partial class VerifyChoice : ObservableObject
@@ -93,16 +93,22 @@ public sealed partial class VerifyViewModel : ObservableObject
         var own = Own.Where(c => c.IsSelected).Select(c => c.Check);
         var other = Other.Where(c => c.IsSelected && c != _otherRestore)
             .Select(c => { var once = c.Check.Clone(); once.Id = Guid.NewGuid().ToString("N"); once.Schedule = null; return once; });
-        return own.Concat(BackupCheck.InRunOrder(other.ToList())).ToList();
+        var chosen = own.Concat(BackupCheck.InRunOrder(other.ToList())).ToList();
+        // The test restore once runs last, like the backup's own checks: it
+        // takes the destination in turn, shows on the card with Stop, and its
+        // result goes to Activity (U203, U205).
+        if (OnceRestore() is { } options)
+            chosen.Add(new BackupCheck { Id = Guid.NewGuid().ToString("N"), Kind = CheckKind.TestRestore, Schedule = null,
+                SamplePercent = options.SamplePercent, MaximumBytes = options.MaximumSampleBytes, CompareOriginals = options.CompareOriginals,
+                OnceOptions = options });
+        return chosen;
     }
 
-    /// <summary>The once-only test restore, with its own size, or null: it
-    /// runs last, as a test restore you start yourself (followed, paused or
-    /// stopped in Restores), after the ticked checks.</summary>
+    /// <summary>The once-only test restore's choices, or null when it isn't ticked.</summary>
     public TestRestoreOptions? OnceRestore() => _otherRestore?.IsSelected == true ? RestoreOptions.ToOptions() : null;
 
     /// <summary>What the window hands back.</summary>
-    public VerifyChoices Result() => new(Selected(), OnceRestore());
+    public VerifyChoices Result() => new(Selected());
 
     private static string Capitalize(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 }

@@ -86,6 +86,8 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
         ctx.Snapshot(host, "before-test-restore-click", "Two source folders backed up; the Verify button is available (U213).");
         async Task ClickTestRestore()
         {
+            // Close the result's hover first: a failure's long tooltip can cover the button.
+            host.MouseMove(new Point(2, 2)); await Task.Delay(150);
             ctx.Driver.Pump();
             var button = view.GetVisualDescendants().OfType<Button>().Single(b =>
                 b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Verify"));
@@ -116,10 +118,16 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
             Click(options.GetVisualDescendants().OfType<RadioButton>().Single(b => b.Name == "FullChoice"));
             var compare = options.GetVisualDescendants().OfType<CheckBox>().Single(b => b.Name == "CompareOriginals");
             if (compare.IsChecked != true) Click(compare);
+            var before = ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id).LastVerifyUtc;
             Click(options.FindControl<Button>("RunButton")!);
             await task.WaitAsync(TimeSpan.FromMinutes(2));
-            var session = ServiceLocator.ActiveRestores.Sessions.Last(s => s.IsTestRestore && s.BackupId == backup.Id);
-            await session.Completion.WaitAsync(TimeSpan.FromMinutes(2));
+            // U203, U205: it runs as a check on the card; done once its result
+            // is saved and the card is idle again.
+            var running = vm.Cards.Single(c => c.Id == backup.Id);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            while (ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id).LastVerifyUtc == before || running.IsRunning || running.IsVerifying)
+            { await Task.Delay(50, deadline.Token); ctx.Driver.Pump(); }
+            Assert.DoesNotContain(ServiceLocator.ActiveRestores.Sessions, s => s.IsTestRestore);
             await ctx.Driver.PumpAsync(200);
             ctx.Driver.Pump();
         }

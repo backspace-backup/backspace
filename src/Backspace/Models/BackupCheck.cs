@@ -47,14 +47,19 @@ public sealed class BackupCheck
     /// <summary>Test restore: also compare the rebuilt files with today's originals.</summary>
     public bool CompareOriginals { get; set; }
 
+    /// <summary>A test restore run once from Verify: its own choices, every
+    /// file included (U203, U205). Never saved.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Services.TestRestoreOptions? OnceOptions { get; set; }
+
     public BackupCheck Clone() => new()
     {
-        Id = Id, Kind = Kind, MaximumBytes = MaximumBytes, SamplePercent = SamplePercent, CompareOriginals = CompareOriginals,
+        Id = Id, Kind = Kind, MaximumBytes = MaximumBytes, SamplePercent = SamplePercent, CompareOriginals = CompareOriginals, OnceOptions = OnceOptions,
         Schedule = Schedule is null ? null : System.Text.Json.JsonSerializer.Deserialize<BackupSchedule>(System.Text.Json.JsonSerializer.Serialize(Schedule)),
     };
 
     /// <summary>The test restore this entry asks for.</summary>
-    public Services.TestRestoreOptions RestoreOptions() => new(Full: false, SamplePercent, MaximumBytes, CompareOriginals);
+    public Services.TestRestoreOptions RestoreOptions() => OnceOptions ?? new(Full: false, SamplePercent, MaximumBytes, CompareOriginals);
 
     /// <summary>"Structure check", "Structure check + data sample (1 GiB)", "Test restore (1%, at most 1 GiB)".</summary>
     public string Title => Kind switch

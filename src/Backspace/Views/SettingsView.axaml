@@ -168,7 +168,10 @@
         </Expander.Header>
         <StackPanel Spacing="14" Margin="0,8,0,0">
           <TextBlock Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
-                     Text="A backup that has to wait its turn says “Queued” and why, then starts by itself. These apply to backups run from this window and by the background service."/>
+                     Text="These limits are for backups, run from this window or by the background service. A backup that has to wait its turn says “Queued” and why, then starts by itself."/>
+          <!-- U203 (owner, 12 November 2026): what else waits, said up front. -->
+          <TextBlock x:Name="SimultaneousOthers" Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
+                     Text="Checks, test restores and cleanup are not counted here: each takes its destination alone, so it waits for the backups and checks using it, and a backup to it waits until it ends. Restoring your files never waits."/>
           <Grid ColumnDefinitions="*,22,*">
             <StackPanel Grid.Column="0" Spacing="6">
               <TextBlock Classes="label-caps" Text="PER DESTINATION"/>
@@ -187,8 +190,6 @@
                          Text="All destinations together. A limit keeps your computer’s disk from being overloaded."/>
             </StackPanel>
           </Grid>
-          <TextBlock Classes="helper" TextWrapping="Wrap"
-                     Text="Cleanup and checks of a destination always run alone on it: they wait for the backups and other checks there. Restores and test restores you start only read, so they aren’t counted and can run while backups do."/>
         </StackPanel>
         </Expander>
       </Border>

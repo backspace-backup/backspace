@@ -211,11 +211,11 @@ backup reaching its cleanup waits for the other backups on that destination
 to finish ("Queued: waiting for local_d (same destination) before cleanup and
 checks"), and no new backup starts there meanwhile. Two checks of one
 destination never run at the same time either: each waits for the other.
-Restores and test restores you start yourself only read the destination, so
-the limits don't count them and they can run while a backup does (a scheduled
-sample test restore is a check, and runs alone). A check or a scheduled
-cleanup that finds the repository in use by such an operation (or by
-another computer) waits for it, trying again each minute for up to three
+Test restores are checks too, scheduled or started with **Verify**: they also
+run alone on their destination, so two test restores of one destination take
+turns. Only restoring your files is never held back: it only reads, so it can
+run while a backup does. A check or a scheduled cleanup that finds the
+repository in use by such a restore (or by another computer) waits for it, trying again each minute for up to three
 hours, and says "Waiting: another operation is using the repository"; it no
 longer fails. With more than one backup
 per destination, a new backup's first moments (while the engine prepares the
@@ -705,8 +705,9 @@ ticked, each with its latest result ("Passed 2d ago"), then other checks to
 run once without adding them to the backup: a structure check, a data sample,
 a test restore and a full data read. **Run** runs the ticked ones one after
 another; they show under Backup health like scheduled checks, and **Stop**
-ends them. A test restore run once comes last, after the other ticked checks;
-you follow, pause or stop it in Restores, and choose its scope:
+ends them. A test restore run once comes last, after the other ticked checks,
+and runs like them: it waits its turn on the destination, shows on the card
+with **Stop**, and its result goes to the backup's Activity. Choose its scope:
 
 - **Check a sample** defaults to 1% of the stored file sizes and a 1 GiB
   download budget. It uses the smaller limit, shared across source and
@@ -736,15 +737,13 @@ The same check can run by itself as a **Sample test restore** entry in the
 backup's checks (see [Checks](#checks)). This can use substantial bandwidth and
 temporary disk space.
 
-**Restores** shows a running check with recovered-byte progress, file counts,
-**Pause / Resume** and **Cancel**. Results stay there until dismissed, and
-reopening the app loads the last 30 days. The backup card shows the latest
+A test restore shows on its backup's card, not in **Restores**, which lists
+only the restores of your files. The card shows its progress and **Stop**;
+the backup's **Activity** keeps each result. The card shows the latest
 check's age and scope and flags a missed check or an unresolved failure.
-**Check history** lists dated results; **History** lists backup runs.
 
-Cancel removes the test's temporary copies. A paused check stays paused when
-you reopen Backspace. If the app closes unexpectedly, reopening it resumes the
-saved snapshots and sample; completed batches are kept, and an unfinished
+Stop removes the test's temporary copies. If the app closes unexpectedly,
+reopening it resumes the saved snapshots and sample; completed batches are kept, and an unfinished
 batch may be downloaded again. Changed source or destination settings prevent
 resuming and show an explanation instead.
 

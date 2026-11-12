@@ -428,8 +428,9 @@ with original-file recovery, and a new user file appearing during the wait.
 These tests cover the final file-placement step after the engine has exited.
 
 `E53_CheckHistoryAndAutomaticRestore` also pauses a real automatic comparison
-while its parent backup remains active. It clicks View test restore, checks
-that the card names the comparison phase, and verifies that completion clears
+while its parent backup remains active. It checks that the card names the
+comparison phase, shows Stop and holds Verify until it ends (Restores doesn't
+list test restores), and verifies that completion clears
 the live state. The final duration includes the comparison; the compact card
 keeps detailed results in its tooltip and history.
 Cancelling a later comparison must leave both the card and the overall banner

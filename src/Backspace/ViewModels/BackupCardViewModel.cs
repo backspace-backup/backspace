@@ -149,6 +149,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     public bool ShowsTestRestore => IsVerifying && !IsChecking && _testSession is not null;
     /// <summary>Backup health shows something running: a check or a test restore.</summary>
     public bool ShowsHealthActivity => IsChecking || ShowsTestRestore;
+    /// <summary>Stop shows for a run, and for a test restore, which is
+    /// stopped here now that Restores doesn't list it (U205).</summary>
+    public bool ShowsStop => IsRunning || ShowsTestRestore;
 
     /// <summary>"Checking · Structure + data sample (1 of 2) · 7 min" (U197):
     /// the check's sizes are in the hover.</summary>
@@ -216,6 +219,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsChecking));
         OnPropertyChanged(nameof(ShowsTestRestore));
         OnPropertyChanged(nameof(ShowsHealthActivity));
+        OnPropertyChanged(nameof(ShowsStop));
         OnPropertyChanged(nameof(HealthTileClass));
         OnPropertyChanged(nameof(ShowsRunInLastBackup));
         OnPropertyChanged(nameof(ShowsCheckProgress));
@@ -401,11 +405,12 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     /// <summary>A running backup blocks starting a separate check, but
     /// its automatic restore comparison can always be opened to view progress.</summary>
-    public bool TestRestoreEnabled => IsVerifying || (!IsRunning && HasRestorableRun);
-    /// <summary>"Verify" (U213): this backup's checks now, or another once.</summary>
-    public string TestRestoreActionLabel => IsVerifying ? "View test restore" : "Verify";
+    public bool TestRestoreEnabled => !IsVerifying && !IsRunning && HasRestorableRun;
+    /// <summary>"Verify" (U213): this backup's checks now, or another once.
+    /// A running test restore is followed and stopped on the card (U205).</summary>
+    public string TestRestoreActionLabel => "Verify";
     public string TestRestoreTooltip => IsVerifying
-        ? "View the current test restore, follow its progress, or pause or stop it."
+        ? "A test restore is running: follow it here, or stop it with Stop."
         : IsRunning
         ? "Available once this backup is no longer running."
         : !HasRestorableRun ? NothingToRestoreTooltip

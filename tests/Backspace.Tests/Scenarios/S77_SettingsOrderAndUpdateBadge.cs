@@ -64,8 +64,10 @@ public sealed class S77_SettingsOrderAndUpdateBadge : ScenarioBase
             var labels = limits.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
             Assert.Contains("PER DESTINATION", labels);
             Assert.Contains("IN TOTAL", labels);
-            Assert.Contains(labels, t => t?.Contains("Restores and test restores you start only read", StringComparison.Ordinal) == true);
-            ctx.Snapshot(host, "simultaneous backups", "Settings › Simultaneous backups: Per destination and In total; the note says checks wait for each other and restores you start aren't counted.");
+            // U203: what the limits cover, and what else waits, said up front.
+            Assert.Contains(labels, t => t?.StartsWith("These limits are for backups", StringComparison.Ordinal) == true);
+            Assert.Contains(labels, t => t?.StartsWith("Checks, test restores and cleanup are not counted here: each takes its destination alone", StringComparison.Ordinal) == true);
+            ctx.Snapshot(host, "simultaneous backups", "Settings › Simultaneous backups: \"These limits are for backups…\", then \"Checks, test restores and cleanup are not counted here: each takes its destination alone…\", above Per destination and In total.");
             limits.IsExpanded = false;
 
             // U208: the Healthchecks key's result is green when it works, red when not.

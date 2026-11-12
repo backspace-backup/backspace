@@ -256,7 +256,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     private void OnTestRestoresChanged() => OnUiThread(() =>
     {
         foreach (var card in Cards)
-            card.IsVerifying = ServiceLocator.ActiveRestores.Sessions.Any(s => s.IsTestRestore && s.BackupId == card.Id && s.IsRunning);
+            card.IsVerifying = ServiceLocator.ActiveRestores.RunningTestFor(card.Id) is not null;
     });
 
     public void Dispose()
@@ -893,6 +893,8 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         // network gone" line that was wrong for the manual case.
         // Checks started with Verify (U213).
         if (_verifications.TryGetValue(card.Id, out var verifying)) { try { verifying.Cancel(); } catch (ObjectDisposedException) { } return; }
+        // A test restore the schedule started (U205: Stop is on the card now).
+        if (ServiceLocator.ActiveRestores.RunningTestFor(card.Id) is { } testRestore && !ServiceLocator.Orchestrator.IsRunning(card.Id)) { testRestore.Cancel(); return; }
         ServiceLocator.Orchestrator.CancelRun(card.Id, "Manually skipped");
         // Hard-cancel safety net (user-reported 2026-04-29: a run that
         // failed silently in init left the card stuck on "Running…" with
@@ -988,13 +990,13 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     private async Task TestRestore(BackupCardViewModel card)
     {
         if (card is null) return;
-        if (ServiceLocator.TestRestores.FindRunning(card.Id) is { } running)
-        {
-            ServiceLocator.ActiveRestores.Open(running);
-            return;
-        }
         var owner = TestRestoreOwner?.Invoke() ?? Owner();
         if (owner is null) return;
+        if (ServiceLocator.TestRestores.FindRunning(card.Id) is not null)
+        {
+            await DestructiveConfirmWindow.ShowInfoAsync(owner, "A test restore is running", "This backup's test restore is running: follow it on the card, or stop it there.");
+            return;
+        }
         if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to read this backup.")) return;
         // Verify (U213): this backup's checks now, or another check once.
         var saved = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == card.Id) ?? card.Snapshot;
@@ -1002,20 +1004,13 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         try { entries = BackupCheckHistory.Entries(saved, await Task.Run(() => ServiceLocator.Logs.LoadTimelineByBackupId(saved.Id))); }
         catch (Exception ex) { _log.Warning(ex, "Could not read the check history of {Name}", saved.Name); entries = []; }
         var choices = await new VerifyWindow(new VerifyViewModel(saved, entries, DateTime.UtcNow)).ShowDialog<VerifyChoices?>(owner);
-        if (choices is null || choices.Checks.Count == 0 && choices.OnceRestore is null) return;
+        if (choices is null || choices.Checks.Count == 0) return;
         var checks = choices.Checks;
         var backup = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == card.Id);
         if (backup is null) return;
         if (ServiceLocator.Orchestrator.IsRunning(backup.Id) || _verifications.ContainsKey(backup.Id))
         {
             await DestructiveConfirmWindow.ShowInfoAsync(owner, "Could not start the checks", "This backup started running while the window was open. Let it finish, then verify it.");
-            return;
-        }
-        // Only a test restore once: started as one you start yourself,
-        // followed, paused or stopped in Restores.
-        if (checks.Count == 0)
-        {
-            StartTestRestore(card, backup, choices.OnceRestore!, owner);
             return;
         }
         var stop = new CancellationTokenSource();
@@ -1026,9 +1021,6 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             {
                 var record = await ServiceLocator.Orchestrator.RunChecksAsync(backup, checks, stop.Token);
                 _log.Information("Verify of {Name}: {Status}", backup.Name, record.Status);
-                // Then the test restore once, unless the checks were stopped.
-                if (choices.OnceRestore is { } once && !stop.IsCancellationRequested)
-                    OnUiThread(() => StartTestRestore(card, backup, once, owner));
             }
             catch (Exception ex) { _log.Error(ex, "Verify threw for {Name}", backup.Name); }
             finally
@@ -1040,22 +1032,6 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         });
     }
 
-    private void StartTestRestore(BackupCardViewModel card, Backup backup, TestRestoreOptions options, Avalonia.Controls.Window owner)
-    {
-        try
-        {
-            if (ServiceLocator.Orchestrator.IsRunning(backup.Id))
-                throw new InvalidOperationException("This backup started running. Let it finish before testing the restore.");
-            var session = ServiceLocator.TestRestores.Start(backup, options);
-            card.IsVerifying = true;
-            ServiceLocator.ActiveRestores.Open(session);
-        }
-        catch (Exception ex)
-        {
-            _log.Error(ex, "Test-restore threw for {Name}", card.Snapshot.Name);
-            _ = DestructiveConfirmWindow.ShowInfoAsync(owner, "Could not start test restore", ex.Message);
-        }
-    }
 
     /// <summary>Checks started with Verify, by backup: Stop ends them (U213).</summary>
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _verifications = new();

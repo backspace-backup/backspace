@@ -129,7 +129,7 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
         void PauseAutomaticComparison()
         {
             if (inlineSession is not null) return;
-            inlineSession = ServiceLocator.ActiveRestores.Sessions.FirstOrDefault(s => s.BackupId == saved.Id && s.IsTestRestore && s.IsRunning);
+            inlineSession = ServiceLocator.ActiveRestores.RunningTestFor(saved.Id);
             inlineSession?.TogglePause();
         }
         ServiceLocator.ActiveRestores.Changed += PauseAutomaticComparison;
@@ -140,20 +140,19 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
             Assert.NotNull(inlineSession); Assert.True(inlineSession.IsPaused);
             card = cards.Cards.Single();
             Assert.True(card.IsVerifying);
-            var entry = main.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "View test restore"));
-            Assert.True(entry.IsEnabled);
-            Assert.Contains("View the current test restore", ToolTip.GetTip(entry)?.ToString());
-            Assert.DoesNotContain("Stop it first", ToolTip.GetTip(entry)?.ToString());
+            // U205: followed and stopped on the card; Verify waits for it.
+            var entry = main.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Verify"));
+            Assert.False(entry.IsEnabled);
+            Assert.Contains("A test restore is running", ToolTip.GetTip(entry)?.ToString());
+            Assert.True(main.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "StopButton").IsEffectivelyVisible);
+            Assert.DoesNotContain(ServiceLocator.ActiveRestores.Sessions, s => s.IsTestRestore);
             // Since U179 the test restore after each backup is its own check
             // run, started when the backup ends: Backup health says it is
             // checking (U197), and Last backup keeps the backup's result.
             Assert.DoesNotContain(main.GetVisualDescendants().OfType<TextBlock>(), t => t.Name == "RunningText" && t.IsEffectivelyVisible);
             var running = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "CheckRunText" && t.IsEffectivelyVisible);
             Assert.StartsWith("Checking · Sample test restore", running.Text);
-            ctx.Snapshot(main, "automatic-comparison-phase", "After the backup ends, its test restore runs as a check: Backup health says Checking. View test restore remains enabled and its tooltip describes viewing the active check.");
-            Click(main, entry); await ctx.Driver.PumpAsync(150);
-            Assert.Equal(NavItem.ActiveRestores, mainVm.SelectedNav);
-            Assert.Same(inlineSession, mainVm.ActiveRestores.SelectedSession);
+            ctx.Snapshot(main, "automatic-comparison-phase", "After the backup ends, its test restore runs as a check: Backup health says Checking, Stop is shown, and Verify waits for it (its hover says a test restore is running).");
             await ctx.Driver.PumpAsync(1200); // Make omitted comparison time detectable in the whole-second headline.
             await inlineSession.TogglePauseAsync();
         }

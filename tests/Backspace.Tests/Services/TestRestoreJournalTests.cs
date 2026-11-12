@@ -242,21 +242,19 @@ public sealed class TestRestoreJournalTests
         {
             var service = new TestRestoreService(config, ServiceLocator.Verifier);
             await service.ResumeInterruptedAsync(); Dispatcher.UIThread.RunJobs();
-            var sessions = ServiceLocator.ActiveRestores.Sessions.Except(before).ToArray();
-            Assert.Equal(2, sessions.Length);
-            Assert.All(sessions, s => Assert.Equal(RestoreTerminalStatus.Error, s.Status));
-            var changed = sessions.Single(s => s.BackupId == backup.Id);
-            Assert.Contains("settings changed", changed.ErrorMessage);
+            // U205: test restores aren't listed in Restores; the backup's
+            // Activity says why this one could not resume, once.
+            Assert.Empty(ServiceLocator.ActiveRestores.Sessions.Except(before));
+            var said = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Where(r => r.Id == journal.Id).ToArray();
+            Assert.Single(said);
+            Assert.Equal(BackupRunStatus.Failed, said[0].Status);
+            Assert.Contains("settings changed", said[0].Summary);
             Assert.False(service.IsRunning(backup.Id));
             Assert.Equal("{unfinished progress", File.ReadAllText(broken));
             Assert.Equal("failed", JsonSerializer.Deserialize<TestRestoreJournal>(File.ReadAllText(path))!.State);
-            await service.ResumeInterruptedAsync(); Dispatcher.UIThread.RunJobs();
-            Assert.Equal(2, ServiceLocator.ActiveRestores.Sessions.Except(before).Count());
-            await ServiceLocator.ActiveRestores.DismissAsync(changed);
-            Assert.True(JsonSerializer.Deserialize<TestRestoreJournal>(File.ReadAllText(path))!.Dismissed);
-            await new TestRestoreService(config, ServiceLocator.Verifier).ResumeInterruptedAsync();
-            Dispatcher.UIThread.RunJobs();
-            Assert.DoesNotContain(ServiceLocator.ActiveRestores.Sessions.Except(before), s => s.BackupId == backup.Id);
+            await new TestRestoreService(config, ServiceLocator.Verifier).ResumeInterruptedAsync(); Dispatcher.UIThread.RunJobs();
+            Assert.Single(ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id), r => r.Id == journal.Id);
+            Assert.Empty(ServiceLocator.ActiveRestores.Sessions.Except(before));
         }
         finally
         {

@@ -84,13 +84,20 @@ public sealed class UiDriverCleanupTests
         }
     }
 
+    private static RestoreRequest Result(Backup backup) => new()
+    {
+        Backup = backup, SourcePath = @"C:\Source", Destination = new Destination { Name = "Archive" }, StorageName = "default",
+        Revision = 1, TargetPath = @"C:\Restored",
+    };
+
     [AvaloniaFact]
     public async Task Preparation_waits_for_an_existing_journal_dismissal_before_the_next_window()
     {
         using var context = new ScenarioContext("Harness-result-dismissal", new SecretsLoader());
         await context.PrepareAsync();
         var backup = new Backup { Name = "Previous scenario result" };
-        var session = ServiceLocator.ActiveRestores.BeginTest(backup, "Saved result", DateTime.UtcNow, null);
+        // A file restore's result: test restores aren't listed in Restores (U205).
+        var session = ServiceLocator.ActiveRestores.Begin(backup, Result(backup));
         ServiceLocator.ActiveRestores.End(session, RestoreTerminalStatus.Success, null);
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -116,7 +123,8 @@ public sealed class UiDriverCleanupTests
         using var context = new ScenarioContext("Harness-failed-dismissal", new SecretsLoader());
         await context.PrepareAsync();
         var backup = new Backup { Name = "Failed journal write" };
-        var session = ServiceLocator.ActiveRestores.BeginTest(backup, "Saved result", DateTime.UtcNow, null);
+        // A file restore's result: test restores aren't listed in Restores (U205).
+        var session = ServiceLocator.ActiveRestores.Begin(backup, Result(backup));
         ServiceLocator.ActiveRestores.End(session, RestoreTerminalStatus.Success, null);
         session.DismissAction = () => throw new UnauthorizedAccessException("Fixture journal is not writable");
         try

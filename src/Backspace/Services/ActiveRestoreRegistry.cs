@@ -20,6 +20,9 @@ public sealed class ActiveRestoreRegistry
     public event Action<ActiveRestoreSession>? SessionOpened;
     public bool HasAny => Sessions.Count > 0;
     public bool HasRunning => !_running.IsEmpty;
+    /// <summary>A restore of files is running: test restores show on their
+    /// backup's card, not in Restores (U205).</summary>
+    public bool HasRunningFileRestores => _running.Values.Any(s => !s.IsTestRestore);
 
     public ActiveRestoreSession BeginTest(Backup backup, string label, DateTime startedUtc, Action? cancel, RestoreControl? control = null)
     {
@@ -28,7 +31,9 @@ public sealed class ActiveRestoreRegistry
             SourcePath = label, StartedUtc = startedUtc, IsRunning = true, IsTestRestore = true, CancelAction = cancel };
         AttachControl(session, control);
         _running[session.Id] = session;
-        MarshalToUi(() => { Sessions.Add(session); Changed?.Invoke(); });
+        // Not listed in Restores (U205, owner, 12 November 2026: "go ahead"):
+        // it shows on its backup's card while it runs, and its result in Activity.
+        MarshalToUi(() => Changed?.Invoke());
         return session;
     }
 

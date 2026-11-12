@@ -144,6 +144,7 @@ public sealed class E24_BackupCardActionShelf : BackupE2EBase
             {
                 if (cmd is CommunityToolkit.Mvvm.Input.IAsyncRelayCommand a)
                 {
+                    var verifiedBefore = ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id).LastVerifyUtc;
                     var execution = a.ExecuteAsync(param);
                     if (label == "Edit")
                     {
@@ -164,7 +165,12 @@ public sealed class E24_BackupCardActionShelf : BackupE2EBase
                     await execution;
                     if (label == "Verify")
                     {
-                        await ServiceLocator.ActiveRestores.Sessions.Last(s => s.IsTestRestore).Completion.WaitAsync(TimeSpan.FromMinutes(2));
+                        // U203, U205: it runs as a check on the card; done once
+                        // its result is saved and the card is idle again.
+                        var card = (BackupCardViewModel)param!;
+                        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                        while (ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id).LastVerifyUtc == verifiedBefore || card.IsRunning || card.IsVerifying)
+                        { await Task.Delay(50, deadline.Token); ctx.Driver.Pump(); }
                         await ctx.Driver.PumpAsync(200);
                     }
                 }

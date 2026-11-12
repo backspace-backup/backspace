@@ -113,19 +113,19 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
             b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Restores"));
         ClickControl(restoresNav); await ctx.Driver.PumpAsync(50);
         Assert.Same(model.ActiveRestores, model.CurrentPage);
+        // U205: a test restore isn't listed in Restores; it is stopped from
+        // its card (here, its session's own stop, which the card calls).
         var test = ServiceLocator.TestRestores.Start(ServiceLocator.Config.Current.Backups.Single(), new TestRestoreOptions(Full: true));
-        ServiceLocator.ActiveRestores.Open(test);
         await Until(() => test.IsRunning && test.TotalFiles > 0);
-        Click("Pause"); await Until(() => test.IsPaused);
+        Assert.DoesNotContain(model.ActiveRestores.Sessions, s => s.IsTestRestore);
         var journalDir = Path.Combine(AppPaths.ConfigRoot, "test-restores");
         var journalPath = Directory.GetFiles(journalDir, "*.json").Single(p => !Path.GetFileName(p).StartsWith("history-") &&
             JsonSerializer.Deserialize<TestRestoreJournal>(File.ReadAllText(p))!.BackupId == backup.Id);
         var pausedJournal = JsonSerializer.Deserialize<TestRestoreJournal>(File.ReadAllText(journalPath))!;
-        Assert.Equal("paused", pausedJournal.State);
-        ctx.Snapshot(main, "test-restore-paused", "Test restore has its own Resume and Cancel buttons. The paused choice is saved in the journal.");
-        Click("Resume"); await Until(() => !test.IsPaused && test.IsRunning);
-        Click("Pause"); await Until(() => test.IsPaused);
-        Click("Cancel"); await test.Completion.WaitAsync(deadline.Token); await ctx.Driver.PumpAsync(100);
+        Assert.Equal("running", pausedJournal.State);
+        pausedJournal.State = "paused"; // As an earlier version saved a paused one.
+        ctx.Snapshot(main, "test-restore-not-in-restores", "A test restore runs, and Restores lists only the earlier file restores (U205).");
+        test.Cancel(); await test.Completion.WaitAsync(deadline.Token); await ctx.Driver.PumpAsync(100);
         Assert.Equal(RestoreTerminalStatus.Cancelled, test.Status);
         Assert.Equal("cancelled", JsonSerializer.Deserialize<TestRestoreJournal>(File.ReadAllText(journalPath))!.State);
         Assert.False(Directory.Exists(BackupVerifier.VerifyRoot) && Directory.GetDirectories(BackupVerifier.VerifyRoot).Length > 0);
@@ -138,12 +138,12 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
         TestRestoreContext.WriteAtomic(restartPath, pausedJournal);
         var recovery = new TestRestoreService(ServiceLocator.Config, ServiceLocator.Verifier);
         await recovery.ResumeInterruptedAsync(); await ctx.Driver.PumpAsync(200);
+        // Pause is gone with the Restores entry (U205): a test restore an
+        // earlier version saved as paused continues, and Stop ends it.
         var restoredPause = recovery.FindRunning(backup.Id)!;
-        Assert.NotNull(restoredPause); Assert.True(restoredPause.IsPaused);
-        Assert.Equal(0, restoredPause.BytesRestored);
-        model.ActiveRestores.SelectedSession = restoredPause;
-        ctx.Snapshot(main, "saved-pause-awaits-resume", "A fresh recovery service reads the saved paused journal and waits for Resume. It does not start downloading automatically.");
-        Click("Cancel"); await restoredPause.Completion.WaitAsync(deadline.Token);
+        Assert.NotNull(restoredPause); Assert.False(restoredPause.IsPaused);
+        Assert.DoesNotContain(model.ActiveRestores.Sessions, s => s.IsTestRestore);
+        restoredPause.Cancel(); await restoredPause.Completion.WaitAsync(deadline.Token);
         Assert.Equal("cancelled", JsonSerializer.Deserialize<TestRestoreJournal>(File.ReadAllText(restartPath))!.State);
         Assert.False(ServiceLocator.ActiveRestores.HasRunning);
         ctx.Report.RecordNote("Adversarial checks", "Actual headless clicks paused/resumed/cancelled real restic transfers. A newer snapshot created while paused was not substituted. Cancellation preserved an existing original and removed staging. A fresh service loaded saved Paused state without downloading; this is not a simulated reboot or a real process crash. Publication rollback and concurrent user edits are also covered by focused filesystem tests.");

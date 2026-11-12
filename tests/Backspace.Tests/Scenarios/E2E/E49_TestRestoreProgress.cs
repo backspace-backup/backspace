@@ -73,8 +73,17 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
             else ctx.Snapshot(dialog, "choose-sample-or-every-file", "The Verify window with a test restore once: it defaults to a sample, explains percentage and download budget, and offers every-file recovery.");
             Click(dialog, dialog.FindControl<Button>("RunButton")!);
             await vm.Backups.TestRestoreCommand.ExecutionTask!;
-            ctx.Driver.Pump();
-            return ServiceLocator.ActiveRestores.Sessions.Last(s => s.BackupId == backup.Id && s.IsTestRestore);
+            // U203, U205: it runs as a check, on the card, not in Restores.
+            ActiveRestoreSession? session = null;
+            while ((session = ServiceLocator.ActiveRestores.RunningTestFor(backup.Id)) is null) { await Task.Delay(50, deadline.Token); ctx.Driver.Pump(); }
+            Assert.DoesNotContain(ServiceLocator.ActiveRestores.Sessions, s => s.IsTestRestore);
+            return session;
+        }
+        // The Verify run around it ends once its record is saved.
+        async Task Settled()
+        {
+            var card = vm.Backups.Cards.Single(c => c.Id == backup.Id);
+            while (card.IsRunning || card.IsVerifying) { await Task.Delay(50, deadline.Token); ctx.Driver.Pump(); }
         }
         async Task Intermediate(ActiveRestoreSession session)
         {
@@ -89,9 +98,12 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
 
         var first = await Start(false);
         await Intermediate(first);
-        Assert.Same(first, vm.ActiveRestores.SelectedSession);
-        ctx.Snapshot(main, "real-sample-progress", "The orange Test restore label, real recovered-byte progress and Cancel button are visible in Restores.");
-        await first.Completion.WaitAsync(deadline.Token); await ctx.Driver.PumpAsync(150);
+        Assert.Equal(NavItem.Backups, vm.SelectedNav);
+        var firstCard = vm.Backups.Cards.Single(c => c.Id == backup.Id);
+        Assert.True(firstCard.ShowsCheckProgress);
+        Assert.True(main.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "StopButton").IsEffectivelyVisible);
+        ctx.Snapshot(main, "real-sample-progress", "The test restore runs on the card: under Backup health with its bar and step below the sources, and Stop. Restores doesn't list it.");
+        await first.Completion.WaitAsync(deadline.Token); await Settled(); await ctx.Driver.PumpAsync(150);
         Assert.True(first.Status == RestoreTerminalStatus.Success, $"{first.Status}: {string.Join(" | ", Latest().Cells.Single().Results.Where(r => r.Status != FileVerifyStatus.Recovered).Take(3).Select(r => r.Path + ": " + r.Detail))}");
         var firstJournal = Latest();
         Assert.Equal(75, firstJournal.Cells.Single().Results.Count);
@@ -100,7 +112,7 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         ctx.Snapshot(main, "sample-result-with-scope", "75 of 300 files were recovered and validated by restic; comparison with today's originals was not requested. The result explicitly says this was a sample.");
 
         var second = await Start(false);
-        await second.Completion.WaitAsync(deadline.Token); await ctx.Driver.PumpAsync(150);
+        await second.Completion.WaitAsync(deadline.Token); await Settled(); await ctx.Driver.PumpAsync(150);
         Assert.True(second.Status == RestoreTerminalStatus.Success, $"{second.Status}: {second.ErrorMessage ?? second.Detail}");
         var secondJournal = Latest();
         Assert.Empty(firstJournal.Cells.Single().Files.Select(f => f.Path).Intersect(secondJournal.Cells.Single().Files.Select(f => f.Path)));
@@ -110,9 +122,10 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         var completedVerification = ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id).LastVerifyUtc;
         var cancel = await Start(true);
         await Intermediate(cancel);
-        var stop = main.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Cancel"));
+        // Stopped with the card's Stop (U205).
+        var stop = main.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "StopButton" && b.IsEffectivelyVisible);
         Click(main, stop);
-        await cancel.Completion.WaitAsync(deadline.Token); await ctx.Driver.PumpAsync(150);
+        await cancel.Completion.WaitAsync(deadline.Token); await Settled(); await ctx.Driver.PumpAsync(150);
         Assert.Equal(RestoreTerminalStatus.Cancelled, cancel.Status);
         Assert.Equal("cancelled", Latest().State);
         Assert.False(ServiceLocator.ActiveRestores.HasRunning);
@@ -120,7 +133,7 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         Assert.True(afterCancel.LastVerifyPass);
         Assert.Equal(completedVerification, afterCancel.LastVerifyUtc);
         Assert.Equal("warn", vm.Backups.HealthClass); // The incomplete latest check needs attention; earlier proof remains saved.
-        ctx.Snapshot(main, "stopped-test-is-not-success", "The actual Cancel button cancelled a live full check. The result says Cancelled, not Done, and the saved record prevents automatic resumption.");
+        ctx.Snapshot(main, "stopped-test-is-not-success", "The card's Stop button stopped a live full test restore. The result says it is incomplete, not Done, and the saved record prevents automatic resumption.");
         vm.SelectedNav = NavItem.Backups;
         vm.Backups.Refresh(); ctx.Driver.Pump(); main.UpdateLayout();
         Assert.Equal("warn", vm.Backups.HealthClass);

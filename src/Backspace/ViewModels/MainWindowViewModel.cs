@@ -108,7 +108,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         ServiceLocator.ActiveRestores.Changed += OnActiveRestoresChanged;
         ServiceLocator.ActiveRestores.SessionOpened += OnRestoreSessionOpened;
         HasActiveRestores = ServiceLocator.ActiveRestores.HasAny;
-        HasRunningRestores = ServiceLocator.ActiveRestores.HasRunning;
+        HasRunningRestores = ServiceLocator.ActiveRestores.HasRunningFileRestores;
         ServiceLocator.Config.Changed += OnProtectionChanged;
         RefreshProtection();
     }
@@ -118,7 +118,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             HasActiveRestores = ServiceLocator.ActiveRestores.HasAny;
-            HasRunningRestores = ServiceLocator.ActiveRestores.HasRunning;
+            HasRunningRestores = ServiceLocator.ActiveRestores.HasRunningFileRestores;
         });
     }
 
