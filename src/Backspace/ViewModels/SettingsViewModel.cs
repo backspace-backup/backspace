@@ -48,11 +48,19 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         try
         {
-            var made = await ServiceLocator.Healthcheck.EnsureChecksAsync(System.Threading.CancellationToken.None);
-            var problem = ServiceLocator.Healthcheck.LastProblem;
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => HealthchecksStatus = problem is not null
-                ? "Checks could not be created: " + problem
-                : made > 0 ? $"Created a Healthchecks.io check for {made} backup{(made == 1 ? "" : "s")}." : HealthchecksStatus);
+            var service = ServiceLocator.Healthcheck;
+            var made = await service.EnsureChecksAsync(System.Threading.CancellationToken.None);
+            // Green when the key works, red when it doesn't (U208): with every
+            // backup already monitored, the key is checked by asking for the
+            // project's checks.
+            var problem = service.LastProblem ?? (made > 0 ? null : await service.VerifyKeyAsync(System.Threading.CancellationToken.None));
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                HealthchecksStatusOk = problem is null;
+                HealthchecksStatus = problem is not null ? "Checks could not be created: " + problem
+                    : made > 0 ? $"The key works. Created a Healthchecks.io check for {made} backup{(made == 1 ? "" : "s")}."
+                    : "The key works. Every backup has its Healthchecks.io check.";
+            });
         }
         catch (Exception ex) { AppLogger.For<SettingsViewModel>().Warning(ex, "Could not create the Healthchecks.io checks"); }
     }
@@ -61,6 +69,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     /// Healthchecks.io checks (U187): a problem stays shown until it is fixed.</summary>
     [ObservableProperty] private string _healthchecksStatus = ServiceLocator.Healthcheck?.LastProblem is { } startupProblem
         ? "Checks could not be created: " + startupProblem : "";
+    /// <summary>The status above is good news (green) or a problem (red), U208.</summary>
+    [ObservableProperty] private bool _healthchecksStatusOk;
     partial void OnHealthchecksApiKeyChanged(string value)    => ScheduleAutoSave();
     partial void OnHealthchecksBaseUrlChanged(string value)   => ScheduleAutoSave();
     partial void OnMinimizeToTrayOnCloseChanged(bool value)

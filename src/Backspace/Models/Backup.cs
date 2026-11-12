@@ -303,6 +303,9 @@ public sealed class Backup : IJsonOnDeserialized
     public string? HealthcheckId { get; set; }
     /// <summary>Exact ping URL returned by the management API, including self-hosted endpoints.</summary>
     public string? HealthcheckPingUrl { get; set; }
+    /// <summary>Every integration of the Healthchecks.io project (its email
+    /// included) is on for this backup's check (U210).</summary>
+    public bool HealthcheckChannelsAssigned { get; set; }
 
     public bool Enabled { get; set; } = true;
 

@@ -73,6 +73,8 @@ public sealed class BackupRemoval
         _config.Update(cfg => cfg.Backups.RemoveAll(b => b.Id == copy.Id));
         try { ServiceLocator.Scheduler.DeleteTask(copy); }
         catch (Exception ex) { _log.Warning(ex, "Scheduler delete failed for {Name}", copy.Name); }
+        // Its Healthchecks.io check goes too, if Backspace made it (U209).
+        if (ServiceLocator.Healthcheck is { } monitoring) await monitoring.RemoveCheckOfAsync(copy, ct).ConfigureAwait(false);
 
         var erased = new List<string>();
         var deferred = new List<string>();

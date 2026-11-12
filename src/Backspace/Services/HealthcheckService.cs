@@ -111,6 +111,7 @@ public sealed class HealthcheckService
             Desc = $"Auto-managed by Backspace. Sources: {string.Join(" ; ", backup.SourcePaths)}",
             Grace = graceSeconds,
             UniqueBy = new[] { "name", "tags" },
+            Channels = "*",
         };
 
         var (isCron, cron) = BuildCron(backup);
@@ -140,7 +141,7 @@ public sealed class HealthcheckService
                 return null;
             }
             var parsed = await resp.Content.ReadFromJsonAsync<HealthcheckRecord>(Json, ct);
-            if (parsed is not null) backup.HealthcheckPingUrl = parsed.PingUrl;
+            if (parsed is not null) { backup.HealthcheckPingUrl = parsed.PingUrl; backup.HealthcheckChannelsAssigned = true; }
             // The ping_url is effectively a write-capability bearer
             // token — anyone with the URL can ping success/failure for
             // that check. Log only the trailing 4 chars of the UUID so
@@ -173,6 +174,29 @@ public sealed class HealthcheckService
     /// Healthchecks on in Settings sent nothing (U187). The upsert is
     /// matched by name and tags, so running it again reuses the same check.
     /// Returns how many backups got a check.</summary>
+    /// <summary>Asks Healthchecks.io whether the saved key works (U208): null
+    /// when it does, otherwise why not, in plain words.</summary>
+    public async Task<string?> VerifyKeyAsync(CancellationToken ct)
+    {
+        if (!TryGetApiKey(out var apiKey)) return "No API key is saved.";
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/api/v3/checks/");
+            req.Headers.Add("X-Api-Key", apiKey);
+            using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode) return null;
+            return (int)resp.StatusCode is 401 or 403
+                ? "Healthchecks.io refused the API key. Use the project's regular API key, not the read-only one."
+                : $"Healthchecks.io answered with an error (HTTP {(int)resp.StatusCode}).";
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (HttpRequestException ex) when (ex.Message.Contains("ASCII", StringComparison.Ordinal))
+        {
+            return "The API key contains characters a Healthchecks.io key never has. Copy it again from healthchecks.io and paste it here.";
+        }
+        catch (Exception ex) { return "Healthchecks.io could not be reached: " + ex.Message; }
+    }
+
     public async Task<int> EnsureChecksAsync(CancellationToken ct)
     {
         var cfg = _config.Current;
@@ -191,11 +215,73 @@ public sealed class HealthcheckService
                     || !string.IsNullOrWhiteSpace(live.HealthcheckPingUrl) || !string.IsNullOrWhiteSpace(live.HealthcheckId)) return;
                 live.HealthcheckPingUrl = pingUrl;
                 live.HealthcheckId = record.ExtractPingUuid();
+                live.HealthcheckChannelsAssigned = true;
             });
             made++;
         }
         if (made > 0) _log.Information("Created a Healthchecks.io check for {Count} backup(s)", made);
+        // Checks Backspace made before U210 had no integration, so nothing
+        // was sent when a backup stopped pinging: once, every integration of
+        // the project (its email included) is turned on for them.
+        foreach (var backup in _config.Current.Backups.Where(b => !b.HealthcheckChannelsAssigned && Guid.TryParse(b.HealthcheckId, out _)).ToList())
+        {
+            if (ct.IsCancellationRequested) break;
+            if (!await AssignAllChannelsAsync(backup.HealthcheckId!, ct).ConfigureAwait(false)) continue;
+            _config.Update(c => { if (c.Backups.FirstOrDefault(b => b.Id == backup.Id) is { } live) live.HealthcheckChannelsAssigned = true; });
+        }
         return made;
+    }
+
+    /// <summary>Turns on every integration of the project for this check,
+    /// only if Backspace made it (tagged "backspace"); a check you linked
+    /// yourself is left as it is.</summary>
+    private async Task<bool> AssignAllChannelsAsync(string uuid, CancellationToken ct)
+    {
+        if (!TryGetApiKey(out var apiKey)) return false;
+        try
+        {
+            if (await TagsAsync(uuid, apiKey, ct).ConfigureAwait(false) is not { } tags) return false;
+            if (!tags.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("backspace")) return true;
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/api/v3/checks/{uuid}");
+            req.Headers.Add("X-Api-Key", apiKey);
+            req.Content = JsonContent.Create(new { channels = "*" });
+            using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) _log.Warning("Healthchecks.io refused to turn on the integrations of a check (HTTP {Status})", (int)resp.StatusCode);
+            return resp.IsSuccessStatusCode;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) { _log.Warning(ex, "Could not turn on the integrations of a Healthchecks.io check"); return false; }
+    }
+
+    /// <summary>The check's tags, or null when it can't be read.</summary>
+    private async Task<string?> TagsAsync(string uuid, string apiKey, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/api/v3/checks/{uuid}");
+        req.Headers.Add("X-Api-Key", apiKey);
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) return null;
+        using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false), cancellationToken: ct).ConfigureAwait(false);
+        return doc.RootElement.TryGetProperty("tags", out var tags) && tags.ValueKind == JsonValueKind.String ? tags.GetString() ?? "" : "";
+    }
+
+    /// <summary>A removed backup's check goes too (U209, owner, 12 November
+    /// 2026), if Backspace made it (tagged "backspace"); one you linked
+    /// yourself is kept. Never throws: removing the backup doesn't depend on it.</summary>
+    public async Task RemoveCheckOfAsync(Backup backup, CancellationToken ct)
+    {
+        if (!Guid.TryParse(backup.HealthcheckId, out _) || !TryGetApiKey(out var apiKey)) return;
+        try
+        {
+            var tags = await TagsAsync(backup.HealthcheckId!, apiKey, ct).ConfigureAwait(false);
+            if (tags is null || !tags.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("backspace"))
+            {
+                _log.Information("Kept the Healthchecks.io check of removed backup {Backup}: not found or not made by Backspace", backup.Name);
+                return;
+            }
+            var deleted = await DeleteCheckAsync(backup.HealthcheckId!, ct).ConfigureAwait(false);
+            _log.Information(deleted ? "Removed the Healthchecks.io check of removed backup {Backup}" : "Healthchecks.io refused to remove the check of removed backup {Backup}", backup.Name);
+        }
+        catch (Exception ex) { _log.Warning(ex, "Could not remove the Healthchecks.io check of removed backup {Backup}", backup.Name); }
     }
 
     public async Task<bool> DeleteCheckAsync(string checkUuid, CancellationToken ct)
@@ -455,6 +541,10 @@ public sealed class HealthcheckService
 
         [JsonPropertyName("unique")]
         public string[]? UniqueBy { get; set; }
+
+        /// <summary>"*": every integration of the project, the account's
+        /// email included (U210, owner: "Can you set Email on by default?").</summary>
+        public string? Channels { get; set; }
     }
 
     public sealed class HealthcheckRecord

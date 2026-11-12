@@ -612,8 +612,16 @@
               </TextBox>
               <TextBlock Classes="helper"
                          Text="Find this under your project’s Settings → API Access on healthchecks.io."/>
-              <TextBlock Name="HealthchecksStatusText" Classes="helper" TextWrapping="Wrap" Text="{Binding HealthchecksStatus}"
-                         IsVisible="{Binding HealthchecksStatus, Converter={x:Static vm:NotEmpty.To}}"/>
+              <!-- Green when the key works, red when it doesn't (U208). -->
+              <StackPanel Name="HealthchecksStatusRow" Orientation="Horizontal" Spacing="6"
+                          IsVisible="{Binding HealthchecksStatus, Converter={x:Static vm:NotEmpty.To}}">
+                <PathIcon Classes="status-icon ok" Width="15" Height="15" VerticalAlignment="Top" IsVisible="{Binding HealthchecksStatusOk}"/>
+                <PathIcon Classes="status-icon fail" Width="15" Height="15" VerticalAlignment="Top" IsVisible="{Binding !HealthchecksStatusOk}"/>
+                <TextBlock Name="HealthchecksStatusText" FontSize="13" TextWrapping="Wrap" MaxWidth="560" Text="{Binding HealthchecksStatus}"
+                           Foreground="{DynamicResource BS.Brush.Success}" IsVisible="{Binding HealthchecksStatusOk}"/>
+                <TextBlock Name="HealthchecksProblemText" FontSize="13" TextWrapping="Wrap" MaxWidth="560" Text="{Binding HealthchecksStatus}"
+                           Foreground="{DynamicResource BS.Brush.Danger}" IsVisible="{Binding !HealthchecksStatusOk}"/>
+              </StackPanel>
             </StackPanel>
             <StackPanel Grid.Column="2" Spacing="6">
               <TextBlock Classes="label-caps" Text="BASE URL (SELF-HOSTED ONLY)"/>

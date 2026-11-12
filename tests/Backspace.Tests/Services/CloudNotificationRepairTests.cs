@@ -47,7 +47,7 @@ public sealed class CloudNotificationRepairTests
             Assert.Equal("17 3 * * *", body.RootElement.GetProperty("schedule").GetString());
             Assert.Equal(seconds, body.RootElement.GetProperty("grace").GetInt32());
             Assert.Equal(HealthcheckService.ScheduleTimeZoneId(TimeZoneInfo.Local), body.RootElement.GetProperty("tz").GetString());
-            Assert.False(body.RootElement.TryGetProperty("channels", out _));
+            Assert.Equal("*", body.RootElement.GetProperty("channels").GetString()); // every integration, email included (U210)
             Assert.False(body.RootElement.TryGetProperty("unique_by", out _));
             Assert.Equal(new[] { "name", "tags" }, body.RootElement.GetProperty("unique").EnumerateArray().Select(x => x.GetString()));
             return Json("{\"ping_url\":\"https://hc-ping.com/11111111-2222-3333-4444-555555555555\"}");
@@ -70,6 +70,8 @@ public sealed class CloudNotificationRepairTests
         var asked = new List<string>();
         using var client = new HttpClient(new Handler(async (request, ct) =>
         {
+            // The existing check is one you linked (no "backspace" tag): left as it is (U210).
+            if (request.Method == HttpMethod.Get) return Json("{\"tags\":\"mine\"}");
             using var body = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
             asked.Add(body.RootElement.GetProperty("name").GetString()!);
             return Json("{\"ping_url\":\"https://hc-ping.com/11111111-2222-3333-4444-555555555555\"}");
@@ -143,6 +145,91 @@ public sealed class CloudNotificationRepairTests
         Assert.Equal(new[] { "synthetic-key-123" }, keys);
         Assert.Null(service.LastProblem);
         Assert.Equal("11111111-2222-3333-4444-555555555555", setup.Config.Current.Backups.Single(b => b.Id == bare.Id).HealthcheckId);
+    }
+
+    /// <summary>U210 (owner: "Can you set Email on by default?"): a check
+    /// Backspace made before had no integration; once, every integration of
+    /// the project (email included) is turned on for it. A check you linked
+    /// yourself is left as it is, and it happens only once.</summary>
+    [Fact]
+    public async Task Backspace_checks_get_every_integration_once()
+    {
+        using var setup = new Setup();
+        var ours = setup.AddBackup();
+        var linked = setup.AddBackup();
+        setup.Secrets.Set("hc-key", "synthetic-key");
+        setup.Config.Update(c => { c.Monitoring.HealthchecksEnabled = true; c.Monitoring.HealthchecksApiKeyRef = "hc-key"; });
+        var calls = new List<string>();
+        using var client = new HttpClient(new Handler(async (request, ct) =>
+        {
+            var id = request.RequestUri!.AbsolutePath.Split('/').Last();
+            var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
+            calls.Add($"{request.Method} {(id == ours.HealthcheckId ? "ours" : id == linked.HealthcheckId ? "linked" : id)} {body}");
+            if (request.Method == HttpMethod.Get)
+                return Json(id == ours.HealthcheckId ? "{\"tags\":\"backspace backup-notification-proof\"}" : "{\"tags\":\"my-own\"}");
+            return Json("{}");
+        }));
+        var service = new HealthcheckService(setup.Config, setup.Secrets, client);
+        Assert.Equal(0, await service.EnsureChecksAsync(default));
+        Assert.Equal(new[] { "GET ours ", "POST ours {\"channels\":\"*\"}", "GET linked " }, calls);
+        Assert.All(setup.Config.Current.Backups, b => Assert.True(b.HealthcheckChannelsAssigned));
+        calls.Clear();
+        Assert.Equal(0, await service.EnsureChecksAsync(default));
+        Assert.Empty(calls);
+    }
+
+    /// <summary>U209 (owner: "if we delete a backup, make sure you also remove
+    /// the healthcheck for it if any"): Backspace's own check is deleted; one
+    /// you linked yourself is kept.</summary>
+    [Fact]
+    public async Task Removing_a_backup_removes_its_own_check_only()
+    {
+        using var setup = new Setup();
+        var ours = setup.AddBackup();
+        var linked = setup.AddBackup();
+        setup.Secrets.Set("hc-key", "synthetic-key");
+        setup.Config.Update(c => { c.Monitoring.HealthchecksEnabled = true; c.Monitoring.HealthchecksApiKeyRef = "hc-key"; });
+        var calls = new List<string>();
+        using var client = new HttpClient(new Handler((request, _) =>
+        {
+            var id = request.RequestUri!.AbsolutePath.Split('/').Last();
+            calls.Add($"{request.Method} {(id == ours.HealthcheckId ? "ours" : "linked")}");
+            return Task.FromResult(request.Method == HttpMethod.Get
+                ? Json(id == ours.HealthcheckId ? "{\"tags\":\"backspace backup-x\"}" : "{\"tags\":\"my-own\"}") : Json("{}"));
+        }));
+        var service = new HealthcheckService(setup.Config, setup.Secrets, client);
+        await service.RemoveCheckOfAsync(ours, default);
+        await service.RemoveCheckOfAsync(linked, default);
+        Assert.Equal(new[] { "GET ours", "DELETE ours", "GET linked" }, calls);
+        // No key: nothing is asked, and removing the backup goes on.
+        setup.Config.Update(c => c.Monitoring.HealthchecksApiKeyRef = null);
+        calls.Clear();
+        await service.RemoveCheckOfAsync(ours, default);
+        Assert.Empty(calls);
+    }
+
+    /// <summary>U208: Settings says green or red whether the key works, also
+    /// when every backup already has its check: it asks for the project's checks.</summary>
+    [Fact]
+    public async Task The_key_is_checked_against_Healthchecks()
+    {
+        using var setup = new Setup();
+        setup.Secrets.Set("hc-key", "synthetic-key");
+        setup.Config.Update(c => { c.Monitoring.HealthchecksEnabled = true; c.Monitoring.HealthchecksApiKeyRef = "hc-key"; });
+        var status = 200;
+        string? asked = null;
+        using var client = new HttpClient(new Handler((request, _) =>
+        {
+            asked = request.Method + " " + request.RequestUri!.AbsolutePath + " " + string.Join("", request.Headers.GetValues("X-Api-Key"));
+            return Task.FromResult(Json("{\"checks\":[]}", status));
+        }));
+        var service = new HealthcheckService(setup.Config, setup.Secrets, client);
+        Assert.Null(await service.VerifyKeyAsync(default));
+        Assert.Equal("GET /api/v3/checks/ synthetic-key", asked);
+        status = 401;
+        Assert.Equal("Healthchecks.io refused the API key. Use the project's regular API key, not the read-only one.", await service.VerifyKeyAsync(default));
+        setup.Config.Update(c => c.Monitoring.HealthchecksApiKeyRef = null);
+        Assert.Equal("No API key is saved.", await service.VerifyKeyAsync(default));
     }
 
     [Fact]

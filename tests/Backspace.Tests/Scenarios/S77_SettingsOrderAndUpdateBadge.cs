@@ -55,6 +55,46 @@ public sealed class S77_SettingsOrderAndUpdateBadge : ScenarioBase
             Assert.True(scroller.Offset.Y > 0, "Settings should have scrolled down to App updates.");
             ctx.Snapshot(host, "version opens app updates", "Clicking the version opened Settings scrolled to App updates, the last section.");
 
+            // U202: the limits are "Simultaneous backups", per destination and in total.
+            var limits = settings.FindControl<Expander>("BackupsAtOnceSection")!;
+            limits.IsExpanded = true;
+            await ctx.Driver.PumpAsync(200);
+            limits.BringIntoView();
+            await ctx.Driver.PumpAsync(200);
+            var labels = limits.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+            Assert.Contains("PER DESTINATION", labels);
+            Assert.Contains("IN TOTAL", labels);
+            Assert.Contains(labels, t => t?.Contains("Restores and test restores you start only read", StringComparison.Ordinal) == true);
+            ctx.Snapshot(host, "simultaneous backups", "Settings › Simultaneous backups: Per destination and In total; the note says checks wait for each other and restores you start aren't counted.");
+            limits.IsExpanded = false;
+
+            // U208: the Healthchecks key's result is green when it works, red when not.
+            var watchdog = settings.GetVisualDescendants().OfType<Expander>()
+                .Single(e => e.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Watchdog"));
+            watchdog.IsExpanded = true;
+            foreach (var (ok, text, label) in new[] {
+                (true, "The key works. Created a Healthchecks.io check for 4 backups.", "healthchecks key works"),
+                (false, "Checks could not be created: Healthchecks.io refused the API key. Use the project's regular API key, not the read-only one.", "healthchecks key refused") })
+            {
+                main.Settings.HealthchecksStatusOk = ok;
+                main.Settings.HealthchecksStatus = text;
+                await ctx.Driver.PumpAsync(200);
+                var good = settings.FindControl<TextBlock>("HealthchecksStatusText")!;
+                var bad = settings.FindControl<TextBlock>("HealthchecksProblemText")!;
+                Assert.Equal(ok, good.IsEffectivelyVisible);
+                Assert.Equal(!ok, bad.IsEffectivelyVisible);
+                var shown = ok ? good : bad;
+                Assert.True(host.TryFindResource(ok ? "BS.Brush.Success" : "BS.Brush.Danger", host.ActualThemeVariant, out var brush));
+                Assert.Equal(((Avalonia.Media.ISolidColorBrush)brush!).Color, ((Avalonia.Media.ISolidColorBrush)shown.Foreground!).Color);
+                shown.BringIntoView();
+                await ctx.Driver.PumpAsync(200);
+                ctx.Snapshot(host, label, ok
+                    ? "Settings › Watchdog: a green check and \"The key works. Created a Healthchecks.io check for 4 backups.\" in green."
+                    : "Settings › Watchdog: a red mark and the refused key's message in red.");
+            }
+            main.Settings.HealthchecksStatus = "";
+            watchdog.IsExpanded = false;
+
             // Up to date: a small check instead of the badge.
             ServiceLocator.Config.Update(c => { c.Preferences.AvailableUpdateVersion = ""; c.Preferences.LastUpdateCheckUtc = DateTime.UtcNow; });
             main.Settings.Updates.RaiseFooter();
