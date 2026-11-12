@@ -196,6 +196,24 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         await ctx.Driver.PumpAsync(100);
         Assert.False(cardDrop.ShowsTestRestore);
         Assert.False(cardDrop.ShowsCheckProgress);
+        // U214 (owner's screenshot): local_d's data sample failed too. The
+        // banner counts every pill and says nothing beside the headline.
+        ServiceLocator.Logs.AppendRun(new RunRecord { BackupId = localD.Id, BackupName = localD.Name, Kind = RunKind.Check, CheckKind = CheckKind.DataSample,
+            StartedUtc = DateTime.UtcNow.AddMinutes(-30), EndedUtc = DateTime.UtcNow.AddMinutes(-20), Status = BackupRunStatus.Failed,
+            Summary = "Structure check + data sample (1 GiB) did not pass." });
+        Card(localD).ApplyVerifyState(ServiceLocator.Config.Current.Backups.Single(b => b.Id == localD.Id));
+        for (var i = 0; i < 100 && (Card(localD).VerifyClass != "fail" || vm.HealthHeadline != "3 backups need attention"); i++)
+        {
+            await ctx.Driver.PumpAsync(30);
+            vm.Refresh();
+        }
+        Assert.Equal("fail", Card(localD).VerifyClass);
+        Assert.Equal("3 backups need attention", vm.HealthHeadline);
+        Assert.Equal("", vm.HealthDetail);
+        Assert.Equal(3, vm.AffectedBackups.Count);
+        Assert.Equal("A saved check is failing. Click to jump to this backup's card.", vm.AffectedBackups.Single(a => a.Name == "local_d").Tooltip);
+        ctx.Snapshot(host, "banner with a failing check",
+            "local_d's data sample failed, local_c's check is incomplete, local_dropbox was skipped: the banner says only \"3 backups need attention\" with the three pills; each pill's hover says why.");
         ctx.Report.RecordNote("Limits", "Headless Avalonia with the orchestrator's progress reports given directly; the real engine's counts are proven by CheckProgressTests (restic run on a local repository). The service relays the same fields through its activity report.");
         host.Close();
     }
