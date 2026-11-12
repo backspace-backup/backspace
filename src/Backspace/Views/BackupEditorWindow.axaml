@@ -660,11 +660,16 @@
 
                 <!-- Start / skip conditions first — these decide
                      whether the run starts at all. -->
-                <CheckBox IsChecked="{Binding SkipOnBattery}"      Content="Start only on AC power (waits while on battery)"
+                <!-- U220 (owner, 12 November 2026): the wording agreed in U185
+                     ("Wait for AC power") and U104 ("Stop mid-run if…"),
+                     the same in each check. -->
+                <CheckBox IsChecked="{Binding SkipOnBattery}"      Content="Wait for AC power"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
                 <CheckBox IsChecked="{Binding RequireNetwork}"     Content="Wait for an internet connection"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                <CheckBox IsChecked="{Binding CatchUpMissed}"      Content="Run missed scheduled backups as soon as possible"
+                <CheckBox IsChecked="{Binding WaitForUnmeteredNetwork}" Content="Wait for an unmetered connection"
+                          Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                <CheckBox IsChecked="{Binding CatchUpMissed}"      Content="Run missed backups as soon as possible"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
 
                 <!-- Stop conditions — what aborts a run that's already
@@ -673,10 +678,10 @@
                 <Border Classes="rule" Margin="0,4"/>
                 <CheckBox IsChecked="{Binding StopOnBattery}"      Content="Stop mid-run if the computer switches to battery"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                <CheckBox IsChecked="{Binding AbortOnMeteredNetwork}" Content="Don't run on a metered connection (waits, and stops mid-run if it becomes metered)"
+                <CheckBox IsChecked="{Binding AbortOnMeteredNetwork}" Content="Stop mid-run if the connection becomes metered"
                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                <TextBlock Classes="helper" TextWrapping="Wrap"
-                           Text="These apply to the backup and to its checks and cleanup. A run stopped by them starts again once they are met."/>
+                <TextBlock Name="ConditionsScope" Classes="helper" TextWrapping="Wrap"
+                           Text="The unmetered connection and the two Stop mid-run settings apply to the backup and to its checks and cleanup. Each check has its own Wait for AC power, internet and missed-run settings, under Checks. A run stopped by a condition starts again once it is met."/>
 
                 <!-- ===== Grace period for skipped runs =====
                      Always visible in Advanced mode so power users can
@@ -804,9 +809,9 @@
                             <TextBlock Text="Also compare with today's originals (a difference can't tell which copy changed)" TextWrapping="Wrap"/>
                           </CheckBox>
                           <WrapPanel IsVisible="{Binding ShowsTime}">
-                            <CheckBox IsChecked="{Binding SkipOnBattery}" Content="Start only on AC power" Margin="0,0,18,0"/>
-                            <CheckBox IsChecked="{Binding RequireNetwork}" Content="Wait for a network connection" Margin="0,0,18,0"/>
-                            <CheckBox IsChecked="{Binding CatchUpMissed}" Content="Run a missed check later"/>
+                            <CheckBox IsChecked="{Binding SkipOnBattery}" Content="Wait for AC power" Margin="0,0,18,0"/>
+                            <CheckBox IsChecked="{Binding RequireNetwork}" Content="Wait for an internet connection" Margin="0,0,18,0"/>
+                            <CheckBox IsChecked="{Binding CatchUpMissed}" Content="Run missed checks as soon as possible"/>
                           </WrapPanel>
                         </StackPanel>
                       </Border>

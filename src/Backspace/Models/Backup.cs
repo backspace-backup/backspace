@@ -266,8 +266,14 @@ public sealed class Backup : IJsonOnDeserialized
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? DataCheckLimitBytes { get; set; }
 
-    /// <summary>Stop if the network becomes metered mid-run (watchdog).</summary>
+    /// <summary>Stop if the network becomes metered mid-run (watchdog): the
+    /// backup's and its checks' and cleanup's runs.</summary>
     public bool AbortOnMeteredNetwork { get; set; } = true;
+
+    /// <summary>Don't start on a metered connection: the backup, its checks
+    /// and cleanup wait for an unmetered one (U220: a wait and a stop, as for
+    /// the battery).</summary>
+    public bool WaitForUnmeteredNetwork { get; set; } = true;
 
     // ---- advanced options (collapsed by default in the UI) ----
 

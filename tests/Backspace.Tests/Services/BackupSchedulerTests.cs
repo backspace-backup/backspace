@@ -114,7 +114,7 @@ public sealed class BackupSchedulerTests : IDisposable
     }
 
     [Fact]
-    public void A_backup_that_stops_on_a_metered_connection_does_not_start_on_one()
+    public void Wait_for_an_unmetered_connection_holds_the_start_and_is_its_own_setting()
     {
         var cloud = new Destination { Kind = DestinationKind.GoogleDrive, Name = "Drive" };
         var backup = Daily();
@@ -122,8 +122,26 @@ public sealed class BackupSchedulerTests : IDisposable
         var plan = SchedulePlan.From(new AppConfig { Backups = [backup], Destinations = [cloud] }).Single(p => p.Kind == ScheduledTaskKind.Backup);
         Assert.Equal("the connection is metered", ScheduleConditions.Blocked(plan, [cloud], () => false, () => true, () => true));
         Assert.Null(ScheduleConditions.Blocked(plan, [cloud], () => false, () => true, () => false));
+        // U220: "Stop mid-run if the connection becomes metered" is separate.
         backup.AbortOnMeteredNetwork = false;
+        Assert.Equal("the connection is metered", ScheduleConditions.Blocked(plan, [cloud], () => false, () => true, () => true));
+        backup.WaitForUnmeteredNetwork = false;
         Assert.Null(ScheduleConditions.Blocked(plan, [cloud], () => false, () => true, () => true));
+    }
+
+    /// <summary>U220: "Stop mid-run if the computer switches to battery" is the
+    /// backup's, and its checks follow it, whatever the check's copy says.</summary>
+    [Fact]
+    public void A_check_stops_on_battery_as_its_backup_says()
+    {
+        var backup = Daily();
+        backup.Checks.Add(new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Weekly, StopOnBattery = false } });
+        var check = SchedulePlan.From(new AppConfig { Backups = [backup] }).First(p => p.Kind == ScheduledTaskKind.Check);
+        backup.Schedule.StopOnBattery = true;
+        Assert.True(ScheduleLoop.StopsOnBattery(check));
+        backup.Schedule.StopOnBattery = false;
+        backup.Checks[0].Schedule!.StopOnBattery = true;
+        Assert.False(ScheduleLoop.StopsOnBattery(check));
     }
 
     [Fact]

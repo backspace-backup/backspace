@@ -171,14 +171,15 @@ shows why the storage doesn’t only grow.
 Each schedule has conditions. New cleanup and checks take the backup's; each
 check can then change its own ([Checks](#checks)):
 
-- **Start only on AC power** (a run due on battery waits until the computer
-  is plugged in) and **stop mid-run if the computer switches to battery**.
-- **Don't run on a metered connection**: a run waits while the connection
-  is metered and stops if it becomes metered mid-run (set per backup, it
-  applies to its checks and cleanup too).
-- **Require a network connection**, for backups that send data over the
+- **Wait for AC power**: a run due on battery waits until the computer is
+  plugged in. **Stop mid-run if the computer switches to battery** is the
+  backup's, for its checks and cleanup too.
+- **Wait for an unmetered connection** and **Stop mid-run if the connection
+  becomes metered**: set per backup, they apply to its checks and cleanup too.
+- **Wait for an internet connection**, for backups that send data over the
   network. Backups to a local folder or external drive run offline.
-- **Catch up missed runs.** A run missed while the computer was off, asleep or
+- **Run missed backups as soon as possible** (in each check: **Run missed
+  checks as soon as possible**). A run missed while the computer was off, asleep or
   signed out happens once, as soon as Backspace is running again. With this
   off, a run more than 10 minutes late is skipped.
 
@@ -240,7 +241,7 @@ those Windows Update schedules: when to sleep or restart stays your choice
 and Windows'. When the computer sleeps, a backup pauses and carries on when
 it wakes. A backup cut short instead (by a restart, Windows shutting down, a
 power loss, a crash, an update of Backspace or Quit) starts again by itself
-when Backspace runs again, even with "Catch up missed runs" off. What it had
+when Backspace runs again, even with "Run missed backups as soon as possible" off. What it had
 already stored is reused, except what it sent in its last few minutes: the
 engine records what it stored every 10 minutes, so that part is sent again, and
 the cleanup after the next backup deletes the first copy. Its history says "Interrupted", and you get no
@@ -800,7 +801,7 @@ own setting above, under **Cleanup**. There are four kinds:
   wrongly when they were backed up. Its share and limit work as in
   [the test-restore drill](#the-test-restore-drill).
 - **Full data read**: downloads all the stored data and checks every piece.
-  The most thorough check of the storage, and the slowest. Off by default.
+  The most thorough check of the storage, and the slowest.
 
 New backups get a weekly cleanup, a weekly 1 GiB data sample (which checks
 the structure too, so no separate structure check) and a monthly sample test restore (1%, at most 1 GiB), at 3 AM

@@ -703,7 +703,7 @@
               <CheckBox IsChecked="{Binding LogsVerbose}"
                         Content="Show verbose diagnostic logs"/>
               <TextBlock Classes="helper"
-                         Text="Off by default: only high-level events are logged. Turn on when debugging a specific problem."/>
+                         Text="When on, the log also keeps each engine command and its details. Turn it on when looking into a specific problem."/>
             </StackPanel>
           </Grid>
 

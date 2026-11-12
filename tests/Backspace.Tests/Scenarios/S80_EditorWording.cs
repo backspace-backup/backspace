@@ -131,12 +131,16 @@ public sealed class S80_EditorWording : ScenarioBase
         win.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
         ctx.Driver.Pump();
         var stops = win.GetVisualDescendants().OfType<CheckBox>()
-            .Where(c => c.Content is string s && (s.StartsWith("Stop mid-run if ") || s.StartsWith("Don't run on a metered"))).ToList();
-        Assert.Equal(new[] { "Stop mid-run if the computer switches to battery", "Don't run on a metered connection (waits, and stops mid-run if it becomes metered)" },
+            .Where(c => c.Content is string s && s.StartsWith("Stop mid-run if ")).ToList();
+        Assert.Equal(new[] { "Stop mid-run if the computer switches to battery", "Stop mid-run if the connection becomes metered" },
             stops.Select(c => (string)c.Content!));
+        // U220: the waits read the same way, and each check uses the same words.
+        var waits = win.GetVisualDescendants().OfType<CheckBox>().Where(c => c.Content is string s && s.StartsWith("Wait for ")).Select(c => (string)c.Content!).ToList();
+        Assert.Equal(new[] { "Wait for AC power", "Wait for an internet connection", "Wait for an unmetered connection" }, waits.Take(3));
+        Assert.DoesNotContain(win.GetVisualDescendants().OfType<CheckBox>(), c => c.Content is string s && (s.StartsWith("Start only") || s.StartsWith("Don't run") || s.Contains("network connection")));
         stops.Last().BringIntoView();
         ctx.Driver.Pump();
-        ctx.Snapshot(win, "stop conditions", "Schedule: the two stopping rules read 'Stop mid-run if the computer switches to battery' and 'Don't run on a metered connection (waits, and stops mid-run if it becomes metered)'.");
+        ctx.Snapshot(win, "stop conditions", "Schedule › Conditions: Wait for AC power, Wait for an internet connection, Wait for an unmetered connection, Run missed backups as soon as possible; then Stop mid-run if the computer switches to battery, Stop mid-run if the connection becomes metered; then what applies to checks and cleanup.");
         win.Close();
         vm.Dispose();
 

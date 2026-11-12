@@ -358,7 +358,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         var limit = plan.Schedule.ExecutionTimeLimit;
         if (limit > TimeSpan.Zero && limit < TimeSpan.FromDays(20)) run.CancelAfter(limit);
         using var watching = new CancellationTokenSource();
-        var power = plan.Schedule.StopOnBattery ? WatchPowerAsync(plan, run, watching.Token) : Task.CompletedTask;
+        var power = StopsOnBattery(plan) ? WatchPowerAsync(plan, run, watching.Token) : Task.CompletedTask;
         try
         {
             if (quiet) Log.Debug("Trying the paused scheduled {Kind} for {Name} again", plan.Kind, plan.Backup.Name);
@@ -383,7 +383,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         // that completed is not run again, even when the condition began
         // just after it ended.
         var cutByCondition = ran && !stop.IsCancellationRequested && !outcome.Completed
-            && (plan.Schedule.StopOnBattery && options.OnBattery()
+            && (StopsOnBattery(plan) && options.OnBattery()
                 || plan.Backup.AbortOnMeteredNetwork && options.Metered?.Invoke() == true
                 // The connection went away during a check or cleanup (U185).
                 || plan.Kind != ScheduledTaskKind.Backup && options.Blocked(plan) is "no network connection");
@@ -439,6 +439,11 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         state.Save();
     }
 
+    /// <summary>"Stop mid-run if the computer switches to battery" is the
+    /// backup's, for its checks and cleanup too (U220: the editor says so; a
+    /// check's own copy, made when it was added, no longer decides).</summary>
+    internal static bool StopsOnBattery(SchedulePlan plan) => plan.Backup.Schedule.StopOnBattery;
+
     private async Task WatchPowerAsync(SchedulePlan plan, CancellationTokenSource run, CancellationToken finished)
     {
         try
@@ -472,8 +477,8 @@ internal static class ScheduleConditions
         if (plan.Schedule.SkipOnBattery && onBattery()) return "the computer is on battery";
         if (plan.Schedule.RequireNetwork && plan.Backup.NeedsNetwork(destinations) && !networkAvailable())
             return "no network connection";
-        // A run that would stop on a metered connection doesn't start on one (U185).
-        if (plan.Backup.AbortOnMeteredNetwork && plan.Backup.NeedsNetwork(destinations) && metered?.Invoke() == true)
+        // "Wait for an unmetered connection" (U185, U220).
+        if (plan.Backup.WaitForUnmeteredNetwork && plan.Backup.NeedsNetwork(destinations) && metered?.Invoke() == true)
             return "the connection is metered";
         return null;
     }

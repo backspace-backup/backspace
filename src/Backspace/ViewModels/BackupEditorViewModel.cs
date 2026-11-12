@@ -104,6 +104,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
                           && string.Equals(b.Name?.Trim(), candidate, StringComparison.OrdinalIgnoreCase)));
 
     [ObservableProperty] private bool _abortOnMeteredNetwork;
+    [ObservableProperty] private bool _waitForUnmeteredNetwork;
     [ObservableProperty] private bool _enabled;
 
     // ---- schedule ----
@@ -156,7 +157,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     /// <summary>A full data read needs an engine that reads all the data (U179).</summary>
     public bool FullDataReadAvailable => ServiceLocator.Initialized && ServiceLocator.Engine.HonoursDataCheckLimit;
     public string FullDataReadHint => FullDataReadAvailable
-        ? "Reads every piece of stored data. Off by default: on a large cloud backup it downloads everything."
+        ? "Downloads all the stored data and checks every piece. On a large cloud backup it can take many hours and download everything."
         : "Not available yet: this version of the backup engine can only read a sample.";
 
     [RelayCommand]
@@ -718,6 +719,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         _keepPolicy = string.IsNullOrEmpty(working.KeepPolicy) ? "0:365 30:90 7:30 1:7" : working.KeepPolicy;
         _keepPolicyExplanation = KeepPolicyHumanizer.Describe(_keepPolicy);
         _abortOnMeteredNetwork = working.AbortOnMeteredNetwork;
+        _waitForUnmeteredNetwork = working.WaitForUnmeteredNetwork;
         _enabled = working.Enabled;
 
         _frequency = working.Schedule.Frequency;
@@ -1624,6 +1626,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         Working.ExcludeCloudFiles = ExcludeCloudFiles;
         Working.KeepPolicy = KeepPolicy?.Trim() ?? "";
         Working.AbortOnMeteredNetwork = AbortOnMeteredNetwork;
+        Working.WaitForUnmeteredNetwork = WaitForUnmeteredNetwork;
         Working.BandwidthLimitKBps = Math.Max(0, BandwidthLimitKBps);
         Working.Enabled = Enabled;
         Working.FiltersText = FiltersText ?? "";
