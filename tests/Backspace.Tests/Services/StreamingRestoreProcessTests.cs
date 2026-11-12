@@ -46,6 +46,11 @@ public sealed class StreamingRestoreProcessTests
         Assert.Equal("rclone:review:path with spaces", start.Environment["RESTIC_REPOSITORY"]);
         Assert.Equal("2", start.Environment["RESTIC_PROGRESS_FPS"]);
         Assert.Equal("C:/review/specific destination.conf", start.Environment["RCLONE_CONFIG"]);
+        // U219: a restore of your files keeps the saved permissions; a test
+        // restore's copies take the folder's.
+        Assert.False(start.Environment.ContainsKey(ResticEngine.SkipSecurityDescriptorsVariable));
+        Assert.Equal("1", ResticEngine.BuildStreamingRestoreStartInfo("C:/review/restic.exe", repository,
+            "snapshot:/C/source", "C:/review/output", null, folderPermissions: true).Environment[ResticEngine.SkipSecurityDescriptorsVariable]);
         // The whole source: no selection at all.
         Assert.DoesNotContain("--include-file", ResticEngine.BuildStreamingRestoreStartInfo("C:/review/restic.exe", repository,
             "snapshot:/C/source", "C:/review/output", null).ArgumentList);

@@ -51,6 +51,12 @@ internal static class FileAccessRetry
     /// <summary>How long a wait stays silent before it is shown and can be
     /// stopped. Tests shorten it (U092).</summary>
     internal static TimeSpan NoticeDelay = TimeSpan.FromSeconds(5);
+    /// <summary>A temporary folder whose removal Windows has refused for this
+    /// long is left, and said so: its permissions forbid it, no program is
+    /// about to let go (U219, 12 November 2026: the owner saw "Waiting to remove
+    /// temporary restore files" forever). A file another program has open
+    /// (a sharing violation) is still waited for without a limit.</summary>
+    internal static TimeSpan CleanupDeniedLimit = TimeSpan.FromMinutes(2);
     internal static FileWaitNotice[] Snapshot() => Waiting.Values.OrderBy(n => n.Started).ToArray();
 
     internal static async Task RunAsync(Func<CancellationToken, Task> action, string path, FileWaitReason reason,
@@ -86,6 +92,7 @@ internal static class FileAccessRetry
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         FileWaitNotice? notice = null;
         var elapsed = Stopwatch.StartNew();
+        Stopwatch? denied = null;
         var attempt = 0;
         try
         {
@@ -95,6 +102,13 @@ internal static class FileAccessRetry
                 try { action(); return; }
                 catch (Exception ex) when (IsAccessConflict(ex, path, directoryCleanup))
                 {
+                    if (directoryCleanup && (ex.HResult & 0xFFFF) == 5)
+                    {
+                        denied ??= Stopwatch.StartNew();
+                        if (denied.Elapsed >= CleanupDeniedLimit)
+                            throw new IOException($"Windows refuses Backspace access to some temporary files, so they were left at {path}. {ex.Message}", ex);
+                    }
+                    else denied = null;
                     if (notice is null && elapsed.Elapsed >= NoticeDelay)
                     {
                         notice = new FileWaitNotice(path, reason, stop);

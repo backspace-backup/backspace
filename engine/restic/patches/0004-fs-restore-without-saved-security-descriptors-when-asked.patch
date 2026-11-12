@@ -1,0 +1,106 @@
+From 0e2ae64f60c85f09cee6f1018931e97f156c366c Mon Sep 17 00:00:00 2001
+From: Backspace <noreply@backspace.invalid>
+Date: Thu, 12 Nov 2026 01:21:36 -1000
+Subject: [PATCH] fs: restore without saved security descriptors when asked on
+ Windows
+
+RESTIC_RESTORE_SKIP_SECURITY_DESCRIPTORS=1 makes restore leave out the saved
+security descriptors: restored files take the permissions of the folder they
+are restored into. Backspace sets it for its test restores, which rebuild
+files into a temporary folder only to read and delete them. A saved
+descriptor granting only SYSTEM or administrators left copies the user could
+neither read nor delete (U219).
+---
+ internal/fs/node_windows.go      | 13 ++++++++++-
+ internal/fs/node_windows_test.go | 37 ++++++++++++++++++++++++++++++++
+ 2 files changed, 49 insertions(+), 1 deletion(-)
+
+diff --git a/internal/fs/node_windows.go b/internal/fs/node_windows.go
+index e60043c..30c5300 100644
+--- a/internal/fs/node_windows.go
++++ b/internal/fs/node_windows.go
+@@ -3,6 +3,7 @@ package fs
+ import (
+ 	"encoding/json"
+ 	"fmt"
++	"os"
+ 	"path/filepath"
+ 	"reflect"
+ 	"strings"
+@@ -187,6 +188,16 @@ func restoreExtendedAttributes(nodeType data.NodeType, path string, eas []extend
+ 	return nil
+ }
+ 
++// skipSecurityDescriptors reports whether RESTIC_RESTORE_SKIP_SECURITY_DESCRIPTORS=1
++// asks restore to leave out the saved security descriptors. Restored files then
++// take the permissions of the folder they are restored into, like new files.
++// For a restore into a temporary folder that is only read and deleted: a saved
++// descriptor that grants only SYSTEM or administrators would otherwise leave
++// copies the restoring user can neither read nor delete.
++func skipSecurityDescriptors() bool {
++	return os.Getenv("RESTIC_RESTORE_SKIP_SECURITY_DESCRIPTORS") == "1"
++}
++
+ // restoreGenericAttributes restores generic attributes for Windows
+ func nodeRestoreGenericAttributes(node *data.Node, path string, warn func(msg string)) (err error) {
+ 	if len(node.GenericAttributes) == 0 {
+@@ -207,7 +218,7 @@ func nodeRestoreGenericAttributes(node *data.Node, path string, warn func(msg st
+ 			errs = append(errs, fmt.Errorf("error restoring file attributes for: %s : %v", path, err))
+ 		}
+ 	}
+-	if windowsAttributes.SecurityDescriptor != nil {
++	if windowsAttributes.SecurityDescriptor != nil && !skipSecurityDescriptors() {
+ 		if err := setSecurityDescriptor(path, windowsAttributes.SecurityDescriptor); err != nil {
+ 			errs = append(errs, fmt.Errorf("error restoring security descriptor for: %s : %v", path, err))
+ 		}
+diff --git a/internal/fs/node_windows_test.go b/internal/fs/node_windows_test.go
+index 06c7bd4..b5fc92c 100644
+--- a/internal/fs/node_windows_test.go
++++ b/internal/fs/node_windows_test.go
+@@ -55,6 +55,43 @@ func testRestoreSecurityDescriptor(t *testing.T, sd string, tempDir string, file
+ 	compareSecurityDescriptors(t, testPath, *sdByteFromRestoredNode, *sdBytesFromRestoredPath)
+ }
+ 
++// TestRestoreSkipsSecurityDescriptorsWhenAsked checks that with
++// RESTIC_RESTORE_SKIP_SECURITY_DESCRIPTORS=1 a restored file or folder gets the
++// security descriptor of a new item in the same folder, not the saved one.
++func TestRestoreSkipsSecurityDescriptorsWhenAsked(t *testing.T) {
++	t.Setenv("RESTIC_RESTORE_SKIP_SECURITY_DESCRIPTORS", "1")
++	tempDir := t.TempDir()
++	for i, sd := range testFileSDs {
++		testRestoreWithoutSecurityDescriptor(t, sd, tempDir, data.NodeTypeFile, fmt.Sprintf("testfile%d", i))
++	}
++	for i, sd := range testDirSDs {
++		testRestoreWithoutSecurityDescriptor(t, sd, tempDir, data.NodeTypeDir, fmt.Sprintf("testdir%d", i))
++	}
++}
++
++func testRestoreWithoutSecurityDescriptor(t *testing.T, sd string, tempDir string, fileType data.NodeType, fileName string) {
++	sdInputBytes, err := base64.StdEncoding.DecodeString(sd)
++	test.OK(t, errors.Wrapf(err, "Error decoding SD for: %s", fileName))
++	genericAttributes, err := data.WindowsAttrsToGenericAttributes(data.WindowsAttributes{SecurityDescriptor: &sdInputBytes})
++	test.OK(t, errors.Wrapf(err, "Error constructing windows attributes for: %s", fileName))
++	expectedNode := getNode(fileName, fileType, genericAttributes)
++	testPath, _ := restoreAndGetNode(t, tempDir, &expectedNode, false)
++
++	// A new item made in the same folder by this process.
++	fresh := filepath.Join(tempDir, "fresh-"+fileName)
++	if fileType == data.NodeTypeDir {
++		test.OK(t, os.Mkdir(fresh, 0o755))
++	} else {
++		test.OK(t, os.WriteFile(fresh, nil, 0o644))
++	}
++	restored, err := getSecurityDescriptor(testPath)
++	test.OK(t, errors.Wrapf(err, "Error while getting the security descriptor for: %s", testPath))
++	expected, err := getSecurityDescriptor(fresh)
++	test.OK(t, errors.Wrapf(err, "Error while getting the security descriptor for: %s", fresh))
++	test.Assert(t, string(*restored) == string(*expected), "%s kept a saved security descriptor instead of the folder's", testPath)
++	test.Assert(t, string(*restored) != string(sdInputBytes), "%s has the saved security descriptor", testPath)
++}
++
+ // TestRestoreSecurityDescriptorInheritance checks that the DACL protection (inheritance)
+ // flags are correctly restored. This is the mechanism that preserves the `IsInherited`
+ // property on individual ACEs.
+-- 
+2.50.1.windows.1
+

@@ -230,7 +230,7 @@ public interface IBackupEngine
         Action<RestoreProgressUpdate>? onProgress,
         CancellationToken ct,
         IReadOnlyList<string>? expectedLeaves = null, string? expectedSnapshotId = null, bool overwrite = true, bool preserveStructure = true,
-        RestoreControl? control = null, Action<string?>? onStaging = null);
+        RestoreControl? control = null, Action<string?>? onStaging = null, bool folderPermissions = false);
 
     /// <summary>Writes one file of a snapshot, in order, to
     /// <paramref name="output"/> as its bytes arrive from the destination,

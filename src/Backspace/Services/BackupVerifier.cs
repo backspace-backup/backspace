@@ -772,6 +772,8 @@ public sealed class BackupVerifier
                 ProgressObserver = context is null ? null : p => context.PublishProgress(p.BytesRestored),
                 MaintenanceLeaseHeld = true,
                 ShowInRegistry = false,
+                // Temporary copies, read then deleted: never their saved permissions (U219).
+                FolderPermissions = true,
                 Backup = backup, SourcePath = sourcePath, Destination = dest,
                 StorageName = storageName, Revision = revision, SnapshotId = snapshotId,
                 Files = batch.Select(f => f.Path).ToList(), TargetPath = verifyRoot,

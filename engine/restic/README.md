@@ -47,9 +47,25 @@ https://github.com/restic/restic/issues/4155) and checks RECALL_ON_DATA_ACCESS
 only. No upstream issue or pull request about OFFLINE placeholders was found
 on 9 November 2026; this change is not proposed upstream yet.
 
+`0004-fs-restore-without-saved-security-descriptors-when-asked.patch` lets a
+restore leave out the saved Windows security descriptors when
+`RESTIC_RESTORE_SKIP_SECURITY_DESCRIPTORS=1`: restored files then take the
+permissions of the folder they are restored into, like new files (U219,
+12 November 2026). Backspace sets it only for test restores, whose copies
+are read and then deleted. restic restores each file's saved descriptor
+(only its DACL without administrator rights), and a test restore of a whole
+drive brought back copies of folders such as `ProgramDataMicrosoftWindowsWindowsApps`
+and `CryptoRSAMachineKeys` granting only SYSTEM, administrators or
+TrustedInstaller: the owner's account, Dropbox and Backspace's cleanup could
+neither read nor delete them. A restore of your files keeps the saved
+permissions. Its test restores a file and a folder with each test descriptor
+and checks they get the descriptor of a new item in the same folder.
+Upstream restic has no option to skip them; not proposed upstream yet.
+
 ## When to remove it
 
-When a restic release contains all three changes: set `restic` to that release,
+When a restic release contains all four changes (or, for 0004, an option to
+restore without the saved security descriptors): set `restic` to that release,
 delete `resticBackspace` and the patches, and Windows uses the official release
 again. Until then, a restic upgrade means rebasing the patches onto the new
 tag, running the filter, fs and archiver tests, building a new

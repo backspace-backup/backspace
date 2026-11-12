@@ -119,6 +119,7 @@ public sealed class RestoreEngine
                 ct,
                 expectedLeaves: request.Files.Count > 0 ? request.Files : null,
                 expectedSnapshotId: request.SnapshotId, overwrite: request.Overwrite, preserveStructure: request.PreserveStructure, control: control,
+                folderPermissions: request.FolderPermissions,
                 onStaging: path =>
                 {
                     try { StagingChanged?.Invoke(path); }
@@ -189,6 +190,9 @@ public sealed class RestoreRequest
     internal Action? CancelOperation { get; set; }
     internal Action<RestoreProgressSnapshot>? ProgressObserver { get; init; }
     internal bool MaintenanceLeaseHeld { get; set; }
+    /// <summary>Restored files take the target folder's permissions instead
+    /// of their saved ones: for copies only read and deleted (U219).</summary>
+    internal bool FolderPermissions { get; init; }
     public bool ShowInRegistry { get; init; } = true;
     public object? SessionOwner { get; init; }
     public required Backup Backup { get; init; }

@@ -298,7 +298,7 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
         int revision, IReadOnlyList<string> includePatterns, string targetPath,
         Action<RestoreProgressUpdate>? onProgress, CancellationToken ct,
         IReadOnlyList<string>? expectedLeaves = null, string? expectedSnapshotId = null, bool overwrite = true, bool preserveStructure = true,
-        RestoreControl? control = null, Action<string?>? onStaging = null)
+        RestoreControl? control = null, Action<string?>? onStaging = null, bool folderPermissions = false)
     {
         // The 2026-06-12 restore-stack refactor moved the test engine to
         // overall-progress semantics. The in-memory engine continues to

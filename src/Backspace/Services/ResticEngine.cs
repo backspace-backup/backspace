@@ -698,7 +698,7 @@ public sealed partial class ResticEngine : IBackupEngine
         int revision, IReadOnlyList<string> includePatterns, string targetPath,
         Action<RestoreProgressUpdate>? onProgress, CancellationToken ct,
         IReadOnlyList<string>? expectedLeaves = null, string? expectedSnapshotId = null, bool overwrite = true, bool preserveStructure = true,
-        RestoreControl? control = null, Action<string?>? onStaging = null)
+        RestoreControl? control = null, Action<string?>? onStaging = null, bool folderPermissions = false)
     {
         if (includePatterns.Count == 0)
             return new RestoreOpResult(0, 0, 0, 0, RestoreTerminalStatus.Success, null);
@@ -754,7 +754,7 @@ public sealed partial class ResticEngine : IBackupEngine
                 await File.WriteAllLinesAsync(includeFile, includeLines!, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             var start = BuildStreamingRestoreStartInfo(snapshot.Restic, snapshot.Repository,
-                snapshot.SnapshotId + ":/" + srcPrefix, staging, includeFile);
+                snapshot.SnapshotId + ":/" + srcPrefix, staging, includeFile, folderPermissions);
             try { RestoreStarted?.Invoke(start.ArgumentList.ToArray(), includeLines); } catch (Exception ex) { _log.Debug(ex, "Restore observer failed"); }
             // The runner only returns/throws after the child has exited.
             // The caller's repository lease and the staging folder therefore
@@ -962,12 +962,21 @@ public sealed partial class ResticEngine : IBackupEngine
     /// as JSON twice a second (drained as it arrives, never kept). The
     /// backup's download limit is among the repository's options.</summary>
     internal static ProcessStartInfo BuildStreamingRestoreStartInfo(string binary, ResticRepository repository,
-        string snapshot, string target, string? includeFile)
+        string snapshot, string target, string? includeFile, bool folderPermissions = false)
     {
         var arguments = new List<string> { "restore", "--json", "--target", target };
         if (includeFile is not null) arguments.AddRange(["--include-file", includeFile]);
-        return ResticRunner.StartInfo(new ResticCommand(binary, repository, arguments, ["--", snapshot]) { ProgressFps = 2 });
+        var start = ResticRunner.StartInfo(new ResticCommand(binary, repository, arguments, ["--", snapshot]) { ProgressFps = 2 });
+        // Copies only read and deleted (a test restore) take the folder's
+        // permissions, not the saved ones (U219): a saved descriptor granting
+        // only SYSTEM or administrators left copies the user, Dropbox and
+        // Backspace's cleanup could neither read nor delete. Patch 0004 of
+        // Backspace's Windows restic reads this; elsewhere it has no effect.
+        if (folderPermissions) start.Environment[SkipSecurityDescriptorsVariable] = "1";
+        return start;
     }
+
+    internal const string SkipSecurityDescriptorsVariable = "RESTIC_RESTORE_SKIP_SECURITY_DESCRIPTORS";
 
     internal static bool TryParseRestoreProgress(string line, out RestoreProgressUpdate progress)
     {

@@ -761,6 +761,15 @@ reopening it resumes the saved snapshots and sample; completed batches are kept,
 batch may be downloaded again. Changed source or destination settings prevent
 resuming and show an explanation instead.
 
+A test restore's temporary copies are made in Backspace's own working folder
+(under LocalAppData, never in Backspace.config or a synced folder) and take
+that folder's permissions, not the ones saved with each file: a copy of a
+system folder that only Windows may open would otherwise be unreadable to
+you, and impossible for Backspace to delete. Restoring your files keeps
+their saved permissions. If Windows still refuses to delete a temporary copy
+for two minutes, Backspace stops waiting and says where it was left; a file
+another program has open is waited for as long as it takes.
+
 Temporary copies are removed after each batch of up to 128 files or 256 MiB;
 a larger file is handled alone. Before each batch, Backspace checks for space
 for two copies plus 64 MiB of reserve. Original files are never replaced.

@@ -1,5 +1,5 @@
 {
   "restic": "v0.19.1",
-  "resticBackspace": "v0.19.1-backspace.4",
+  "resticBackspace": "v0.19.1-backspace.5",
   "rclone": "v1.74.1"
 }

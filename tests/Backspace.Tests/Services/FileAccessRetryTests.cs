@@ -11,6 +11,40 @@ namespace Backspace.Tests.Services;
 
 public sealed class FileAccessRetryTests
 {
+    /// <summary>U219 (owner, 12 November 2026): "Backspace also still
+    /// complains Waiting to remove temporary files (forever)". A temporary
+    /// folder Windows keeps refusing to delete (its permissions forbid it) is
+    /// left after a limit and said so; a file another program has open is
+    /// still waited for, as Backspace's own files always are.</summary>
+    [Fact]
+    public void Cleanup_stops_waiting_on_access_windows_keeps_refusing_but_waits_out_a_file_in_use()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var limit = FileAccessRetry.CleanupDeniedLimit;
+        FileAccessRetry.CleanupDeniedLimit = TimeSpan.FromMilliseconds(400);
+        try
+        {
+            var refused = 0;
+            var error = Assert.Throws<IOException>(() => FileAccessRetry.Run(() =>
+            {
+                refused++;
+                throw new UnauthorizedAccessException("Access to the path is denied.") { HResult = unchecked((int)0x80070005) };
+            }, @"C:\scratch\verify\run", FileWaitReason.Cleanup, directoryCleanup: true));
+            Assert.Contains(@"left at C:\scratch\verify\run", error.Message);
+            Assert.True(refused > 1, "Access denied is retried a while first: Dropbox briefly causes it too.");
+
+            // In use by another program for longer than that limit: still waited for.
+            var inUse = System.Diagnostics.Stopwatch.StartNew();
+            FileAccessRetry.Run(() =>
+            {
+                if (inUse.Elapsed < TimeSpan.FromMilliseconds(1200))
+                    throw new IOException("The process cannot access the file because it is being used by another process.") { HResult = unchecked((int)0x80070020) };
+            }, @"C:\scratch\verify\run", FileWaitReason.Cleanup, directoryCleanup: true);
+            Assert.True(inUse.Elapsed >= TimeSpan.FromMilliseconds(1200));
+        }
+        finally { FileAccessRetry.CleanupDeniedLimit = limit; }
+    }
+
     [Theory]
     [InlineData("progress")]
     [InlineData("exclude")]
