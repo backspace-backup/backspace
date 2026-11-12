@@ -51,16 +51,16 @@ public sealed partial class VerifyViewModel : ObservableObject
         var kinds = backup.Checks.Select(c => c.Kind).ToHashSet();
         if (!kinds.Contains(CheckKind.Structure))
             Other.Add(Choice(new BackupCheck { Kind = CheckKind.Structure }, "Structure check",
-                "Fast: confirms the backup's index and snapshots are complete. Reads no stored data.", selected: false));
+                "Is the backup complete? Fast: reads its records and confirms all their data is there. Reads no file contents.", selected: false));
         if (!kinds.Contains(CheckKind.DataSample))
-            Other.Add(Choice(new BackupCheck { Kind = CheckKind.DataSample, MaximumBytes = BackupCheck.OneGiB }, "Structure check + data sample (1 GiB)",
-                "Also downloads about 1 GiB of the stored data and checks it is intact.", selected: false));
-        _otherRestore = Choice(new BackupCheck { Kind = CheckKind.TestRestore }, "Test restore",
-            "Restores a sample of files into a temporary folder and checks them. Choose its size below.", selected: false, RestoreOptions);
+            Other.Add(Choice(new BackupCheck { Kind = CheckKind.DataSample, MaximumBytes = BackupCheck.OneGiB }, "Data check (1 GiB sample)",
+                "Is the stored data intact? Checks the structure, then downloads about 1 GiB of the stored data and checks it.", selected: false));
+        _otherRestore = Choice(new BackupCheck { Kind = CheckKind.TestRestore }, "Restore check",
+            "Can your files come back? Restores some files into a temporary folder and checks them. Choose how many below.", selected: false, RestoreOptions);
         Other.Add(_otherRestore);
         if (!kinds.Contains(CheckKind.FullDataRead))
-            Other.Add(Choice(new BackupCheck { Kind = CheckKind.FullDataRead }, "Full data read",
-                "Downloads all the stored data and checks every piece. The most thorough, and the slowest.", selected: false));
+            Other.Add(Choice(new BackupCheck { Kind = CheckKind.FullDataRead }, "Data check (all data)",
+                "Checks the structure, then downloads all the stored data and checks every piece. The most thorough, and the slowest.", selected: false));
         // Nothing of its own: the structure check is ticked, the fast one.
         if (Own.Count == 0 && Other.FirstOrDefault() is { } first) first.IsSelected = true;
         RestoreOptions.PropertyChanged += (_, _) => Changed();

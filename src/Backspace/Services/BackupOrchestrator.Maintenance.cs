@@ -508,7 +508,7 @@ public sealed partial class BackupOrchestrator
             // The test restore's own record holds its result for the check
             // history (BackupCheckHistory); this record holds the plain
             // summary and which destinations it reached (U174).
-            if (!outcome.OverallPass) aggregate.Errors.Add("The sample test restore needs attention. " + outcome.Summary);
+            if (!outcome.OverallPass) aggregate.Errors.Add("The restore check needs attention. " + outcome.Summary);
         }
         catch (OperationCanceledException)
         {

@@ -154,11 +154,6 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     }
 
 
-    /// <summary>A full data read needs an engine that reads all the data (U179).</summary>
-    public bool FullDataReadAvailable => ServiceLocator.Initialized && ServiceLocator.Engine.HonoursDataCheckLimit;
-    public string FullDataReadHint => FullDataReadAvailable
-        ? "Downloads all the stored data and checks every piece. On a large cloud backup it can take many hours and download everything."
-        : "Not available yet: this version of the backup engine can only read a sample.";
 
     [RelayCommand]
     private void AddCheck(CheckKind kind)

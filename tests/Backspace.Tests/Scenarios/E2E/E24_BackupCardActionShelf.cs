@@ -157,7 +157,7 @@ public sealed class E24_BackupCardActionShelf : BackupE2EBase
                         Assert.True(ctx.Driver.WaitFor(() => host.OwnedWindows.OfType<VerifyWindow>().Any()), "The Verify window must open.");
                         var dialog = host.OwnedWindows.OfType<VerifyWindow>().Single();
                         var model = (VerifyViewModel)dialog.DataContext!;
-                        foreach (var c in model.Own.Concat(model.Other)) c.IsSelected = c.Title == "Test restore";
+                        foreach (var c in model.Own.Concat(model.Other)) c.IsSelected = c.Title == "Restore check";
                         ctx.Driver.Pump();
                         dialog.GetVisualDescendants().OfType<RadioButton>().Single(b => b.Name == "FullChoice").IsChecked = true;
                         dialog.FindControl<Button>("RunButton")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));

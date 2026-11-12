@@ -136,9 +136,10 @@ internal static class ServiceActivity
     internal static async Task CancelAsync(ServiceWorkerBinding binding, string runId, CancellationToken token)
     {
         if (!Guid.TryParseExact(runId, "N", out _)) throw new ArgumentException("Invalid run identity.");
-        using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-runs", binding.ServiceSid, TimeSpan.FromSeconds(3), token).ConfigureAwait(false);
-        await BackupServicePipe.WriteMessageAsync(pipe, Encode(new ServiceHostRequest(1, "cancel", RunId: runId)), TimeSpan.FromSeconds(3), token).ConfigureAwait(false);
-        var reply = JsonSerializer.Deserialize<ServiceScheduledRun.Response>(await BackupServicePipe.ReadResponseAsync(pipe, TimeSpan.FromSeconds(3), token).ConfigureAwait(false), ServiceRunAuthorization.Json);
+        // A Stop waits its turn instead of giving up after 3 seconds (U224).
+        using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-runs", binding.ServiceSid, TimeSpan.FromSeconds(15), token).ConfigureAwait(false);
+        await BackupServicePipe.WriteMessageAsync(pipe, Encode(new ServiceHostRequest(1, "cancel", RunId: runId)), TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
+        var reply = JsonSerializer.Deserialize<ServiceScheduledRun.Response>(await BackupServicePipe.ReadResponseAsync(pipe, TimeSpan.FromSeconds(15), token).ConfigureAwait(false), ServiceRunAuthorization.Json);
         if (reply is null || reply.Version != 1 || reply.Error is not (null or "not-running"))
             throw new IOException("The background backup has not confirmed the stop request.");
     }

@@ -229,7 +229,7 @@ public sealed class MaintenanceOutcomeTests
         Assert.Equal(structure.Id, results[0].CheckId);
         Assert.Equal(CheckKind.DataSample, results[1].CheckKind);
         Assert.StartsWith("Structure check passed in ", results[0].Summary);
-        Assert.StartsWith("Structure check + data sample (1 GiB) passed in ", results[1].Summary);
+        Assert.StartsWith("Data check (1 GiB sample) passed in ", results[1].Summary);
     }
 
     /// <summary>The engine gets one check at a time: a structure check, or a

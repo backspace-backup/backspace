@@ -65,7 +65,7 @@ installer, no account, no subscription.
     </td>
     <td valign="top">
       <h3>✅ Backups you can trust</h3>
-      Test restores recover your files for real, on demand or on a schedule,
+      Restore checks recover your files for real, on demand or on a schedule,
       so a broken backup doesn't wait for the day you need it.
     </td>
     <td valign="top">
@@ -148,7 +148,7 @@ because `Backspace.exe` isn't code-signed yet.
   there.
 
 Read the [user guide](docs/USER-GUIDE.md) for schedules and their conditions,
-test restores, checks, alerts and every other detail.
+checks, alerts and every other detail.
 
 ## Status
 

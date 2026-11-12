@@ -67,12 +67,12 @@ public sealed class CheckProgressTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData("Structure check + data sample (1 GiB) (1 of 2)", "Structure + data sample (1 of 2)")]
-    [InlineData("Structure check + data sample (500 MiB)", "Structure + data sample")]
-    [InlineData("Structure check", "Structure")]
-    [InlineData("Sample test restore (1%, at most 1 GiB) (2 of 2)", "Sample test restore (2 of 2)")]
-    [InlineData("Sample test restore (0.5%)", "Sample test restore")]
-    [InlineData("Full data read (1 of 3)", "Full data read (1 of 3)")]
+    [InlineData("Data check (1 GiB sample) (1 of 2)", "Data check (1 of 2)")]
+    [InlineData("Data check (500 MiB sample)", "Data check")]
+    [InlineData("Structure check", "Structure check")]
+    [InlineData("Restore check (1% of files, at most 1 GiB) (2 of 2)", "Restore check (2 of 2)")]
+    [InlineData("Restore check (0.5% of files)", "Restore check")]
+    [InlineData("Data check (all data) (1 of 3)", "Data check (all data) (1 of 3)")]
     public void The_card_names_the_check_in_short(string activity, string shown)
         => Assert.Equal(shown, BackupCardViewModel.ShortCheckName(activity));
 

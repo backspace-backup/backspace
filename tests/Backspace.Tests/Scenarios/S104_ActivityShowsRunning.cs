@@ -38,7 +38,7 @@ public sealed class S104_ActivityShowsRunning : ScenarioBase
 
         // A check runs: the history window starts with it.
         var history = new BackupHistoryViewModel(backup, ServiceLocator.Logs.LoadTimelineByBackupId(backup.Id), checks: false) { SelectedFilter = "All activity" };
-        history.SetLive("Check · Structure + data sample (1 of 2)", "Started at 20:12 · follow it as it happens in its live log.");
+        history.SetLive("Check · Data check (1 of 2)", "Started at 20:12 · follow it as it happens in its live log.");
         Assert.Equal(2, history.Rows.Count);
         Assert.True(history.Rows[0].IsLive);
         Assert.Equal("Running", history.Rows[0].Result);
@@ -48,11 +48,11 @@ public sealed class S104_ActivityShowsRunning : ScenarioBase
         await ctx.Driver.PumpAsync(200);
         var open = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "OpenLiveButton" && b.IsEffectivelyVisible);
         ctx.Snapshot(window, "activity with the running check",
-            "local_d's Activity: \"Running · Check · Structure + data sample (1 of 2) · Now\" at the top with \"Open live log\", then the saved backup.");
+            "local_d's Activity: \"Running · Check · Data check (1 of 2) · Now\" at the top with \"Open live log\", then the saved backup.");
 
         // Open live log: Activity & logs, on that backup's running check.
         var live = new RunRecord { BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Check, CheckKind = CheckKind.DataSample,
-            StartedUtc = DateTime.UtcNow, Status = BackupRunStatus.Running, Summary = "Running: Structure check + data sample (1 GiB)" };
+            StartedUtc = DateTime.UtcNow, Status = BackupRunStatus.Running, Summary = "Running: Data check (1 GiB sample)" };
         ServiceLocator.Activity.Register(live);
         try
         {

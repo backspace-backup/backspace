@@ -128,7 +128,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             var kindLabel = r.Kind switch
             {
                 RunKind.Restore     => "Restore",
-                RunKind.TestRestore => "Test restore",
+                RunKind.TestRestore => "Restore check",
                 _                   => "Run",
             };
             return $"{kindLabel} from {stamp}";
@@ -623,7 +623,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             {
                 var operation = synthetic?.Kind switch
                 {
-                    RunKind.TestRestore => "test restore",
+                    RunKind.TestRestore => "restore check",
                     RunKind.Check => "check",
                     RunKind.Prune => "cleanup",
                     RunKind.Backup => "backup",

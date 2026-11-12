@@ -57,11 +57,11 @@ public sealed class S103_VerifyWindow : ScenarioBase
 
         // The window: own checks ticked with their latest result, others once.
         var model = new VerifyViewModel(backup, entries, now);
-        Assert.Equal(new[] { "Structure check + data sample (1 GiB)", "Sample test restore (1%, at most 1 GiB)" }, model.Own.Select(c => c.Title));
+        Assert.Equal(new[] { "Data check (1 GiB sample)", "Restore check (1% of files, at most 1 GiB)" }, model.Own.Select(c => c.Title));
         Assert.All(model.Own, c => Assert.True(c.IsSelected));
         Assert.Equal("Passed 2d ago", model.Own[0].Detail);
         Assert.Equal("Not run yet", model.Own[1].Detail);
-        Assert.Equal(new[] { "Structure check", "Test restore", "Full data read" }, model.Other.Select(c => c.Title));
+        Assert.Equal(new[] { "Structure check", "Restore check", "Data check (all data)" }, model.Other.Select(c => c.Title));
         Assert.Equal("Run 2 checks", model.RunLabel);
         Assert.False(model.ShowsRestoreOptions);
         foreach (var theme in new[] { ThemeVariant.Light, ThemeVariant.Dark })
@@ -71,13 +71,13 @@ public sealed class S103_VerifyWindow : ScenarioBase
             await ctx.Driver.PumpAsync(150);
             Assert.Equal("Verify “local_d”", window.FindControl<TextBlock>("Heading")!.Text);
             ctx.Snapshot(window, $"verify window {theme}",
-                $"{theme}: \"Verify “local_d”\": the backup's two checks ticked (\"Passed 2d ago\", \"Not run yet\"), then Structure check, Test restore and Full data read to run once; \"Run 2 checks\".");
+                $"{theme}: \"Verify “local_d”\": the backup's two checks ticked (\"Passed 2d ago\", \"Not run yet\"), then Structure check, Restore check and Data check (all data) to run once; \"Run 2 checks\".");
             window.Close();
         }
 
         // A once-only test restore with its own size, ticked with the structure check.
         model.Own[1].IsSelected = false;
-        model.Other.Single(c => c.Title == "Test restore").IsSelected = true;
+        model.Other.Single(c => c.Title == "Restore check").IsSelected = true;
         model.Other.Single(c => c.Title == "Structure check").IsSelected = true;
         Assert.True(model.ShowsRestoreOptions);
         model.RestoreOptions.Percentage = 5;

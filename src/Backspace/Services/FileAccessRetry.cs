@@ -12,7 +12,7 @@ namespace Backspace.Services;
 
 internal sealed record FileWaitReason(string Title, string StopLabel, string Consequence)
 {
-    internal static readonly FileWaitReason TestRestoreOwner = new("Waiting to start Test restore", "Stop test restore",
+    internal static readonly FileWaitReason TestRestoreOwner = new("Waiting to start the restore check", "Stop the restore check",
         "Another check or program is using the saved progress for this backup. Stopping leaves that progress unchanged.");
     internal static readonly FileWaitReason Quit = new("Waiting to pause scheduled backups", "Cancel quit",
         "Cancelling keeps Backspace open. Your scheduled backups keep their previous settings.");
@@ -22,11 +22,11 @@ internal sealed record FileWaitReason(string Title, string StopLabel, string Con
         "Backspace will stay open, but scheduled tasks remain paused until you reopen it or sign out.");
     internal static readonly FileWaitReason Engine = new("Waiting to start the backup engine", "Stop this attempt",
         "Stopping cancels this attempt to start the engine. Existing backups and the previous configuration are kept.");
-    internal static readonly FileWaitReason Progress = new("Waiting to save Test restore progress", "Stop test restore",
+    internal static readonly FileWaitReason Progress = new("Waiting to save the restore check's progress", "Stop the restore check",
         "Stopping ends this check. Previously saved progress is kept; Backspace will also try to save that the check was stopped.");
-    internal static readonly FileWaitReason Result = new("Waiting to save the Test restore result", "Stop saving",
+    internal static readonly FileWaitReason Result = new("Waiting to save the restore check's result", "Stop saving",
         "The previous saved result stays in place. If the stop cannot be saved, this check may resume when Backspace next opens.");
-    internal static readonly FileWaitReason Pause = new("Waiting to save the Test restore pause", "Cancel this change",
+    internal static readonly FileWaitReason Pause = new("Waiting to save the restore check's pause", "Cancel this change",
         "The check keeps its previous pause setting. You can try the pause or resume action again.");
     internal static readonly FileWaitReason Dismiss = new("Waiting to hide this saved result", "Keep the result",
         "The result stays in the list. You can hide it later.");

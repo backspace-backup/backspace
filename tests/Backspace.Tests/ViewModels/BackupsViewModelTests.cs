@@ -377,7 +377,7 @@ public class BackupsViewModelTests
         // A newer successful backup must not erase a failed recovery check.
         ServiceLocator.Config.Update(c => { c.Backups[0].LastRunStatus = BackupRunStatus.Success; c.Backups[0].LastRunEndUtc = DateTime.UtcNow; });
         Assert.Equal("fail", vm.HealthClass);
-        Assert.Equal("Test restore failed for 1 backup", vm.HealthHeadline);
+        Assert.Equal("Restore check failed for 1 backup", vm.HealthHeadline);
         Assert.Single(vm.AffectedBackups);
 
         ServiceLocator.Config.Update(c => { c.Backups[0].LastVerifyPass = true; c.Backups[0].LastVerifyUtc = DateTime.UtcNow; });

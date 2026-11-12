@@ -24,11 +24,11 @@ public static class BackupCheckHistory
     public static string Describe(CheckDepth depth) => depth switch
     {
         CheckDepth.RepositoryStructure => "Structure check · stored data not read",
-        CheckDepth.SavedDataSample => "Structure check + data sample · part of the stored data read and checked",
-        CheckDepth.AllData => "Full data read · all stored data read and checked",
-        CheckDepth.RestoreSample => "Sample test restore · files rebuilt from the latest backup",
-        CheckDepth.RestoreAllFiles => "Full test restore · every file rebuilt from the latest backup",
-        CheckDepth.RestoreUnspecified => "Test restore · sample/full scope was not recorded",
+        CheckDepth.SavedDataSample => "Data check · a sample of the stored data read and checked, with the structure",
+        CheckDepth.AllData => "Data check (all data) · all stored data read and checked",
+        CheckDepth.RestoreSample => "Restore check · files rebuilt from the latest backup",
+        CheckDepth.RestoreAllFiles => "Restore check (all files) · every file rebuilt from the latest backup",
+        CheckDepth.RestoreUnspecified => "Restore check · how many files was not recorded",
         _ => "Repository check · depth was not recorded",
     };
 
@@ -98,7 +98,7 @@ public static class BackupCheckHistory
             && !entries.Any(e => e.Depth is CheckDepth.RestoreSample or CheckDepth.RestoreAllFiles or CheckDepth.RestoreUnspecified && Math.Abs((e.When - when).TotalSeconds) < 2))
             entries.Add(new("", when, passed ? BackupRunStatus.Success : BackupRunStatus.Failed,
                 backup.LastVerifyWasSample ? CheckDepth.RestoreSample : CheckDepth.RestoreAllFiles,
-                backup.LastVerifySummary ?? "Saved test restore result; its detailed log is no longer available."));
+                backup.LastVerifySummary ?? "Saved restore check result; its detailed log is no longer available."));
         return entries.OrderByDescending(e => e.When).ToList();
     }
 
@@ -167,7 +167,7 @@ public static class BackupCheckHistory
                 : nothingStored
                 ? new("No checks yet: nothing backed up so far", "never", "",
                     Hover("This backup has not stored anything yet, so there is nothing to check. Its checks start after its first backup that succeeds.", kinds)) { Kinds = kinds }
-                : new("No checks recorded", "never", "", Hover("The first scheduled check or Test restore will appear here.", kinds)) { Kinds = kinds };
+                : new("No checks recorded", "never", "", Hover("The first check will appear here.", kinds)) { Kinds = kinds };
         var latest = entries[0];
         // A shallower success does not erase a deeper failure. A full restore
         // can supersede a sample restore, but neither checks every old pack.
@@ -195,11 +195,11 @@ public static class BackupCheckHistory
     internal static string DepthName(CheckDepth depth) => depth switch
     {
         CheckDepth.RepositoryStructure => "Structure check",
-        CheckDepth.SavedDataSample => "Structure check + data sample",
-        CheckDepth.AllData => "Full data read",
-        CheckDepth.RestoreSample => "Sample test restore",
-        CheckDepth.RestoreAllFiles => "Full test restore",
-        CheckDepth.RestoreUnspecified => "Test restore",
+        CheckDepth.SavedDataSample => "Data check",
+        CheckDepth.AllData => "Data check (all data)",
+        CheckDepth.RestoreSample => "Restore check",
+        CheckDepth.RestoreAllFiles => "Restore check (all files)",
+        CheckDepth.RestoreUnspecified => "Restore check",
         _ => "Check",
     };
 

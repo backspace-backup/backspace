@@ -90,7 +90,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         var cardD = Card(localD);
         var lastBackup = cardD.LastRunLabel;
         cardD.UtcNow = () => DateTime.UtcNow.AddMinutes(7).AddSeconds(5);
-        progress.ReportActivity(localD.Id, "Structure check + data sample (1 GiB) (1 of 2)");
+        progress.ReportActivity(localD.Id, "Data check (1 GiB sample) (1 of 2)");
         progress.ReportActivityStep(localD.Id, "Reading the data sample · 20 of 64 packs", "Google Drive", 52);
         for (var i = 0; i < 50 && !cardD.IsChecking; i++) await ctx.Driver.PumpAsync(20);
         await ctx.Driver.PumpAsync(100);
@@ -102,7 +102,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         Assert.Equal("ok", cardD.StatusClass);
         var label = view.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "CheckRunText");
         Assert.True(label.IsEffectivelyVisible);
-        Assert.Equal("Checking · Structure + data sample (1 of 2) · 7 min", label.Text);
+        Assert.Equal("Checking · Data check (1 of 2) · 7 min", label.Text);
         var bar = view.GetVisualDescendants().OfType<ProgressBar>().Single(b => b.Name == "CheckProgressBar");
         Assert.True(bar.IsEffectivelyVisible);
         Assert.False(bar.IsIndeterminate);
@@ -111,7 +111,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         var summary = view.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "CheckSummary");
         Assert.True(summary.Classes.Contains("running"));
         var tip = Assert.IsType<string>(ToolTip.GetTip(view.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "CheckRunning")));
-        Assert.StartsWith("Structure check + data sample (1 GiB) (1 of 2)\nOn Google Drive\nReading the data sample · 20 of 64 packs\nAbout 52% of this check done\nRunning for 7 min\n\n", tip);
+        Assert.StartsWith("Data check (1 GiB sample) (1 of 2)\nOn Google Drive\nReading the data sample · 20 of 64 packs\nAbout 52% of this check done\nRunning for 7 min\n\n", tip);
         Assert.Contains("downloads a sample of the stored data", tip);
         Assert.DoesNotContain("0.0%", tip);
         ctx.Snapshot(host, "a check running under backup health",
@@ -124,9 +124,9 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         host.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
 
         // Before restic gives a count: the bar moves without a percentage.
-        progress.ReportActivity(localD.Id, "Sample test restore (1%, at most 1 GiB) (2 of 2)");
+        progress.ReportActivity(localD.Id, "Restore check (1% of files, at most 1 GiB) (2 of 2)");
         await ctx.Driver.PumpAsync(150);
-        Assert.Equal("Checking · Sample test restore (2 of 2) · 7 min", label.Text);
+        Assert.Equal("Checking · Restore check (2 of 2) · 7 min", label.Text);
         Assert.True(bar.IsIndeterminate);
         Assert.False(view.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "CheckStepText").IsVisible);
 
@@ -156,7 +156,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         Assert.False(cardC.IsChecking);
         ServiceLocator.Logs.AppendRun(new RunRecord { BackupId = localC.Id, BackupName = localC.Name, StartedUtc = jobStart, EndedUtc = DateTime.UtcNow.AddMinutes(-1),
             Status = BackupRunStatus.Success, Summary = "12.5 MB uploaded" });
-        var checking = running with { Progress = running.Progress! with { Activity = "Structure check + data sample (1 GiB) (1 of 2)",
+        var checking = running with { Progress = running.Progress! with { Activity = "Data check (1 GiB sample) (1 of 2)",
             ActivityStep = "Checking the snapshots · 3 of 40 snapshots", ActivityWhere = "Google Drive", ActivityPercent = 14.5 } };
         cardC.ApplyBackgroundActivity(Backspace.Services.Platform.Windows.ServiceActivity.Parse(Backspace.Services.Platform.Windows.ServiceActivity.Encode(checking)), null);
         for (var i = 0; i < 100 && !cardC.LastRunLabel.Contains("12.5 MB", StringComparison.Ordinal); i++) await ctx.Driver.PumpAsync(20);
@@ -175,19 +175,19 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         // U205: a test restore you start (Test restore on the card) shows
         // the same way: under Backup health, with its bar and step below.
         var cardDrop = Card(localD);
-        var test = ServiceLocator.ActiveRestores.BeginTest(localD, "Sample test restore (1%)", DateTime.UtcNow.AddMinutes(-2), null);
+        var test = ServiceLocator.ActiveRestores.BeginTest(localD, "Restore check (1% of files)", DateTime.UtcNow.AddMinutes(-2), null);
         cardDrop.UtcNow = () => DateTime.UtcNow;
         cardDrop.IsVerifying = true;
         await ctx.Driver.PumpAsync(100);
         Assert.True(cardDrop.ShowsTestRestore);
-        Assert.Equal("Test restore · 2 min", cardDrop.CheckRunLabel);
+        Assert.Equal("Restore check · 2 min", cardDrop.CheckRunLabel);
         Assert.False(cardDrop.CheckProgressKnown); // nothing counted yet
         Assert.Equal("Preparing the files to restore", cardDrop.CheckStepLine.Replace("Google Drive · ", ""));
         ServiceLocator.ActiveRestores.UpdateProgress(test, 400, 120, 1000, 300);
         for (var i = 0; i < 20; i++) { Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(); await ctx.Driver.PumpAsync(50); }
         Assert.Equal(30, cardDrop.CheckPercent, 1);
         Assert.Equal("Restoring and comparing files · 120 of 400 files", cardDrop.CheckStepLine);
-        Assert.Contains("Restores a sample of files", cardDrop.CheckTooltip);
+        Assert.Contains("Can your files come back?", cardDrop.CheckTooltip);
         Assert.True(view.GetVisualDescendants().OfType<ProgressBar>().Single(b => b.Name == "CheckProgressBar").IsEffectivelyVisible);
         ctx.Snapshot(host, "a test restore running",
             $"A test restore started from local_d's card: Backup health says \"{cardDrop.CheckRunLabel}\", the strip below the sources shows 30% and \"{cardDrop.CheckStepLine}\".");
@@ -200,7 +200,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         // banner counts every pill and says nothing beside the headline.
         ServiceLocator.Logs.AppendRun(new RunRecord { BackupId = localD.Id, BackupName = localD.Name, Kind = RunKind.Check, CheckKind = CheckKind.DataSample,
             StartedUtc = DateTime.UtcNow.AddMinutes(-30), EndedUtc = DateTime.UtcNow.AddMinutes(-20), Status = BackupRunStatus.Failed,
-            Summary = "Structure check + data sample (1 GiB) did not pass." });
+            Summary = "Data check (1 GiB sample) did not pass." });
         Card(localD).ApplyVerifyState(ServiceLocator.Config.Current.Backups.Single(b => b.Id == localD.Id));
         for (var i = 0; i < 100 && (Card(localD).VerifyClass != "fail" || vm.HealthHeadline != "3 backups need attention"); i++)
         {

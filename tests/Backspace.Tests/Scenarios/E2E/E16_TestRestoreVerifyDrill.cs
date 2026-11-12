@@ -107,7 +107,7 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
             Assert.True(ctx.Driver.WaitFor(() => host.OwnedWindows.OfType<VerifyWindow>().Any()), "The Verify window must open.");
             var options = host.OwnedWindows.OfType<VerifyWindow>().Single();
             var model = (VerifyViewModel)options.DataContext!;
-            foreach (var c in model.Own.Concat(model.Other)) c.IsSelected = c.Title == "Test restore";
+            foreach (var c in model.Own.Concat(model.Other)) c.IsSelected = c.Title == "Restore check";
             ctx.Driver.Pump();
             void Click(Control control)
             {
@@ -157,7 +157,7 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
         var failed = ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id);
         Assert.False(failed.LastVerifyPass, "Changed bytes in the second source must fail the drill.");
         Assert.Equal("fail", vm.HealthClass);
-        Assert.Equal("Test restore failed for 1 backup", vm.HealthHeadline);
+        Assert.Equal("Restore check failed for 1 backup", vm.HealthHeadline);
         Assert.Equal(backup.Id, Assert.Single(vm.AffectedBackups).Id);
         Assert.Contains("Files recovered successfully", failed.LastVerifySummary);
         Assert.Contains("differ from today's originals", failed.LastVerifySummary);

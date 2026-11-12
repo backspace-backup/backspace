@@ -11,7 +11,7 @@ namespace Backspace.Services;
 internal static class CheckRunWording
 {
     internal const string FullReadUnavailable =
-        "Full data read was not started: this version of the backup engine can only read a sample. Nothing was read.";
+        "The data check of all data was not started: this version of the backup engine can only read a sample. Nothing was read.";
 
     /// <summary>A run's status from its parts: any failure fails it; a part
     /// not done beside a part done makes it a warning.</summary>

@@ -516,7 +516,7 @@ public partial class MainWindow : Window
     private System.Threading.Tasks.Task<bool> ConfirmStopAsync() =>
         DestructiveConfirmWindow.ShowConfirmAsync(this,
             title: "Work is still running.",
-            subtitle: "Quitting stops active backups, restores and test restores. " +
+            subtitle: "Quitting stops active backups, checks and restores. " +
                 "Backspace will wait for them to stop safely. Storage maintenance must finish first. " +
                 QuitScheduleExplanation,
             confirmLabel: "Stop work and quit", cancelLabel: "Keep running");

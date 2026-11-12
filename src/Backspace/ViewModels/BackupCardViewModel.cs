@@ -102,7 +102,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HealthTileClass))] private string _verifyClass = "never";
     /// <summary>The Backup health tile's tone: running while a check runs (U197).</summary>
     public string HealthTileClass => ShowsHealthActivity ? "running" : VerifyClass;
-    [ObservableProperty] private string _verifyDetails = "The first scheduled check or Test restore will appear here.";
+    [ObservableProperty] private string _verifyDetails = "The first check will appear here.";
     [ObservableProperty] private string _checkScopeLabel = "";
     private IReadOnlyList<BackupCheckEntry> _checkEntries = Array.Empty<BackupCheckEntry>();
     private IReadOnlyList<RunRecord> _checkRuns = Array.Empty<RunRecord>();
@@ -160,22 +160,18 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         get
         {
             if (ShowsTestRestore && _testSession is { } test)
-                return "Test restore" + (test.IsPaused ? " · paused" : "") + " · " + Elapsed(UtcNow() - test.StartedUtc);
+                return "Restore check" + (test.IsPaused ? " · paused" : "") + " · " + Elapsed(UtcNow() - test.StartedUtc);
             if (IsQueued && QueuedReason.Length > 0) return "Check queued: " + QueuedReason;
             var what = RunningActivity.Length > 0 ? "Checking · " + ShortCheckName(RunningActivity) : "Checking";
             return RunStartedUtc is { } started ? what + " · " + Elapsed(UtcNow() - started - QueuedTime()) : what;
         }
     }
 
-    /// <summary>"Structure check + data sample (1 GiB) (1 of 2)" →
-    /// "Structure + data sample (1 of 2)": the card line names the check;
-    /// its size and sample are in the hover.</summary>
+    /// <summary>"Data check (1 GiB sample) (1 of 2)" → "Data check (1 of 2)":
+    /// the card line names the check; its size is in the hover. "(all data)"
+    /// stays: it is what kind of data check it is (U221).</summary>
     internal static string ShortCheckName(string activity)
-    {
-        var name = activity.Replace("Structure check + data sample", "Structure + data sample", StringComparison.Ordinal);
-        if (name.StartsWith("Structure check", StringComparison.Ordinal)) name = "Structure" + name["Structure check".Length..];
-        return System.Text.RegularExpressions.Regex.Replace(name, @" \((?:[0-9.,]+ ?[KMGT]i?B|[0-9.,]+%[^)]*)\)", "");
-    }
+        => System.Text.RegularExpressions.Regex.Replace(activity, @" \((?:[0-9.,]+ ?[KMGT]i?B[^)]*|[0-9.,]+%[^)]*)\)", "");
 
     /// <summary>The step under the check's bar; with several destinations,
     /// which one.</summary>
@@ -204,14 +200,14 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     }
 
     internal static string CheckExplanation(string activity) =>
-        activity.StartsWith("Structure check + data sample", StringComparison.Ordinal)
-            ? "Reads the backup's index and snapshots to confirm all their data is present, then downloads a sample of the stored data and verifies it is intact."
-        : activity.StartsWith("Structure check", StringComparison.Ordinal)
-            ? "Reads the backup's index and snapshots to confirm all their data is present. Only this metadata is downloaded."
-        : activity.StartsWith("Sample test restore", StringComparison.Ordinal) || activity.StartsWith("Full test restore", StringComparison.Ordinal)
-            ? "Restores a sample of files into a temporary folder and compares them with your originals. Your originals are never changed."
-        : activity.StartsWith("Full data read", StringComparison.Ordinal)
-            ? "Downloads all the stored data and verifies it is intact."
+        activity.StartsWith("Structure check", StringComparison.Ordinal)
+            ? "Is the backup complete? Reads its records and confirms every piece of data they point to is there. Reads no file contents."
+        : activity.StartsWith("Data check (all data)", StringComparison.Ordinal)
+            ? "Is the stored data intact? Checks the structure, then downloads all the stored data and checks every piece."
+        : activity.StartsWith("Data check", StringComparison.Ordinal)
+            ? "Is the stored data intact? Checks the structure, then downloads a sample of the stored data and checks every piece of it."
+        : activity.StartsWith("Restore check", StringComparison.Ordinal)
+            ? "Can your files come back? Restores some files into a temporary folder, as a restore would, and checks them. Your original files are never changed."
         : "Checks this backup's stored data.";
 
     private void NotifyCheckState()
@@ -301,7 +297,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// own — no idle hover hint is needed).
     /// </summary>
     public string RunningActionTooltip => IsRunning
-        ? "This backup is currently running. Stop it first (Stop button above) to make changes, restore files, or run a test restore."
+        ? "This backup is currently running. Stop it first (Stop button above) to make changes, restore files, or run a check."
         : "";
 
     /// <summary>Hover hint for the Edit button. While running, explain
@@ -410,11 +406,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// A running test restore is followed and stopped on the card (U205).</summary>
     public string TestRestoreActionLabel => "Verify";
     public string TestRestoreTooltip => IsVerifying
-        ? "A test restore is running: follow it here, or stop it with Stop."
+        ? "A restore check is running: follow it here, or stop it with Stop."
         : IsRunning
         ? "Available once this backup is no longer running."
         : !HasRestorableRun ? NothingToRestoreTooltip
-        : "Run this backup's checks now, or another check once: its structure, a sample of its data, a test restore. Your original files are never changed.";
+        : "Run this backup's checks now, or another check once: a structure, data or restore check. Your original files are never changed.";
 
     /// <summary>Positive-named negation of <see cref="IsRunning"/>. The
     /// per-source SourceLine bindings inside an ItemsControl can't use

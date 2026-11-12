@@ -54,7 +54,7 @@ public sealed class TestRestoreService
         {
             if (_running.TryGetValue(backup.Id, out var existing))
             {
-                if (journal.Scheduled) throw new IOException("A Test restore is already running for this backup.");
+                if (journal.Scheduled) throw new IOException("A restore check is already running for this backup.");
                 return existing;
             }
             var cts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellation);
@@ -88,7 +88,7 @@ public sealed class TestRestoreService
                 journal = JsonSerializer.Deserialize<TestRestoreJournal>(FileAccessRetry.Get(() => File.ReadAllText(journalPath), journalPath, ct: cts.Token))
                     ?? throw new IOException("Empty test restore journal.");
                 if (journal.State is not ("running" or "paused"))
-                    throw new IOException("This saved Test restore has already ended. Reopen its saved result instead of resuming it.");
+                    throw new IOException("This restore check has already ended; it can't be resumed.");
             }
             var context = new TestRestoreContext(journal, journalPath, session,
                 Path.Combine(root, "history-" + TestRestoreContext.Hash(backup.Id) + ".json"), control, cts.Token)
@@ -155,7 +155,7 @@ public sealed class TestRestoreService
                 terminal = saveFailure is null ? RestoreTerminalStatus.Cancelled : RestoreTerminalStatus.Error;
                 terminalError = saveFailure;
                 PersistInterruptedAttempt(context, BackupRunStatus.Skipped,
-                    "Test restore cancelled before completion. Earlier completed results have not been replaced.");
+                    "Restore check stopped before it finished. Earlier results were kept.");
             }
         }
         catch (Exception ex)
@@ -163,7 +163,7 @@ public sealed class TestRestoreService
             try { context.Control!.Complete(cancelled: true); } catch (Exception cleanup) { AppLogger.For<TestRestoreService>().Error(cleanup, "Test restore cleanup needs attention"); }
             try { context.Finish("failed", ex.Message, allowCancelledFailure: true); } catch (Exception saveError) { AppLogger.For<TestRestoreService>().Error(saveError, "Could not save test restore failure"); }
             terminal = RestoreTerminalStatus.Error; terminalError = ex.Message;
-            PersistInterruptedAttempt(context, BackupRunStatus.Failed, "Test restore could not finish: " + ex.Message);
+            PersistInterruptedAttempt(context, BackupRunStatus.Failed, "Restore check could not finish: " + ex.Message);
         }
         finally
         {
@@ -242,7 +242,7 @@ public sealed class TestRestoreService
                 if (_running.ContainsKey(journal.BackupId)) continue;
                 if (backup is null || TestRestoreContext.Fingerprint(backup, _config) != journal.RouteFingerprint)
                 {
-                    journal.State = "failed"; journal.Summary = "Cannot resume: the backup sources or destination settings changed. Start a new test restore.";
+                    journal.State = "failed"; journal.Summary = "Can't continue: the backup's sources or destination settings changed. Run a new restore check.";
                     journal.EndedUtc = DateTime.UtcNow;
                     await Task.Run(() => TestRestoreContext.WriteAtomic(path, journal, reason: FileWaitReason.Result));
                     // Said in the backup's Activity, now that test restores
@@ -263,7 +263,7 @@ public sealed class TestRestoreService
     {
         AppLogger.For<TestRestoreService>().Error(error, "Could not resume test restore: {Path}", path);
         if (!_loaded.TryAdd("error:" + path, 0)) return;
-        var session = ServiceLocator.ActiveRestores.BeginTest(new Backup { Name = "Interrupted test restore" },
+        var session = ServiceLocator.ActiveRestores.BeginTest(new Backup { Name = "Interrupted restore check" },
             "Recovery needs attention", DateTime.UtcNow, null);
         ServiceLocator.ActiveRestores.End(session, RestoreTerminalStatus.Error,
             "Saved progress was preserved, but this check could not resume. Another Backspace window may own it, or the saved file may be unreadable. " + error.Message);

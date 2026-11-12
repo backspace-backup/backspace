@@ -8,7 +8,7 @@
     <Grid RowDefinitions="Auto,Auto,Auto,*">
       <TextBlock Grid.Row="0" Classes="page-title" Text="Restores"/>
       <TextBlock Grid.Row="1" Classes="dim" Margin="0,4,0,18"
-                 TextWrapping="Wrap" Text="Track recovered files and test restores. Open a run to pause, resume, cancel, or review its results."/>
+                 TextWrapping="Wrap" Text="Track the files you restore. Open a restore to pause, resume, cancel, or review its results."/>
 
       <!-- Empty state -->
       <ScrollViewer Grid.Row="3" IsVisible="{Binding HasSelectedSession}" HorizontalScrollBarVisibility="Disabled">

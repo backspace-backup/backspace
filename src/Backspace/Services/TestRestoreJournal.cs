@@ -14,7 +14,7 @@ namespace Backspace.Services;
 public sealed record TestRestoreOptions(bool Full = false, double SamplePercent = 1, long MaximumSampleBytes = 1024L * 1024 * 1024,
     bool CompareOriginals = false)
 {
-    public string Label => Full ? "Full test restore" : $"Sample test restore ({SamplePercent:0.##}%)";
+    public string Label => Full ? "Restore check (all files)" : $"Restore check ({SamplePercent:0.##}% of files)";
     public void Validate()
     {
         if (!double.IsFinite(SamplePercent) || SamplePercent <= 0 || SamplePercent > 100 || MaximumSampleBytes < 0)
@@ -32,7 +32,7 @@ internal sealed class TestRestoreJournal
     public DateTime StartedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? EndedUtc { get; set; }
     public string State { get; set; } = "running";
-    public string Summary { get; set; } = "Preparing test restore…";
+    public string Summary { get; set; } = "Preparing the restore check…";
     public bool Dismissed { get; set; }
     public bool Scheduled { get; set; }
     public List<TestRestoreCell> Cells { get; set; } = new();
@@ -221,7 +221,7 @@ internal sealed class TestRestoreContext
     /// <summary>Why a sample is empty although the backup has files: every
     /// file is larger than the limit.</summary>
     internal static string NothingFits(long cap) =>
-        $"Every file in this backup is larger than the test restore's limit ({BackupCheck.Size(cap)} here), so no file was restored. "
+        $"Every file in this backup is larger than the restore check's limit ({BackupCheck.Size(cap)} here), so no file was restored. "
         + "Raise the limit in the backup's Checks to test this backup.";
 
     internal void Checkpoint(TestRestoreCell cell, List<FileVerifyResult> results, bool complete = false)

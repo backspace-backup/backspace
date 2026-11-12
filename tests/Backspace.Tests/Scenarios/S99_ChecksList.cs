@@ -52,7 +52,7 @@ public sealed class S99_ChecksList : ScenarioBase
         // local_d as saved before U179: monthly at 21:00, data sample and test restore.
         var json = """
             {"name":"local_d","sourcePaths":["D:\\"],"checkSchedule":{"frequency":"Monthly","timeOfDay":"21:00:00","weeklyDaysBitmask":127,"hourlyInterval":24,"skipOnBattery":true,"stopOnBattery":true,"requireNetwork":true,"catchUpMissedRuns":true},
-             "checkReadDataSample":true,"checkRestoreFiles":true,"restoreCheckOptions":{"full":false,"samplePercent":1,"maximumSampleBytes":1073741824,"compareOriginals":false,"label":"Sample test restore (1%)"}}
+             "checkReadDataSample":true,"checkRestoreFiles":true,"restoreCheckOptions":{"full":false,"samplePercent":1,"maximumSampleBytes":1073741824,"compareOriginals":false,"label":"Restore check (1% of files)"}}
             """;
         var backup = System.Text.Json.JsonSerializer.Deserialize<Backup>(json, new System.Text.Json.JsonSerializerOptions
             { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } })!;
@@ -67,7 +67,7 @@ public sealed class S99_ChecksList : ScenarioBase
         Assert.Equal(new[] { CheckKind.DataSample, CheckKind.TestRestore }, vm.Checks.Select(c => c.Kind));
         var card = win.FindControl<Border>("ChecksCard")!;
         await ShowChecks(ctx, win, card);
-        ctx.Snapshot(win, "local_d converted", "local_d's old monthly check at 21:00 is now two entries: Data sample (1 GiB) and Sample test restore (1%, at most 1 GiB), each with its own How often / Time / limits and conditions, and a plain sentence on top.");
+        ctx.Snapshot(win, "local_d converted", "local_d's old monthly check at 21:00 is now two entries: Data sample (1 GiB) and Restore check (1% of files, at most 1 GiB), each with its own How often / Time / limits and conditions, and a plain sentence on top.");
 
         // Add a check › Structure check, by clicking.
         var add = win.FindControl<Button>("AddStructureCheck")!;
@@ -91,7 +91,7 @@ public sealed class S99_ChecksList : ScenarioBase
         Click(win, sampleRemove);
         await ctx.Driver.PumpAsync(150);
         Assert.DoesNotContain(vm.Checks, c => c.Kind == CheckKind.DataSample);
-        Assert.DoesNotContain(win.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text?.StartsWith("Structure check + data sample (") == true);
+        Assert.DoesNotContain(win.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text?.StartsWith("Data check (") == true);
 
         // An invalid limit can't be saved.
         var restore = vm.Checks.Single(c => c.Kind == CheckKind.TestRestore);
@@ -137,7 +137,7 @@ public sealed class S99_ChecksList : ScenarioBase
         var sentence = easy.FindControl<TextBlock>("EasyChecksSentence")!;
         Assert.True(sentence.IsEffectivelyVisible);
         Assert.Equal("Every week Backspace removes old copies it no longer needs to keep and checks that the backup is complete, "
-            + "reading back 1 GiB of the stored data to make sure it is undamaged; every month it restores a few files as a test "
+            + "reading back 1 GiB of the stored data to make sure it is undamaged; every month it restores some files to a temporary folder "
             + "to prove they come back.", sentence.Text);
         Assert.DoesNotContain(easy.GetVisualDescendants().OfType<Button>(), b => b.Name?.StartsWith("Add") == true && b.Name.Contains("Check"));
         ctx.Snapshot(easy, "easy mode sentence", "Easy mode, step 3: under the schedule, one plain sentence says what Backspace does by itself every week and every month. No check settings.");

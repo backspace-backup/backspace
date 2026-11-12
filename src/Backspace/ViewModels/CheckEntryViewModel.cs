@@ -14,7 +14,8 @@ public sealed partial class CheckEntryViewModel : ObservableObject
     private readonly Action _changed;
     private readonly int _weeklyDays;
 
-    public CheckKind Kind { get; }
+    /// <summary>A data check switches between a sample and all data (U221).</summary>
+    public CheckKind Kind { get; private set; }
 
     [ObservableProperty] private MaintenanceCadence _cadence;
     [ObservableProperty] private TimeSpan _timeOfDay;
@@ -60,6 +61,24 @@ public sealed partial class CheckEntryViewModel : ObservableObject
 
     public bool ShowsTime => Cadence != MaintenanceCadence.AfterEachBackup;
     public bool IsDataSample => Kind == CheckKind.DataSample;
+    /// <summary>A data check, of a sample or of all data (U221).</summary>
+    public bool IsDataCheck => Kind is CheckKind.DataSample or CheckKind.FullDataRead;
+    /// <summary>The engine can read all data (restic always can; a test engine may not).</summary>
+    public bool AllDataAvailable => !Services.ServiceLocator.Initialized || Services.ServiceLocator.Engine.HonoursDataCheckLimit;
+    /// <summary>"All data": the data check reads everything instead of a sample.</summary>
+    public bool AllData
+    {
+        get => Kind == CheckKind.FullDataRead;
+        set
+        {
+            if (!IsDataCheck || value == AllData) return;
+            Kind = value ? CheckKind.FullDataRead : CheckKind.DataSample;
+            if (!value && MaximumGiB <= 0) MaximumGiB = 1;
+            foreach (var name in new[] { nameof(Kind), nameof(AllData), nameof(IsDataSample), nameof(IsStructureOrFull), nameof(Explanation), nameof(LimitHelp) })
+                OnPropertyChanged(name);
+            Changed();
+        }
+    }
     public bool IsTestRestore => Kind == CheckKind.TestRestore;
     /// <summary>No size settings: these read all of something.</summary>
     public bool IsStructureOrFull => Kind is CheckKind.Structure or CheckKind.FullDataRead;
@@ -76,17 +95,17 @@ public sealed partial class CheckEntryViewModel : ObservableObject
     public static string Explain(CheckKind kind) => kind switch
     {
         CheckKind.Structure =>
-            "Checks that the backup's records are readable and complete, and that every piece of data they point to is still there. "
+            "Is the backup complete? Checks that its records are readable and complete, and that every piece of data they point to is still there. "
             + "It reads no file contents, so it is quick.",
         CheckKind.DataSample =>
-            "Downloads a random part of the stored data, from any backup old or new, and checks each piece against its fingerprint. "
-            + "This proves the storage hasn't lost or damaged your data. It includes the structure check. It does not rebuild any file.",
+            "Is the stored data intact? Downloads a random sample of the stored data, from any backup old or new, and checks each piece against its fingerprint. "
+            + "It checks the structure first, so a separate structure check isn't needed. It doesn't rebuild any file: the restore check does.",
         CheckKind.TestRestore =>
-            "Rebuilds real files from the latest backup, the way a restore does: following the folder list, unlocking them with your password, "
+            "Can your files come back? Rebuilds real files from the latest backup into a temporary folder, the way a restore does: following the folder list, unlocking them with your password, "
             + "and writing them to disk. This proves the whole way back to usable files works. Each time it takes files never tested first, "
             + "then those tested longest ago. With “compare with today's originals” it also catches files that were read wrongly when they were backed up.",
         _ =>
-            "Downloads all the stored data and checks every piece against its fingerprint. The most thorough check of the storage, and the slowest: "
+            "Is the stored data intact? Downloads all the stored data and checks every piece against its fingerprint, after the structure. The most thorough check of the storage, and the slowest: "
             + "on a large cloud backup it can take many hours and download everything.",
     };
 
@@ -119,9 +138,9 @@ public sealed partial class CheckEntryViewModel : ObservableObject
         if (validate)
         {
             if (Kind == CheckKind.DataSample && MaximumGiB <= 0)
-                throw new ArgumentException("Give the data sample an amount above 0 GiB.");
+                throw new ArgumentException("Give the data check a sample above 0 GiB, or tick All data.");
             if (Kind == CheckKind.TestRestore && (SamplePercent <= 0 || SamplePercent > 100 || MaximumGiB < 0))
-                throw new ArgumentException("Give the test restore a share above 0% and at most 100%, and a limit of 0 GiB or more.");
+                throw new ArgumentException("Give the restore check a share above 0% and at most 100%, and a limit of 0 GiB or more.");
         }
         return new BackupCheck
         {

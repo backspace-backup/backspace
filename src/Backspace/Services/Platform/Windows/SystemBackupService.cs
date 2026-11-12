@@ -293,17 +293,42 @@ internal sealed class SystemBackupService : ServiceBase
         finally { if (key is not null) CryptographicOperations.ZeroMemory(key); }
     }
 
+    /// <summary>Clients connected at once (U224, owner, 12 November 2026:
+    /// errors on local_c and local_d). With one, a Stop waited behind each
+    /// running backup's status checks and the app's own, and gave up after
+    /// a few seconds: "The background stop request could not be confirmed".
+    /// Requests are still handled one at a time.</summary>
+    internal const int CommandInstances = 6;
+    private readonly SemaphoreSlim _dispatchGate = new(1, 1);
+
     private async Task ServeCommandsAsync()
     {
-        using var listener = BackupServicePipe.CreateListener(_binding.ServiceName + "-runs", _binding.ServiceSid, _binding.OwnerSid);
+        var name = _binding.ServiceName + "-runs";
+        // The first instance claims the name; the others join it.
+        var listeners = new List<System.IO.Pipes.NamedPipeServerStream>();
+        try
+        {
+            for (var i = 0; i < CommandInstances; i++)
+                listeners.Add(BackupServicePipe.CreateListener(name, _binding.ServiceSid, _binding.OwnerSid, first: i == 0, instances: CommandInstances));
+            await Task.WhenAll(listeners.Select(ServeAsync)).ConfigureAwait(false);
+        }
+        finally { foreach (var listener in listeners) listener.Dispose(); }
+    }
+
+    private async Task ServeAsync(System.IO.Pipes.NamedPipeServerStream listener)
+    {
         while (!_stop.IsCancellationRequested)
         {
-            await listener.WaitForConnectionAsync(_stop.Token).ConfigureAwait(false);
+            try { await listener.WaitForConnectionAsync(_stop.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return; }
             byte[]? request = null;
             try
             {
                 request = await BackupServicePipe.ReadMessageAsync(listener, TimeSpan.FromSeconds(10), _stop.Token).ConfigureAwait(false);
-                var reply = Dispatch(request);
+                byte[] reply;
+                await _dispatchGate.WaitAsync(_stop.Token).ConfigureAwait(false);
+                try { reply = Dispatch(request); }
+                finally { _dispatchGate.Release(); }
                 await BackupServicePipe.SendResponseAsync(listener, reply, TimeSpan.FromSeconds(10), _stop.Token).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or OperationCanceledException or UnauthorizedAccessException) { }

@@ -494,7 +494,7 @@ public sealed class HealthcheckService
             Name = forChecks ? backup.Name + " · checks" : backup.Name,
             Tags = forChecks ? $"backspace backup-{backup.Name} checks" : $"backspace backup-{backup.Name}",
             Desc = forChecks
-                ? $"Auto-managed by Backspace: the checks of the backup {backup.Name} (structure, data sample, test restore). Down when none has passed for the period and its grace."
+                ? $"Auto-managed by Backspace: the checks of the backup {backup.Name} (structure, data and restore checks). Down when none has passed for the period and its grace."
                 : $"Auto-managed by Backspace. Down when the backup has not succeeded for the period and its grace. Sources: {string.Join(" ; ", backup.SourcePaths)}",
             Timeout = (int)period.TotalSeconds,
             Grace = (int)grace.TotalSeconds,

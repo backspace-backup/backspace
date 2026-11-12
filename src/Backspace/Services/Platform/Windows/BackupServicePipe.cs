@@ -42,7 +42,11 @@ internal static class BackupServicePipe
     internal static bool IsServiceIdentity(SecurityIdentifier sid)
         => sid.Value == SystemService.LocalSystemSid;
 
-    internal static NamedPipeServerStream CreateListener(string name, string serviceSid, string ownerSid)
+    /// <param name="first">The first instance claims the name (no other
+    /// process may have created it); the others join it.</param>
+    /// <param name="instances">How many clients can be connected at once
+    /// (U224: one meant a Stop waited behind the runs' status checks).</param>
+    internal static NamedPipeServerStream CreateListener(string name, string serviceSid, string ownerSid, bool first = true, int instances = 1)
     {
         var fullName = PipePath(name);
         var descriptor = SecurityDescriptor(serviceSid, ownerSid);
@@ -54,8 +58,8 @@ internal static class BackupServicePipe
         try
         {
             var attributes = new SecurityAttributes { Length = Marshal.SizeOf<SecurityAttributes>(), Descriptor = security };
-            var handle = CreateNamedPipe(fullName, 3 | Overlapped | FirstInstance,
-                RejectRemoteClients, 1, 65536, 65536, 0, ref attributes);
+            var handle = CreateNamedPipe(fullName, 3 | Overlapped | (first ? FirstInstance : 0),
+                RejectRemoteClients, (uint)Math.Max(1, instances), 65536, 65536, 0, ref attributes);
             if (handle.IsInvalid)
             {
                 var error = Marshal.GetLastWin32Error();

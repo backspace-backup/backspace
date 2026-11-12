@@ -805,6 +805,10 @@
                             </StackPanel>
                           </WrapPanel>
                           <TextBlock Text="{Binding LimitHelp}" Classes="helper" TextWrapping="Wrap" IsVisible="{Binding !IsStructureOrFull}"/>
+                          <CheckBox Name="AllDataChoice" IsChecked="{Binding AllData}" IsVisible="{Binding IsDataCheck}" IsEnabled="{Binding AllDataAvailable}"
+                                    Content="All data (instead of a sample)"
+                                    ToolTip.Tip="Downloads all the stored data and checks every piece. On a large cloud backup it can take many hours and download everything."
+                                    ToolTip.ShowOnDisabled="True"/>
                           <CheckBox IsChecked="{Binding CompareOriginals}" IsVisible="{Binding IsTestRestore}">
                             <TextBlock Text="Also compare with today's originals (a difference can't tell which copy changed)" TextWrapping="Wrap"/>
                           </CheckBox>
@@ -823,20 +827,14 @@
                 <WrapPanel>
                   <Button Name="AddStructureCheck" Classes="ghost" Content="+ Structure check" Margin="0,0,8,8"
                           Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.Structure}"
-                          ToolTip.Tip="Checks the backup's records and that every piece of data is there. Quick; reads no file contents."/>
-                  <Button Name="AddDataSample" Classes="ghost" Content="+ Data sample (with structure check)" Margin="0,0,8,8"
+                          ToolTip.Tip="Is the backup complete? Checks its records and that every piece of data they point to is there. Quick; reads no file contents."/>
+                  <Button Name="AddDataSample" Classes="ghost" Content="+ Data check" Margin="0,0,8,8"
                           Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.DataSample}"
-                          ToolTip.Tip="Downloads part of the stored data and checks it against its fingerprints."/>
-                  <Button Name="AddTestRestore" Classes="ghost" Content="+ Sample test restore" Margin="0,0,8,8"
+                          ToolTip.Tip="Is the stored data intact? Checks the structure, then downloads a sample of the stored data, or all of it, and checks every piece."/>
+                  <Button Name="AddTestRestore" Classes="ghost" Content="+ Restore check" Margin="0,0,8,8"
                           Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.TestRestore}"
-                          ToolTip.Tip="Rebuilds a few real files from the latest backup."/>
-                  <Button Name="AddFullDataRead" Classes="ghost" Content="+ Full data read" Margin="0,0,8,8"
-                          Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.FullDataRead}"
-                          IsEnabled="{Binding FullDataReadAvailable}"
-                          ToolTip.Tip="{Binding FullDataReadHint}" ToolTip.ShowOnDisabled="True"/>
+                          ToolTip.Tip="Can your files come back? Restores some files from the latest backup into a temporary folder and checks them. Your original files are never changed."/>
                 </WrapPanel>
-                <TextBlock Classes="helper" TextWrapping="Wrap" IsVisible="{Binding !FullDataReadAvailable}"
-                           Text="Full data read is not available yet: this version of the backup engine can only read a sample."/>
               </StackPanel>
             </Border>
 

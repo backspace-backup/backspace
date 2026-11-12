@@ -66,7 +66,7 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
             // U213: Verify's window, a test restore once.
             Assert.True(ctx.Driver.WaitFor(() => main.OwnedWindows.OfType<VerifyWindow>().Any(w => w.IsVisible)), "The Verify window must open.");
             var dialog = main.OwnedWindows.OfType<VerifyWindow>().Single(w => w.IsVisible);
-            foreach (var c in ((VerifyViewModel)dialog.DataContext!).Own.Concat(((VerifyViewModel)dialog.DataContext!).Other)) c.IsSelected = c.Title == "Test restore";
+            foreach (var c in ((VerifyViewModel)dialog.DataContext!).Own.Concat(((VerifyViewModel)dialog.DataContext!).Other)) c.IsSelected = c.Title == "Restore check";
             ctx.Driver.Pump();
             dialog.GetVisualDescendants().OfType<NumericUpDown>().Single(b => b.Name == "Percentage").Value = 25;
             if (full) Click(dialog, dialog.GetVisualDescendants().OfType<RadioButton>().Single(b => b.Name == "FullChoice"));

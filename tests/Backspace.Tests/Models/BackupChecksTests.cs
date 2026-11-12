@@ -26,7 +26,7 @@ public sealed class BackupChecksTests
 
     // The owner's settings as saved on 10 November 2026 (check fields only).
     private const string Monthly2100 = """{"frequency":"Monthly","timeOfDay":"21:00:00","weeklyDaysBitmask":127,"hourlyInterval":24,"customExpression":"","skipOnBattery":true,"stopOnBattery":true,"requireNetwork":true,"catchUpMissedRuns":true,"executionTimeLimit":"3.00:00:00"}""";
-    private const string Options = """{"full":false,"samplePercent":1,"maximumSampleBytes":1073741824,"compareOriginals":false,"label":"Sample test restore (1%)"}""";
+    private const string Options = """{"full":false,"samplePercent":1,"maximumSampleBytes":1073741824,"compareOriginals":false,"label":"Restore check (1% of files)"}""";
 
     private static string Legacy(string name, string checkSchedule, bool readData, bool restoreFiles) =>
         $$"""{"name":"{{name}}","checkSchedule":{{checkSchedule}},"pruneSchedule":null,"checkReadDataSample":{{(readData ? "true" : "false")}},"checkRestoreFiles":{{(restoreFiles ? "true" : "false")}},"restoreCheckOptions":{{Options}}}""";
@@ -66,8 +66,8 @@ public sealed class BackupChecksTests
         Assert.Equal(new[] { CheckKind.DataSample, CheckKind.TestRestore }, backup.Checks.Select(c => c.Kind));
         Assert.Equal(BackupCheck.OneGiB, backup.Checks[0].MaximumBytes);
         Assert.All(backup.Checks, c => Assert.Equal(TimeSpan.FromHours(21), c.Schedule!.TimeOfDay));
-        Assert.Equal("Structure check + data sample (1 GiB)", backup.Checks[0].Title);
-        Assert.Equal("Sample test restore (1%, at most 1 GiB)", backup.Checks[1].Title);
+        Assert.Equal("Data check (1 GiB sample)", backup.Checks[0].Title);
+        Assert.Equal("Restore check (1% of files, at most 1 GiB)", backup.Checks[1].Title);
         // The saved backup no longer asks the engine for a data read itself.
         Assert.False(backup.CheckReadDataSample);
     }
@@ -131,7 +131,7 @@ public sealed class BackupChecksTests
         var backup = new Backup();
         BackupMaintenanceDefaults.ApplyTo(backup);
         Assert.Equal("Every week Backspace removes old copies it no longer needs to keep and checks that the backup is complete, "
-            + "reading back 1 GiB of the stored data to make sure it is undamaged; every month it restores a few files as a test "
+            + "reading back 1 GiB of the stored data to make sure it is undamaged; every month it restores some files to a temporary folder "
             + "to prove they come back.", BackupCheck.Sentence(backup));
         backup.PruneSchedule = null;
         backup.Checks = [new BackupCheck { Kind = CheckKind.Structure }];
@@ -170,12 +170,12 @@ public sealed class BackupChecksTests
         var start = new DateTime(2026, 11, 10, 3, 0, 0, DateTimeKind.Utc);
         var run = new RunRecord { StartedUtc = start, EndedUtc = start.AddMinutes(7).AddSeconds(50) };
         run.Cells.Add(new CellOutcome { DestinationName = "Google Drive", Status = BackupRunStatus.Success, Summary = "Backup check result: STATUS_SUCCESS." });
-        Assert.Equal("Structure check + data sample (1 GiB) passed in 7 min 50 s.", CheckRunWording.Summary(check, run, [], metered: false));
+        Assert.Equal("Data check (1 GiB sample) passed in 7 min 50 s.", CheckRunWording.Summary(check, run, [], metered: false));
         run.Cells[0].Status = BackupRunStatus.Failed; run.Cells[0].LastError = "pack 1a2b is damaged";
-        Assert.Equal("Structure check + data sample (1 GiB) did not pass: pack 1a2b is damaged.", CheckRunWording.Summary(check, run, [], metered: false));
+        Assert.Equal("Data check (1 GiB sample) did not pass: pack 1a2b is damaged.", CheckRunWording.Summary(check, run, [], metered: false));
         var waiting = new RunRecord { StartedUtc = start, EndedUtc = start };
         waiting.Cells.Add(new CellOutcome { DestinationName = "My Passport", Status = BackupRunStatus.Skipped, DestinationUnavailable = true });
-        Assert.Equal("Structure check + data sample (1 GiB) waits for «My Passport»: it runs by itself right after the next backup there.",
+        Assert.Equal("Data check (1 GiB sample) waits for «My Passport»: it runs by itself right after the next backup there.",
             CheckRunWording.Summary(check, waiting, ["My Passport"], metered: false));
         Assert.Equal("45 s", CheckRunWording.Duration(TimeSpan.FromSeconds(45)));
         Assert.Equal("20 min 1 s", CheckRunWording.Duration(TimeSpan.FromSeconds(1201.3)));
@@ -197,18 +197,18 @@ public sealed class BackupChecksTests
         };
         var lines = BackupCheckHistory.KindLines(backup, entries, now);
         // A data sample also checks the structure.
-        Assert.Equal(new[] { "Structure check · passed 1h ago", "Structure check + data sample · passed 1h ago", "Sample test restore · failed 3h ago" }, lines);
+        Assert.Equal(new[] { "Structure check · passed 1h ago", "Data check · passed 1h ago", "Restore check · failed 3h ago" }, lines);
         // A weekly check last run 20 days ago is due again.
         var old = new[] { new BackupCheckEntry("3", now.AddDays(-20), BackupRunStatus.Success, CheckDepth.RepositoryStructure, "") };
         Assert.Equal("Structure check · passed 20d ago · due again", BackupCheckHistory.KindLines(backup, old, now)[0]);
-        Assert.Equal("Structure check + data sample · not run yet", BackupCheckHistory.KindLines(backup, old, now)[1]);
+        Assert.Equal("Data check · not run yet", BackupCheckHistory.KindLines(backup, old, now)[1]);
         Assert.Equal(lines, BackupCheckHistory.State(backup, entries, now).Kinds);
         // One line on the card in the Checks list's names; a failure wins over a later pass; each check in the hover.
         var state = BackupCheckHistory.State(backup, entries, now);
-        Assert.Equal("Sample test restore failed · 3h ago", state.Label);
+        Assert.Equal("Restore check failed · 3h ago", state.Label);
         Assert.EndsWith("Each check:\n" + string.Join("\n", lines), state.Details);
         backup.Checks.RemoveAll(c => c.Kind == CheckKind.TestRestore);
         var ok = BackupCheckHistory.State(backup, new[] { entries[0] }, now);
-        Assert.Equal(("Structure check + data sample passed · 1h ago", "ok"), (ok.Label, ok.Tone));
+        Assert.Equal(("Data check passed · 1h ago", "ok"), (ok.Label, ok.Tone));
     }
 }

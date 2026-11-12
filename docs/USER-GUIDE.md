@@ -12,8 +12,7 @@ of Backspace behaves, including its limits.
 - [Sizes and logs](#sizes-and-logs)
 - [Restoring files](#restoring-files)
 - [Browsing and mounting snapshots](#browsing-and-mounting-snapshots)
-- [The test-restore drill](#the-test-restore-drill)
-- [Checks](#checks)
+- [Checks and Verify](#checks-and-verify)
 - [Alerts, email and Healthchecks.io](#alerts-email-and-healthchecksio)
 - [Removing a backup](#removing-a-backup)
 - [Metered networks](#metered-networks)
@@ -112,7 +111,7 @@ off in **Settings → Startup and tray**.
 The tray icon's check mark means the backups ran successfully; a backup that
 failed shows an exclamation mark, and one that hasn't completed a run yet a
 grey dash. A backup that has never run has nothing to restore yet, so its
-Mount, Restore files and Test restore are greyed out.
+Mount, Restore files and Verify are greyed out.
 
 Closing the window keeps Backspace in the tray, so schedules keep running.
 **Quit** from the tray menu stops Backspace completely, including the
@@ -169,7 +168,7 @@ freed" to its run when something was freed. With what each backup added, it
 shows why the storage doesn’t only grow.
 
 Each schedule has conditions. New cleanup and checks take the backup's; each
-check can then change its own ([Checks](#checks)):
+check can then change its own ([Checks and Verify](#checks-and-verify)):
 
 - **Wait for AC power**: a run due on battery waits until the computer is
   plugged in. **Stop mid-run if the computer switches to battery** is the
@@ -226,8 +225,8 @@ backup reaching its cleanup waits for the other backups on that destination
 to finish ("Queued: waiting for local_d (same destination) before cleanup and
 checks"), and no new backup starts there meanwhile. Two checks of one
 destination never run at the same time either: each waits for the other.
-Test restores are checks too, scheduled or started with **Verify**: they also
-run alone on their destination, so two test restores of one destination take
+Restore checks are checks too, scheduled or started with **Verify**: they also
+run alone on their destination, so two restore checks of one destination take
 turns. Only restoring your files is never held back: it only reads, so it can
 run while a backup does. A check or a scheduled cleanup that finds the
 repository in use by such a restore (or by another computer) waits for it, trying again each minute for up to three
@@ -652,7 +651,7 @@ into place only when the restore finishes. The restore's progress, both in the
 wizard and on its **Restores** card, names that folder and offers **Open
 folder** so you can watch files arrive. Those files aren't final yet: if you
 cancel, the folder is deleted. The line disappears once the restore finishes.
-Test restores don't show it; they check copies in Backspace's own folder.
+Restore checks don't show it; they check copies in Backspace's own folder.
 
 ## Browsing and mounting snapshots
 
@@ -698,7 +697,7 @@ download, while the rest of the drive stays responsive. Copying a large folder o
 one by one: **Restore files** is faster for that. To see another revision,
 **Unmount** and mount again.
 
-While a snapshot is mounted, and while a restore or test restore runs,
+While a snapshot is mounted, and while a restore or a restore check runs,
 Backspace changes nothing in that backup's storage: cleanup after a backup
 waits ("Cleanup waits: a snapshot of this backup is mounted as a drive") and
 runs after a later backup, and removing snapshots, erasing the storage or
@@ -709,132 +708,115 @@ Backspace removes the drive when you unmount or quit; if Backspace stops any
 other way, Windows removes it with it. Closing the window to the tray keeps
 the drive, like backups keep running.
 
-## The test-restore drill
+## Checks and Verify
 
 A successful backup run is a claim: bytes were uploaded and the engine
-reported success. The test-restore drill turns that claim into a check that
-you can get your files back.
+reported success. Checks turn that claim into proof. There are three kinds,
+each answering one question:
+
+- **Structure check** — *is the backup complete?* It reads the backup's
+  records and confirms that every piece of data they point to is still
+  there (`restic check`). It reads no file contents, so it is quick.
+- **Data check** — *is the stored data intact?* It checks the structure
+  first, then downloads stored data, from any backup old or new, and checks
+  each piece against its fingerprint. It reads a **sample** (1% of the stored
+  data, up to its limit: 1 GiB by default) or, with **All data** ticked, all
+  of it: the most thorough check of the storage, and the slowest. It doesn't
+  rebuild any file.
+- **Restore check** — *can your files come back?* It rebuilds real files
+  from the latest backup into a temporary folder, the way a restore does:
+  following the folder list, unlocking them with your password and writing
+  them to disk. Each time it takes files never tested first, then those
+  tested longest ago, so over time it goes through the whole backup.
+
+A backup's checks are a list in **Edit → Schedule → Checks**: one entry per
+check, each with its own frequency (after each backup, daily, weekly, monthly
+or yearly), time of day and conditions (**Wait for AC power**, **Wait for an
+internet connection**, **Run missed checks as soon as possible**). **+
+Structure check**, **+ Data check** and **+ Restore check** add one;
+**Remove** removes it. Cleanup (removing old copies and freeing their space)
+stays its own setting above, under **Cleanup**.
+
+New backups get a weekly cleanup, a weekly data check of a 1 GiB sample
+(which checks the structure too, so no separate structure check) and a
+monthly restore check (1% of files, at most 1 GiB), at 3 AM (Sunday for the
+weekly ones, the 1st for the monthly one). Easy mode shows this as one
+sentence and no settings.
+
+### Verify
 
 Choose **Verify** on a backup card. Its window lists the backup's own checks,
-ticked, each with its latest result ("Passed 2d ago"), then other checks to
-run once without adding them to the backup: a structure check, a data sample,
-a test restore and a full data read. **Run** runs the ticked ones one after
-another; they show under Backup health like scheduled checks, and **Stop**
-ends them. A test restore run once comes last, after the other ticked checks,
-and runs like them: it waits its turn on the destination, shows on the card
-with **Stop**, and its result goes to the backup's Activity. Choose its scope:
+ticked, each with its latest result ("Passed 2d ago"), then the other kinds
+to run once without adding them to the backup. **Run** runs the ticked ones
+one after another; they show under Backup health like scheduled checks, and
+**Stop** ends them. A restore check run once comes last and runs like the
+others: it waits its turn on the destination, shows on the card with
+**Stop**, and its result goes to the backup's Activity. Choose its scope:
 
 - **Check a sample** defaults to 1% of the stored file sizes and a 1 GiB
   download budget. It uses the smaller limit, shared across source and
-  destination pairs. Files never checked, or checked longest ago, come first;
-  ties are random. Whole files are selected, and the budget is never
+  destination pairs. Whole files are selected, and the budget is never
   exceeded: a file larger than what is left of it is passed over for a
   smaller one. When every file is larger than the budget, nothing is restored
   and the result says so: raise the budget to test that backup. These sizes
-  describe recovered files, not exact network traffic:
-  compression, caching and repeated destinations affect transfers.
+  describe recovered files, not exact network traffic: compression, caching
+  and repeated destinations affect transfers.
 - **Check every file** recovers the latest snapshot of every source at every
   destination, including empty files. Large cloud backups can take hours or
   days. A successful sample never claims this full coverage.
 
-Each check uses the normal restore process. restic validates the data it
-reads, and Backspace checks the recovered files and their sizes. Your current
-originals aren't needed for those checks.
-
-**Also compare with today's originals** is optional and off by default.
-Matching size and modification date make an original eligible for this
-byte-for-byte comparison; they don't prove it never changed. A difference
-fails the comparison but doesn't establish which copy changed. With every file
-selected, this diagnostic also looks for unchanged, included local files that
-are missing from the snapshot.
-
-The same check can run by itself as a **Sample test restore** entry in the
-backup's checks (see [Checks](#checks)). This can use substantial bandwidth and
+restic validates the data a restore check reads, and Backspace checks the
+recovered files and their sizes; your current originals aren't needed.
+**Also compare with today's originals** is optional. Matching size and
+modification date make an original eligible for this byte-for-byte
+comparison; they don't prove it never changed. A difference fails the
+comparison but doesn't establish which copy changed. With every file
+selected, it also looks for unchanged, included local files that are missing
+from the snapshot. A restore check can use substantial bandwidth and
 temporary disk space.
 
-A test restore shows on its backup's card, not in **Restores**, which lists
-only the restores of your files. The card shows its progress and **Stop**;
-the backup's **Activity** keeps each result. The card shows the latest
-check's age and scope and flags a missed check or an unresolved failure.
-
-Stop removes the test's temporary copies. If the app closes unexpectedly,
-reopening it resumes the saved snapshots and sample; completed batches are kept, and an unfinished
-batch may be downloaded again. Changed source or destination settings prevent
-resuming and show an explanation instead.
-
-A test restore's temporary copies are made in Backspace's own working folder
-(under LocalAppData, never in Backspace.config or a synced folder) and take
-that folder's permissions, not the ones saved with each file: a copy of a
-system folder that only Windows may open would otherwise be unreadable to
-you, and impossible for Backspace to delete. Restoring your files keeps
-their saved permissions. If Windows still refuses to delete a temporary copy
-for two minutes, Backspace stops waiting and says where it was left; a file
-another program has open is waited for as long as it takes.
-
-Temporary copies are removed after each batch of up to 128 files or 256 MiB;
-a larger file is handled alone. Before each batch, Backspace checks for space
-for two copies plus 64 MiB of reserve. Original files are never replaced.
-
-## Checks
-
-A backup's checks are a list in **Edit → Schedule → Checks**: one entry per
-check, each with its own frequency (after each backup, daily, weekly, monthly
-or yearly), time of day and conditions (skip on battery, wait for a network
-connection, run a missed check later). **Add a check** adds one; **Remove**
-removes it. Cleanup (removing old copies and freeing their space) stays its
-own setting above, under **Cleanup**. There are four kinds:
-
-- **Structure check** (`restic check`): the backup's records are readable
-  and complete, and every piece of data they point to is still there. It
-  reads no file contents, so it is quick.
-- **Data sample**: downloads a random part of the stored data, from any
-  backup old or new, and checks each piece against its fingerprint. It
-  proves the storage hasn't lost or damaged your data, and includes the
-  structure check. It does not rebuild any file. It reads 1% of the stored
-  data, up to its limit (1 GiB by default).
-- **Sample test restore**: rebuilds real files from the latest backup, the
-  way a restore does: following the folder list, unlocking them with your
-  password and writing them to disk. It proves the whole way back to usable
-  files works. Each time it takes files never tested first, then those
-  tested longest ago, so over time it goes through the whole backup. With
-  **compare with today's originals** it also catches files that were read
-  wrongly when they were backed up. Its share and limit work as in
-  [the test-restore drill](#the-test-restore-drill).
-- **Full data read**: downloads all the stored data and checks every piece.
-  The most thorough check of the storage, and the slowest.
-
-New backups get a weekly cleanup, a weekly 1 GiB data sample (which checks
-the structure too, so no separate structure check) and a monthly sample test restore (1%, at most 1 GiB), at 3 AM
-(Sunday for the weekly ones, the 1st for the monthly one). Easy mode shows
-this as one sentence and no settings. Backups set up before checks were a
-list keep what they had: a monthly check with a data sample and a test
-restore becomes a monthly data sample and a monthly sample test restore at
-the same time.
+### While checks run, and their results
 
 Checks due at the same time run one after another, never together, cheapest
 first, and backups wait for them on that destination. Each check's run in
-**Activity** says what happened in plain words, such as "Data sample (1 GiB)
-passed in 7 min 50 s". The backup card's **Backup health** line names the
-latest result by the same names ("Data sample passed · 4m ago"; a failure
-stays shown until that check passes again), and its hover lists each
-check's latest result. While a check runs, **Backup health** says so with a
-turning icon, such as "Checking · Structure + data sample (1 of 2) · 7 min".
-Its bar and current step ("Reading the data sample · 20 of 64 packs") show
-below the sources and destinations, where a backup's progress shows. The bar follows restic's own counts (snapshots,
-then packs read), so it is approximate in time. Its hover has the check's
-full name and size, the destination, the time running, what the check does
-and the latest result. **Last backup** keeps showing the last backup's
-result meanwhile. A test restore you start with **Verify** shows the
-same way ("Test restore · 2 min", then "Restoring and comparing files · 120
-of 400 files" under its bar). A backup that has not stored anything yet says "No checks
-yet: nothing backed up so far": there is nothing to check until its first
-backup succeeds, and Last backup already says what needs attention.
+**Activity** says what happened in plain words, such as "Data check (1 GiB
+sample) passed in 7 min 50 s". The card's **Backup health** line names the
+latest result by the same names ("Data check passed · 4m ago"; a failure
+stays shown until that check passes again), and its hover lists each check's
+latest result. While a check runs, **Backup health** says so with a turning
+icon, such as "Checking · Data check (1 of 2) · 7 min". Its bar and current
+step ("Reading the data sample · 20 of 64 packs", or "Restoring and comparing
+files · 120 of 400 files") show below the sources and destinations, where a
+backup's progress shows. The bar follows restic's own counts, so it is
+approximate in time. Its hover has the check's full name and size, the
+destination, the time running, what the check does and the latest result.
+**Last backup** keeps showing the last backup's result meanwhile. A backup
+that has not stored anything yet says "No checks yet: nothing backed up so
+far".
 
-The data sample is an approximate budget: restic selects whole packs, at least one
-when data exists. Metadata and retries add traffic, and cloud providers may
-charge for these reads. A random sample can miss damaged data and doesn't
-guarantee that every pack is eventually covered. Download speed follows the
-backup's limit.
+A restore check shows on its backup's card, not in **Restores**, which lists
+only the restores of your files. **Stop** removes its temporary copies. If
+the app closes unexpectedly, reopening it resumes it; completed batches are
+kept, and an unfinished batch may be downloaded again. Changed source or
+destination settings prevent resuming, and the backup's Activity says why.
+
+A restore check's temporary copies are made in Backspace's own working
+folder (under LocalAppData, never in Backspace.config or a synced folder) and
+take that folder's permissions, not the ones saved with each file: a copy of
+a system folder that only Windows may open would otherwise be unreadable to
+you, and impossible for Backspace to delete. Restoring your files keeps their
+saved permissions. If Windows still refuses to delete a temporary copy for
+two minutes, Backspace stops waiting and says where it was left; a file
+another program has open is waited for as long as it takes. Copies are
+removed after each batch of up to 128 files or 256 MiB; a larger file is
+handled alone. Before each batch, Backspace checks for space for two copies
+plus 64 MiB of reserve. Original files are never replaced.
+
+A data check's sample is an approximate budget: restic selects whole packs,
+at least one when data exists. Metadata and retries add traffic, and cloud
+providers may charge for these reads. A random sample can miss damaged data
+and doesn't guarantee that every pack is eventually covered. Download speed
+follows the backup's limit.
 
 None of the checks proves that every file you meant to protect was selected
 for backup.
@@ -847,7 +829,7 @@ offline), it isn't a failure: that destination's part is skipped and stays
 overdue. It runs by itself right after the next backup that reaches the
 destination, once, whether the tray app or the background service runs the
 backup. Each check waits on its own. Meanwhile the card's check line reads
-"Sample test restore overdue: waits for the drive" (or "Checks overdue: …"
+"Restore check overdue: waits for the drive" (or "Checks overdue: …"
 when several wait), and its hover says when the check was missed and that
 nothing else is needed. A backup that doesn't reach the drive (still
 unplugged, or failed) leaves the check waiting. A check that fails for any

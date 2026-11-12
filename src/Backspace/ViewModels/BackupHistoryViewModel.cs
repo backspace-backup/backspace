@@ -50,7 +50,7 @@ public sealed partial class BackupHistoryViewModel : ObservableObject
         else
             foreach (var run in _runs.Where(r => r.BackupId == _backup.Id && (SelectedFilter == "All activity" || r.Kind == RunKind.Backup)).OrderByDescending(r => r.StartedUtc))
                 Rows.Add(new(run.Id, _backup.Id, run.StartedUtc, run.Status,
-                    run.Kind switch { RunKind.TestRestore => run.TriggeredAutomatically ? "Automatic test restore" : "Test restore", RunKind.Check => run.CheckKind is { } check ? BackupCheck.Name(check) : "Repository check", RunKind.Prune => "Cleanup", _ => run.Kind.ToString() }, run.Summary,
+                    run.Kind switch { RunKind.TestRestore => run.TriggeredAutomatically ? "Automatic restore check" : "Restore check", RunKind.Check => run.CheckKind is { } check ? BackupCheck.Name(check) : "Repository check", RunKind.Prune => "Cleanup", _ => run.Kind.ToString() }, run.Summary,
                     HasLog(run)) { Added = Added(run), CanShowChanges = run.Kind == RunKind.Backup && run.Status is BackupRunStatus.Success or BackupRunStatus.Warning });
         OnPropertyChanged(nameof(IsEmpty));
     }

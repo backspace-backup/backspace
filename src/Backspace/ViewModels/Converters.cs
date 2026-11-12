@@ -56,7 +56,7 @@ public static class VerifyButtonLabel
     private sealed class Conv : IValueConverter
     {
         public object? Convert(object? v, Type t, object? p, CultureInfo c) =>
-            v is bool b && b ? "Verifying…" : "Test restore";
+            v is bool b && b ? "Verifying…" : "Verify";
         public object? ConvertBack(object? v, Type t, object? p, CultureInfo c) =>
             Avalonia.Data.BindingOperations.DoNothing;
     }
@@ -460,7 +460,7 @@ public static class RunRecordRowText
             var kindPrefix = r.Kind switch
             {
                 RunKind.Restore     => "↺ Restore  ·  ",
-                RunKind.TestRestore => "✓ Test restore  ·  ",
+                RunKind.TestRestore => "✓ Restore check  ·  ",
                 _                   => "",
             };
             // De-dupe: if the summary is empty, OR is just the status

@@ -684,7 +684,7 @@ public sealed class BackupVerifier
             catch (Exception ex)
             {
                 _log.Warning(ex, "Cleanup of verify temp dir failed");
-                throw new IOException($"The test restore stopped, but temporary copies could not be removed at {verifyRoot}. {ex.Message}", ex);
+                throw new IOException($"The restore check stopped, but temporary copies could not be removed at {verifyRoot}. {ex.Message}", ex);
             }
         }
     }
@@ -764,7 +764,7 @@ public sealed class BackupVerifier
                 var required = checked(batch.Sum(f => Math.Max(0, f.SizeBytes)) * 2 + 64L * 1024 * 1024);
                 var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(verifyRoot))!);
                 if (drive.AvailableFreeSpace < required)
-                    throw new IOException($"Not enough temporary space to test this batch. It needs about {required / 1048576d:N0} MiB free. Free some space, then start another test restore.");
+                    throw new IOException($"Not enough temporary space to test this batch. It needs about {required / 1048576d:N0} MiB free. Free some space, then run the restore check again.");
             }
             var request = new RestoreRequest
             {
@@ -797,7 +797,7 @@ public sealed class BackupVerifier
                 catch (Exception ex) { _log.Debug(ex, "Could not remove verified scratch file"); }
             }
             if (outcome.TerminalStatus == RestoreTerminalStatus.Cancelled)
-                throw new OperationCanceledException("Test restore cancelled.", ct);
+                throw new OperationCanceledException("Restore check stopped.", ct);
             if (outcome.TerminalStatus is RestoreTerminalStatus.Error or RestoreTerminalStatus.Warning)
                 results.Add(new FileVerifyResult("(restore operation)", 0, 0, FileVerifyStatus.RestoreFailed,
                     outcome.ErrorMessage ?? $"The restore engine returned {outcome.TerminalStatus}."));

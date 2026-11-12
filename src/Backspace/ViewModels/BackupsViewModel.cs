@@ -511,7 +511,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 // preserves the previous completed verification result.
                 failed.Add(b);
                 failedTestRestores++;
-                reasons[b.Id] = "Its test restore failed";
+                reasons[b.Id] = "Its restore check failed";
                 if (mostRecent is null || verifiedAt > mostRecent) mostRecent = verifiedAt;
             }
             else if (checkTone == "stale" && runStatus != BackupRunStatus.Failed)
@@ -572,7 +572,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             }
             else if (failedTestRestores > 0)
             {
-                HealthHeadline = failed.Count == 1 ? "Test restore failed for 1 backup" : $"Test restore failed for {failed.Count} backups";
+                HealthHeadline = failed.Count == 1 ? "Restore check failed for 1 backup" : $"Restore check failed for {failed.Count} backups";
                 HealthDetail = $"Last activity: {ago}";
             }
             else
@@ -875,7 +875,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         {
             try
             {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 await activity.CancelAsync(backgroundRun, timeout.Token);
                 card.LastRunLabel = "Stopping background backup…";
             }
@@ -961,7 +961,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             {
                 var started = card.RunStartedUtc is { } at ? "Started at " + at.ToLocalTime().ToString("HH:mm") + " · " : "";
                 if (card.ShowsHealthActivity)
-                    history.SetLive(card.RunningActivity.Length > 0 ? "Check · " + BackupCardViewModel.ShortCheckName(card.RunningActivity) : card.ShowsTestRestore ? "Test restore" : "Check",
+                    history.SetLive(card.RunningActivity.Length > 0 ? "Check · " + BackupCardViewModel.ShortCheckName(card.RunningActivity) : card.ShowsTestRestore ? "Restore check" : "Check",
                         started + "follow it as it happens in its live log.");
                 else if (card.IsRunning)
                     history.SetLive(card.IsQueued ? "Backup · queued" : "Backup", started + "follow it as it happens in its live log.");
@@ -994,7 +994,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         if (owner is null) return;
         if (ServiceLocator.TestRestores.FindRunning(card.Id) is not null)
         {
-            await DestructiveConfirmWindow.ShowInfoAsync(owner, "A test restore is running", "This backup's test restore is running: follow it on the card, or stop it there.");
+            await DestructiveConfirmWindow.ShowInfoAsync(owner, "A restore check is running", "This backup's restore check is running: follow it on the card, or stop it there.");
             return;
         }
         if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to read this backup.")) return;

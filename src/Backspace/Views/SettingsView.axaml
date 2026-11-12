@@ -176,7 +176,7 @@
                      Text="These limits are for backups, run from this window or by the background service. A backup that has to wait its turn says “Queued” and why, then starts by itself."/>
           <!-- U203 (owner, 12 November 2026): what else waits, said up front. -->
           <TextBlock x:Name="SimultaneousOthers" Classes="body" Foreground="{DynamicResource BS.Brush.FgSecondary}" TextWrapping="Wrap"
-                     Text="Checks, test restores and cleanup are not counted here: each takes its destination alone, so it waits for the backups and checks using it, and a backup to it waits until it ends. Restoring your files never waits."/>
+                     Text="Checks (restore checks included) and cleanup are not counted here: each takes its destination alone, so it waits for the backups and checks using it, and a backup to it waits until it ends. Restoring your files never waits."/>
           <Grid ColumnDefinitions="*,22,*">
             <StackPanel Grid.Column="0" Spacing="6">
               <TextBlock Classes="label-caps" Text="PER DESTINATION"/>

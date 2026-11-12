@@ -61,24 +61,28 @@ public sealed class BackupCheck
     /// <summary>The test restore this entry asks for.</summary>
     public Services.TestRestoreOptions RestoreOptions() => OnceOptions ?? new(Full: false, SamplePercent, MaximumBytes, CompareOriginals);
 
-    /// <summary>"Structure check", "Structure check + data sample (1 GiB)", "Test restore (1%, at most 1 GiB)".</summary>
+    /// <summary>Three families, one question each (U221, owner, 12 November
+    /// 2026): is the backup complete (Structure check), is the stored data
+    /// intact (Data check, a sample or all data), can the files come back
+    /// (Restore check). "Structure check", "Data check (1 GiB sample)",
+    /// "Data check (all data)", "Restore check (1% of files, at most 1 GiB)".</summary>
     public string Title => Kind switch
     {
         CheckKind.Structure => "Structure check",
-        CheckKind.DataSample => $"Structure check + data sample ({Size(MaximumBytes)})",
+        CheckKind.DataSample => $"Data check ({Size(MaximumBytes)} sample)",
         CheckKind.TestRestore => MaximumBytes > 0
-            ? $"Sample test restore ({SamplePercent:0.##}%, at most {Size(MaximumBytes)})"
-            : $"Sample test restore ({SamplePercent:0.##}%)",
-        _ => "Full data read",
+            ? $"Restore check ({SamplePercent:0.##}% of files, at most {Size(MaximumBytes)})"
+            : $"Restore check ({SamplePercent:0.##}% of files)",
+        _ => "Data check (all data)",
     };
 
     /// <summary>The kind's name alone, for the card and run summaries.</summary>
     public static string Name(CheckKind kind) => kind switch
     {
         CheckKind.Structure => "Structure check",
-        CheckKind.DataSample => "Structure check + data sample",
-        CheckKind.TestRestore => "Sample test restore",
-        _ => "Full data read",
+        CheckKind.DataSample => "Data check",
+        CheckKind.TestRestore => "Restore check",
+        _ => "Data check (all data)",
     };
 
     /// <summary>Plain words for a size: "1 GiB", "500 MiB".</summary>
@@ -149,7 +153,7 @@ public sealed class BackupCheck
             {
                 CheckKind.Structure => "checks that the backup is complete",
                 CheckKind.DataSample => $"checks that the backup is complete, reading back {Size(check.MaximumBytes)} of the stored data to make sure it is undamaged",
-                CheckKind.TestRestore => "restores a few files as a test to prove they come back",
+                CheckKind.TestRestore => "restores some files to a temporary folder to prove they come back",
                 _ => "reads back all the stored data to make sure it is undamaged",
             });
         var order = new[] { "after each backup", "every day", "every week", "every month", "every year" };

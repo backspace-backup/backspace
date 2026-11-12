@@ -151,7 +151,7 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
             // checking (U197), and Last backup keeps the backup's result.
             Assert.DoesNotContain(main.GetVisualDescendants().OfType<TextBlock>(), t => t.Name == "RunningText" && t.IsEffectivelyVisible);
             var running = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "CheckRunText" && t.IsEffectivelyVisible);
-            Assert.StartsWith("Checking · Sample test restore", running.Text);
+            Assert.StartsWith("Checking · Restore check", running.Text);
             ctx.Snapshot(main, "automatic-comparison-phase", "After the backup ends, its test restore runs as a check: Backup health says Checking, Stop is shown, and Verify waits for it (its hover says a test restore is running).");
             await ctx.Driver.PumpAsync(1200); // Make omitted comparison time detectable in the whole-second headline.
             await inlineSession.TogglePauseAsync();
