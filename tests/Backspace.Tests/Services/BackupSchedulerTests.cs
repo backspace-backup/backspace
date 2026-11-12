@@ -443,6 +443,36 @@ public sealed class BackupSchedulerTests : IDisposable
         Assert.False(stopped);
     }
 
+    /// <summary>U185 (owner, 12 November 2026): "Windows does expose power
+    /// switch events". A run is stopped by the power notification, not by
+    /// looking every 30 seconds: with a day between looks, the switch to
+    /// battery and the wake-up it raises stop the run at once.</summary>
+    [Fact]
+    public async Task Going_on_battery_stops_a_run_through_the_power_notification()
+    {
+        var backup = Daily();
+        var loop = new ScheduleLoop(new(_state,
+            () => SchedulePlan.From(new AppConfig { Backups = [backup] }),
+            async (plan, ct) => { _runs.Add((plan.Backup.Name, plan.Kind, _now)); await _work(ct); return true; },
+            plan => ScheduleConditions.Blocked(plan, [], () => _battery, () => true),
+            () => _battery, () => _now, TimeSpan.FromMinutes(1), PowerCheck: TimeSpan.FromDays(1)));
+        await loop.TickAsync(default);
+        _now = Local(4, 20);
+        var started = new TaskCompletionSource();
+        var stopped = new TaskCompletionSource();
+        _work = async ct => { started.SetResult(); try { await Task.Delay(TimeSpan.FromSeconds(30), ct); } catch (OperationCanceledException) { stopped.SetResult(); } };
+        var run = loop.TickAsync(default);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // Without a notification nothing looks: the run goes on.
+        _battery = true;
+        await Task.Delay(300);
+        Assert.False(stopped.Task.IsCompleted);
+        // The notification arrives: stopped at once.
+        loop.Wake();
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     [Fact]
     public async Task An_unreadable_state_file_starts_from_the_next_times_without_running()
     {

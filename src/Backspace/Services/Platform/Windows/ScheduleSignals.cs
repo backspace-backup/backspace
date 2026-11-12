@@ -67,6 +67,7 @@ internal static class ScheduleSignals
             var registered = PowerSettingRegisterNotification(ref acDc, DeviceNotifyCallback, _recipient, out _acDcHandle);
             var resume = PowerRegisterSuspendResumeNotification(DeviceNotifyCallback, _recipient, out _suspendHandle);
             PowerRegistration = (registered, resume);
+            ScheduleConditions.PowerEventsArrive = registered == 0;
             if (registered != 0 || resume != 0) log.Warning("Power notifications could not all be registered ({AcDc}, {Resume}); the daily look covers them", registered, resume);
         }
         catch (Exception ex) { log.Warning(ex, "Power notifications are unavailable; the daily look covers them"); }

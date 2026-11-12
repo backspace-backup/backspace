@@ -183,6 +183,8 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         Func<bool>? Metered = null);
 
     private readonly SemaphoreSlim _wake = new(0, 1);
+    private TaskCompletionSource _signal = NewSignal();
+    private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>The run in progress on this flow says it completed (U185).</summary>
     private static readonly AsyncLocal<StrongBox> Outcome = new();
@@ -209,6 +211,8 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     /// <summary>Re-read schedules now, after a settings change.</summary>
     internal void Wake()
     {
+        // A running backup's power watch looks again too (U185).
+        Interlocked.Exchange(ref _signal, NewSignal()).TrySetResult();
         try { if (_wake.CurrentCount == 0) _wake.Release(); }
         catch (SemaphoreFullException) { }
     }
@@ -439,9 +443,16 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     {
         try
         {
+            // Event-based (U185, owner, 12 November 2026: "Windows does expose
+            // power switch events"): Windows' power notification wakes the
+            // loop, which wakes this watch. Without notifications (another
+            // system, or Windows refused them) it looks every 30 seconds.
+            var fallback = options.PowerCheck ?? (ScheduleConditions.PowerEventsArrive ? ScheduleConditions.LongestSleep : TimeSpan.FromSeconds(30));
             while (true)
             {
-                await Task.Delay(options.PowerCheck ?? TimeSpan.FromSeconds(30), finished).ConfigureAwait(false);
+                var signal = Volatile.Read(ref _signal).Task;
+                await Task.WhenAny(signal, Task.Delay(fallback, finished)).ConfigureAwait(false);
+                finished.ThrowIfCancellationRequested();
                 if (!options.OnBattery()) continue;
                 Log.Information("Stopping the scheduled {Kind} for {Name}: the computer is on battery", plan.Kind, plan.Backup.Name);
                 run.Cancel();
@@ -487,6 +498,10 @@ internal static class ScheduleConditions
     /// settings changes (ScheduleSignals), so a look a day only catches a
     /// missed notification. Elsewhere it still looks every minute (planned:
     /// event-based on macOS and Linux too).</summary>
+    /// <summary>True once Windows has accepted the power-source notification:
+    /// a switch to battery then wakes the schedule and its running backups.</summary>
+    internal static volatile bool PowerEventsArrive;
+
     internal static TimeSpan LongestSleep => OperatingSystem.IsWindows() ? TimeSpan.FromDays(1) : TimeSpan.FromMinutes(1);
 
     internal static bool OnBattery()
