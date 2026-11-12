@@ -24,7 +24,19 @@ internal static class WindowsUpdateRuntime
     internal static IDisposable? AcquireShared(string root, TimeSpan timeout) => RuntimeGate.Shared(root, timeout);
 
     /// <summary>The gate alone, or null while another process of this copy runs.</summary>
-    internal static IDisposable? TryExclusive(string root) => RuntimeGate.Exclusive(root);
+    /// <summary>A process that has just ended (the background service an update
+    /// stops, or one that crashed) can hold it for a moment more, so it is
+    /// asked again for up to <paramref name="wait"/> (5 seconds by default).</summary>
+    internal static IDisposable? TryExclusive(string root, TimeSpan? wait = null)
+    {
+        var deadline = DateTime.UtcNow + (wait ?? TimeSpan.FromSeconds(5));
+        while (true)
+        {
+            if (RuntimeGate.Exclusive(root) is { } gate) return gate;
+            if (DateTime.UtcNow >= deadline) return null;
+            Thread.Sleep(100);
+        }
+    }
 
     internal static bool CanInstall(out string reason)
     {

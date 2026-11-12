@@ -59,6 +59,9 @@ public sealed class WindowsMeteredNetworkProbeTests
     {
         if (!OperatingSystem.IsWindows()) return;
         // The suite disables the platform probe globally; this test runs the real one.
+        // The schedule's own listener (ScheduleSignals, U185) keeps one for the
+        // whole process once a test starts it: count this watchdog's only.
+        var before = NetworkCostInterop.StatusChangedHandler.Live;
         var watchdog = new MeteredNetworkWatchdog(WindowsMeteredNetworkProbe.RunAsync) { PollWhenUnmeteredSeconds = 1, PollWhenMeteredSeconds = 1 };
         var lines = new List<string>();
         watchdog.Status += line => { lock (lines) lines.Add(line); };
@@ -70,7 +73,7 @@ public sealed class WindowsMeteredNetworkProbeTests
             lock (lines) if (lines.Exists(l => l.StartsWith("[Poll]"))) break;
             await Task.Delay(100, TestContext.Current.CancellationToken);
         }
-        Assert.True(NetworkCostInterop.StatusChangedHandler.Live >= 1, "The watchdog must listen for network changes while it runs.");
+        Assert.True(NetworkCostInterop.StatusChangedHandler.Live >= before + 1, "The watchdog must listen for network changes while it runs.");
         stop.Cancel();
         await run.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         lock (lines)
@@ -80,6 +83,6 @@ public sealed class WindowsMeteredNetworkProbeTests
             Assert.DoesNotContain(lines, l => l.Contains("probe failed"));
         }
         // Windows released the handler once the subscription ended.
-        Assert.Equal(0, NetworkCostInterop.StatusChangedHandler.Live);
+        Assert.Equal(before, NetworkCostInterop.StatusChangedHandler.Live);
     }
 }

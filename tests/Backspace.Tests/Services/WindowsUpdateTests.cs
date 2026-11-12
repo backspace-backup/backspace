@@ -287,8 +287,8 @@ public sealed class WindowsUpdateTests
         using var ws = new TempWorkspace(); var root = ws.Sub("app");
         var first = WindowsUpdateRuntime.AcquireShared(root, TimeSpan.Zero);
         var second = WindowsUpdateRuntime.AcquireShared(root, TimeSpan.Zero);
-        Assert.NotNull(first); Assert.NotNull(second); Assert.Null(WindowsUpdateRuntime.TryExclusive(root));
-        first!.Dispose(); Assert.Null(WindowsUpdateRuntime.TryExclusive(root)); second!.Dispose();
+        Assert.NotNull(first); Assert.NotNull(second); Assert.Null(WindowsUpdateRuntime.TryExclusive(root, TimeSpan.Zero));
+        first!.Dispose(); Assert.Null(WindowsUpdateRuntime.TryExclusive(root, TimeSpan.Zero)); second!.Dispose();
         using var writer = WindowsUpdateRuntime.TryExclusive(root); Assert.NotNull(writer);
         Assert.Throws<IOException>(() => WindowsUpdateRuntime.AcquireShared(root, TimeSpan.Zero));
     }
@@ -317,7 +317,7 @@ public sealed class WindowsUpdateTests
         using var child = Process.Start(start)!;
         for (var i = 0; i < 200 && !File.Exists(ready) && !child.HasExited; i++) await Task.Delay(50);
         Assert.True(File.Exists(ready), "The child did not take the gate.");
-        Assert.Null(WindowsUpdateRuntime.TryExclusive(root));
+        Assert.Null(WindowsUpdateRuntime.TryExclusive(root, TimeSpan.Zero));
         child.Kill(); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20));
         using (var writer = WindowsUpdateRuntime.TryExclusive(root)) Assert.NotNull(writer);
         // And nothing was written for it: the folder holds only the test's marker.
@@ -343,7 +343,7 @@ public sealed class WindowsUpdateTests
         {
             for (var i = 0; i < 100 && !File.Exists(ready) && !child.HasExited; i++) await Task.Delay(50);
             Assert.True(File.Exists(ready), "Owned child did not acquire the shared runtime lease.");
-            Assert.Null(WindowsUpdateRuntime.TryExclusive(root));
+            Assert.Null(WindowsUpdateRuntime.TryExclusive(root, TimeSpan.Zero));
             Assert.False(child.HasExited);
         }
         finally { File.WriteAllText(done, "finish"); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(25)); }
