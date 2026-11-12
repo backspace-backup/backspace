@@ -19,7 +19,9 @@ public sealed class OrchestratorUnexpectedFailureTests
         var config = new ConfigStore(); config.Load();
         var secrets = new SecretsStore();
         var logs = new LogStore();
-        var destination = new Destination { Name = "Isolated destination", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("repository") };
+        // A UNC path: only backups that use the network watch for a
+        // metered connection (U226), and the watchdog is the failure injected here.
+        var destination = new Destination { Name = "Isolated destination", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"\\?\" + workspace.Sub("repository") };
         var backup = new Backup
         {
             Name = "Unexpected failure review", AbortOnMeteredNetwork = true, UseVss = false, VssDisabledAcknowledged = true,
@@ -40,6 +42,8 @@ public sealed class OrchestratorUnexpectedFailureTests
                 ? throw new IOException("The network monitor could not start.")
                 : new MeteredNetworkWatchdog((_, token) => Task.Delay(Timeout.Infinite, token)),
         };
+        orchestrator.MeteredOverride = () => false;
+        orchestrator.NetworkAvailableOverride = () => true;
         RunRecord? finished = null;
         orchestrator.RunEnded += (_, run) => finished = run;
 

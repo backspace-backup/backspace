@@ -167,7 +167,7 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
 
     private BackupSchedule CurrentScheduleConditions() => new()
     {
-        SkipOnBattery = SkipOnBattery, StopOnBattery = StopOnBattery, RequireNetwork = RequireNetwork, CatchUpMissedRuns = CatchUpMissed,
+        SkipOnBattery = SkipOnBattery, StopOnBattery = SkipOnBattery, RequireNetwork = true, CatchUpMissedRuns = true, UnmeteredOnly = AbortOnMeteredNetwork,
     };
 
     private void ChecksChanged()
@@ -1620,8 +1620,10 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         Working.VssDisabledAcknowledged = !UseVss && VssDisabledAcknowledged;
         Working.ExcludeCloudFiles = ExcludeCloudFiles;
         Working.KeepPolicy = KeepPolicy?.Trim() ?? "";
+        // One setting each (U226): "Run only while on an unmetered connection"
+        // waits and stops; so does "Run only while on AC power".
         Working.AbortOnMeteredNetwork = AbortOnMeteredNetwork;
-        Working.WaitForUnmeteredNetwork = WaitForUnmeteredNetwork;
+        Working.WaitForUnmeteredNetwork = AbortOnMeteredNetwork;
         Working.BandwidthLimitKBps = Math.Max(0, BandwidthLimitKBps);
         Working.Enabled = Enabled;
         Working.FiltersText = FiltersText ?? "";
@@ -1643,9 +1645,9 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
         Working.Schedule.TimeOfDay = TimeOfDay;
         Working.Schedule.HourlyInterval = Math.Max(1, HourlyInterval);
         Working.Schedule.SkipOnBattery = SkipOnBattery;
-        Working.Schedule.StopOnBattery = StopOnBattery;
-        Working.Schedule.RequireNetwork = RequireNetwork;
-        Working.Schedule.CatchUpMissedRuns = CatchUpMissed;
+        Working.Schedule.StopOnBattery = SkipOnBattery;
+        Working.Schedule.RequireNetwork = true;
+        Working.Schedule.CatchUpMissedRuns = true;
 
         Working.SkipNotificationGraceDays = SkipNotificationGraceDays;
         Working.SkipNotificationGraceResetUtc = SkipNotificationGraceResetUtc;
@@ -1996,9 +1998,9 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
             TimeOfDay = timeOfDay,
             HourlyInterval = 24, // unused for daily/weekly/monthly
             SkipOnBattery = SkipOnBattery,
-            StopOnBattery = StopOnBattery,
-            RequireNetwork = RequireNetwork,
-            CatchUpMissedRuns = CatchUpMissed,
+            StopOnBattery = SkipOnBattery,
+            RequireNetwork = true,
+            CatchUpMissedRuns = true,
         };
         if (cadence == MaintenanceCadence.Weekly)
             s.WeeklyDaysBitmask = 0b0000_0001; // Sunday only

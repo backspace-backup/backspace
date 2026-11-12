@@ -134,13 +134,15 @@ public sealed class BackupSchedulerTests : IDisposable
     [Fact]
     public void A_check_stops_on_battery_as_its_backup_says()
     {
+        // U226: "Run only while on AC power" is one setting, a wait and a stop,
+        // the backup's for its checks unless a check has its own.
         var backup = Daily();
-        backup.Checks.Add(new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Weekly, StopOnBattery = false } });
+        backup.Checks.Add(new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Weekly, SkipOnBattery = false, StopOnBattery = false } });
         var check = SchedulePlan.From(new AppConfig { Backups = [backup] }).First(p => p.Kind == ScheduledTaskKind.Check);
-        backup.Schedule.StopOnBattery = true;
+        backup.Schedule.SkipOnBattery = true;
         Assert.True(ScheduleLoop.StopsOnBattery(check));
-        backup.Schedule.StopOnBattery = false;
-        backup.Checks[0].Schedule!.StopOnBattery = true;
+        backup.Schedule.SkipOnBattery = false;
+        backup.Checks[0].Schedule!.SkipOnBattery = true;
         Assert.False(ScheduleLoop.StopsOnBattery(check));
     }
 
@@ -154,7 +156,7 @@ public sealed class BackupSchedulerTests : IDisposable
     }
 
     [Fact]
-    public async Task A_run_missed_while_off_runs_once_on_return_with_catch_up_and_not_without()
+    public async Task A_run_missed_while_off_runs_once_on_return_whatever_the_old_catch_up_setting()
     {
         var loop = Loop(Daily());
         await loop.TickAsync(default);
@@ -173,10 +175,10 @@ public sealed class BackupSchedulerTests : IDisposable
         _now = Local(4, 20, 9); // nine minutes late: still runs
         await strict.TickAsync(default);
         Assert.Single(_runs);
-        _now = Local(5, 20, 11); // eleven minutes late: missed
+        _now = Local(5, 20, 11); // eleven minutes late: runs too (U226: always)
         await strict.TickAsync(default);
         await strict.TickAsync(default);
-        Assert.Single(_runs);
+        Assert.Equal(2, _runs.Count);
     }
 
     [Fact]

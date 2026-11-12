@@ -61,13 +61,28 @@ public sealed class S106_CheckFamilies : ScenarioBase
         }
         ctx.Report.RecordNote("Hovers", string.Join("\n", adds.Select(a => $"{a.Content}: {ToolTip.GetTip(a)}")));
 
-        // U220: each check's conditions use the backup's words.
-        var conditions = win.GetVisualDescendants().OfType<CheckBox>().Where(c => c.IsEffectivelyVisible && c.DataContext is CheckEntryViewModel && c.Content is string)
-            .Select(c => (string)c.Content!).Distinct().ToList();
-        Assert.Contains("Wait for AC power", conditions);
-        Assert.Contains("Wait for an internet connection", conditions);
-        Assert.Contains("Run missed checks as soon as possible", conditions);
-        ctx.Snapshot(win, "check families", "Schedule › Checks: \"Data check (1 GiB sample)\" with All data (instead of a sample), \"Restore check (1% of files, at most 1 GiB)\", each with Wait for AC power, Wait for an internet connection and Run missed checks as soon as possible; Add: + Structure check, + Data check, + Restore check.");
+        // U226: each check follows the backup's conditions unless it has its own.
+        var follows = win.GetVisualDescendants().OfType<CheckBox>().Where(c => c.Name == "FollowsBackupConditions" && c.IsEffectivelyVisible).ToList();
+        Assert.Equal(2, follows.Count);
+        Assert.All(follows, c => Assert.True(c.IsChecked));
+        Assert.DoesNotContain(win.GetVisualDescendants().OfType<CheckBox>(), c => c.IsEffectivelyVisible && c.DataContext is CheckEntryViewModel
+            && c.Content is string s && s.StartsWith("Run only while"));
+        ctx.Snapshot(win, "check families", "Schedule › Checks: \"Data check (1 GiB sample)\" with All data (instead of a sample), \"Restore check (1% of files, at most 1 GiB)\", each with Same conditions as the backup (ticked); Add: + Structure check, + Data check, + Restore check.");
+        // Its own: the two conditions appear, and are saved with the check.
+        var restoreEntry = vm.Checks.Single(c => c.Kind == CheckKind.TestRestore);
+        restoreEntry.FollowsBackup = false;
+        restoreEntry.SkipOnBattery = false;
+        await ctx.Driver.PumpAsync(150);
+        Assert.Equal(new[] { "Run only while on AC power", "Run only while on an unmetered connection" },
+            win.GetVisualDescendants().OfType<CheckBox>().Where(c => c.IsEffectivelyVisible && c.DataContext == restoreEntry && c.Content is string s && s.StartsWith("Run only while"))
+                .Select(c => (string)c.Content!));
+        var saved = restoreEntry.ToModel();
+        Assert.True(saved.Schedule!.OwnConditions);
+        Assert.False(saved.Schedule.SkipOnBattery);
+        Assert.False(saved.Schedule.StopOnBattery);
+        ctx.Snapshot(win, "a check with its own conditions", "The restore check with Same conditions as the backup unticked: its own Run only while on AC power (unticked) and Run only while on an unmetered connection.");
+        restoreEntry.FollowsBackup = true;
+        await ctx.Driver.PumpAsync(100);
 
         // A data check of all data: the same entry, "All data" ticked.
         var data = vm.Checks.Single(c => c.IsDataCheck);

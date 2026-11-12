@@ -256,7 +256,11 @@ public sealed partial class BackupOrchestrator
         // AbortOnMeteredNetwork from the Backup so the user only has
         // one knob to flip — same setting governs both paths.
         bool meteredAborted = false;
-        var watchdogTask = StartMeteredWatchdogIfEnabled(backup, linked, _ => meteredAborted = true);
+        // A check with its own conditions follows its own (U226); only runs
+        // that use the network are stopped by a metered connection.
+        var stopsWhenMetered = (check?.Schedule is { OwnConditions: true } own ? own.UnmeteredOnly : backup.AbortOnMeteredNetwork)
+            && backup.NeedsNetwork(_config.Current.Destinations);
+        var watchdogTask = StartMeteredWatchdogIfEnabled(backup, linked, _ => meteredAborted = true, enabled: stopsWhenMetered);
 
         try
         {

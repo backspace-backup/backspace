@@ -130,17 +130,18 @@ public sealed class S80_EditorWording : ScenarioBase
         Assert.True(ctx.Driver.WaitFor(() => win.GetVisualDescendants().OfType<TabControl>().Any()));
         win.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
         ctx.Driver.Pump();
-        var stops = win.GetVisualDescendants().OfType<CheckBox>()
-            .Where(c => c.Content is string s && s.StartsWith("Stop mid-run if ")).ToList();
-        Assert.Equal(new[] { "Stop mid-run if the computer switches to battery", "Stop mid-run if the connection becomes metered" },
-            stops.Select(c => (string)c.Content!));
-        // U220: the waits read the same way, and each check uses the same words.
-        var waits = win.GetVisualDescendants().OfType<CheckBox>().Where(c => c.Content is string s && s.StartsWith("Wait for ")).Select(c => (string)c.Content!).ToList();
-        Assert.Equal(new[] { "Wait for AC power", "Wait for an internet connection", "Wait for an unmetered connection" }, waits.Take(3));
-        Assert.DoesNotContain(win.GetVisualDescendants().OfType<CheckBox>(), c => c.Content is string s && (s.StartsWith("Start only") || s.StartsWith("Don't run") || s.Contains("network connection")));
+        // U226 (owner, 12 November 2026): two conditions, each a wait and a
+        // stop; no internet setting; missed runs always run.
+        var conditions = win.GetVisualDescendants().OfType<CheckBox>()
+            .Where(c => c.Content is string s && s.StartsWith("Run only while ")).ToList();
+        Assert.Equal(new[] { "Run only while on AC power", "Run only while on an unmetered connection" }, conditions.Select(c => (string)c.Content!).Take(2));
+        Assert.DoesNotContain(win.GetVisualDescendants().OfType<CheckBox>(), c => c.Content is string s
+            && (s.StartsWith("Wait for") || s.StartsWith("Stop mid-run") || s.StartsWith("Start only") || s.StartsWith("Don't run")
+                || s.Contains("internet") || s.Contains("missed")));
+        var stops = conditions;
         stops.Last().BringIntoView();
         ctx.Driver.Pump();
-        ctx.Snapshot(win, "stop conditions", "Schedule › Conditions: Wait for AC power, Wait for an internet connection, Wait for an unmetered connection, Run missed backups as soon as possible; then Stop mid-run if the computer switches to battery, Stop mid-run if the connection becomes metered; then what applies to checks and cleanup.");
+        ctx.Snapshot(win, "stop conditions", "Schedule › Conditions: Run only while on AC power and Run only while on an unmetered connection, then what they do: a run waits, stops if they're no longer met, and runs again; a destination on this computer never waits for the network.");
         win.Close();
         vm.Dispose();
 

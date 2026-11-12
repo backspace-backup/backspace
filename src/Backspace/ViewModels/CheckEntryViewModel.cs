@@ -19,9 +19,15 @@ public sealed partial class CheckEntryViewModel : ObservableObject
 
     [ObservableProperty] private MaintenanceCadence _cadence;
     [ObservableProperty] private TimeSpan _timeOfDay;
+    /// <summary>Its own conditions instead of the backup's (U226).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(FollowsBackup))] private bool _ownConditions;
+    /// <summary>"Run only while on AC power", with its own conditions.</summary>
     [ObservableProperty] private bool _skipOnBattery;
-    [ObservableProperty] private bool _requireNetwork;
-    [ObservableProperty] private bool _catchUpMissed;
+    /// <summary>"Run only while on an unmetered connection", with its own conditions.</summary>
+    [ObservableProperty] private bool _unmeteredOnly;
+
+    /// <summary>"Same conditions as the backup" (U226).</summary>
+    public bool FollowsBackup { get => !OwnConditions; set => OwnConditions = !value; }
     /// <summary>Data sample and test restore: the most to read or rebuild.</summary>
     [ObservableProperty] private decimal _maximumGiB;
     [ObservableProperty] private decimal _samplePercent;
@@ -45,16 +51,15 @@ public sealed partial class CheckEntryViewModel : ObservableObject
         };
         _timeOfDay = schedule?.TimeOfDay ?? BackupMaintenanceDefaults.OffHours;
         var conditions = schedule ?? main;
-        _skipOnBattery = conditions.SkipOnBattery;
-        _requireNetwork = conditions.RequireNetwork;
-        _catchUpMissed = conditions.CatchUpMissedRuns;
-        _stopOnBattery = conditions.StopOnBattery;
+        // Its own conditions, or a copy of the backup's to start from (U226).
+        _ownConditions = schedule?.OwnConditions == true;
+        _skipOnBattery = _ownConditions ? schedule!.SkipOnBattery : main.SkipOnBattery;
+        _unmeteredOnly = _ownConditions ? schedule!.UnmeteredOnly : main.UnmeteredOnly;
         _maximumGiB = check.MaximumBytes / (decimal)BackupCheck.OneGiB;
         _samplePercent = (decimal)check.SamplePercent;
         _compareOriginals = check.CompareOriginals;
     }
 
-    private readonly bool _stopOnBattery;
 
     public static MaintenanceCadence[] Cadences { get; } =
         [MaintenanceCadence.AfterEachBackup, MaintenanceCadence.Daily, MaintenanceCadence.Weekly, MaintenanceCadence.Monthly, MaintenanceCadence.Yearly];
@@ -122,8 +127,8 @@ public sealed partial class CheckEntryViewModel : ObservableObject
     partial void OnSamplePercentChanged(decimal value) => Changed();
     partial void OnCompareOriginalsChanged(bool value) => Changed();
     partial void OnSkipOnBatteryChanged(bool value) => Changed();
-    partial void OnRequireNetworkChanged(bool value) => Changed();
-    partial void OnCatchUpMissedChanged(bool value) => Changed();
+    partial void OnUnmeteredOnlyChanged(bool value) => Changed();
+    partial void OnOwnConditionsChanged(bool value) => Changed();
 
     private void Changed()
     {
@@ -161,10 +166,12 @@ public sealed partial class CheckEntryViewModel : ObservableObject
                 TimeOfDay = TimeOfDay,
                 HourlyInterval = 24,
                 WeeklyDaysBitmask = Cadence == MaintenanceCadence.Weekly ? _weeklyDays : 0b0111_1111,
+                OwnConditions = OwnConditions,
                 SkipOnBattery = SkipOnBattery,
-                StopOnBattery = _stopOnBattery,
-                RequireNetwork = RequireNetwork,
-                CatchUpMissedRuns = CatchUpMissed,
+                StopOnBattery = SkipOnBattery,
+                UnmeteredOnly = UnmeteredOnly,
+                RequireNetwork = true,
+                CatchUpMissedRuns = true,
             },
         };
     }

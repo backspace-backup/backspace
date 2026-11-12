@@ -118,7 +118,20 @@ public sealed partial class BackupOrchestrator
         // Run-wide cancellation: user cancel OR metered-network watchdog.
         // Cell failures never trigger this — they're isolated below.
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var watchdogTask = StartMeteredWatchdogIfEnabled(backup, linked, _ =>
+        // With a destination on this computer, a metered connection stops only
+        // the network destinations: the local ones go on (U226, owner: "the
+        // local destination should at least be processed while waiting").
+        var destinations = _config.Current.Destinations;
+        var mixed = backup.NeedsNetwork(destinations) && !backup.OnlyNetwork(destinations);
+        var meteredDuringRun = false;
+        CancellationTokenSource? networkCell = null;
+        var watchdogTask = !backup.NeedsNetwork(destinations) ? null : mixed
+            ? StartMeteredWatchdogIfEnabled(backup, null, _ =>
+            {
+                meteredDuringRun = true;
+                try { Volatile.Read(ref networkCell)?.Cancel(); } catch (ObjectDisposedException) { }
+            }, linked.Token)
+            : StartMeteredWatchdogIfEnabled(backup, linked, _ =>
         {
             // Record the reason on the running-info BEFORE signalling
             // cancellation so the cell loop sees it when its
@@ -177,6 +190,25 @@ public sealed partial class BackupOrchestrator
                         continue;
                     }
 
+                    // A network destination waits for the network (U226): no
+                    // network, or a metered connection with "Run only while on
+                    // an unmetered connection". A scheduled backup runs it
+                    // again once that changes; the other destinations go on.
+                    var needsNetwork = Backup.DestinationNeedsNetwork(dest);
+                    if (needsNetwork && (!NetworkAvailableNow() || backup.WaitForUnmeteredNetwork && (meteredDuringRun || MeteredNow())))
+                    {
+                        var offline = !NetworkAvailableNow();
+                        var why = offline ? "Waits for a network connection" : "Waits for an unmetered connection";
+                        _log.Information("Skipping cell {Src}→{Dest}: {Why}", sourcePath, dest.Name, why);
+                        final.Cells.Add(new CellOutcome
+                        {
+                            SourcePath = sourcePath, DestinationName = dest.Name, StorageName = target.StorageName, DestinationId = dest.Id,
+                            Status = BackupRunStatus.Skipped, Summary = why, WaitingFor = offline ? "connection" : "unmetered",
+                        });
+                        final.Warnings.Add($"[{sourcePath} → {dest.Name}] skipped: {why}");
+                        continue;
+                    }
+
                     // Volume-mount check for local-like destinations.
                     // A missing drive is Skipped (not Failed) — the
                     // unattended CLI treats that as a graceful outcome.
@@ -211,6 +243,8 @@ public sealed partial class BackupOrchestrator
                     var gateMiss = await ProbeReachabilityAsync(dest, sourcePath, target.StorageName, ct).ConfigureAwait(false);
                     if (gateMiss is not null)
                     {
+                        // An offline network share is tried again after a network change (U226).
+                        if (needsNetwork && gateMiss.Status == BackupRunStatus.Skipped) { gateMiss.WaitingFor = "reachable"; gateMiss.DestinationId = dest.Id; }
                         _log.Information("Skipping cell {Src}→{Dest}: {Detail}", sourcePath, dest.Name, gateMiss.Summary);
                         final.Cells.Add(gateMiss);
                         if (gateMiss.Status == BackupRunStatus.Failed)
@@ -373,11 +407,30 @@ public sealed partial class BackupOrchestrator
                         // it still carry the path to disk.
                         LogPath = cellLogPath,
                     };
+                    // A network destination of a mixed backup has its own stop,
+                    // for a connection that becomes metered (U226).
+                    using var cellStop = needsNetwork && mixed ? CancellationTokenSource.CreateLinkedTokenSource(linked.Token) : null;
+                    Volatile.Write(ref networkCell, cellStop);
+                    if (cellStop is not null && meteredDuringRun && backup.WaitForUnmeteredNetwork) cellStop.Cancel();
                     try
                     {
-                        cellOutcome = await RunCellWithRetryAsync(backup, sourcePath, dest, target, linked.Token, lineHandler);
+                        cellOutcome = await RunCellWithRetryAsync(backup, sourcePath, dest, target, cellStop?.Token ?? linked.Token, lineHandler);
                         if (string.IsNullOrEmpty(cellOutcome.LogPath))
                             cellOutcome.LogPath = cellLogPath;
+                        if (cellStop is { IsCancellationRequested: true } && !linked.IsCancellationRequested)
+                        {
+                            cellOutcome.Status = BackupRunStatus.Skipped;
+                            cellOutcome.Summary = "Stopped: the connection became metered. It runs again once it isn't.";
+                            cellOutcome.WaitingFor = "unmetered";
+                            cellOutcome.DestinationId = dest.Id;
+                        }
+                        // Couldn't be reached: tried again after a network change (U226).
+                        else if (needsNetwork && cellOutcome.Status == BackupRunStatus.Skipped && !linked.IsCancellationRequested
+                            && cellOutcome.WaitingFor is null)
+                        {
+                            cellOutcome.WaitingFor = "reachable";
+                            cellOutcome.DestinationId = dest.Id;
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -391,6 +444,7 @@ public sealed partial class BackupOrchestrator
                     }
                     finally
                     {
+                        Volatile.Write(ref networkCell, null);
                         _progress.ReportCellEnded(backup.Id, sourcePath, capturedDestName,
                             success: cellOutcome.Status == BackupRunStatus.Success);
                         if (cellOutcome.Status is BackupRunStatus.Success or BackupRunStatus.Warning)
@@ -972,18 +1026,26 @@ public sealed partial class BackupOrchestrator
         return code is 53 or 64 or 121 or 1222 or 1231 or 1232
             || EngineErrorClassifier.Classify(error.Message) == EngineErrorClassifier.Verdict.Tolerable;
     }
+    /// <param name="linked">Cancelled when the connection becomes metered;
+    /// null to only call <paramref name="onMetered"/> (a mixed backup stops
+    /// its network destinations itself, U226).</param>
+    /// <param name="lifetime">How long to watch when <paramref name="linked"/> is null.</param>
+    /// <param name="enabled">Whether to stop on a metered connection; the backup's setting by default.</param>
     internal Task? StartMeteredWatchdogIfEnabled(
         Backup backup,
-        CancellationTokenSource linked,
-        Action<string> onMetered)
+        CancellationTokenSource? linked,
+        Action<string> onMetered,
+        CancellationToken lifetime = default,
+        bool? enabled = null)
     {
-        if (!backup.AbortOnMeteredNetwork) return null;
+        if (!(enabled ?? backup.AbortOnMeteredNetwork)) return null;
         var watchdog = MeteredWatchdogFactory();
         watchdog.MeteredDetected += reason =>
         {
             onMetered(reason);
-            try { linked.Cancel(); } catch { /* already disposed */ }
+            if (linked is not null) try { linked.Cancel(); } catch { /* already disposed */ }
         };
-        return Task.Run(() => watchdog.RunAsync(linked.Token), linked.Token);
+        var token = linked?.Token ?? lifetime;
+        return Task.Run(() => watchdog.RunAsync(token), token);
     }
 }

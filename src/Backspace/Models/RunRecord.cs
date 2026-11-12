@@ -142,6 +142,18 @@ public sealed class CellOutcome
 
     public BackupRunStatus Status { get; set; }
 
+    /// <summary>Set when this destination's part waits for the network
+    /// (U226): "unmetered" (the connection is metered), "connection" (no
+    /// network) or "reachable" (it couldn't be reached). A scheduled backup
+    /// runs it again once that changes, the other destinations meanwhile
+    /// keeping their schedule.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? WaitingFor { get; set; }
+
+    /// <summary>The destination's id, for a part waiting for the network (U226).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? DestinationId { get; set; }
+
     /// <summary>Short one-line summary for this cell; surfaced in notifications and the tile.</summary>
     public string Summary { get; set; } = "";
 

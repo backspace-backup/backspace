@@ -30,8 +30,10 @@ public sealed class RuntimeGuardCoverageTests
         var config = new ConfigStore(); config.Load();
         var secrets = new SecretsStore();
         var logs = new LogStore();
-        var first = new Destination { Name = "first", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("first") };
-        var second = new Destination { Name = "second", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("second") };
+        // Destinations reached by UNC paths: a metered connection stops only
+        // runs that use the network (U226); a backup to local folders goes on.
+        var first = new Destination { Name = "first", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"\\?\" + workspace.Sub("first") };
+        var second = new Destination { Name = "second", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"\\?\" + workspace.Sub("second") };
         var backup = new Backup { Name = "guard-proof", UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = enabled,
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(), SourcePaths = { workspace.Sub("source") },
             Targets = { new() { DestinationId = first.Id }, new() { DestinationId = second.Id } } };
@@ -61,6 +63,8 @@ public sealed class RuntimeGuardCoverageTests
                 });
             }
         };
+        orchestrator.MeteredOverride = () => false;
+        orchestrator.NetworkAvailableOverride = () => true;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var run = kind switch {
             RunKind.Prune => orchestrator.RunPruneAsync(backup, deadline.Token),
@@ -115,9 +119,12 @@ public sealed class RuntimeGuardCoverageTests
             WeeklyDaysBitmask = 1 << 1 };
         var plan = new SchedulePlan(backup, kind, schedule);
 
-        // Conditions: battery and network block only when the schedule asks.
+        // Conditions (U226): "Run only while on AC power" is the backup's, for
+        // its checks and cleanup too; a run that only uses the network always
+        // waits for one (no setting).
+        backup.Schedule.SkipOnBattery = enabled;
         Assert.Equal(enabled ? "the computer is on battery" : null, ScheduleConditions.Blocked(plan, new[] { cloud }, () => true, () => true));
-        Assert.Equal(enabled ? "no network connection" : null, ScheduleConditions.Blocked(plan, new[] { cloud }, () => false, () => false));
+        Assert.Equal("no network connection", ScheduleConditions.Blocked(plan, new[] { cloud }, () => false, () => false));
         Assert.Null(ScheduleConditions.Blocked(plan, new[] { cloud }, () => false, () => true));
 
         // Cadence per kind, in local time: daily, Mondays, the 1st of the month.
@@ -131,8 +138,8 @@ public sealed class RuntimeGuardCoverageTests
             _ => new DateTime(2026, 11, 5),
         }, next.Date);
 
-        // A slot missed by an hour runs once when catch-up is on and the backup
-        // is enabled; otherwise it is passed over and the next slot is kept.
+        // A slot missed by an hour runs once when the backup is enabled (a
+        // missed run always runs, U226); disabled, it is passed over.
         var path = Path.Combine(Path.GetTempPath(), "backspace-schedule-" + Guid.NewGuid().ToString("N") + ".json");
         try
         {

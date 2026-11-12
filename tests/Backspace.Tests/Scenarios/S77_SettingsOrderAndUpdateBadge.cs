@@ -66,8 +66,8 @@ public sealed class S77_SettingsOrderAndUpdateBadge : ScenarioBase
             Assert.Contains("IN TOTAL", labels);
             // U203: what the limits cover, and what else waits, said up front.
             Assert.Contains(labels, t => t?.StartsWith("These limits are for backups", StringComparison.Ordinal) == true);
-            Assert.Contains(labels, t => t?.StartsWith("Checks, test restores and cleanup are not counted here: each takes its destination alone", StringComparison.Ordinal) == true);
-            ctx.Snapshot(host, "simultaneous backups", "Settings › Simultaneous backups: \"These limits are for backups…\", then \"Checks, test restores and cleanup are not counted here: each takes its destination alone…\", above Per destination and In total.");
+            Assert.Contains(labels, t => t?.StartsWith("Checks (restore checks included) and cleanup are not counted here: each takes its destination alone", StringComparison.Ordinal) == true);
+            ctx.Snapshot(host, "simultaneous backups", "Settings › Simultaneous backups: \"These limits are for backups…\", then \"Checks (restore checks included) and cleanup are not counted here: each takes its destination alone…\", above Per destination and In total.");
             limits.IsExpanded = false;
 
             // U208: the Healthchecks key's result is green when it works, red when not.

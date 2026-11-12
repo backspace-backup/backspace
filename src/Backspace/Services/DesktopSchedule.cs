@@ -47,6 +47,7 @@ internal static class DesktopSchedule
         if (OperatingSystem.IsWindows())
         {
             Platform.Windows.ScheduleSignals.Changed += _loop.Wake;
+            Platform.Windows.ScheduleSignals.NetworkChanged += _loop.NetworkChanged;
             Platform.Windows.ScheduleSignals.Start(AppPaths.ConfigRoot);
         }
 #endif
@@ -149,6 +150,9 @@ internal static class DesktopSchedule
             using var run = CancellationTokenSource.CreateLinkedTokenSource(ct, lease?.Token ?? CancellationToken.None);
             var backup = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == plan.Backup.Id);
             if (backup is null) return true;
+            // Only the network destinations that waited (U226).
+            backup = ScheduledRuns.ForTargets(backup, plan.OnlyTargets);
+            if (backup.Targets.Count == 0) { ScheduleLoop.ReportWaiting([], needsChange: false); return true; }
             var record = plan.Kind switch
             {
                 ScheduledTaskKind.Prune => await ServiceLocator.Orchestrator.RunPruneAsync(backup, run.Token).ConfigureAwait(false),
@@ -162,6 +166,8 @@ internal static class DesktopSchedule
                 AppLogger.For(nameof(DesktopSchedule)).Information("Scheduled {Kind} for {Name}: {Status}", plan.Kind, backup.Name, record.Status);
             // Completed: not run again for a condition that began after it (U185).
             if (record?.Status is Models.BackupRunStatus.Success or Models.BackupRunStatus.Warning) ScheduleLoop.ReportCompleted();
+            // Network destinations it left waiting run once the network allows (U226).
+            ScheduledRuns.ReportWaiting(record);
         }
         return true;
     }

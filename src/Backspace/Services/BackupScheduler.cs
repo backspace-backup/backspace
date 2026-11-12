@@ -12,7 +12,10 @@ namespace Backspace.Services;
 
 /// <summary>One scheduled entry: a backup, one of its checks (U179), or its
 /// cleanup.</summary>
-public sealed record SchedulePlan(Backup Backup, ScheduledTaskKind Kind, BackupSchedule Schedule, BackupCheck? Check = null)
+/// <param name="OnlyTargets">A backup's destinations that waited for the
+/// network (U226), run on their own once it is back; null for a regular run.</param>
+public sealed record SchedulePlan(Backup Backup, ScheduledTaskKind Kind, BackupSchedule Schedule, BackupCheck? Check = null,
+    IReadOnlyList<string>? OnlyTargets = null)
 {
     internal string Key => Check is null ? Backup.Id + "/" + Kind : Backup.Id + "/" + Kind + "/" + Check.Id;
     internal string Timing => FormattableString.Invariant(
@@ -47,8 +50,15 @@ internal sealed class ScheduleState
     /// <param name="Resuming">The resume is running. A resume cut short is
     /// not resumed again: the next scheduled time is the next try, so a run
     /// that keeps failing in the same way doesn't start at every launch.</param>
+    /// <param name="Pending">A backup's network destinations left waiting by
+    /// its last run (U226), as <see cref="Backup.TargetKey"/>s. They run on
+    /// their own once the network allows, beside the regular schedule.</param>
+    /// <param name="PendingNeedsChange">They couldn't be reached although the
+    /// network seemed fine: they run again after a network change, or a day
+    /// later, never in a loop.</param>
     internal sealed record Entry(DateTime NextUtc, string Timing, DateTime? RunningSlotUtc = null,
-        bool ResumeDue = false, bool Resuming = false);
+        bool ResumeDue = false, bool Resuming = false, string[]? Pending = null, DateTime? PendingSinceUtc = null,
+        bool PendingNeedsChange = false);
 
     internal static string BackupKey(string backupId) => backupId + "/" + ScheduledTaskKind.Backup;
 
@@ -128,23 +138,45 @@ internal static class SchedulePlanner
     internal static DateTime? NextAfter(BackupSchedule schedule, DateTime utc)
         => schedule.ComputeNextFire(utc.ToLocalTime())?.ToUniversalTime();
 
+    /// <summary>Destinations still waiting for the network stay waiting (U226).</summary>
     internal static void Advance(ScheduleState state, SchedulePlan plan, DateTime utc)
-        => state.Set(plan.Key, NextAfter(plan.Schedule, utc) is { } next ? new(next, plan.Timing) : null);
+    {
+        var old = state.Entries.GetValueOrDefault(plan.Key);
+        state.Set(plan.Key, NextAfter(plan.Schedule, utc) is { } next
+            ? new(next, plan.Timing, Pending: old?.Pending, PendingSinceUtc: old?.PendingSinceUtc, PendingNeedsChange: old?.PendingNeedsChange ?? false)
+            : null);
+    }
+
+    /// <summary>Unreachable destinations are tried again a day later at the
+    /// latest, when no network change came first (U226).</summary>
+    internal static readonly TimeSpan PendingLongestWait = TimeSpan.FromDays(1);
 
     /// <summary>Plans due now, earliest first. New and changed schedules start
     /// from their next time; disabled, snoozed and (without catch-up) late
     /// slots are passed over rather than run later.</summary>
-    internal static List<SchedulePlan> Due(IReadOnlyList<SchedulePlan> plans, ScheduleState state, DateTime nowUtc)
+    /// <param name="networkChangedUtc">When Windows last reported a network
+    /// change: destinations that couldn't be reached are tried again after it.</param>
+    internal static List<SchedulePlan> Due(IReadOnlyList<SchedulePlan> plans, ScheduleState state, DateTime nowUtc,
+        DateTime networkChangedUtc = default)
     {
         var due = new List<(SchedulePlan Plan, DateTime At)>();
         foreach (var plan in plans)
         {
             var entry = state.Entries.GetValueOrDefault(plan.Key);
             if (entry is null || entry.Timing != plan.Timing) { Advance(state, plan, nowUtc); continue; }
-            if (entry.NextUtc > nowUtc) continue;
-            if (!plan.Backup.Enabled || plan.Schedule.PausedUntilUtc > nowUtc
-                || !plan.Schedule.CatchUpMissedRuns && !entry.ResumeDue && nowUtc - entry.NextUtc > MissedGrace)
-                Advance(state, plan, nowUtc);
+            if (entry.NextUtc > nowUtc)
+            {
+                // Network destinations left waiting run on their own (U226).
+                if (plan.Kind == ScheduledTaskKind.Backup && entry.Pending is { Length: > 0 } pending
+                    && plan.Backup.Enabled && !(plan.Schedule.PausedUntilUtc > nowUtc)
+                    && (!entry.PendingNeedsChange || networkChangedUtc > (entry.PendingSinceUtc ?? DateTime.MinValue)
+                        || nowUtc - (entry.PendingSinceUtc ?? DateTime.MinValue) >= PendingLongestWait))
+                    due.Add((plan with { OnlyTargets = pending }, entry.PendingSinceUtc ?? nowUtc));
+                continue;
+            }
+            // A missed run always runs as soon as possible (U226: "Who would
+            // not want that?").
+            if (!plan.Backup.Enabled || plan.Schedule.PausedUntilUtc > nowUtc) Advance(state, plan, nowUtc);
             else due.Add((plan, entry.NextUtc));
         }
         var current = plans.Select(p => p.Key).ToHashSet(StringComparer.Ordinal);
@@ -188,7 +220,35 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
 
     /// <summary>The run in progress on this flow says it completed (U185).</summary>
     private static readonly AsyncLocal<StrongBox> Outcome = new();
-    private sealed class StrongBox { public bool Completed; }
+    private sealed class StrongBox
+    {
+        public bool Completed;
+        /// <summary>The run said which network destinations wait (U226).</summary>
+        public bool Reported;
+        public string[]? Waiting;
+        public bool WaitingNeedsChange;
+    }
+
+    /// <summary>Called by a backup run: these network destinations wait for
+    /// the network (U226); <paramref name="needsChange"/> when they couldn't
+    /// be reached although it seemed available.</summary>
+    internal static void ReportWaiting(IEnumerable<string> targetKeys, bool needsChange)
+    {
+        if (Outcome.Value is not { } box) return;
+        box.Reported = true;
+        box.Waiting = targetKeys.Distinct(StringComparer.Ordinal).ToArray();
+        box.WaitingNeedsChange = needsChange;
+    }
+
+    private long _networkChangedTicks;
+
+    /// <summary>Windows reported a network change: wake, and try again the
+    /// destinations that couldn't be reached (U226).</summary>
+    internal void NetworkChanged()
+    {
+        Interlocked.Exchange(ref _networkChangedTicks, Now().Ticks);
+        Wake();
+    }
 
     /// <summary>Called by the run itself once it has completed (succeeded,
     /// or finished with warnings): a battery or metered connection that
@@ -258,7 +318,8 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         {
             state = ScheduleState.Load(options.StatePath);
             now = Now();
-            due = SchedulePlanner.Due(plans, state, now).Where(p => !_running.ContainsKey(p.Key)).ToList();
+            due = SchedulePlanner.Due(plans, state, now, new DateTime(Interlocked.Read(ref _networkChangedTicks), DateTimeKind.Utc))
+                .Where(p => !_running.ContainsKey(p.Key)).ToList();
             state.Save();
             foreach (var key in _waiting.Keys.Where(k => due.All(p => p.Key != k)).ToList()) _waiting.Remove(key);
         }
@@ -301,7 +362,10 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         if (leftDue || startedAny && parallel == 1) return MaxSleep;
         ScheduleState saved;
         lock (_sync) saved = ScheduleState.Load(options.StatePath);
-        var next = saved.Entries.Count == 0 ? (DateTime?)null : saved.Entries.Values.Min(e => e.NextUtc);
+        // Also when a destination that couldn't be reached is tried again (U226).
+        var next = saved.Entries.Count == 0 ? (DateTime?)null : saved.Entries.Values.Min(e =>
+            e is { Pending.Length: > 0, PendingNeedsChange: true, PendingSinceUtc: { } since } && since + SchedulePlanner.PendingLongestWait < e.NextUtc
+                ? since + SchedulePlanner.PendingLongestWait : e.NextUtc);
         if (next is not { } at) return MaxSleep;
         var wait = at - now;
         return wait < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : wait > MaxSleep ? MaxSleep : wait;
@@ -342,15 +406,21 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         // launch resumes it once (ResumeInterruptedRuns); a resumed slot cut
         // short again waits for the next scheduled time.
         ScheduleState.Entry previous;
+        var pendingRun = plan.OnlyTargets is not null;
         lock (_sync)
         {
             // Read again: a run that ended meanwhile saved its own outcome.
             var state = ScheduleState.Load(options.StatePath);
             previous = state.Entries[plan.Key];
-            SchedulePlanner.Advance(state, plan, now);
-            if (plan.Kind == ScheduledTaskKind.Backup && state.Entries.GetValueOrDefault(plan.Key) is { } advanced)
-                state.Set(plan.Key, previous.ResumeDue ? advanced with { Resuming = true } : advanced with { RunningSlotUtc = previous.NextUtc });
-            state.Save();
+            // Waiting network destinations run beside the schedule: the
+            // regular time stays as it is (U226).
+            if (!pendingRun)
+            {
+                SchedulePlanner.Advance(state, plan, now);
+                if (plan.Kind == ScheduledTaskKind.Backup && state.Entries.GetValueOrDefault(plan.Key) is { } advanced)
+                    state.Set(plan.Key, previous.ResumeDue ? advanced with { Resuming = true } : advanced with { RunningSlotUtc = previous.NextUtc });
+                state.Save();
+            }
         }
         var ran = true;
         var outcome = new StrongBox();
@@ -382,16 +452,27 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         // check mid run ... and relaunch once all conditions are met"). A run
         // that completed is not run again, even when the condition began
         // just after it ended.
+        // The conditions say why (U226): the battery, or for a run that only
+        // uses the network, a metered connection or no network. A backup that
+        // also has a local destination isn't cut: its network destinations
+        // wait on their own (reported by the run).
         var cutByCondition = ran && !stop.IsCancellationRequested && !outcome.Completed
             && (StopsOnBattery(plan) && options.OnBattery()
-                || plan.Backup.AbortOnMeteredNetwork && options.Metered?.Invoke() == true
-                // The connection went away during a check or cleanup (U185).
-                || plan.Kind != ScheduledTaskKind.Backup && options.Blocked(plan) is "no network connection");
+                || options.Blocked(plan) is "the connection is metered" or "no network connection");
         if (cutByCondition)
             Log.Information("The scheduled {Kind} for {Name} stopped for its conditions (battery, metered connection or no connection); it runs again once they are met", plan.Kind, plan.Backup.Name);
         lock (_sync)
         {
             var after = ScheduleState.Load(options.StatePath);
+            if (pendingRun)
+            {
+                // Only the waiting destinations ran: what still waits, if they
+                // said; the regular time is untouched (U226).
+                if (ran && outcome.Reported && after.Entries.GetValueOrDefault(plan.Key) is { } current)
+                    after.Set(plan.Key, WithPending(current, outcome, now));
+                after.Save();
+                return ran;
+            }
             if (!ran) after.Set(plan.Key, previous);
             else if (cutByCondition) after.Set(plan.Key, previous with { ResumeDue = true, RunningSlotUtc = null, Resuming = false });
             // Backspace itself stopping (Quit, Windows shutting down or
@@ -409,10 +490,19 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
                 if (after.Entries.GetValueOrDefault(plan.Key) is { } finished && (finished.RunningSlotUtc is not null || finished.Resuming))
                     after.Set(plan.Key, finished with { RunningSlotUtc = null, Resuming = false });
             }
+            // The destinations this run left waiting for the network (U226).
+            if (ran && !cutByCondition && plan.Kind == ScheduledTaskKind.Backup && outcome.Reported
+                && after.Entries.GetValueOrDefault(plan.Key) is { } ended)
+                after.Set(plan.Key, WithPending(ended, outcome, now));
             after.Save();
         }
         return ran;
     }
+
+    private static ScheduleState.Entry WithPending(ScheduleState.Entry entry, StrongBox outcome, DateTime now)
+        => outcome.Waiting is { Length: > 0 } waiting
+            ? entry with { Pending = waiting, PendingSinceUtc = now, PendingNeedsChange = outcome.WaitingNeedsChange }
+            : entry with { Pending = null, PendingSinceUtc = null, PendingNeedsChange = false };
 
     /// <summary>A backup cut short by a crash, a power loss, a restart,
     /// Windows shutting down or Quit is due again at once, whatever "Catch up
@@ -442,7 +532,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     /// <summary>"Stop mid-run if the computer switches to battery" is the
     /// backup's, for its checks and cleanup too (U220: the editor says so; a
     /// check's own copy, made when it was added, no longer decides).</summary>
-    internal static bool StopsOnBattery(SchedulePlan plan) => plan.Backup.Schedule.StopOnBattery;
+    internal static bool StopsOnBattery(SchedulePlan plan) => ScheduleConditions.OnlyOnAcPower(plan);
 
     private async Task WatchPowerAsync(SchedulePlan plan, CancellationTokenSource run, CancellationToken finished)
     {
@@ -474,13 +564,34 @@ internal static class ScheduleConditions
     internal static string? Blocked(SchedulePlan plan, IEnumerable<Destination> destinations, Func<bool> onBattery, Func<bool> networkAvailable,
         Func<bool>? metered = null)
     {
-        if (plan.Schedule.SkipOnBattery && onBattery()) return "the computer is on battery";
-        if (plan.Schedule.RequireNetwork && plan.Backup.NeedsNetwork(destinations) && !networkAvailable())
-            return "no network connection";
-        // "Wait for an unmetered connection" (U185, U220).
-        if (plan.Backup.WaitForUnmeteredNetwork && plan.Backup.NeedsNetwork(destinations) && metered?.Invoke() == true)
-            return "the connection is metered";
+        var list = destinations as IReadOnlyCollection<Destination> ?? destinations.ToList();
+        if (OnlyOnAcPower(plan) && onBattery()) return "the computer is on battery";
+        // A run with something to do on this computer isn't held back by the
+        // network: its network destinations wait on their own (U226).
+        if (!UsesOnlyNetwork(plan, list)) return null;
+        if (!networkAvailable()) return "no network connection";
+        if (UnmeteredOnly(plan) && metered?.Invoke() == true) return "the connection is metered";
         return null;
+    }
+
+    /// <summary>"Run only while on AC power": the backup's, or a check's own (U226).</summary>
+    internal static bool OnlyOnAcPower(SchedulePlan plan) => plan is { Kind: ScheduledTaskKind.Check, Schedule.OwnConditions: true }
+        ? plan.Schedule.SkipOnBattery : plan.Backup.Schedule.SkipOnBattery;
+
+    /// <summary>"Run only while on an unmetered connection": the backup's, or a check's own (U226).</summary>
+    internal static bool UnmeteredOnly(SchedulePlan plan) => plan is { Kind: ScheduledTaskKind.Check, Schedule.OwnConditions: true }
+        ? plan.Schedule.UnmeteredOnly : plan.Backup.WaitForUnmeteredNetwork;
+
+    /// <summary>Everything this run does is over the network. A backup's run
+    /// of its waiting destinations counts only those; checks and cleanup
+    /// cover every destination of the backup, so one network destination is enough.</summary>
+    internal static bool UsesOnlyNetwork(SchedulePlan plan, IEnumerable<Destination> destinations)
+    {
+        if (plan.Kind != ScheduledTaskKind.Backup) return plan.Backup.NeedsNetwork(destinations);
+        var targets = plan.OnlyTargets is { } only
+            ? plan.Backup.Targets.Where(t => only.Contains(Backup.TargetKey(t.DestinationId, t.StorageName))).ToList()
+            : plan.Backup.Targets;
+        return targets.Count > 0 && targets.All(t => Backup.TargetNeedsNetwork(t, destinations));
     }
 
     /// <summary>True while Windows reports the connection as metered.</summary>

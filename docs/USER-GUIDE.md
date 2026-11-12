@@ -167,26 +167,35 @@ The log ends the cleanup with what it removed ("[cleanup] 2 old backups removed
 freed" to its run when something was freed. With what each backup added, it
 shows why the storage doesn’t only grow.
 
-Each schedule has conditions. New cleanup and checks take the backup's; each
-check can then change its own ([Checks and Verify](#checks-and-verify)):
+A backup has two conditions, in **Edit → Schedule → Conditions**. Each is a
+wait and a stop: a run waits until it is met, stops if it no longer is, and
+then runs again as soon as it is.
 
-- **Wait for AC power**: a run due on battery waits until the computer is
-  plugged in. **Stop mid-run if the computer switches to battery** is the
-  backup's, for its checks and cleanup too.
-- **Wait for an unmetered connection** and **Stop mid-run if the connection
-  becomes metered**: set per backup, they apply to its checks and cleanup too.
-- **Wait for an internet connection**, for backups that send data over the
-  network. Backups to a local folder or external drive run offline.
-- **Run missed backups as soon as possible** (in each check: **Run missed
-  checks as soon as possible**). A run missed while the computer was off, asleep or
-  signed out happens once, as soon as Backspace is running again. With this
-  off, a run more than 10 minutes late is skipped.
+- **Run only while on AC power**: a run due on battery waits until the
+  computer is plugged in; a run that is going stops if it switches to battery.
+- **Run only while on an unmetered connection**: the same for a metered
+  connection (a phone's hotspot, a capped mobile plan). It concerns only the
+  backup's cloud and network destinations (cloud, SFTP, S3, a network share):
+  a destination on this computer (a folder or an external drive) never waits
+  for the network. A network share reached through a VPN such as Tailscale
+  over a metered connection counts as metered, the safe answer.
 
-A run that is due but waiting for power, a network or an unmetered
-connection starts as soon as the condition is met. A scheduled run stopped by
-one of them (battery, metered connection) is due again and starts once the
-condition is met. A backup never overlaps itself: if it is still running when
-its next run is due, the next is skipped.
+They apply to the backup, its cleanup and its checks. A check can have its
+own instead: untick **Same conditions as the backup** in its entry.
+
+There is no setting for the internet. A backup with a destination on this
+computer and one in the cloud backs up the local one on schedule, even when
+the cloud can't be reached: offline for a week, the drive still gets each
+day's backup. Its cloud part waits, and runs on its own as soon as the
+network allows: when the connection comes back or stops being metered
+(Windows tells Backspace at once). A network destination that can't be
+reached although the network seems fine is tried again when the network
+changes, or a day later, never in a loop. A backup whose destinations are all
+in the cloud simply waits for the network.
+
+A run missed while the computer was off, asleep or signed out happens once,
+as soon as Backspace is running again. A backup never overlaps itself: if it
+is still running when its next run is due, the next is skipped.
 
 ### Simultaneous backups
 
@@ -731,8 +740,9 @@ each answering one question:
 
 A backup's checks are a list in **Edit → Schedule → Checks**: one entry per
 check, each with its own frequency (after each backup, daily, weekly, monthly
-or yearly), time of day and conditions (**Wait for AC power**, **Wait for an
-internet connection**, **Run missed checks as soon as possible**). **+
+or yearly) and time of day. It follows the backup's conditions, unless you
+untick **Same conditions as the backup** to give it its own (**Run only while
+on AC power**, **Run only while on an unmetered connection**). **+
 Structure check**, **+ Data check** and **+ Restore check** add one;
 **Remove** removes it. Cleanup (removing old copies and freeing their space)
 stays its own setting above, under **Cleanup**.

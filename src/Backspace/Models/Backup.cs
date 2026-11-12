@@ -39,9 +39,25 @@ public sealed class Backup : IJsonOnDeserialized
     /// (cloud, S3, a network share or a UNC path). A destination that can't
     /// be found counts as needing it, which is the safe side (U044).</summary>
     public bool NeedsNetwork(System.Collections.Generic.IEnumerable<Destination> destinations) =>
-        Targets.Any(t => destinations.FirstOrDefault(d => d.Id == t.DestinationId) is not { } d
-            || d.Kind is not (DestinationKind.LocalFolder or DestinationKind.ExternalDrive)
-            || (d.PathOrSubpath ?? "").StartsWith(@"\\", StringComparison.Ordinal));
+        Targets.Any(t => TargetNeedsNetwork(t, destinations));
+
+    /// <summary>Every destination is reached over the network: with none on
+    /// this computer, the backup has nothing to do offline or on a metered
+    /// connection (U226).</summary>
+    public bool OnlyNetwork(System.Collections.Generic.IEnumerable<Destination> destinations) =>
+        Targets.Count > 0 && Targets.All(t => TargetNeedsNetwork(t, destinations));
+
+    public static bool TargetNeedsNetwork(BackupTarget target, System.Collections.Generic.IEnumerable<Destination> destinations) =>
+        destinations.FirstOrDefault(d => d.Id == target.DestinationId) is not { } d || DestinationNeedsNetwork(d);
+
+    /// <summary>Cloud, S3, SFTP and network shares (a UNC path) need the network.</summary>
+    public static bool DestinationNeedsNetwork(Destination d) =>
+        d.Kind is not (DestinationKind.LocalFolder or DestinationKind.ExternalDrive)
+        || (d.PathOrSubpath ?? "").StartsWith(@"\\", StringComparison.Ordinal);
+
+    /// <summary>"destination id/storage name": how a waiting destination is named (U226).</summary>
+    public static string TargetKey(string destinationId, string? storageName) =>
+        destinationId + "/" + (string.IsNullOrEmpty(storageName) ? "default" : storageName).ToLowerInvariant();
 
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
@@ -270,9 +286,10 @@ public sealed class Backup : IJsonOnDeserialized
     /// backup's and its checks' and cleanup's runs.</summary>
     public bool AbortOnMeteredNetwork { get; set; } = true;
 
-    /// <summary>Don't start on a metered connection: the backup, its checks
-    /// and cleanup wait for an unmetered one (U220: a wait and a stop, as for
-    /// the battery).</summary>
+    /// <summary>Don't start on a metered connection: the backup's network
+    /// destinations, its checks and cleanup wait for an unmetered one. Set
+    /// with <see cref="AbortOnMeteredNetwork"/> as one setting, "Run only
+    /// while on an unmetered connection" (U226).</summary>
     public bool WaitForUnmeteredNetwork { get; set; } = true;
 
     // ---- advanced options (collapsed by default in the UI) ----

@@ -39,7 +39,7 @@ public sealed class TestRestoreJournalTests
             Assert.True(service.IsRunning(backup.Id));
             Assert.Empty(Directory.GetFiles(root, "*.json"));
             var notice = Assert.Single(FileAccessRetry.Snapshot(), n => n.Path == lockPath);
-            Assert.Equal("Waiting to start Test restore", notice.Title);
+            Assert.Equal("Waiting to start the restore check", notice.Title);
             if (cancel) notice.StopCommand.Execute(null); else held.Dispose();
             await session.Completion.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
             Dispatcher.UIThread.RunJobs();
@@ -129,7 +129,7 @@ public sealed class TestRestoreJournalTests
     {
         var huge = new RevisionFile("large", 5_000_000_000, DateTime.UnixEpoch);
         Assert.Empty(TestRestoreContext.SelectSample(new[] { huge }, 1, 100, _ => DateTime.MinValue));
-        Assert.Contains("larger than the test restore's limit", TestRestoreContext.NothingFits(1024L * 1024 * 1024));
+        Assert.Contains("larger than the restore check's limit", TestRestoreContext.NothingFits(1024L * 1024 * 1024));
         Assert.Contains("1 GiB", TestRestoreContext.NothingFits(1024L * 1024 * 1024));
         var empty = Enumerable.Range(0, 100).Select(i => new RevisionFile("empty-" + i, 0, DateTime.UnixEpoch)).ToArray();
         Assert.Equal(5, TestRestoreContext.SelectSample(empty, 5, 100, _ => DateTime.MinValue).Count);

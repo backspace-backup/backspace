@@ -718,15 +718,24 @@ only those files has no vault, and the first save asks for a password.
    never starts while its previous run goes on. `SchedulePlan.From` lists each backup and its optional check
    and prune cadence. `ScheduleState` saves each plan's next due time beside the
    settings (`schedule-state.json`), so a slot missed while the computer was off
-   or Backspace was not running runs once afterwards ("catch up missed runs";
-   with it off, a slot more than 10 minutes late is passed over). New and
+   or Backspace was not running runs once afterwards (always, U226). New and
    changed schedules start from their next time; disabled and snoozed backups
    pass over their slots. The start is recorded before the run, so a crash or
    Quit never repeats a slot; slots that pass during a long run are skipped, so
    a plan never overlaps itself. Runs ending on their own threads save their
    outcome under the loop's lock, reading the state file again each time.
    A due plan waits while it is blocked (battery, a network
-   it needs, Quit) and then runs once. The execution time limit and "stop on
+   it needs, Quit) and then runs once. Conditions (U226, `ScheduleConditions`):
+   "Run only while on AC power" and "Run only while on an unmetered connection",
+   each a wait and a stop, the backup's for its checks and cleanup unless a
+   check has `OwnConditions`; the network ones only for runs whose destinations
+   all need the network. A backup's network destinations that its run left
+   waiting (`CellOutcome.WaitingFor`: unmetered, connection, reachable) are kept
+   in the entry's `Pending` beside its regular time and run on their own
+   (`SchedulePlan.OnlyTargets`, `ScheduledRuns`, the worker's
+   `BACKSPACE_ONLY_TARGETS`) once not blocked; unreachable ones only after
+   Windows reports a network change (`ScheduleLoop.NetworkChanged`) or a day.
+   A mixed backup's metered watchdog stops only its network destination's cell. The execution time limit and "stop on
    battery" cancel a running plan. Between runs the loop sleeps until the next
    due time (U185). On Windows `ScheduleSignals` wakes it when the power source
    changes or the computer wakes from sleep (power notifications with a

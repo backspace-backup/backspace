@@ -237,6 +237,7 @@ internal sealed class SystemBackupService : ServiceBase
         // Power, network, and the window's settings and Quit state changing
         // wake it (U185); otherwise it sleeps until the next due time.
         ScheduleSignals.Changed += loop.Wake;
+        ScheduleSignals.NetworkChanged += loop.NetworkChanged;
         ScheduleSignals.Start(ServicePortableLayout.Config(_installation));
         return loop.RunAsync(_stop.Token);
     }
@@ -429,7 +430,8 @@ internal sealed class SystemBackupService : ServiceBase
 
     /// <param name="checkId">The one check entry its schedule runs (U179);
     /// null runs every check of the backup (the owner's command line).</param>
-    private WorkerRun StartWorker(ServiceHostRequest request, ServiceRunAuthorization.AuthorizedRun approved, string? checkId = null)
+    private WorkerRun StartWorker(ServiceHostRequest request, ServiceRunAuthorization.AuthorizedRun approved, string? checkId = null,
+        IReadOnlyList<string>? onlyTargets = null)
     {
         var run = new WorkerRun(Guid.NewGuid().ToString("N"))
         {
@@ -443,6 +445,8 @@ internal sealed class SystemBackupService : ServiceBase
         // now and the command line are the owner's (U173).
         start.Environment[ServiceApprovedWorker.AutomaticRunVariable] = IsAutomatic(request) ? "1" : "0";
         start.Environment[ServiceApprovedWorker.CheckIdVariable] = checkId ?? "";
+        // Only the network destinations that waited (U226).
+        start.Environment[ScheduledRuns.OnlyTargetsVariable] = onlyTargets is null ? "" : string.Join("|", onlyTargets);
         // The run's identity is the worker's revision: its reason file is named after it.
         foreach (var argument in new[] { request.Command == "start-cli" ? "--service-worker-cli" : "--service-worker-owned",
             run.RunId, request.BackupId!, request.Operation! })
@@ -640,7 +644,7 @@ internal sealed class SystemBackupService : ServiceBase
             if (Busy(plan.Backup.Id)) return false;
             var operation = plan.Kind.ToString().ToLowerInvariant();
             var approved = SystemServiceRuns.Authorize(_installation, plan.Backup.Id, operation, ownerCommand: false);
-            run = StartWorker(new ServiceHostRequest(1, "scheduled", null, plan.Backup.Id, operation), approved, plan.Check?.Id);
+            run = StartWorker(new ServiceHostRequest(1, "scheduled", null, plan.Backup.Id, operation), approved, plan.Check?.Id, plan.OnlyTargets);
             exited = run.Exited?.Task ?? Task.CompletedTask;
         }
         // A time limit or battery stops the worker, then waits for it. When
@@ -654,6 +658,16 @@ internal sealed class SystemBackupService : ServiceBase
         // The worker succeeded: not run again for a condition that began
         // after it (U185).
         lock (_gate) if (run.Result == 0) ScheduleLoop.ReportCompleted();
+        // Network destinations it left waiting run once the network allows (U226).
+        if (plan.Kind == ScheduledTaskKind.Backup && run.SavedHistoryId is { } historyId)
+        {
+            try
+            {
+                ScheduledRuns.ReportWaiting(new LogStore(Path.Combine(_binding.DataDirectory, "logs", "engine"))
+                    .LoadHistoryByBackupId(plan.Backup.Id).FirstOrDefault(r => r.Id == historyId));
+            }
+            catch (Exception ex) { AppLogger.For<SystemBackupService>().Warning(ex, "Could not read which destinations wait for the network"); }
+        }
         return true;
     }
 

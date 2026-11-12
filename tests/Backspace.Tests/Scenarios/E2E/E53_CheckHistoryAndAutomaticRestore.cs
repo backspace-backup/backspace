@@ -143,7 +143,7 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
             // U205: followed and stopped on the card; Verify waits for it.
             var entry = main.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Verify"));
             Assert.False(entry.IsEnabled);
-            Assert.Contains("A test restore is running", ToolTip.GetTip(entry)?.ToString());
+            Assert.Contains("A restore check is running", ToolTip.GetTip(entry)?.ToString());
             Assert.True(main.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "StopButton").IsEffectivelyVisible);
             Assert.DoesNotContain(ServiceLocator.ActiveRestores.Sessions, s => s.IsTestRestore);
             // Since U179 the test restore after each backup is its own check
@@ -183,7 +183,7 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
         Assert.False(ServiceLocator.TestRestores.IsRunning(saved.Id));
         var interrupted = ServiceLocator.Logs.LoadTimelineByBackupId(saved.Id).First(r => r.Kind == RunKind.TestRestore);
         Assert.Equal(BackupRunStatus.Skipped, interrupted.Status);
-        Assert.Contains("cancelled", interrupted.Summary);
+        Assert.Contains("stopped before it finished", interrupted.Summary);
         Assert.True(interrupted.TriggeredAutomatically);
         Assert.True(ServiceLocator.Config.Current.Backups.Single().LastVerifyPass);
         for (var n = 0; n < 100 && cards.Cards.Single().VerifyClass != "stale"; n++) await ctx.Driver.PumpAsync(10);

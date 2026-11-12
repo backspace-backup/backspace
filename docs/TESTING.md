@@ -129,12 +129,14 @@ VM: a valid request starts the real worker, concurrent and stale requests fail,
 and the authenticated credential endpoint can open the existing service vault.
 Those checks do not substitute for installer, upgrade or desktop acceptance.
 
+`ScheduleNetworkConditionsTests` (U226) drives the loop with a local and a cloud destination: offline or metered for days, the local one runs on schedule and the cloud one runs alone once the network allows; an unreachable one is retried only after a network change or a day; checks follow their backup's conditions unless they have their own. `OrchestratorNetworkDestinationsTests` runs a real orchestration: on a metered connection or offline the local destination is backed up and the cloud one is skipped and named as waiting; a backup to local folders only never watches the connection.
+
 `BackupSchedulerTests` drives the shared schedule loop (tray app and service)
 with a fake clock and runner: one run at the due time and none before, idle
 sleep up to the next run (at most a day with Windows' notifications, U185:
 a wake-up looks again at once; a change to the settings file or the Quit
 state wakes it; Windows accepts the power notifications), one catch-up after missed slots
-(none when catch-up is off and the slot is over 10 minutes late), state kept
+(always, U226), state kept
 across restarts so a run is not repeated, waiting for battery, network and
 Quit then running once, disabled and snoozed backups passing over their slot,
 a changed time taking effect without running early, no overlap with slots
@@ -849,7 +851,7 @@ older scenario comments that describe broader coverage.
 | Stop-on-battery → run stops | Actual unregistered Windows task setting both on/off; no battery transition during a running task | ⛔ OS acceptance |
 | Require-network → run skips when offline | Actual unregistered Windows task network setting both on/off; no machine connectivity change or registered-task execution | ⛔ OS acceptance |
 | Metered-network watchdog stops mid-run | `RuntimeGuardCoverageTests`: actual backup/prune/check orchestration, injected metered signal after first cell starts, cancellation/persistence and opt-out negatives. `WindowsMeteredNetworkProbeTests` reads the real Windows network cost API (every connected profile must parse to a valid cost type) and checks that the change subscription is released when the watchdog stops. A real metered connection is not exercised automatically | ✅ injected signal + real API read |
-| Catch-up missed runs after sleep | `BackupSchedulerTests` with a fake clock, catch-up on and off and across restarts; no real sleep/resume or reboot | ⛔ OS acceptance |
+| Catch-up missed runs after sleep | `BackupSchedulerTests` with a fake clock, catch-up across restarts; no real sleep/resume or reboot | ⛔ OS acceptance |
 | Headless `--run <name>` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): existing option-shaped name `-h`, real snapshot and both files verified by SHA-256; missing backup exits 2. `DirectBackupTests.A_scheduled_backup_runs_restic_and_keeps_its_records`: two runs with cleanup, restic under Backspace | ✅ isolated local repository |
 | Headless `--run-all` | [Actual published workflows](../audit-dashboard/evidence/packaged-workflows-final/report.html): both enabled/unpaused backups run; paused and disabled repositories remain untouched | ✅ isolated local repositories |
 | Schedule fires at the configured time | `BackupSchedulerTests` and `RuntimeGuardCoverageTests`: daily, hourly, weekly and monthly next times, per-kind runs and conditions with a fake clock; real timing is the VM's check | ⛔ OS acceptance |

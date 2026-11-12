@@ -115,6 +115,9 @@ internal static class ServiceApprovedWorker
             var notifications = new ServiceNotificationQueue(binding.DataDirectory);
             ServiceLocator.Notifier.DurableDelivery = notice => { notifications.Add(notice); return Task.CompletedTask; };
             var backup = ServiceLocator.Config.Current.Backups.Single(b => b.Id == run.Backup.Id);
+            // A scheduled run of the network destinations that waited (U226).
+            if (Environment.GetEnvironmentVariable(ScheduledRuns.OnlyTargetsVariable) is { Length: > 0 } only && run.Kind == RunKind.Backup)
+                backup = ScheduledRuns.ForTargets(backup, only.Split('|', StringSplitOptions.RemoveEmptyEntries));
             await using var activity = activityOutput is not null
                 ? new ServiceWorkerActivity(activityOutput, backupId, ServiceLocator.Progress, ServiceLocator.Orchestrator, ServiceLocator.Engine) : null;
             var result = run.Kind switch

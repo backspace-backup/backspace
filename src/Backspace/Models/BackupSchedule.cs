@@ -55,9 +55,20 @@ public sealed class BackupSchedule
 
     /// <summary>
     /// If the scheduled run was missed (PC off/asleep), run it as soon as the PC wakes.
-    /// Maps to StartWhenAvailable in Task Scheduler.
+    /// Always on since U226 (owner: "Who would not want that?"); kept for
+    /// older settings files, no longer read.
     /// </summary>
     public bool CatchUpMissedRuns { get; set; } = true;
+
+    /// <summary>A check's own conditions instead of its backup's (U226: "By
+    /// default inherit from backup but allow overrides"). Then
+    /// <see cref="SkipOnBattery"/> and <see cref="UnmeteredOnly"/> are this
+    /// check's.</summary>
+    public bool OwnConditions { get; set; }
+
+    /// <summary>A check's own "Run only while on an unmetered connection",
+    /// with <see cref="OwnConditions"/>.</summary>
+    public bool UnmeteredOnly { get; set; } = true;
 
     /// <summary>
     /// Pause all runs until this UTC time (user-initiated "snooze"). Task remains

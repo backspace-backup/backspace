@@ -54,6 +54,11 @@ public sealed partial class BackupOrchestrator
     private readonly NotificationService _notify;
     private readonly BackupProgressService _progress;
     internal Func<MeteredNetworkWatchdog> MeteredWatchdogFactory { get; init; } = static () => new();
+
+    /// <summary>Whether the connection is metered as a run starts each network
+    /// destination (U226). Set by tests; the real check asks Windows.</summary>
+    internal Func<bool>? MeteredOverride { get; set; }
+    private bool MeteredNow() => MeteredOverride?.Invoke() ?? ScheduleConditions.Metered();
     private static ILogger _log => AppLogger.For<BackupOrchestrator>();
 
     public BackupOrchestrator(

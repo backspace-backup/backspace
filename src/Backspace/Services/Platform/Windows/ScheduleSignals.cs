@@ -35,6 +35,10 @@ internal static class ScheduleSignals
     /// <summary>Something the schedule depends on changed.</summary>
     public static event Action? Changed;
 
+    /// <summary>A network appeared, went or changed (U226): destinations that
+    /// couldn't be reached are tried again.</summary>
+    public static event Action? NetworkChanged;
+
     private static readonly object Gate = new();
     private static bool _started;
     // Kept alive for as long as the process: Windows calls them.
@@ -73,14 +77,14 @@ internal static class ScheduleSignals
         catch (Exception ex) { log.Warning(ex, "Power notifications are unavailable; the daily look covers them"); }
         try
         {
-            System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += (_, _) => Raise("network availability");
-            System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += (_, _) => Raise("network address");
+            System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += (_, _) => Raise("network availability", network: true);
+            System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += (_, _) => Raise("network address", network: true);
         }
         catch (Exception ex) { log.Warning(ex, "Network notifications are unavailable; the daily look covers them"); }
         try
         {
             _cost = new NetworkCostInterop.NetworkInformation();
-            _costSubscription = _cost.SubscribeNetworkStatusChanged(() => Raise("network status"));
+            _costSubscription = _cost.SubscribeNetworkStatusChanged(() => Raise("network status", network: true));
         }
         catch (Exception ex) { log.Warning(ex, "Metered-connection notifications are unavailable; the daily look covers them"); }
         try
@@ -112,8 +116,10 @@ internal static class ScheduleSignals
         return watch;
     }
 
-    private static void Raise(string why)
+    private static void Raise(string why, bool network = false)
     {
+        try { if (network) NetworkChanged?.Invoke(); }
+        catch (Exception ex) { AppLogger.For(nameof(ScheduleSignals)).Debug(ex, "A network listener failed after {Why}", why); }
         try { Changed?.Invoke(); }
         catch (Exception ex) { AppLogger.For(nameof(ScheduleSignals)).Debug(ex, "A schedule listener failed after {Why}", why); }
     }
