@@ -612,16 +612,18 @@
               </TextBox>
               <TextBlock Classes="helper"
                          Text="Find this under your project’s Settings → API Access on healthchecks.io."/>
-              <!-- Green when the key works, red when it doesn't (U208). -->
-              <StackPanel Name="HealthchecksStatusRow" Orientation="Horizontal" Spacing="6"
-                          IsVisible="{Binding HealthchecksStatus, Converter={x:Static vm:NotEmpty.To}}">
-                <PathIcon Classes="status-icon ok" Width="15" Height="15" VerticalAlignment="Top" IsVisible="{Binding HealthchecksStatusOk}"/>
-                <PathIcon Classes="status-icon fail" Width="15" Height="15" VerticalAlignment="Top" IsVisible="{Binding !HealthchecksStatusOk}"/>
-                <TextBlock Name="HealthchecksStatusText" FontSize="13" TextWrapping="Wrap" MaxWidth="560" Text="{Binding HealthchecksStatus}"
-                           Foreground="{DynamicResource BS.Brush.Success}" IsVisible="{Binding HealthchecksStatusOk}"/>
-                <TextBlock Name="HealthchecksProblemText" FontSize="13" TextWrapping="Wrap" MaxWidth="560" Text="{Binding HealthchecksStatus}"
-                           Foreground="{DynamicResource BS.Brush.Danger}" IsVisible="{Binding !HealthchecksStatusOk}"/>
-              </StackPanel>
+              <!-- Green when the key works, red when it doesn't (U208): the
+                   notice the Backups page uses, its round glyph centred on the text. -->
+              <Border Name="HealthchecksStatusRow" Classes="notice" Classes.ok="{Binding HealthchecksStatusOk}" Classes.fail="{Binding !HealthchecksStatusOk}"
+                      IsVisible="{Binding HealthchecksStatus, Converter={x:Static vm:NotEmpty.To}}">
+                <Grid ColumnDefinitions="Auto,12,*" VerticalAlignment="Center">
+                  <Border Grid.Column="0" Classes="notice-glyph">
+                    <PathIcon Classes="status-icon" Classes.ok="{Binding HealthchecksStatusOk}" Classes.fail="{Binding !HealthchecksStatusOk}"/>
+                  </Border>
+                  <TextBlock Grid.Column="2" Name="HealthchecksStatusText" Classes="body" VerticalAlignment="Center" TextWrapping="Wrap"
+                             Text="{Binding HealthchecksStatus}"/>
+                </Grid>
+              </Border>
             </StackPanel>
             <StackPanel Grid.Column="2" Spacing="6">
               <TextBlock Classes="label-caps" Text="BASE URL (SELF-HOSTED ONLY)"/>

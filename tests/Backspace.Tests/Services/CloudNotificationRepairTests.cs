@@ -253,6 +253,11 @@ public sealed class CloudNotificationRepairTests
         calls.Clear();
         await service.EnsureChecksAsync(default);
         Assert.Empty(calls);
+        // U211 ("Why always on start?"): a new start, a new service, remembers
+        // what was sent through the settings and sends nothing either.
+        var restarted = new HealthcheckService(setup.Config, setup.Secrets, client);
+        await restarted.EnsureChecksAsync(default);
+        Assert.Empty(calls);
         // The quiet period becomes 45 days: both checks follow, with 7 days of grace.
         setup.Config.Update(c => c.Backups.Single(x => x.Id == backup.Id).SkipNotificationGraceDays = 45);
         await service.EnsureChecksAsync(default);

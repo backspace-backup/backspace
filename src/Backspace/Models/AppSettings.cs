@@ -218,6 +218,12 @@ public sealed class MonitoringSettings
     /// <summary>Project ID or "" for personal project.</summary>
     public string HealthchecksProject { get; set; } = "";
 
+    /// <summary>What was last sent to each of Backspace's checks (its name,
+    /// tags, period and grace), by check id. A start compares the settings
+    /// with it and sends nothing when they match (U211, owner, 12 November
+    /// 2026: "Why always on start?").</summary>
+    public Dictionary<string, string> HealthchecksSynced { get; set; } = new();
+
     // ---- local watchdog ----
 
     /// <summary>

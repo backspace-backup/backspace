@@ -79,18 +79,21 @@ public sealed class S77_SettingsOrderAndUpdateBadge : ScenarioBase
                 main.Settings.HealthchecksStatusOk = ok;
                 main.Settings.HealthchecksStatus = text;
                 await ctx.Driver.PumpAsync(200);
-                var good = settings.FindControl<TextBlock>("HealthchecksStatusText")!;
-                var bad = settings.FindControl<TextBlock>("HealthchecksProblemText")!;
-                Assert.Equal(ok, good.IsEffectivelyVisible);
-                Assert.Equal(!ok, bad.IsEffectivelyVisible);
-                var shown = ok ? good : bad;
-                Assert.True(host.TryFindResource(ok ? "BS.Brush.Success" : "BS.Brush.Danger", host.ActualThemeVariant, out var brush));
-                Assert.Equal(((Avalonia.Media.ISolidColorBrush)brush!).Color, ((Avalonia.Media.ISolidColorBrush)shown.Foreground!).Color);
+                // U208: the same notice as the Backups page, green or red, its
+                // round glyph centred on the text.
+                var row = settings.FindControl<Border>("HealthchecksStatusRow")!;
+                var shown = settings.FindControl<TextBlock>("HealthchecksStatusText")!;
+                Assert.True(row.IsEffectivelyVisible);
+                Assert.Equal(ok, row.Classes.Contains("ok")); Assert.Equal(!ok, row.Classes.Contains("fail"));
+                Assert.True(host.TryFindResource(ok ? "BS.Brush.BandOkBg" : "BS.Brush.BandFailBg", host.ActualThemeVariant, out var brush));
+                Assert.Equal(((Avalonia.Media.ISolidColorBrush)brush!).Color, ((Avalonia.Media.ISolidColorBrush)row.Background!).Color);
+                var glyph = row.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("notice-glyph"));
+                Assert.True(Math.Abs((glyph.Bounds.Center.Y) - (shown.Bounds.Center.Y)) <= 1, "The glyph must be centred on the text.");
                 shown.BringIntoView();
                 await ctx.Driver.PumpAsync(200);
                 ctx.Snapshot(host, label, ok
-                    ? "Settings › Watchdog: a green check and \"The key works. Created a Healthchecks.io check for 4 backups.\" in green."
-                    : "Settings › Watchdog: a red mark and the refused key's message in red.");
+                    ? "Settings › Watchdog: a green notice, its round check centred on \"The key works. Created a Healthchecks.io check for 4 backups.\", like the Backups page's notices."
+                    : "Settings › Watchdog: a red notice, its round cross centred on the refused key's message.");
             }
             main.Settings.HealthchecksStatus = "";
             watchdog.IsExpanded = false;

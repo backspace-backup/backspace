@@ -271,6 +271,7 @@ public sealed class HealthcheckService
                 return;
             }
             var deleted = await DeleteCheckAsync(uuid!, ct).ConfigureAwait(false);
+            if (deleted) _config.Update(c => c.Monitoring.HealthchecksSynced.Remove(uuid!));
             _log.Information(deleted ? "Removed the Healthchecks.io check of removed backup {Backup}" : "Healthchecks.io refused to remove the check of removed backup {Backup}", backup.Name);
         }
         catch (Exception ex) { _log.Warning(ex, "Could not remove the Healthchecks.io check of removed backup {Backup}", backup.Name); }
@@ -563,17 +564,17 @@ public sealed class HealthcheckService
             if (!Guid.TryParse(uuid, out _)) continue;
             var desired = Desired(backup, forChecks);
             var fingerprint = $"{uuid}|{desired.Name}|{desired.Tags}|{desired.Timeout}|{desired.Grace}";
-            if (_synced.TryGetValue(uuid!, out var last) && last == fingerprint) continue;
+            if (_config.Current.Monitoring.HealthchecksSynced.TryGetValue(uuid!, out var last) && last == fingerprint) continue;
             try
             {
                 var tags = await TagsAsync(uuid!, apiKey, ct).ConfigureAwait(false);
                 if (tags is null) continue;
-                if (!tags.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("backspace")) { _synced[uuid!] = fingerprint; continue; }
+                if (!tags.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("backspace")) { Remember(uuid!, fingerprint); continue; }
                 using var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/api/v3/checks/{uuid}");
                 req.Headers.Add("X-Api-Key", apiKey);
                 req.Content = JsonContent.Create(desired, options: Json);
                 using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-                if (resp.IsSuccessStatusCode) _synced[uuid!] = fingerprint;
+                if (resp.IsSuccessStatusCode) Remember(uuid!, fingerprint);
                 else _log.Warning("Healthchecks.io refused to update a check of {Backup} (HTTP {Status})", backup.Name, (int)resp.StatusCode);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -581,7 +582,10 @@ public sealed class HealthcheckService
         }
     }
 
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _synced = new();
+    /// <summary>Kept in the settings, so a start sends nothing unless a
+    /// setting changed while Backspace was closed (U211).</summary>
+    private void Remember(string uuid, string fingerprint) =>
+        _config.Update(c => c.Monitoring.HealthchecksSynced[uuid] = fingerprint);
 
     /// <summary>The UUID at the end of a ping address.</summary>
     internal static string? Uuid(string? pingUrl)
