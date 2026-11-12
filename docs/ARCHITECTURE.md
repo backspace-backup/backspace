@@ -140,8 +140,8 @@ command. Its schedule state, run status, worker logs and history are in
 its copy of the vault key are in the owner's `%LOCALAPPDATA%\Backspace`
 (U153). The service's security descriptor lets the owner query, start and stop it.
 
-`SystemBackupService` reads the owner's `config.json` as saved, every minute
-and before each run (`SystemServiceRuns`): there is no approval record and no
+`SystemBackupService` reads the owner's `config.json` as saved, when it
+changes (a folder watch) and before each run (`SystemServiceRuns`): there is no approval record and no
 settings task. Whoever can change those settings can already replace
 `Backspace.exe`, which the service runs as Windows; the user guide says so.
 With the service set up it runs every backup; nothing is left to the tray
@@ -727,9 +727,15 @@ only those files has no vault, and the first save asks for a password.
    outcome under the loop's lock, reading the state file again each time.
    A due plan waits while it is blocked (battery, a network
    it needs, Quit) and then runs once. The execution time limit and "stop on
-   battery" cancel a running plan. Between runs the loop only sleeps until the
-   next due time, at most a minute so that sleep, hibernation and clock changes
-   are noticed; a saved change wakes it.
+   battery" cancel a running plan. Between runs the loop sleeps until the next
+   due time (U185). On Windows `ScheduleSignals` wakes it when the power source
+   changes or the computer wakes from sleep (power notifications with a
+   callback, no window needed, so in the service too), when the network or its
+   cost changes, and when the settings file or the Quit state changes on disk;
+   with those, the longest sleep is a day (`ScheduleConditions.LongestSleep`),
+   a safety look for a missed notification. Unreadable settings are looked at
+   again each minute. Elsewhere it still looks every minute (planned: event
+   based on macOS and Linux).
    Who runs the loop: `DesktopSchedule` in the tray app, in process, through
    the orchestrator like Run now, unless the background service owns the
    schedule; then `SystemBackupService` runs it with the saved settings.

@@ -228,10 +228,18 @@ internal sealed class SystemBackupService : ServiceBase
     }
 
     // Due plans start together (U156); the limits decide who waits.
-    private Task ScheduleAsync() => new ScheduleLoop(new(Path.Combine(_binding.DataDirectory, "schedule-state.json"),
-        SchedulePlans, RunScheduledAsync, plan => ScheduleConditions.Blocked(plan, _scheduleDestinations,
-            ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable, ScheduleConditions.Metered), ScheduleConditions.OnBattery,
-        MaxParallel: () => MaxWorkers, Metered: ScheduleConditions.Metered)).RunAsync(_stop.Token);
+    private Task ScheduleAsync()
+    {
+        var loop = new ScheduleLoop(new(Path.Combine(_binding.DataDirectory, "schedule-state.json"),
+            SchedulePlans, RunScheduledAsync, plan => ScheduleConditions.Blocked(plan, _scheduleDestinations,
+                ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable, ScheduleConditions.Metered), ScheduleConditions.OnBattery,
+            MaxSleep: ScheduleConditions.LongestSleep, MaxParallel: () => MaxWorkers, Metered: ScheduleConditions.Metered));
+        // Power, network, and the window's settings and Quit state changing
+        // wake it (U185); otherwise it sleeps until the next due time.
+        ScheduleSignals.Changed += loop.Wake;
+        ScheduleSignals.Start(ServicePortableLayout.Config(_installation));
+        return loop.RunAsync(_stop.Token);
+    }
 
     /// <summary>Started for the owner's command after Quit (U180): no schedule.
     /// Stops once the command's runs are over and nothing ran for a moment.

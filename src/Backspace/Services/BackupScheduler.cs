@@ -202,6 +202,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     private readonly Dictionary<string, string> _waiting = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task> _running = new(StringComparer.Ordinal);
     private TimeSpan MaxSleep => options.MaxSleep ?? TimeSpan.FromMinutes(1);
+    private TimeSpan RetrySleep => MaxSleep < TimeSpan.FromMinutes(1) ? MaxSleep : TimeSpan.FromMinutes(1);
     private DateTime Now() => options.UtcNow?.Invoke() ?? DateTime.UtcNow;
     private static Serilog.ILogger Log => AppLogger.For<ScheduleLoop>();
 
@@ -222,7 +223,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
                 var sleep = MaxSleep;
                 try { sleep = await TickAsync(stop).ConfigureAwait(false); }
                 catch (OperationCanceledException) when (stop.IsCancellationRequested) { return; }
-                catch (Exception ex) { Log.Warning(ex, "Checking scheduled backups failed; trying again shortly"); }
+                catch (Exception ex) { Log.Warning(ex, "Checking scheduled backups failed; trying again shortly"); sleep = RetrySleep; }
                 if (sleep <= TimeSpan.Zero) continue;
                 try { await _wake.WaitAsync(sleep, stop).ConfigureAwait(false); }
                 catch (OperationCanceledException) { return; }
@@ -242,7 +243,9 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     /// awaited, unless <see cref="Options.MaxParallel"/> allows more.</summary>
     internal async Task<TimeSpan> TickAsync(CancellationToken stop)
     {
-        if (options.Plans() is not { } plans) return MaxSleep;
+        // Settings unreadable or not yet approved: an unusual state, looked at
+        // again each minute rather than once a day.
+        if (options.Plans() is not { } plans) return RetrySleep;
         var parallel = Math.Max(1, options.MaxParallel?.Invoke() ?? 1);
         ScheduleState state;
         DateTime now;
@@ -478,6 +481,13 @@ internal static class ScheduleConditions
         try { return System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable(); }
         catch (System.Net.NetworkInformation.NetworkInformationException) { return true; }
     }
+
+    /// <summary>How long the schedule sleeps at most between two looks (U185).
+    /// On Windows it wakes for its next due time and for power, network and
+    /// settings changes (ScheduleSignals), so a look a day only catches a
+    /// missed notification. Elsewhere it still looks every minute (planned:
+    /// event-based on macOS and Linux too).</summary>
+    internal static TimeSpan LongestSleep => OperatingSystem.IsWindows() ? TimeSpan.FromDays(1) : TimeSpan.FromMinutes(1);
 
     internal static bool OnBattery()
     {

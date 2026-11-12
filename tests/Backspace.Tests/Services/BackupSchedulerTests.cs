@@ -531,4 +531,66 @@ public sealed class BackupSchedulerTests : IDisposable
         backup.Targets.Clear();
         Assert.Equal("", NetworkSharePath.ServiceSignInNotice(config));
     }
+
+    /// <summary>U185 (owner, 12 November 2026: "make it event based"): with a
+    /// day as its longest sleep, the schedule sleeps exactly until its next
+    /// due time, a day while a plan waits for its conditions, and a wake-up
+    /// (power, network, settings) makes it look again at once.</summary>
+    [Fact]
+    public async Task The_schedule_sleeps_until_it_is_due_or_woken()
+    {
+        var backup = Daily();
+        var loop = new ScheduleLoop(new(_state,
+            () => SchedulePlan.From(new AppConfig { Backups = [backup] }),
+            async (plan, ct) => { _runs.Add((plan.Backup.Name, plan.Kind, _now)); await _work(ct); return true; },
+            plan => _blocked ?? ScheduleConditions.Blocked(plan, [], () => _battery, () => !_offline),
+            () => _battery, () => _now, TimeSpan.FromDays(1), TimeSpan.FromMilliseconds(20)));
+        // 19:00, due at 20:00: it sleeps one hour, not a minute.
+        Assert.Equal(TimeSpan.FromHours(1), await loop.TickAsync(default));
+        // Due but waiting for its conditions: it sleeps until woken (or a day).
+        _now = Local(4, 20, 0);
+        _blocked = "the computer is on battery";
+        Assert.Equal(TimeSpan.FromDays(1), await loop.TickAsync(default));
+        Assert.Empty(_runs);
+
+        // The loop itself: a wake-up makes it look again at once.
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var running = loop.RunAsync(stop.Token);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+        Assert.Empty(_runs);
+        _blocked = null; // on AC power again
+        loop.Wake();
+        for (var i = 0; i < 100 && _runs.Count == 0; i++) await Task.Delay(20, TestContext.Current.CancellationToken);
+        Assert.Single(_runs);
+        stop.Cancel();
+        await running;
+    }
+
+#if WINDOWS
+    /// <summary>U185: the background service reads the window's settings
+    /// file, so a change there (or to the Quit state) wakes its schedule.</summary>
+    [Fact]
+    public async Task A_settings_change_wakes_the_schedule()
+    {
+        using var ws = new TempWorkspace("schedule-signals");
+        var folder = ws.Sub("Backspace.config");
+        var woken = 0;
+        using var watch = Backspace.Services.Platform.Windows.ScheduleSignals.WatchSettings(folder, () => Interlocked.Increment(ref woken))!;
+        File.WriteAllText(Path.Combine(folder, "unrelated.txt"), "x");
+        await Task.Delay(300, TestContext.Current.CancellationToken);
+        Assert.Equal(0, Volatile.Read(ref woken));
+        File.WriteAllText(Path.Combine(folder, "config.json"), "{}");
+        for (var i = 0; i < 100 && Volatile.Read(ref woken) == 0; i++) await Task.Delay(20, TestContext.Current.CancellationToken);
+        Assert.True(Volatile.Read(ref woken) > 0);
+        var before = Volatile.Read(ref woken);
+        File.WriteAllText(Path.Combine(folder, "task-pause-ABC.json"), "{}");
+        for (var i = 0; i < 100 && Volatile.Read(ref woken) == before; i++) await Task.Delay(20, TestContext.Current.CancellationToken);
+        Assert.True(Volatile.Read(ref woken) > before);
+
+        // Windows accepts the power notifications (AC/battery and waking
+        // from sleep), with callbacks that need no window.
+        Backspace.Services.Platform.Windows.ScheduleSignals.Start(folder);
+        Assert.Equal(((uint)0, (uint)0), Backspace.Services.Platform.Windows.ScheduleSignals.PowerRegistration);
+    }
+#endif
 }

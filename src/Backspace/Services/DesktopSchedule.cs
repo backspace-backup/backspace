@@ -38,9 +38,18 @@ internal static class DesktopSchedule
         if (_loop is not null) return;
         // Due backups start together; the limits decide who waits (U156).
         _loop = new ScheduleLoop(new(StatePath, Plans, RunAsync, Blocked, ScheduleConditions.OnBattery,
+            MaxSleep: ScheduleConditions.LongestSleep,
             MaxParallel: () => Models.BackupLimits.Maximum, Metered: ScheduleConditions.Metered));
         TaskSchedulerService.Changed += _loop.Wake;
         ServiceLocator.Config.Changed += (_, _) => _loop.Wake();
+#if WINDOWS
+        // Power, network and settings changes wake it (U185).
+        if (OperatingSystem.IsWindows())
+        {
+            Platform.Windows.ScheduleSignals.Changed += _loop.Wake;
+            Platform.Windows.ScheduleSignals.Start(AppPaths.ConfigRoot);
+        }
+#endif
         _ = Task.Run(() => _loop.RunAsync(_stop.Token));
         _ = Task.Run(Housekeeping);
     }
