@@ -126,8 +126,19 @@ public sealed partial class BackupOrchestrator
     /// <summary>Why a check can't reach this destination now, or null: a
     /// drive not connected or not the expected one, a network share offline
     /// (U174). The check then waits for the next backup there.</summary>
-    private async Task<string?> UnavailableForCheckAsync(Destination dest, string sourcePath, string storageName, CancellationToken ct)
+    /// <param name="backup">With it, a network destination also waits while
+    /// there is no network, or the connection is metered and the check runs
+    /// only on an unmetered one (U226): a check of a backup with a local
+    /// destination then still checks the local one.</param>
+    private async Task<string?> UnavailableForCheckAsync(Destination dest, string sourcePath, string storageName, CancellationToken ct,
+        Backup? backup = null, BackupCheck? check = null)
     {
+        if (backup is not null && Backup.DestinationNeedsNetwork(dest))
+        {
+            if (!NetworkAvailableNow()) return "Waits for a network connection; it runs right after the next backup there.";
+            var unmeteredOnly = check?.Schedule is { OwnConditions: true } own ? own.UnmeteredOnly : backup.WaitForUnmeteredNetwork;
+            if (unmeteredOnly && MeteredNow()) return "Waits for an unmetered connection; it runs right after the next backup there.";
+        }
         if (dest.IsLocalLike && VolumeDetector.Check(dest.ExpectedDriveLetter, dest.ExpectedVolumeLabel) is { Verdict: not VolumeDetector.Verdict.Mounted } volume)
             return volume.Detail;
         return await ProbeReachabilityAsync(dest, sourcePath, storageName, ct).ConfigureAwait(false) is { Status: BackupRunStatus.Skipped } offline
@@ -302,7 +313,7 @@ public sealed partial class BackupOrchestrator
                         // A check of a drive that is not connected (or a share
                         // offline) waits for the next backup there (U174),
                         // rather than failing and waiting a whole schedule.
-                        if (kind == RunKind.Check && await UnavailableForCheckAsync(dest, src, target.StorageName, linked.Token) is { } unavailable)
+                        if (kind == RunKind.Check && await UnavailableForCheckAsync(dest, src, target.StorageName, linked.Token, backup, check) is { } unavailable)
                         {
                             _log.Information("{Check} of {Dest} waits for the destination: {Detail}", action, dest.Name, unavailable);
                             AddOutcome(aggregate, src, dest.Name, target.StorageName, BackupRunStatus.Skipped, unavailable);
@@ -488,7 +499,7 @@ public sealed partial class BackupOrchestrator
                     $"Destination id={target.DestinationId} no longer exists. Backup needs reconfiguration.");
                 continue;
             }
-            if (await UnavailableForCheckAsync(dest, source, target.StorageName, linked.Token).ConfigureAwait(false) is { } unavailable)
+            if (await UnavailableForCheckAsync(dest, source, target.StorageName, linked.Token, backup, check).ConfigureAwait(false) is { } unavailable)
             {
                 AddOutcome(aggregate, source, dest.Name, target.StorageName, BackupRunStatus.Skipped, unavailable);
                 aggregate.Cells[^1].DestinationUnavailable = true;

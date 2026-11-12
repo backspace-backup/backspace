@@ -158,7 +158,9 @@ public sealed class MaintenanceOutcomeTests
         fixture.Orchestrator.NetworkAvailableOverride = () => false;
         var lost = await fixture.Run(kind);
         Assert.Equal(BackupRunStatus.Skipped, lost.Status);
-        Assert.StartsWith("The connection was lost; it runs again once the connection is back.", Assert.Single(lost.Cells).Summary);
+        // Skipped, not failed, and run again once the connection is back. A check
+        // sees there is no network before it starts (U226).
+        Assert.Matches(@"^(The connection was lost; it runs again once the connection is back\.|Waits for a network connection)", Assert.Single(lost.Cells).Summary);
         fixture.Orchestrator.NetworkAvailableOverride = () => true;
         var real = await fixture.Run(kind);
         Assert.Equal(BackupRunStatus.Failed, real.Status);

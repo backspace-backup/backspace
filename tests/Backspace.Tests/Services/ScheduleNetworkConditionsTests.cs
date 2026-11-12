@@ -135,6 +135,19 @@ public sealed class ScheduleNetworkConditionsTests : IDisposable
     }
 
     [Fact]
+    public void A_check_of_a_backup_with_a_local_destination_is_not_held_back_by_the_network()
+    {
+        var mixed = Daily(_drive, _cloud);
+        mixed.Checks.Add(new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Weekly } });
+        var check = SchedulePlan.From(new AppConfig { Backups = [mixed], Destinations = [_drive, _cloud] }).Single(p => p.Kind == ScheduledTaskKind.Check);
+        Assert.Null(ScheduleConditions.Blocked(check, [_drive, _cloud], () => false, () => false, () => true));
+        var cloudOnly = Daily(_cloud);
+        cloudOnly.Checks.Add(new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Weekly } });
+        var cloudCheck = SchedulePlan.From(new AppConfig { Backups = [cloudOnly], Destinations = [_drive, _cloud] }).Single(p => p.Kind == ScheduledTaskKind.Check);
+        Assert.Equal("no network connection", ScheduleConditions.Blocked(cloudCheck, [_drive, _cloud], () => false, () => false, () => false));
+    }
+
+    [Fact]
     public async Task A_missed_run_always_runs_as_soon_as_possible()
     {
         var backup = Daily(_drive);

@@ -81,6 +81,27 @@ public sealed class OrchestratorNetworkDestinationsTests
     }
 
     [Fact]
+    public async Task Offline_a_check_checks_the_local_destination_and_the_cloud_waits_for_the_next_backup_there()
+    {
+        using var workspace = new TempWorkspace();
+        var drive = new Destination { Name = "Drive", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("drive") };
+        var cloud = new Destination { Name = "Cloud", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"\\?\" + workspace.Sub("cloud") };
+        var backup = new Backup { Name = "Mixed", UseVss = false, VssDisabledAcknowledged = true, SourcePaths = { workspace.Sub("source") },
+            Targets = { new() { DestinationId = drive.Id }, new() { DestinationId = cloud.Id } } };
+        var (orchestrator, _, _, _) = Setup(workspace, backup, drive, cloud);
+        orchestrator.MeteredOverride = () => false;
+        orchestrator.NetworkAvailableOverride = () => true;
+        await orchestrator.RunBackupAsync(backup, CancellationToken.None);
+        orchestrator.NetworkAvailableOverride = () => false;
+        var record = await orchestrator.RunCheckAsync(backup, new BackupCheck { Kind = CheckKind.Structure }, CancellationToken.None);
+        Assert.Equal(BackupRunStatus.Success, Assert.Single(record.Cells, c => c.DestinationName == "Drive").Status);
+        var waiting = Assert.Single(record.Cells, c => c.DestinationName == "Cloud");
+        Assert.Equal(BackupRunStatus.Skipped, waiting.Status);
+        Assert.True(waiting.DestinationUnavailable);
+        Assert.StartsWith("Waits for a network connection", waiting.Summary);
+    }
+
+    [Fact]
     public async Task On_an_unmetered_connection_both_run()
     {
         using var workspace = new TempWorkspace();

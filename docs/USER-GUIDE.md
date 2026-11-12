@@ -191,7 +191,9 @@ network allows: when the connection comes back or stops being metered
 (Windows tells Backspace at once). A network destination that can't be
 reached although the network seems fine is tried again when the network
 changes, or a day later, never in a loop. A backup whose destinations are all
-in the cloud simply waits for the network.
+in the cloud simply waits for the network. Checks work the same way: a
+check of a backup with a local destination checks it, and its network
+destinations wait for the next backup there.
 
 A run missed while the computer was off, asleep or signed out happens once,
 as soon as Backspace is running again. A backup never overlaps itself: if it

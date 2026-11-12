@@ -583,11 +583,14 @@ internal static class ScheduleConditions
         ? plan.Schedule.UnmeteredOnly : plan.Backup.WaitForUnmeteredNetwork;
 
     /// <summary>Everything this run does is over the network. A backup's run
-    /// of its waiting destinations counts only those; checks and cleanup
-    /// cover every destination of the backup, so one network destination is enough.</summary>
+    /// of its waiting destinations counts only those. A check also checks
+    /// its local destinations while the network ones wait for the next backup
+    /// there (U174, U226); cleanup covers every destination, so one network
+    /// destination is enough to wait.</summary>
     internal static bool UsesOnlyNetwork(SchedulePlan plan, IEnumerable<Destination> destinations)
     {
-        if (plan.Kind != ScheduledTaskKind.Backup) return plan.Backup.NeedsNetwork(destinations);
+        if (plan.Kind == ScheduledTaskKind.Prune) return plan.Backup.NeedsNetwork(destinations);
+        if (plan.Kind == ScheduledTaskKind.Check) return plan.Backup.OnlyNetwork(destinations);
         var targets = plan.OnlyTargets is { } only
             ? plan.Backup.Targets.Where(t => only.Contains(Backup.TargetKey(t.DestinationId, t.StorageName))).ToList()
             : plan.Backup.Targets;
