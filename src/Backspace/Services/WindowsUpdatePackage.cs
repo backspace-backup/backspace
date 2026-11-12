@@ -98,7 +98,7 @@ internal static class WindowsUpdatePackage
     {
         root = Path.GetFullPath(root);
         RejectReparse(root);
-        var parent = Path.Combine(root, ".backspace-updates");
+        var parent = WindowsUpdateRuntime.UpdatesFolder(root);
         Directory.CreateDirectory(parent); RejectReparse(parent);
         var work = Path.Combine(parent, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(work);
@@ -366,7 +366,7 @@ internal static class WindowsUpdatePackage
         var root = Path.GetFullPath(plan.Root);
         var parent = plan.ServiceUpdate
             ? Path.Combine(root, AppPaths.AppFolderName, "windows-service", "control", "updates")
-            : Path.Combine(root, ".backspace-updates");
+            : WindowsUpdateRuntime.UpdatesFolder(root);
         if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(plan.Work)), parent, StringComparison.OrdinalIgnoreCase)
             || !Guid.TryParseExact(Path.GetFileName(plan.Work), "N", out _) || !IsProgramFile(plan.ExeName)
             || !plan.ExeName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)

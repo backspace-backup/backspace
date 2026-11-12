@@ -129,7 +129,7 @@ internal static class InstallationHandover
                 Directory.Delete(target, recursive: true);
             }
             MoveDirectory(ServicePortableLayout.Config(from), target);
-            foreach (var name in new[] { "Backspace.exe", "restic.exe", "rclone.exe", WindowsUpdateRuntime.GateName })
+            foreach (var name in new[] { "Backspace.exe", "restic.exe", "rclone.exe" })
                 try { File.Delete(Path.Combine(from, name)); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             try { if (!Directory.EnumerateFileSystemEntries(from).Any()) Directory.Delete(from); } catch (IOException) { }
             var signIn = SignInStart.Create();

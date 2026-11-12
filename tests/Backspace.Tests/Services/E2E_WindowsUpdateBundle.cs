@@ -32,7 +32,7 @@ public sealed class E2E_WindowsUpdateBundle
         // A genuine release WinExe must fail before touching config or
         // starting its GUI. The old launcher returned zero immediately.
         using var busy = WindowsUpdateRuntime.AcquireShared(root, TimeSpan.Zero);
-        var launcher = Directory.GetFiles(root, "Backspace-recovery-*.cmd").Single();
+        var launcher = Path.Combine(plan.Work, "Recover Backspace.cmd");
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe")
         {
             UseShellExecute = false, CreateNoWindow = true,

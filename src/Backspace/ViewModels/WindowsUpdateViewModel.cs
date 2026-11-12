@@ -99,9 +99,9 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
         try
         {
             var latest = DateTime.MinValue;
-            foreach (var parent in new[] { AppContext.BaseDirectory, Path.Combine(AppContext.BaseDirectory, AppPaths.AppFolderName) })
+            foreach (var parent in new[] { WindowsUpdateRuntime.UpdatesFolder(AppContext.BaseDirectory) })
             {
-                var result = Path.Combine(parent, ".backspace-updates", "result.json");
+                var result = Path.Combine(parent, "result.json");
                 if (!File.Exists(result) || new FileInfo(result).Length > 16384) continue;
                 using var doc = JsonDocument.Parse(File.ReadAllText(result));
                 if (!doc.RootElement.TryGetProperty("at", out var at) || !at.TryGetDateTime(out var date) || date < latest) continue;

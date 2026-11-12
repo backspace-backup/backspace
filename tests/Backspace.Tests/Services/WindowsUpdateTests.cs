@@ -253,8 +253,32 @@ public sealed class WindowsUpdateTests
             var release = WindowsUpdatePackage.ParseRelease(ReleaseJson(size: size), new Version(1, 0))!;
             await Assert.ThrowsAsync<InvalidDataException>(() => WindowsUpdatePackage.DownloadAsync(http, release, exe, null, default));
             Assert.Equal("old application", File.ReadAllText(exe));
-            Assert.Empty(Directory.GetDirectories(Path.Combine(root, ".backspace-updates")));
+            Assert.Empty(Directory.GetDirectories(WindowsUpdateRuntime.UpdatesFolder(root)));
         }
+    }
+
+    /// <summary>U218 (owner, 12 November 2026): "we should only ever have
+    /// Backspace.exe and Backspace.config. No clutter, even temporarily."
+    /// A whole update, with the gate held and its recovery launcher written,
+    /// leaves nothing else beside the app.</summary>
+    [Fact]
+    public void An_update_leaves_only_the_app_and_Backspace_config_beside_it()
+    {
+        using var ws = new TempWorkspace(); var root = ws.Sub("app");
+        var plan = Prepare(root);
+        File.Delete(Path.Combine(root, "personal-notes.txt"));
+        using (var gate = WindowsUpdateRuntime.AcquireShared(root, TimeSpan.Zero))
+        {
+            Assert.NotNull(gate);
+            WindowsUpdateRuntime.WriteRecoveryLauncher(plan);
+            WindowsUpdatePackage.Install(plan, _ => { });
+            WindowsUpdateRuntime.WriteResult(root, "Updated.", true);
+            Assert.Equal(new[] { "Backspace.config" }, Directory.GetDirectories(root).Select(Path.GetFileName));
+            Assert.Equal(new[] { "Backspace.exe", "new-library.dll", "rclone.exe", "restic.exe" }, Directory.GetFiles(root).Select(Path.GetFileName).Order());
+        }
+        Assert.True(WindowsUpdateRuntime.MayReplaceIn(root));
+        Assert.False(WindowsUpdateRuntime.MayReplaceIn(Path.Combine(root, "missing")));
+
     }
 
     [Fact]
@@ -275,6 +299,31 @@ public sealed class WindowsUpdateTests
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(response) });
     }
 
+    /// <summary>U218: a process that dies holding the gate (a crash, a power
+    /// cut) leaves nothing stale: Windows releases its mutex and the update
+    /// can go ahead at once. A lock file could not promise that.</summary>
+    [Fact]
+    public async Task A_process_killed_while_holding_the_gate_never_blocks_an_update()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var ws = new TempWorkspace(); var root = ws.Sub("app");
+        var ready = Path.Combine(root, "ready");
+        static string Q(string s) => "'" + s.Replace("'", "''") + "'";
+        var script = "$m=[Threading.Mutex]::new($false," + Q(RuntimeGate.SlotName(root, 0)) + "); [void]$m.WaitOne(0); [IO.File]::WriteAllText("
+            + Q(ready) + ",'ready'); Start-Sleep -Seconds 60";
+        var start = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true };
+        start.ArgumentList.Add("-NoProfile"); start.ArgumentList.Add("-EncodedCommand");
+        start.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
+        using var child = Process.Start(start)!;
+        for (var i = 0; i < 200 && !File.Exists(ready) && !child.HasExited; i++) await Task.Delay(50);
+        Assert.True(File.Exists(ready), "The child did not take the gate.");
+        Assert.Null(WindowsUpdateRuntime.TryExclusive(root));
+        child.Kill(); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20));
+        using (var writer = WindowsUpdateRuntime.TryExclusive(root)) Assert.NotNull(writer);
+        // And nothing was written for it: the folder holds only the test's marker.
+        Assert.Equal(new[] { "ready" }, Directory.GetFileSystemEntries(root).Select(Path.GetFileName));
+    }
+
     [Fact]
     public async Task Another_real_process_prevents_replacement_until_it_exits()
     {
@@ -282,10 +331,10 @@ public sealed class WindowsUpdateTests
         using var ws = new TempWorkspace(); var root = ws.Sub("app");
         var ready = Path.Combine(root, "ready"); var done = Path.Combine(root, "done");
         static string Q(string s) => "'" + s.Replace("'", "''") + "'";
-        var script = "$f=[IO.File]::Open(" + Q(Path.Combine(root, WindowsUpdateRuntime.GateName))
-            + ",[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::Read,[IO.FileShare]::Read); try { [IO.File]::WriteAllText("
+        // U218: another process owns a slot mutex, as Backspace does while it runs.
+        var script = "$m=[Threading.Mutex]::new($false," + Q(RuntimeGate.SlotName(root, 0)) + "); [void]$m.WaitOne(0); try { [IO.File]::WriteAllText("
             + Q(ready) + ",'ready'); $end=[DateTime]::UtcNow.AddSeconds(20); while(-not [IO.File]::Exists("
-            + Q(done) + ") -and [DateTime]::UtcNow -lt $end) { Start-Sleep -Milliseconds 50 } } finally { $f.Dispose() }";
+            + Q(done) + ") -and [DateTime]::UtcNow -lt $end) { Start-Sleep -Milliseconds 50 } } finally { $m.ReleaseMutex(); $m.Dispose() }";
         var start = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true };
         start.ArgumentList.Add("-NoProfile"); start.ArgumentList.Add("-EncodedCommand");
         start.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
@@ -307,7 +356,7 @@ public sealed class WindowsUpdateTests
     {
         using var ws = new TempWorkspace(); var root = ws.Sub("café 日本 & ! % ' (app)"); var plan = Prepare(root);
         WindowsUpdateRuntime.WriteRecoveryLauncher(plan);
-        var script = File.ReadAllText(Directory.GetFiles(root, "Backspace-recovery-*.cmd").Single());
+        var script = File.ReadAllText(Path.Combine(plan.Work, "Recover Backspace.cmd"));
         Assert.All(script, c => Assert.True(c < 128));
         var encoded = script.Split("-EncodedCommand ")[1].Split('\r')[0];
         var command = Encoding.Unicode.GetString(Convert.FromBase64String(encoded));
@@ -365,7 +414,7 @@ public sealed class WindowsUpdateTests
         WindowsUpdateRuntime.WriteRecoveryLauncher(old); WindowsUpdatePackage.Install(old, _ => { });
         var unfinished = WindowsUpdatePackage.CreateWorkDirectory(root);
         WindowsUpdatePackage.SavePlan(new WindowsUpdatePackage.Plan { Root = root, Work = unfinished, State = "Installing" });
-        var unknown = Path.Combine(root, ".backspace-updates", "personal-files"); Directory.CreateDirectory(unknown);
+        var unknown = Path.Combine(WindowsUpdateRuntime.UpdatesFolder(root), "personal-files"); Directory.CreateDirectory(unknown);
         File.WriteAllText(Path.Combine(unknown, "keep.txt"), "keep");
         var current = Prepare(root); WindowsUpdateRuntime.WriteRecoveryLauncher(current);
         WindowsUpdatePackage.Install(current, _ => { });
@@ -375,7 +424,9 @@ public sealed class WindowsUpdateTests
         Assert.True(File.Exists(Path.Combine(current.Work, "previous", "Backspace.exe")));
         Assert.False(File.Exists(Path.Combine(current.Work, "download.zip")));
         Assert.True(Directory.Exists(unfinished)); Assert.Equal("keep", File.ReadAllText(Path.Combine(unknown, "keep.txt")));
-        Assert.Single(Directory.GetFiles(root, "Backspace-recovery-*.cmd"));
+        Assert.True(File.Exists(Path.Combine(current.Work, "Recover Backspace.cmd")));
+        // U218: nothing beside the app but the app and Backspace.config.
+        Assert.Equal(new[] { "Backspace.config" }, Directory.GetDirectories(root).Select(Path.GetFileName));
     }
 
     [Fact]

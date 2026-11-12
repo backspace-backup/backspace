@@ -423,7 +423,7 @@ public class InteractionTests
             })
             .ToList();
 
-        foreach (var name in new[] { "Run now", "Restore files", "Test restore" })
+        foreach (var name in new[] { "Run now", "Restore files", "Verify" })
         {
             var hit = labelled.FirstOrDefault(x => string.Equals(x.Label?.Trim(), name, StringComparison.OrdinalIgnoreCase));
             Assert.True(hit is not null, $"BackupCard is missing the '{name}' button entirely.");

@@ -879,8 +879,9 @@ don't expose this signal.
 default, or daily, weekly or never, or manually. Read the release notes, skip a
 version, or download and restart when you're ready. Installation waits for
 active work, verifies the complete Windows bundle and keeps the portable
-configuration folder. A recovery launcher and the previous application files
-remain available if the new version won't start. Development builds and
+configuration folder. A recovery launcher (`Recover Backspace.cmd`) and the
+previous application files remain available in `Backspace.config/updates` if
+the new version won't start; nothing else is ever written beside the app. Development builds and
 folders without write access offer a manual download instead.
 
 ## Portability

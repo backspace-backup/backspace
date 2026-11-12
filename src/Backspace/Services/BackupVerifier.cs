@@ -76,9 +76,16 @@ public sealed class BackupVerifier
     /// a crashed unattended drill on the next launch.</summary>
     internal static readonly TimeSpan HeartbeatDeadCutoff = TimeSpan.FromMinutes(30);
 
+    /// <summary>Where a test restore puts its temporary recovered files: this
+    /// computer's engine folder (%LOCALAPPDATA%\Backspace\engine\…), never the
+    /// portable Backspace.config, which a sync app such as Dropbox uploads and
+    /// locks (U217: the owner saw "Waiting to remove temporary restore files"
+    /// for a copy under Backspace.config\verify). Disposable scratch.</summary>
+    internal static string VerifyRoot => Path.Combine(EngineWorkPaths.Root, "verify");
+
     public static void SweepStaleScratchDirs()
     {
-        var root = Path.Combine(AppPaths.ConfigRoot, "verify");
+        var root = VerifyRoot;
         if (!Directory.Exists(root)) return;
         // Heartbeat-aware sweep. The 24-hour mtime cutoff that was
         // here before code-review couldn't distinguish a slow cloud
@@ -615,13 +622,8 @@ public sealed class BackupVerifier
         // in the same second on the same backup doesn't collide
         // (each click gets its own dir; the second drill won't
         // clobber the first's in-flight files).
-        // Use the portable ConfigRoot so the verify scratch dir lives
-        // alongside the rest of the app's data — preserves the
-        // "everything under ConfigRoot" invariant on Linux/macOS
-        // (where LocalApplicationData resolves to ~/.local/share or
-        // ~/.config and breaks portable installs).
         var verifyRoot = Path.Combine(
-            AppPaths.ConfigRoot, "verify",
+            VerifyRoot,
             $"{backup.Id}-{started:yyyyMMddHHmmssfff}-{ShortId(dest.Id)}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(verifyRoot);
         using var scratchOwner = new FileStream(Path.Combine(verifyRoot, ".owner.lock"),

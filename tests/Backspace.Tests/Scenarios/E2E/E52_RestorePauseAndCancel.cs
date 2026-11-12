@@ -128,7 +128,7 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
         Click("Cancel"); await test.Completion.WaitAsync(deadline.Token); await ctx.Driver.PumpAsync(100);
         Assert.Equal(RestoreTerminalStatus.Cancelled, test.Status);
         Assert.Equal("cancelled", JsonSerializer.Deserialize<TestRestoreJournal>(File.ReadAllText(journalPath))!.State);
-        Assert.False(Directory.Exists(Path.Combine(AppPaths.ConfigRoot, "verify")) && Directory.GetDirectories(Path.Combine(AppPaths.ConfigRoot, "verify")).Length > 0);
+        Assert.False(Directory.Exists(BackupVerifier.VerifyRoot) && Directory.GetDirectories(BackupVerifier.VerifyRoot).Length > 0);
 
         // Exercise startup recovery with the saved paused journal, after the
         // prior owner has fully stopped. This is a fresh service, not a forced

@@ -32,7 +32,7 @@ public class ReviewRound3And4RegressionTests
             Environment.SetEnvironmentVariable("BACKSPACE_CONFIG_ROOT", tmp);
             AppPaths.EnsureAll();
 
-            var verifyRoot = Path.Combine(AppPaths.ConfigRoot, "verify");
+            var verifyRoot = BackupVerifier.VerifyRoot;
             Directory.CreateDirectory(verifyRoot);
 
             var inFlight = Path.Combine(verifyRoot, "active-drill");

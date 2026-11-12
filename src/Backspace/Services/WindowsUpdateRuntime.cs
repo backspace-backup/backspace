@@ -13,28 +13,18 @@ namespace Backspace.Services;
 internal static class WindowsUpdateRuntime
 {
     internal static WindowsUpdatePackage.Plan? Pending { get; set; }
-    internal const string GateName = ".backspace-runtime.lock";
+    /// <summary>Where updates are prepared, with their record and recovery
+    /// launcher: inside Backspace.config, never beside the app (U218, owner,
+    /// 12 November 2026: "No clutter, even temporarily").</summary>
+    internal static string UpdatesFolder(string root) => Path.Combine(root, AppPaths.AppFolderName, "updates");
 
-    internal static FileStream? AcquireShared(string root, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        do
-        {
-            try { return new FileStream(Path.Combine(root, GateName), FileMode.OpenOrCreate, FileAccess.Read, FileShare.Read); }
-            catch (UnauthorizedAccessException) { return null; } // Read-only installs cannot self-update.
-            catch (IOException) when (DateTime.UtcNow < deadline) { Thread.Sleep(100); }
-        } while (DateTime.UtcNow < deadline);
-        throw new IOException("Backspace is being updated. Please try opening it again in a moment.");
-    }
+    /// <summary>The gate every Backspace process of this copy holds while it
+    /// runs; an update or a recovery takes it alone. Throws when an update
+    /// holds it past the timeout.</summary>
+    internal static IDisposable? AcquireShared(string root, TimeSpan timeout) => RuntimeGate.Shared(root, timeout);
 
-    internal static FileStream? TryExclusive(string root)
-    {
-        // Exclusivity comes from FileShare.None. No lock-file content is ever
-        // written, including after service removal restores a read-only gate.
-        try { return new FileStream(Path.Combine(root, GateName), FileMode.OpenOrCreate, FileAccess.Read, FileShare.None); }
-        catch (IOException) { return null; }
-        catch (UnauthorizedAccessException) { return null; }
-    }
+    /// <summary>The gate alone, or null while another process of this copy runs.</summary>
+    internal static IDisposable? TryExclusive(string root) => RuntimeGate.Exclusive(root);
 
     internal static bool CanInstall(out string reason)
     {
@@ -49,12 +39,26 @@ internal static class WindowsUpdateRuntime
         try
         {
             WindowsUpdatePackage.RejectReparse(root); WindowsUpdatePackage.RejectReparse(exe);
-            var probe = Path.Combine(root, ".backspace-write-test-" + Guid.NewGuid().ToString("N"));
-            using (File.Create(probe)) { }
-            File.Delete(probe);
+            // Asks Windows whether files may be added and removed here, the
+            // way a replacement needs, without writing a probe beside the
+            // app (U218: only Backspace.exe and Backspace.config, ever).
+            if ((new FileInfo(exe).Attributes & FileAttributes.ReadOnly) != 0 || !MayReplaceIn(root)) throw new IOException();
             reason = ""; return true;
         }
         catch { reason = "Backspace cannot write to its folder. Move the portable app to a writable folder or update it manually."; return false; }
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+
+    /// <summary>Opens the folder asking for the rights to add files and remove
+    /// them (FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_DELETE_CHILD). Windows
+    /// checks the folder's access and creates nothing.</summary>
+    internal static bool MayReplaceIn(string folder)
+    {
+        if (!OperatingSystem.IsWindows()) return true;
+        using var handle = CreateFileW(folder, 0x2 | 0x4 | 0x40, 0x7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
+        return !handle.IsInvalid;
     }
 
     internal static void ApplyPendingAfterExit(bool enginesStopped)
@@ -87,7 +91,7 @@ internal static class WindowsUpdateRuntime
         catch (Exception ex) { message = ex.Message; }
         if (plan.State == "Installing")
         {
-            WriteResult(plan.Root, "The update could not finish or restore every file. Open the Backspace recovery launcher in this folder. " + message, false);
+            WriteResult(plan.Root, "The update could not finish or restore every file. Open \"Recover Backspace\" in " + plan.Work + ". " + message, false);
             return; // Never start a partially replaced bundle.
         }
         WriteResult(plan.Root, message, installed);
@@ -109,7 +113,7 @@ internal static class WindowsUpdateRuntime
                     WriteResult(plan.Root, "The updated app could not start. The previous version was restored. " + ex.Message, false);
                     Launch(Path.Combine(plan.Root, plan.ExeName));
                 }
-                catch (Exception rollback) { WriteResult(plan.Root, "Open the Backspace recovery launcher in this folder. " + rollback.Message, false); }
+                catch (Exception rollback) { WriteResult(plan.Root, "Open \"Recover Backspace\" in " + plan.Work + ". " + rollback.Message, false); }
             }
         }
     }
@@ -150,11 +154,6 @@ internal static class WindowsUpdateRuntime
                         || !old.Work.Equals(work, StringComparison.OrdinalIgnoreCase)) continue;
                     if (old.State is not ("Installed" or "RolledBack")) continue;
                     WindowsUpdatePackage.SafeRemoveWork(current.Root, work, serviceUpdate: current.ServiceUpdate, onFailure: onFailure);
-                    if (!current.ServiceUpdate && !Directory.Exists(work))
-                    {
-                        var launcher = Path.Combine(current.Root, "Backspace-recovery-" + Path.GetFileName(work) + ".cmd");
-                        if (File.Exists(launcher)) { WindowsUpdatePackage.RejectReparse(launcher); File.Delete(launcher); }
-                    }
                 }
                 catch (Exception ex) { onFailure?.Invoke(ex); /* Retain unverified work. */ }
             }
@@ -227,8 +226,8 @@ internal static class WindowsUpdateRuntime
         var script = "@echo off\r\nsetlocal DisableDelayedExpansion\r\n\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -EncodedCommand "
             + encoded + "\r\nset \"backspaceRecoveryExit=%ERRORLEVEL%\"\r\n"
             + "if not \"%backspaceRecoveryExit%\"==\"0\" pause\r\nexit /b %backspaceRecoveryExit%\r\n";
-        var launcherPath = plan.ServiceUpdate ? Path.Combine(plan.Work, "Recover Backspace.cmd")
-            : Path.Combine(plan.Root, "Backspace-recovery-" + Path.GetFileName(plan.Work) + ".cmd");
+        // With the update's other recovery data, never beside the app (U218).
+        var launcherPath = Path.Combine(plan.Work, "Recover Backspace.cmd");
         File.WriteAllText(launcherPath, script, System.Text.Encoding.ASCII);
     }
 
@@ -263,7 +262,7 @@ internal static class WindowsUpdateRuntime
 
     internal static bool RecoverInterruptedBeforeStartup(string root, string[] args)
     {
-        var parent = Path.Combine(root, ".backspace-updates");
+        var parent = UpdatesFolder(root);
         if (!Directory.Exists(parent)) return false;
         WindowsUpdatePackage.RejectReparse(parent);
         foreach (var work in Directory.EnumerateDirectories(parent))
@@ -297,11 +296,11 @@ internal static class WindowsUpdateRuntime
         return false;
     }
 
-    internal static void WriteResult(string root, string message, bool success, bool portableData = false)
+    internal static void WriteResult(string root, string message, bool success)
     {
         try
         {
-            var parent = Path.Combine(portableData ? Path.Combine(root, AppPaths.AppFolderName) : root, ".backspace-updates"); Directory.CreateDirectory(parent);
+            var parent = UpdatesFolder(root); Directory.CreateDirectory(parent);
             WindowsUpdatePackage.RejectReparse(parent);
             File.WriteAllText(Path.Combine(parent, "result.json"), JsonSerializer.Serialize(new { message, success, at = DateTime.UtcNow }));
         }
