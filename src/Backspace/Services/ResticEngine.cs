@@ -120,7 +120,7 @@ public sealed partial class ResticEngine : IBackupEngine
     internal static long DataCheckSampleBytes(long storedBytes, long? limit = null)
     {
         if (storedBytes < 0) throw new InvalidDataException("The engine reported an invalid stored-data size.");
-        if (limit is < 1) throw new ArgumentOutOfRangeException(nameof(limit), "A data sample's limit is at least one byte.");
+        if (limit is < 1) throw new ArgumentOutOfRangeException(nameof(limit), "A data check's sample is at least one byte.");
         return Math.Min(limit ?? BackupCheck.OneGiB, Math.Max(1, storedBytes / 100));
     }
 
@@ -137,10 +137,10 @@ public sealed partial class ResticEngine : IBackupEngine
             using var json = System.Text.Json.JsonDocument.Parse(text);
             if (!json.RootElement.TryGetProperty("total_size", out var size)) continue;
             if (found is not null || !size.TryGetInt64(out var value) || value < 0)
-                throw new InvalidDataException("The engine's stored-data size was invalid or ambiguous. No data sample was started.");
+                throw new InvalidDataException("The engine's stored-data size was invalid or ambiguous. No data check was started.");
             found = value;
         }
-        return found ?? throw new InvalidDataException("The engine did not return a stored-data size. No data sample was started.");
+        return found ?? throw new InvalidDataException("The engine did not return a stored-data size. No data check was started.");
     }
 
     /// <summary>How often a repository gets a full prune at the latest, for

@@ -138,9 +138,9 @@ public sealed partial class ResticEngine
             lineSink, ct, waitWhileLocked: LockWaitLimit, waiting: Waiting).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
         if (!stats.Succeeded)
-            throw new IOException("Could not determine the data-check sample size. No data sample was started. " + stats.ErrorText);
+            throw new IOException("Could not determine the data-check sample size. No data check was started. " + stats.ErrorText);
         if (stats.Output.Length > sizeLimit)
-            throw new IOException("The engine's size result was unexpectedly large. No data sample was started.");
+            throw new IOException("The engine's size result was unexpectedly large. No data check was started.");
         // The entry's own limit (U179), 1 GiB when it has none.
         var sampleBytes = DataCheckSampleBytes(ParseStoredDataSize(stats.Output), backup.DataCheckLimitBytes);
         Announce($"[backspace] Data check targets {sampleBytes:N0} bytes per repository; whole-pack sampling, metadata and retries can change actual traffic.", lineSink);
