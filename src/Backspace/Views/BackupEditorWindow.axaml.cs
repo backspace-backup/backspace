@@ -47,7 +47,15 @@ public partial class BackupEditorWindow : Window
         // (the live savings-estimate ticket) is reclaimed instead of
         // waiting for GC. Matches DestinationEditorWindow.
         Closed += (_, _) => _vm.Dispose();
+        // Closing with unsaved changes asks first (U206). What was there on
+        // opening is compared with what the editor would save now.
+        Opened += (_, _) => _opened ??= Fingerprint();
+        UnsavedChangesWindow.Guard(this, isNew ? "this new backup" : "this backup's settings",
+            () => _opened is not null && Fingerprint() != _opened, () => OnSave(this, new RoutedEventArgs()), () => SwitchToEasy);
     }
+
+    private string? _opened;
+    private string Fingerprint() => System.Text.Json.JsonSerializer.Serialize(_vm.BuildSnapshot());
 
     /// <summary>True when the user confirmed via "Save &amp; Run" rather
     /// than plain "Save". The parent <see cref="ViewModels.BackupsViewModel"/>
@@ -120,6 +128,7 @@ public partial class BackupEditorWindow : Window
             _vm.RunAfterSaveRequested = false;
             var saved = await _vm.SaveAsync(CancellationToken.None);
             if (saved is null) return;   // validation failed or user cancelled
+            UnsavedChangesWindow.MarkSaved(this);
             Close(saved);
         }
         catch (Exception ex)
@@ -137,6 +146,7 @@ public partial class BackupEditorWindow : Window
             var saved = await _vm.SaveAsync(CancellationToken.None);
             if (saved is null) return;
             RunAfterSave = true;
+            UnsavedChangesWindow.MarkSaved(this);
             Close(saved);
         }
         catch (Exception ex)

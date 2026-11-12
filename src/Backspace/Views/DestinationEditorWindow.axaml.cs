@@ -53,7 +53,13 @@ public partial class DestinationEditorWindow : Window
         {
             try { _vm.Dispose(); } catch { /* swallow shutdown errors */ }
         };
+        // Closing with unsaved changes asks first (U206).
+        Opened += (_, _) => _opened ??= _vm.InputFingerprint();
+        UnsavedChangesWindow.Guard(this, isNew ? "this new destination" : "this destination",
+            () => _opened is not null && _vm.InputFingerprint() != _opened, () => OnSave(this, new RoutedEventArgs()));
     }
+
+    private string? _opened;
 
     private void OnCancel(object? sender, RoutedEventArgs e) => Close(null);
 
@@ -70,6 +76,7 @@ public partial class DestinationEditorWindow : Window
                 var dlg = new GeneratedPasswordWindow(_vm.GeneratedStoragePassword!);
                 await dlg.ShowDialog(this);
             }
+            UnsavedChangesWindow.MarkSaved(this);
             Close(result);
         }
         catch (Exception ex)

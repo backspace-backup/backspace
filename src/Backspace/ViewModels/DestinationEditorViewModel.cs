@@ -83,6 +83,14 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     /// its setup first (U082).</summary>
     [ObservableProperty] private string _setupNotice = "";
 
+    /// <summary>What the person can change here, to tell whether closing
+    /// would discard something (U206). Statuses and checks are left out.</summary>
+    internal string InputFingerprint() => string.Join("\u001f", new object?[]
+    {
+        Name, Kind, PathOrSubpath, S3Endpoint, S3Region, S3Bucket, S3AccessKeyInput, S3SecretKeyInput,
+        NetworkUsername, NetworkPasswordInput, Encrypted, StoragePasswordInput, OAuthTokenInput, HasOAuthTokenStored,
+    });
+
     // Network
     [ObservableProperty] private string? _networkUsername;
     [ObservableProperty] private string _networkPasswordInput = "";

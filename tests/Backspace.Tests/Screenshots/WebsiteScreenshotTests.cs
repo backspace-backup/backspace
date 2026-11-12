@@ -174,8 +174,13 @@ public class WebsiteScreenshotTests : IDisposable
     public async Task Settings_screenshot_does_not_inherit_a_previous_restore_result()
     {
         await RestoreTestIsolation.ClearCompletedAsync(() => Avalonia.Threading.Dispatcher.UIThread.RunJobs());
-        var previous = ServiceLocator.ActiveRestores.BeginTest(
-            new Backup { Name = "Previous test" }, "Saved result", DateTime.UtcNow, null);
+        // A file restore's result: test restores aren't listed in Restores (U205).
+        var backup = new Backup { Name = "Previous test" };
+        var previous = ServiceLocator.ActiveRestores.Begin(backup, new RestoreRequest
+        {
+            Backup = backup, SourcePath = @"C:Source", Destination = new Destination { Name = "Archive" }, StorageName = "default",
+            Revision = 1, TargetPath = @"C:Restored",
+        });
         ServiceLocator.ActiveRestores.End(previous, RestoreTerminalStatus.Success, null);
         Assert.Contains(previous, ServiceLocator.ActiveRestores.Sessions);
         try

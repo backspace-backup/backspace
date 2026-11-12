@@ -3,6 +3,7 @@
 The [README](../README.md) gives the overview. This guide covers how each part
 of Backspace behaves, including its limits.
 
+- [Saving changes](#saving-changes)
 - [Destinations and cloud sign-in](#destinations-and-cloud-sign-in)
 - [Schedules, the tray icon and Quit](#schedules-the-tray-icon-and-quit)
 - [Administrator access and files in use](#administrator-access-and-files-in-use)
@@ -20,6 +21,19 @@ of Backspace behaves, including its limits.
 - [Portability](#portability)
 - [Importing from Duplicacy](#importing-from-duplicacy)
 - [Command line](#command-line)
+
+## Saving changes
+
+**Settings** has no Save button: each change is saved as you make it, and a
+small **Saved** shows at the bottom right of the page, wherever it is
+scrolled. If a change can't be saved, a red notice along the bottom says why
+and stays until a change is saved.
+
+The backup and destination editors save when you click **Save**. Closing one
+with changes not saved (its X, **Cancel** or Escape) asks **Save your
+changes?**: **Save** saves and closes, **Don't save** closes without them, and
+**Keep editing** returns to the editor. Closing an editor you didn't change
+doesn't ask.
 
 ## Destinations and cloud sign-in
 

@@ -14,6 +14,11 @@
        when the window was maximised. Padding ensures the
        scrollbar doesn't visually crowd the right edge of the
        cards. -->
+  <!-- U206 (owner, 12 November 2026): every change saves by itself, so
+       there is no Save button to forget. A small "Saved" shows at the
+       bottom right, wherever the page is scrolled; a failed save stays
+       there in red until a save works. -->
+  <Grid>
   <ScrollViewer VerticalScrollBarVisibility="Visible">
     <StackPanel Margin="32,4,32,32" Spacing="14" HorizontalAlignment="Stretch">
 
@@ -861,21 +866,25 @@
         </StackPanel>
       </Border>
 
-      <!-- Save. Grid, not horizontal StackPanel: "Save failed: …"
-           carries arbitrary exception text and must wrap instead of
-           clipping at the window edge. -->
-      <Grid ColumnDefinitions="Auto,12,*">
-        <Button Grid.Column="0" Classes="primary" Content="Save settings"
-                VerticalAlignment="Center" Command="{Binding SaveCommand}"/>
-        <!-- Visible feedback that the click did something. "Saved."
-             on success, "Save failed: ..." on exception. Empty until
-             the first save attempt. -->
-        <TextBlock Grid.Column="2" Classes="dim" FontSize="13" VerticalAlignment="Center"
-                   TextWrapping="Wrap"
-                   Text="{Binding SaveStatus}"
-                   IsVisible="{Binding SaveStatus, Converter={x:Static vm:NotEmpty.To}}"/>
-      </Grid>
-
     </StackPanel>
   </ScrollViewer>
+    <Border Name="SettingsSavedNotice" Classes="notice ok" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,40,20"
+            Padding="12,6" IsVisible="{Binding ShowsSaved}" IsHitTestVisible="False">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Border Classes="notice-glyph" Width="20" Height="20">
+          <PathIcon Classes="status-icon ok" Width="12" Height="12"/>
+        </Border>
+        <TextBlock Classes="body" VerticalAlignment="Center" Text="Saved"/>
+      </StackPanel>
+    </Border>
+    <Border Name="SettingsSaveFailed" Classes="notice fail" HorizontalAlignment="Stretch" VerticalAlignment="Bottom" Margin="32,0,40,20"
+            IsVisible="{Binding SaveStatus, Converter={x:Static vm:NotEmpty.To}}">
+      <Grid ColumnDefinitions="Auto,12,*" VerticalAlignment="Center">
+        <Border Grid.Column="0" Classes="notice-glyph">
+          <PathIcon Classes="status-icon fail"/>
+        </Border>
+        <TextBlock Grid.Column="2" Name="SettingsSaveFailedText" Classes="body" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding SaveStatus}"/>
+      </Grid>
+    </Border>
+  </Grid>
 </UserControl>

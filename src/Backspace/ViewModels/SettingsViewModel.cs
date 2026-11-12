@@ -79,7 +79,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         // Closing immediately after the click must see the new preference.
         // Keep other in-progress settings edits pending through the Changed event.
         ScheduleAutoSave();
-        ServiceLocator.Config.Update(c =>
+        Persist(c =>
         {
             c.Preferences.MinimizeToTrayOnClose = value;
             if (value) c.Preferences.ShowTrayIcon = true;
@@ -89,7 +89,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         OnPropertyChanged(nameof(QuitBehaviorExplanation));
         if (_suspendAutoSave) return;
-        ServiceLocator.Config.Update(c => c.Preferences.StartAtSignIn = value);
+        Persist(c => c.Preferences.StartAtSignIn = value);
         try
         {
             if (Environment.ProcessPath is { Length: > 0 } executable)
@@ -162,13 +162,13 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     partial void OnThemeChanged(AppTheme value)
     {
         if (_suspendAutoSave || _disposed) return;
-        ServiceLocator.Config.Update(cfg => cfg.Preferences.Theme = value);
+        Persist(cfg => cfg.Preferences.Theme = value);
     }
 
     partial void OnAccentChanged(AccentColor value)
     {
         if (_suspendAutoSave || _disposed) return;
-        ServiceLocator.Config.Update(cfg => cfg.Preferences.Accent = value);
+        Persist(cfg => cfg.Preferences.Accent = value);
     }
 
     // ---- custom rclone OAuth apps (per-provider client_id + secret) ----
@@ -515,14 +515,14 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         if (_suspendAutoSave || _disposed) return;
         var clamped = Math.Clamp(value, 1, BackupLimits.Maximum);
-        ServiceLocator.Config.Update(cfg => cfg.Limits.PerDestination = clamped);
+        Persist(cfg => cfg.Limits.PerDestination = clamped);
     }
 
     partial void OnBackupsInTotalChanged(int value)
     {
         if (_suspendAutoSave || _disposed) return;
         var clamped = Math.Clamp(value, 1, BackupLimits.Maximum);
-        ServiceLocator.Config.Update(cfg => cfg.Limits.Total = clamped);
+        Persist(cfg => cfg.Limits.Total = clamped);
     }
 
     // ---- logging ----
@@ -533,13 +533,13 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
     {
         if (_suspendAutoSave || _disposed) return;
         if (value < 1) value = 1;
-        ServiceLocator.Config.Update(cfg => cfg.Logging.RetentionDays = value);
+        Persist(cfg => cfg.Logging.RetentionDays = value);
     }
 
     partial void OnLogsVerboseChanged(bool value)
     {
         if (_suspendAutoSave || _disposed) return;
-        ServiceLocator.Config.Update(cfg => cfg.Logging.MinimumLevel = value ? "Verbose" : "Information");
+        Persist(cfg => cfg.Logging.MinimumLevel = value ? "Verbose" : "Information");
     }
 
     [RelayCommand]
@@ -593,15 +593,7 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         // the tray app and the service; the startup notes follow (U043).
         BackgroundBackups.PropertyChanged += OnBackgroundAccessChanged;
         _ = BackgroundBackups.RefreshAsync();
-        // Auto-save runs the persist logic SILENTLY — without flipping
-        // SaveStatus to "Saved." each time. Otherwise typing into a
-        // text field would re-render "Saved." after each edit,
-        // which read as "the app is
-        // doing something I should care about" rather than the
-        // intended invisible-by-default behaviour. The manual Save
-        // button (RelayCommand below) explicitly opts into the
-        // visible status line because that click is a user gesture
-        // they want feedback on.
+        // Every change saves by itself; there is no Save button (U206).
         _autoSaveDebouncer = new UiThreadDebouncer(() => SaveCore(silent: true), debounceMs: 800);
         Load();
         // Marshal to UI thread — Config.Changed fires synchronously on
@@ -684,10 +676,35 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
         OnUiThread(Load);
     }
 
+    /// <summary>Saves a setting that applies at once, and says so like the
+    /// others (U206).</summary>
+    private void Persist(Action<AppConfig> change)
+    {
+        try { ServiceLocator.Config.Update(change); SaveStatus = ""; ShowSaved(); }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Settings save failed");
+            ShowsSaved = false;
+            SaveStatus = "Settings weren't saved: " + ex.Message + " Your change is still shown; it is saved with the next change that works.";
+        }
+    }
+
+    /// <summary>"Saved", shown for a moment after each change is saved (U206).</summary>
+    [ObservableProperty] private bool _showsSaved;
+    private Avalonia.Threading.DispatcherTimer? _savedTimer;
+    private void ShowSaved()
+    {
+        if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) { Avalonia.Threading.Dispatcher.UIThread.Post(ShowSaved); return; }
+        ShowsSaved = true;
+        _savedTimer ??= new Avalonia.Threading.DispatcherTimer(TimeSpan.FromSeconds(1.5), Avalonia.Threading.DispatcherPriority.Background, (_, _) => { _savedTimer!.Stop(); ShowsSaved = false; });
+        _savedTimer.Stop(); _savedTimer.Start();
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        _savedTimer?.Stop();
         ServiceLocator.Config.Changed -= OnConfigChanged;
         SecretsStore.StateChanged -= OnVaultStateChanged;
         BackgroundBackups.PropertyChanged -= OnBackgroundAccessChanged;
@@ -993,18 +1010,13 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
                 MailProvider, MailFrom, MailToCount,
                 !string.IsNullOrWhiteSpace(ResendApiKey), !string.IsNullOrWhiteSpace(MailgunApiKey),
                 MailgunDomain, MailgunRegion);
-            // Only flip SaveStatus on a manual click — auto-save is
-            // invisible by design. A failure ALWAYS surfaces because
-            // silent failure is worse than a bit of UI noise.
-            // For silent saves we ALSO clear any previous status —
-            // otherwise a stale "Save failed: …" from an earlier
-            // manual click would persist forever even after the next
-            // auto-save fixed the underlying issue.
             _savedKeys = keys;
             // Healthchecks on with a key: each backup gets its check (U187).
             if (HealthchecksEnabled) _ = EnsureHealthchecksAsync();
-            if (!silent) SaveStatus = "Saved.";
-            else if (!string.IsNullOrEmpty(SaveStatus)) SaveStatus = "";
+            // A small "Saved" for a moment, wherever the page is scrolled,
+            // and a failure's notice goes once a save works (U206).
+            SaveStatus = "";
+            ShowSaved();
         }
         catch (Exception ex)
         {
@@ -1016,7 +1028,8 @@ public sealed partial class SettingsViewModel : ViewModelBase, IDisposable
             // ConfigStore.Update has already either committed or
             // failed atomically per its own contract.
             _log.Error(ex, "Settings save failed");
-            SaveStatus = "Save failed: " + ex.Message;
+            ShowsSaved = false;
+            SaveStatus = "Settings weren't saved: " + ex.Message + " Your change is still shown; it is saved with the next change that works.";
         }
         finally { _saving = false; }
     }
