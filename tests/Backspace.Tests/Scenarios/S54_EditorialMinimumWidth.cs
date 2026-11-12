@@ -77,7 +77,7 @@ public sealed class S54_EditorialMinimumWidth : ScenarioBase
             Assert.True(double.IsFinite(cluster.Bounds.Width) && cluster.Bounds.Width > 0);
             Assert.True(cluster.Bounds.Width < shelf.Bounds.Width - delete.Bounds.Width);
             var actions = shelf.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible).ToArray();
-            foreach (var expected in new[] { "Run now", "Restore files", "Test restore", "More" })
+            foreach (var expected in new[] { "Run now", "Restore files", "Verify", "More" })
                 Assert.Contains(actions, b => Label(b) == expected);
             if (cardVm.CanMountSnapshot) Assert.Contains(actions, b => Label(b) == "Unmount");
 

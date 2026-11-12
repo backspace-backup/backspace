@@ -298,6 +298,16 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         SelectedRun = History.FirstOrDefault();
     }
 
+    /// <summary>This backup's run going on now, live (U216): its running entry
+    /// when there is one, otherwise all current activity.</summary>
+    public void ShowLive(string backupId)
+    {
+        SelectBackupById(backupId);
+        ReloadHistoryForSelected();
+        SelectedRun = History.FirstOrDefault(r => r is { Status: BackupRunStatus.Running, EndedUtc: null });
+        SyncDisplay();
+    }
+
     /// <summary>A notification refers to its own run even if a newer run has finished.</summary>
     public async void SelectRunById(string backupId, string runId)
     {
@@ -320,6 +330,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     public LogsViewModel()
     {
         AppNavigator.RunDetailsRequested += SelectRunById;
+        AppNavigator.LiveRequested += ShowLive;
         _shownVerbose = VerboseLogFilter.IsVerboseOn();
         _refreshDebouncer = new UiThreadDebouncer(Refresh);
         Refresh();
@@ -686,6 +697,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
 #endif
         System.Threading.Interlocked.Increment(ref _logLoadGen);
         AppNavigator.RunDetailsRequested -= SelectRunById;
+        AppNavigator.LiveRequested -= ShowLive;
         ServiceLocator.Config.Changed -= OnConfigChanged;
         ServiceLocator.Engine.LineWritten -= OnLineWritten;
         ServiceLocator.Orchestrator.RunStarted -= OnOrchestratorRunStarted;

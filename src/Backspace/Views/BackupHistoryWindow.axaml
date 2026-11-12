@@ -13,7 +13,7 @@
     </StackPanel>
     <Grid Grid.Row="1" ColumnDefinitions="Auto,16,*" Margin="0,18">
       <ComboBox Name="HistoryFilter" ItemsSource="{Binding Filters}" SelectedItem="{Binding SelectedFilter}" MinWidth="180"/>
-      <TextBlock Grid.Column="2" Text="Newest first · saved history" Classes="dim" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="2" Text="Newest first · what runs now, then saved history" Classes="dim" VerticalAlignment="Center"/>
     </Grid>
     <Grid Grid.Row="2">
       <TextBlock IsVisible="{Binding IsEmpty}" Text="No saved activity in this view yet." Margin="0,24"/>
@@ -38,12 +38,21 @@
                       <Button Content="Files added" Classes="ghost" IsVisible="{Binding CanShowChanges}" Click="OnShowChanges"
                               ToolTip.Tip="Shows the files this backup added or changed, by folder"/>
                       <Button Content="Open log" Classes="ghost" IsVisible="{Binding HasLog}" Click="OnOpenLog"/>
+                      <!-- U216: the run going on now, live. -->
+                      <Button Name="OpenLiveButton" Content="Open live log" Classes="primary" IsVisible="{Binding IsLive}" Click="OnOpenLive"/>
                     </StackPanel>
                   </Grid>
                   <TextBlock Text="{Binding Timestamp}" Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
                   <TextBlock Text="{Binding Added}" IsVisible="{Binding HasAdded}" TextWrapping="Wrap" FontWeight="SemiBold"/>
                   <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="14"/>
-                  <TextBlock IsVisible="{Binding !HasLog}" Text="Detailed log unavailable; the saved result is kept here." Classes="dim" TextWrapping="Wrap"/>
+                  <TextBlock Text="Detailed log unavailable; the saved result is kept here." Classes="dim" TextWrapping="Wrap">
+                    <TextBlock.IsVisible>
+                      <MultiBinding Converter="{x:Static BoolConverters.And}">
+                        <Binding Path="!HasLog"/>
+                        <Binding Path="!IsLive"/>
+                      </MultiBinding>
+                    </TextBlock.IsVisible>
+                  </TextBlock>
                 </StackPanel>
               </Border>
             </DataTemplate>

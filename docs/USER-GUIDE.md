@@ -499,7 +499,9 @@ After a backup, its card's **Last backup** says when and how much was
 uploaded, for example **15m ago · 27.4 MB uploaded** (with the number of
 warnings, if any; a failed or skipped backup says why). Hovering it shows when
 it finished, how long it took, and how many files were new, changed and
-deleted; **Activity** lists them too.
+deleted; **Activity** lists them too. While a backup or a check runs, the
+card's **Activity** starts with it ("Running") and **Open live log**, which
+opens Activity & logs on its live output.
 
 While a backup runs, its card says **Running** with a turning icon and the
 time the run has taken so far, for example **Running · 12 min** (counted from
@@ -703,7 +705,8 @@ ticked, each with its latest result ("Passed 2d ago"), then other checks to
 run once without adding them to the backup: a structure check, a data sample,
 a test restore and a full data read. **Run** runs the ticked ones one after
 another; they show under Backup health like scheduled checks, and **Stop**
-ends them. A test restore run once lets you choose its scope:
+ends them. A test restore run once comes last, after the other ticked checks;
+you follow, pause or stop it in Restores, and choose its scope:
 
 - **Check a sample** defaults to 1% of the stored file sizes and a 1 GiB
   download budget. It uses the smaller limit, shared across source and

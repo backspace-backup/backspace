@@ -87,7 +87,7 @@ public sealed class E24_BackupCardActionShelf : BackupE2EBase
             ("Run now",       vm.RunNowCommand,       card),
             ("Edit",          vm.EditCommand,         card),
             ("Restore files", vm.RestoreFilesCommand, card),
-            ("Test restore",  vm.TestRestoreCommand,  card),
+            ("Verify",        vm.TestRestoreCommand,  card),
             ("Delete",        vm.DeleteCommand,       card),
             // CancelRun is only meaningful while IsRunning=true; the
             // shelf hides its button when idle, so its CanExecute is
@@ -136,7 +136,7 @@ public sealed class E24_BackupCardActionShelf : BackupE2EBase
             // has a healthy repo at this point and verify is
             // read-only — perfect place to confirm the verifier
             // wiring from the action shelf is healthy.
-            ("Test restore",  vm.TestRestoreCommand,  card),
+            ("Verify",        vm.TestRestoreCommand,  card),
         };
         foreach (var (label, cmd, param) in nonDestructive)
         {
@@ -150,16 +150,19 @@ public sealed class E24_BackupCardActionShelf : BackupE2EBase
                         ctx.Driver.Pump();
                         host.OwnedWindows.Single().Close(); // the editor, closed unsaved
                     }
-                    if (label == "Test restore")
+                    if (label == "Verify")
                     {
                         // The saved passwords are checked first (U153), off the UI thread.
-                        Assert.True(ctx.Driver.WaitFor(() => host.OwnedWindows.OfType<TestRestoreOptionsWindow>().Any()), "The test-restore options must open.");
-                        var dialog = host.OwnedWindows.OfType<TestRestoreOptionsWindow>().Single();
+                        Assert.True(ctx.Driver.WaitFor(() => host.OwnedWindows.OfType<VerifyWindow>().Any()), "The Verify window must open.");
+                        var dialog = host.OwnedWindows.OfType<VerifyWindow>().Single();
+                        var model = (VerifyViewModel)dialog.DataContext!;
+                        foreach (var c in model.Own.Concat(model.Other)) c.IsSelected = c.Title == "Test restore";
+                        ctx.Driver.Pump();
                         dialog.GetVisualDescendants().OfType<RadioButton>().Single(b => b.Name == "FullChoice").IsChecked = true;
-                        dialog.FindControl<Button>("StartButton")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                        dialog.FindControl<Button>("RunButton")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
                     }
                     await execution;
-                    if (label == "Test restore")
+                    if (label == "Verify")
                     {
                         await ServiceLocator.ActiveRestores.Sessions.Last(s => s.IsTestRestore).Completion.WaitAsync(TimeSpan.FromMinutes(2));
                         await ctx.Driver.PumpAsync(200);

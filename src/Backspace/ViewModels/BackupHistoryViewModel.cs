@@ -28,9 +28,21 @@ public sealed partial class BackupHistoryViewModel : ObservableObject
         _byId = runs.GroupBy(r => r.Id).ToDictionary(g => g.Key, g => g.First());
         Refresh();
     }
+    private BackupHistoryRow? _live;
+
+    /// <summary>What runs now (U216, owner: "It should already show it, not
+    /// just completed work"): a row at the top leading to its live log;
+    /// null when nothing runs.</summary>
+    public void SetLive(string? title, string detail)
+    {
+        _live = title is null ? null : new BackupHistoryRow("", _backup.Id, DateTime.UtcNow, BackupRunStatus.Running, title, detail, false) { IsLive = true };
+        Refresh();
+    }
+
     private void Refresh()
     {
         Rows.Clear();
+        if (_live is not null) Rows.Add(_live);
         if (SelectedFilter == "Checks")
             foreach (var entry in BackupCheckHistory.Entries(_backup, _runs))
                 Rows.Add(new(entry.RunId, _backup.Id, entry.When, entry.Status, entry.Scope, entry.Summary,
@@ -81,9 +93,11 @@ public sealed record BackupHistoryRow(string RunId, string BackupId, DateTime Wh
     public string Added { get; init; } = "";
     /// <summary>A backup that made a snapshot: its added files can be shown (U143).</summary>
     public bool CanShowChanges { get; init; }
+    /// <summary>The run going on now (U216).</summary>
+    public bool IsLive { get; init; }
     public bool HasAdded => Added.Length > 0;
-    public string Timestamp => When.ToLocalTime().ToString("ddd d MMM yyyy · HH:mm:ss") + " · " + HumanFormat.Ago(When);
-    public string Result => Status switch { BackupRunStatus.Success => "Passed", BackupRunStatus.Failed => "Failed", BackupRunStatus.Skipped => "Skipped / cancelled", BackupRunStatus.Warning => "Needs attention", _ => Status.ToString() };
+    public string Timestamp => IsLive ? "Now" : When.ToLocalTime().ToString("ddd d MMM yyyy · HH:mm:ss") + " · " + HumanFormat.Ago(When);
+    public string Result => Status switch { BackupRunStatus.Running => "Running", BackupRunStatus.Success => "Passed", BackupRunStatus.Failed => "Failed", BackupRunStatus.Skipped => "Skipped / cancelled", BackupRunStatus.Warning => "Needs attention", _ => Status.ToString() };
     public bool Failed => Status == BackupRunStatus.Failed;
     public bool Passed => Status == BackupRunStatus.Success;
 }

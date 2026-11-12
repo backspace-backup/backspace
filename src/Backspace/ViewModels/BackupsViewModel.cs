@@ -954,13 +954,32 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 if (id == card.Id) OnUiThread(() => history.UpdateRuns(_logs.LoadTimelineByBackupId(id)));
             }
             _logs.HistoryRefreshed += Updated;
+            // What runs now heads the list, as the card shows it (U216).
+            void Live()
+            {
+                var started = card.RunStartedUtc is { } at ? "Started at " + at.ToLocalTime().ToString("HH:mm") + " · " : "";
+                if (card.ShowsHealthActivity)
+                    history.SetLive(card.RunningActivity.Length > 0 ? "Check · " + BackupCardViewModel.ShortCheckName(card.RunningActivity) : card.ShowsTestRestore ? "Test restore" : "Check",
+                        started + "follow it as it happens in its live log.");
+                else if (card.IsRunning)
+                    history.SetLive(card.IsQueued ? "Backup · queued" : "Backup", started + "follow it as it happens in its live log.");
+                else history.SetLive(null, "");
+            }
+            void CardChanged(object? s, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName is nameof(BackupCardViewModel.IsRunning) or nameof(BackupCardViewModel.ShowsHealthActivity)
+                    or nameof(BackupCardViewModel.RunningActivity))
+                    OnUiThread(Live);
+            }
+            card.PropertyChanged += CardChanged;
             try
             {
                 // Close the race between the first disk read and subscription.
                 history.UpdateRuns(_logs.LoadTimelineByBackupId(card.Id));
+                Live();
                 await new BackupHistoryWindow { DataContext = history }.ShowDialog(owner);
             }
-            finally { _logs.HistoryRefreshed -= Updated; }
+            finally { _logs.HistoryRefreshed -= Updated; card.PropertyChanged -= CardChanged; }
         }
         catch (Exception ex) { await DestructiveConfirmWindow.ShowInfoAsync(owner, "Could not open history", ex.Message); }
     }
@@ -982,13 +1001,21 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         IReadOnlyList<BackupCheckEntry> entries;
         try { entries = BackupCheckHistory.Entries(saved, await Task.Run(() => ServiceLocator.Logs.LoadTimelineByBackupId(saved.Id))); }
         catch (Exception ex) { _log.Warning(ex, "Could not read the check history of {Name}", saved.Name); entries = []; }
-        var checks = await new VerifyWindow(new VerifyViewModel(saved, entries, DateTime.UtcNow)).ShowDialog<IReadOnlyList<BackupCheck>?>(owner);
-        if (checks is not { Count: > 0 }) return;
+        var choices = await new VerifyWindow(new VerifyViewModel(saved, entries, DateTime.UtcNow)).ShowDialog<VerifyChoices?>(owner);
+        if (choices is null || choices.Checks.Count == 0 && choices.OnceRestore is null) return;
+        var checks = choices.Checks;
         var backup = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == card.Id);
         if (backup is null) return;
         if (ServiceLocator.Orchestrator.IsRunning(backup.Id) || _verifications.ContainsKey(backup.Id))
         {
             await DestructiveConfirmWindow.ShowInfoAsync(owner, "Could not start the checks", "This backup started running while the window was open. Let it finish, then verify it.");
+            return;
+        }
+        // Only a test restore once: started as one you start yourself,
+        // followed, paused or stopped in Restores.
+        if (checks.Count == 0)
+        {
+            StartTestRestore(card, backup, choices.OnceRestore!, owner);
             return;
         }
         var stop = new CancellationTokenSource();
@@ -999,6 +1026,9 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             {
                 var record = await ServiceLocator.Orchestrator.RunChecksAsync(backup, checks, stop.Token);
                 _log.Information("Verify of {Name}: {Status}", backup.Name, record.Status);
+                // Then the test restore once, unless the checks were stopped.
+                if (choices.OnceRestore is { } once && !stop.IsCancellationRequested)
+                    OnUiThread(() => StartTestRestore(card, backup, once, owner));
             }
             catch (Exception ex) { _log.Error(ex, "Verify threw for {Name}", backup.Name); }
             finally
@@ -1008,6 +1038,23 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 OnUiThread(() => { if (Cards.FirstOrDefault(c => c.Id == backup.Id) is { } done) done.ApplyVerifyState(ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == backup.Id) ?? done.Snapshot); });
             }
         });
+    }
+
+    private void StartTestRestore(BackupCardViewModel card, Backup backup, TestRestoreOptions options, Avalonia.Controls.Window owner)
+    {
+        try
+        {
+            if (ServiceLocator.Orchestrator.IsRunning(backup.Id))
+                throw new InvalidOperationException("This backup started running. Let it finish before testing the restore.");
+            var session = ServiceLocator.TestRestores.Start(backup, options);
+            card.IsVerifying = true;
+            ServiceLocator.ActiveRestores.Open(session);
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Test-restore threw for {Name}", card.Snapshot.Name);
+            _ = DestructiveConfirmWindow.ShowInfoAsync(owner, "Could not start test restore", ex.Message);
+        }
     }
 
     /// <summary>Checks started with Verify, by backup: Stop ends them (U213).</summary>

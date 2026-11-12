@@ -84,6 +84,11 @@ public sealed partial class BackupOrchestrator
         // card shows "Checking · …" in the app and through the service.
         var named = string.IsNullOrEmpty(_progress.Snapshot(backup.Id)?.Activity);
         if (named) _progress.ReportActivity(backup.Id, check.Title);
+        // Activity &amp; logs lists it while it runs, leading to its live
+        // output (U216); its saved record replaces it when it ends.
+        var live = new RunRecord { BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Check, CheckId = check.Id, CheckKind = check.Kind,
+            StartedUtc = DateTime.UtcNow, Status = BackupRunStatus.Running, Summary = "Running: " + check.Title };
+        try { ServiceLocator.Activity?.Register(live); } catch (Exception ex) { _log.Debug(ex, "Could not list the running check"); }
         try
         {
             var record = await RunStandaloneMaintenanceAsync(backup, RunKind.Check, check, ct, onlyTargets).ConfigureAwait(false);
@@ -92,6 +97,7 @@ public sealed partial class BackupOrchestrator
         }
         finally
         {
+            try { ServiceLocator.Activity?.Unregister(live.Id); } catch (Exception ex) { _log.Debug(ex, "Could not unlist the running check"); }
             if (named) _progress.ReportActivity(backup.Id, "");
             queue.Release();
         }

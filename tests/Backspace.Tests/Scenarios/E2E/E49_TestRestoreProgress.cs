@@ -61,13 +61,17 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         {
             vm.SelectedNav = NavItem.Backups; await ctx.Driver.PumpAsync(200);
             var button = main.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible &&
-                b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Test restore"));
+                b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Verify"));
             Click(main, button);
-            var dialog = main.OwnedWindows.OfType<TestRestoreOptionsWindow>().Single(w => w.IsVisible);
+            // U213: Verify's window, a test restore once.
+            Assert.True(ctx.Driver.WaitFor(() => main.OwnedWindows.OfType<VerifyWindow>().Any(w => w.IsVisible)), "The Verify window must open.");
+            var dialog = main.OwnedWindows.OfType<VerifyWindow>().Single(w => w.IsVisible);
+            foreach (var c in ((VerifyViewModel)dialog.DataContext!).Own.Concat(((VerifyViewModel)dialog.DataContext!).Other)) c.IsSelected = c.Title == "Test restore";
+            ctx.Driver.Pump();
             dialog.GetVisualDescendants().OfType<NumericUpDown>().Single(b => b.Name == "Percentage").Value = 25;
             if (full) Click(dialog, dialog.GetVisualDescendants().OfType<RadioButton>().Single(b => b.Name == "FullChoice"));
-            else ctx.Snapshot(dialog, "choose-sample-or-every-file", "The actual Test restore dialog defaults to a sample, explains percentage and download budget, and offers every-file recovery.");
-            Click(dialog, dialog.FindControl<Button>("StartButton")!);
+            else ctx.Snapshot(dialog, "choose-sample-or-every-file", "The Verify window with a test restore once: it defaults to a sample, explains percentage and download budget, and offers every-file recovery.");
+            Click(dialog, dialog.FindControl<Button>("RunButton")!);
             await vm.Backups.TestRestoreCommand.ExecutionTask!;
             ctx.Driver.Pump();
             return ServiceLocator.ActiveRestores.Sessions.Last(s => s.BackupId == backup.Id && s.IsTestRestore);

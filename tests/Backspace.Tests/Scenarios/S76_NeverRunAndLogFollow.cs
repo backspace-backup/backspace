@@ -64,7 +64,7 @@ public sealed class S76_NeverRunAndLogFollow : ScenarioBase
         await ctx.Driver.PumpAsync(100);
         Button ButtonOf(BackupCard card, string text) => card.GetVisualDescendants().OfType<Button>()
             .Single(b => b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == text));
-        foreach (var label in new[] { "Restore files", "Test restore" })
+        foreach (var label in new[] { "Restore files", "Verify" })
         {
             Assert.False(ButtonOf(neverCard, label).IsEffectivelyEnabled, label + " was enabled for a backup that never ran.");
             Assert.True(ButtonOf(ranCard, label).IsEffectivelyEnabled, label + " was disabled for a backup that ran.");

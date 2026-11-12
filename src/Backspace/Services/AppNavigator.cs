@@ -48,6 +48,22 @@ public static class AppNavigator
         else Avalonia.Threading.Dispatcher.UIThread.Post(Open);
     }
 
+    /// <summary>Asked to show a backup's live output (U216): its history's
+    /// "Open live log" on the run going on now.</summary>
+    public static event Action<string>? LiveRequested;
+
+    /// <summary>Activity &amp; logs, on this backup's run going on now.</summary>
+    public static void OpenLive(string backupId)
+    {
+        void Open()
+        {
+            Requested?.Invoke(NavItem.Logs);
+            LiveRequested?.Invoke(backupId);
+        }
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) Open();
+        else Avalonia.Threading.Dispatcher.UIThread.Post(Open);
+    }
+
     public static void PreselectRestoreBackup(Backup backup) =>
         RestorePreselectRequested?.Invoke(backup);
 

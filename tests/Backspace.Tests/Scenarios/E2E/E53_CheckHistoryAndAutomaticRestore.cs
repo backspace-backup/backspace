@@ -171,7 +171,7 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
         Assert.Equal("ok", cards.Cards.Single().VerifyClass);
         Assert.False(cards.Cards.Single().IsRunning); Assert.False(cards.Cards.Single().IsVerifying);
         Assert.DoesNotContain("Testing restored files", cards.Cards.Single().OperationPhaseLabel);
-        Assert.Contains("Download and recover files", cards.Cards.Single().TestRestoreTooltip);
+        Assert.Contains("Run this backup's checks now", cards.Cards.Single().TestRestoreTooltip);
         var finalLabel = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == cards.Cards.Single().LastRunLabel);
 
         Assert.True(finalLabel.Bounds.Height < 50, "The detailed comparison result must not turn the card header into a paragraph.");

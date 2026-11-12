@@ -23,6 +23,13 @@ public partial class BackupHistoryWindow : Window
         await changes.LoadAsync(ServiceLocator.Engine);
     }
 
+    private void OnOpenLive(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { DataContext: BackupHistoryRow row }) return;
+        Close();
+        AppNavigator.OpenLive(row.BackupId);
+    }
+
     private void OnOpenLog(object? sender, RoutedEventArgs e)
     {
         if (sender is not Control { DataContext: BackupHistoryRow row }) return;

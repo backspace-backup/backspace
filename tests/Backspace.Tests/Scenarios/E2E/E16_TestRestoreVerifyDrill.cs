@@ -81,14 +81,14 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
 
         var vm = (BackupsViewModel)view.DataContext!;
         var card = vm.Cards.Single(c => c.Id == backup.Id);
-        Assert.Contains("Download and recover files", card.TestRestoreTooltip);
+        Assert.Contains("Run this backup's checks now", card.TestRestoreTooltip);
         Assert.DoesNotContain("10 random", card.TestRestoreTooltip);
-        ctx.Snapshot(host, "before-test-restore-click", "Two source folders backed up; the Test restore button is available.");
+        ctx.Snapshot(host, "before-test-restore-click", "Two source folders backed up; the Verify button is available (U213).");
         async Task ClickTestRestore()
         {
             ctx.Driver.Pump();
             var button = view.GetVisualDescendants().OfType<Button>().Single(b =>
-                b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Test restore"));
+                b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Verify"));
             Assert.True(button.IsEnabled);
             button.BringIntoView();
             ctx.Driver.Pump();
@@ -101,7 +101,12 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
             var task = vm.TestRestoreCommand.ExecutionTask;
             Assert.NotNull(task);
             Assert.NotSame(previous, task);
-            var options = host.OwnedWindows.OfType<TestRestoreOptionsWindow>().Single();
+            // U213: Verify's window; only a test restore once, every file, compared.
+            Assert.True(ctx.Driver.WaitFor(() => host.OwnedWindows.OfType<VerifyWindow>().Any()), "The Verify window must open.");
+            var options = host.OwnedWindows.OfType<VerifyWindow>().Single();
+            var model = (VerifyViewModel)options.DataContext!;
+            foreach (var c in model.Own.Concat(model.Other)) c.IsSelected = c.Title == "Test restore";
+            ctx.Driver.Pump();
             void Click(Control control)
             {
                 control.BringIntoView(); ctx.Driver.Pump(); options.UpdateLayout();
@@ -111,7 +116,7 @@ public sealed class E16_TestRestoreVerifyDrill : BackupE2EBase
             Click(options.GetVisualDescendants().OfType<RadioButton>().Single(b => b.Name == "FullChoice"));
             var compare = options.GetVisualDescendants().OfType<CheckBox>().Single(b => b.Name == "CompareOriginals");
             if (compare.IsChecked != true) Click(compare);
-            Click(options.FindControl<Button>("StartButton")!);
+            Click(options.FindControl<Button>("RunButton")!);
             await task.WaitAsync(TimeSpan.FromMinutes(2));
             var session = ServiceLocator.ActiveRestores.Sessions.Last(s => s.IsTestRestore && s.BackupId == backup.Id);
             await session.Completion.WaitAsync(TimeSpan.FromMinutes(2));

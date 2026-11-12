@@ -1063,7 +1063,14 @@ its hover has everything, Last backup keeps the backup's result, the banner
 says only "2 backups need attention" with each pill's reason on hover, and a backup that has
 stored nothing says why it has no checks (U197–U200); the bar and step sit in
 the strip below the sources (U204), and a test restore started from the card
-shows the same way (U205). CheckProgressTests reads
+shows the same way (U205). S103 opens the card's Verify window (U213): the
+backup's own checks ticked with their latest result, other checks to run once
+(a test restore with its own size), and a once-only check run through the
+orchestrator, not skipped as removed. S104 shows a running check at the top of
+the card's Activity window with "Open live log", which opens Activity & logs
+on that backup's running entry (U216). CheckProgressTests also holds a real
+restic lock while a check starts: the check waits, says so, and passes once
+the lock is gone (U215). CheckProgressTests reads
 restic's check output and runs a real full data read slowly enough to see the
 packs counted part-way (U198). E53 clicks Activity against a real encrypted local backup,
 checks the backup/check filters and opens the saved log;

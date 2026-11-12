@@ -20,5 +20,5 @@ public partial class VerifyWindow : Window
 
     private VerifyViewModel Model => (VerifyViewModel)DataContext!;
     private void OnCancel(object? sender, RoutedEventArgs e) => Close(null);
-    private void OnRun(object? sender, RoutedEventArgs e) => Close((IReadOnlyList<BackupCheck>)Model.Selected());
+    private void OnRun(object? sender, RoutedEventArgs e) => Close(Model.Result());
 }

@@ -9,6 +9,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Backspace.ViewModels;
 
+/// <summary>The Verify window's answer: checks to run, then a test restore once.</summary>
+public sealed record VerifyChoices(IReadOnlyList<BackupCheck> Checks, TestRestoreOptions? OnceRestore);
+
 /// <summary>One line of the Verify window: a check to tick.</summary>
 public sealed partial class VerifyChoice : ObservableObject
 {
@@ -88,20 +91,18 @@ public sealed partial class VerifyViewModel : ObservableObject
     public List<BackupCheck> Selected()
     {
         var own = Own.Where(c => c.IsSelected).Select(c => c.Check);
-        var other = Other.Where(c => c.IsSelected).Select(c =>
-        {
-            if (c != _otherRestore) return c.Check.Clone();
-            var options = RestoreOptions.ToOptions();
-            return new BackupCheck
-            {
-                Kind = CheckKind.TestRestore,
-                SamplePercent = options.Full ? 100 : options.SamplePercent,
-                MaximumBytes = options.Full ? 0 : options.MaximumSampleBytes,
-                CompareOriginals = options.CompareOriginals,
-            };
-        }).Select(c => { c.Id = Guid.NewGuid().ToString("N"); c.Schedule = null; return c; });
+        var other = Other.Where(c => c.IsSelected && c != _otherRestore)
+            .Select(c => { var once = c.Check.Clone(); once.Id = Guid.NewGuid().ToString("N"); once.Schedule = null; return once; });
         return own.Concat(BackupCheck.InRunOrder(other.ToList())).ToList();
     }
+
+    /// <summary>The once-only test restore, with its own size, or null: it
+    /// runs last, as a test restore you start yourself (followed, paused or
+    /// stopped in Restores), after the ticked checks.</summary>
+    public TestRestoreOptions? OnceRestore() => _otherRestore?.IsSelected == true ? RestoreOptions.ToOptions() : null;
+
+    /// <summary>What the window hands back.</summary>
+    public VerifyChoices Result() => new(Selected(), OnceRestore());
 
     private static string Capitalize(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 }
