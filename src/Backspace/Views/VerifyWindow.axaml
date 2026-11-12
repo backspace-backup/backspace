@@ -1,0 +1,63 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:Backspace.Views"
+        xmlns:vm="using:Backspace.ViewModels"
+        x:Class="Backspace.Views.VerifyWindow"
+        x:DataType="vm:VerifyViewModel"
+        Title="Verify" Width="640" Height="660" MinHeight="420" CanResize="True"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource BS.Brush.BgBase}">
+  <!-- U213 (owner, 12 November 2026): the card's Verify button runs this
+       backup's own checks now, or another check once. -->
+  <Grid Margin="28" RowDefinitions="*,Auto">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="18" Margin="0,0,10,0">
+        <StackPanel Spacing="6">
+          <TextBlock Name="Heading" Text="{Binding Heading}" Classes="page-title" TextWrapping="Wrap"/>
+          <TextBlock TextWrapping="Wrap"
+                     Text="Choose what to check now. The checks run one after another; follow them under Backup health on the card. Your original files are never changed."/>
+        </StackPanel>
+
+        <StackPanel Spacing="8" IsVisible="{Binding HasOwnChecks}">
+          <TextBlock Classes="label-caps" Text="THIS BACKUP'S CHECKS"/>
+          <ItemsControl Name="OwnChecks" ItemsSource="{Binding Own}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:VerifyChoice">
+                <CheckBox IsChecked="{Binding IsSelected}" Margin="0,0,0,6">
+                  <StackPanel Spacing="1">
+                    <TextBlock Text="{Binding Title}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Detail}" Classes="dim" FontSize="12" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </CheckBox>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+          <TextBlock Classes="label-caps" Text="SOMETHING ELSE, ONCE"/>
+          <ItemsControl Name="OtherChecks" ItemsSource="{Binding Other}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:VerifyChoice">
+                <StackPanel Spacing="6" Margin="0,0,0,6">
+                  <CheckBox IsChecked="{Binding IsSelected}">
+                    <StackPanel Spacing="1">
+                      <TextBlock Text="{Binding Title}" TextWrapping="Wrap"/>
+                      <TextBlock Text="{Binding Detail}" Classes="dim" FontSize="12" TextWrapping="Wrap"/>
+                    </StackPanel>
+                  </CheckBox>
+                  <!-- A test restore's own sample size, under it while ticked. -->
+                  <views:RestoreCheckOptions Name="RestoreOptionsUi" Margin="28,0,0,6"
+                                             DataContext="{Binding Options}" IsVisible="{Binding $parent[StackPanel].((vm:VerifyChoice)DataContext).ShowsOptions}"/>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+    <StackPanel Grid.Row="1" Margin="0,18,0,0" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+      <Button Content="Cancel" Classes="ghost" Padding="14,10" Click="OnCancel"/>
+      <Button Name="RunButton" Content="{Binding RunLabel}" IsEnabled="{Binding CanRun}" Classes="primary" Click="OnRun"/>
+    </StackPanel>
+  </Grid>
+</Window>

@@ -560,19 +560,20 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         if (failed.Count > 0)
         {
             HealthClass = "fail";
-            if (failedChecks > 0)
+            // As for warnings (U199): one kind of problem says what it is;
+            // several, or a check, say only how many backups need attention,
+            // counting every pill, and each pill's hover says why (U214).
+            var affected = failed.Count + warned.Count + skipped.Count;
+            var others = warned.Count + skipped.Count;
+            if (failedChecks > 0 || others > 0 || failedRuns > 0 && failedTestRestores > 0)
             {
-                HealthHeadline = failed.Count == 1 ? "1 backup needs attention" : $"{failed.Count} backups need attention";
-                HealthDetail = "A saved check is still failing. Open an affected backup's Check history for the result.";
+                HealthHeadline = affected == 1 ? "1 backup needs attention" : $"{affected} backups need attention";
+                HealthDetail = "";
             }
             else if (failedTestRestores > 0)
             {
-                HealthHeadline = failedRuns == 0
-                    ? failed.Count == 1 ? "Test restore failed for 1 backup" : $"Test restore failed for {failed.Count} backups"
-                    : failed.Count == 1 ? "1 backup needs attention" : $"{failed.Count} backups need attention";
-                HealthDetail = failedRuns == 0
-                    ? $"Open an affected backup to review its test result. Last activity: {ago}"
-                    : $"A backup run or Test restore failed. Last activity: {ago}";
+                HealthHeadline = failed.Count == 1 ? "Test restore failed for 1 backup" : $"Test restore failed for {failed.Count} backups";
+                HealthDetail = $"Last activity: {ago}";
             }
             else
             {
@@ -890,6 +891,8 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         // "Manually skipped · skipped in 1m 12s" instead of the
         // previous generic "Skipped in 1m 12s" / "drive unplugged or
         // network gone" line that was wrong for the manual case.
+        // Checks started with Verify (U213).
+        if (_verifications.TryGetValue(card.Id, out var verifying)) { try { verifying.Cancel(); } catch (ObjectDisposedException) { } return; }
         ServiceLocator.Orchestrator.CancelRun(card.Id, "Manually skipped");
         // Hard-cancel safety net (user-reported 2026-04-29: a run that
         // failed silently in init left the card stuck on "Running…" with
@@ -974,24 +977,41 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         var owner = TestRestoreOwner?.Invoke() ?? Owner();
         if (owner is null) return;
         if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to read this backup.")) return;
-        var options = await new TestRestoreOptionsWindow(card.Snapshot.Name, card.Snapshot.Checks.FirstOrDefault(c => c.Kind == CheckKind.TestRestore)?.RestoreOptions()).ShowDialog<TestRestoreOptions?>(owner);
-        if (options is null) return;
-        try
+        // Verify (U213): this backup's checks now, or another check once.
+        var saved = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == card.Id) ?? card.Snapshot;
+        IReadOnlyList<BackupCheckEntry> entries;
+        try { entries = BackupCheckHistory.Entries(saved, await Task.Run(() => ServiceLocator.Logs.LoadTimelineByBackupId(saved.Id))); }
+        catch (Exception ex) { _log.Warning(ex, "Could not read the check history of {Name}", saved.Name); entries = []; }
+        var checks = await new VerifyWindow(new VerifyViewModel(saved, entries, DateTime.UtcNow)).ShowDialog<IReadOnlyList<BackupCheck>?>(owner);
+        if (checks is not { Count: > 0 }) return;
+        var backup = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == card.Id);
+        if (backup is null) return;
+        if (ServiceLocator.Orchestrator.IsRunning(backup.Id) || _verifications.ContainsKey(backup.Id))
         {
-            var backup = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == card.Id);
-            if (backup is null) return;
-            if (ServiceLocator.Orchestrator.IsRunning(backup.Id))
-                throw new InvalidOperationException("This backup started running while the options were open. Let it finish before testing the restore.");
-            var session = ServiceLocator.TestRestores.Start(backup, options);
-            card.IsVerifying = true;
-            ServiceLocator.ActiveRestores.Open(session);
+            await DestructiveConfirmWindow.ShowInfoAsync(owner, "Could not start the checks", "This backup started running while the window was open. Let it finish, then verify it.");
+            return;
         }
-        catch (Exception ex)
+        var stop = new CancellationTokenSource();
+        _verifications[backup.Id] = stop;
+        _ = Task.Run(async () =>
         {
-            _log.Error(ex, "Test-restore threw for {Name}", card.Snapshot.Name);
-            await DestructiveConfirmWindow.ShowInfoAsync(owner, "Could not start test restore", ex.Message);
-        }
+            try
+            {
+                var record = await ServiceLocator.Orchestrator.RunChecksAsync(backup, checks, stop.Token);
+                _log.Information("Verify of {Name}: {Status}", backup.Name, record.Status);
+            }
+            catch (Exception ex) { _log.Error(ex, "Verify threw for {Name}", backup.Name); }
+            finally
+            {
+                _verifications.TryRemove(backup.Id, out _);
+                stop.Dispose();
+                OnUiThread(() => { if (Cards.FirstOrDefault(c => c.Id == backup.Id) is { } done) done.ApplyVerifyState(ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == backup.Id) ?? done.Snapshot); });
+            }
+        });
     }
+
+    /// <summary>Checks started with Verify, by backup: Stop ends them (U213).</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _verifications = new();
 
     /// <summary>
     /// Per-backup "Restore files" action. Routes the user to the

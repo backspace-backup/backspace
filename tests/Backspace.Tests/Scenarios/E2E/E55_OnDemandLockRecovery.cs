@@ -91,12 +91,19 @@ public sealed class E55_OnDemandLockRecovery(ITestOutputHelper output) : BackupE
                 "The backup itself was saved beside the live restic process. Its cleanup was refused (exit code 11), asked restic once to remove stale locks, " +
                 "tried once more and was refused again: the live process and its lock remained, and the run ended with a warning.");
 
-            // The stand-alone cleanup (restic directly too, U175 step 2) obeys
-            // the same rule: one unlock, one retry, then a failure.
+            // The stand-alone cleanup removes stale locks once, then waits for
+            // the live one (U215), here for 3 seconds, and fails when it stays.
             commands.Clear();
-            var standalone = await fixture.Engine.RunPruneOnlyAsync(backup, source, destination, "default", ct, Output.WriteLine);
+            var (limit, interval) = (ResticEngine.LockWaitLimit, ResticEngine.LockWaitInterval);
+            ResticEngine.LockWaitLimit = TimeSpan.FromSeconds(3); ResticEngine.LockWaitInterval = TimeSpan.FromSeconds(1);
+            var waitLines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            RunRecord standalone;
+            try { standalone = await fixture.Engine.RunPruneOnlyAsync(backup, source, destination, "default", ct, l => { waitLines.Enqueue(l); Output.WriteLine(l); }); }
+            finally { (ResticEngine.LockWaitLimit, ResticEngine.LockWaitInterval) = (limit, interval); }
             Assert.Equal(BackupRunStatus.Failed, standalone.Status);
-            Assert.Equal(new[] { 11, 11 }, Ran("forget").Select(f => f.Result.ExitCode));
+            Assert.True(Ran("forget").Count() >= 3);
+            Assert.All(Ran("forget"), f => Assert.Equal(11, f.Result.ExitCode));
+            Assert.Contains(waitLines, l => l.Contains("The repository is in use by another operation", StringComparison.Ordinal));
             Assert.Single(Ran("unlock"));
             Assert.Empty(Ran("prune"));
             Assert.False(held.HasExited);

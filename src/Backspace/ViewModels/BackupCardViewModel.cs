@@ -402,13 +402,14 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// <summary>A running backup blocks starting a separate check, but
     /// its automatic restore comparison can always be opened to view progress.</summary>
     public bool TestRestoreEnabled => IsVerifying || (!IsRunning && HasRestorableRun);
-    public string TestRestoreActionLabel => IsVerifying ? "View test restore" : "Test restore";
+    /// <summary>"Verify" (U213): this backup's checks now, or another once.</summary>
+    public string TestRestoreActionLabel => IsVerifying ? "View test restore" : "Verify";
     public string TestRestoreTooltip => IsVerifying
         ? "View the current test restore, follow its progress, or pause or stop it."
         : IsRunning
-        ? "This backup is currently running. Stop it first to run a test restore."
+        ? "Available once this backup is no longer running."
         : !HasRestorableRun ? NothingToRestoreTooltip
-        : "Download and recover files into a temporary folder, then compare their contents with eligible originals. This also tests the recovery process. Your originals are never replaced.";
+        : "Run this backup's checks now, or another check once: its structure, a sample of its data, a test restore. Your original files are never changed.";
 
     /// <summary>Positive-named negation of <see cref="IsRunning"/>. The
     /// per-source SourceLine bindings inside an ItemsControl can't use

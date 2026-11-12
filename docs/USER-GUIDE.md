@@ -213,7 +213,11 @@ checks"), and no new backup starts there meanwhile. Two checks of one
 destination never run at the same time either: each waits for the other.
 Restores and test restores you start yourself only read the destination, so
 the limits don't count them and they can run while a backup does (a scheduled
-sample test restore is a check, and runs alone). With more than one backup
+sample test restore is a check, and runs alone). A check or a scheduled
+cleanup that finds the repository in use by such an operation (or by
+another computer) waits for it, trying again each minute for up to three
+hours, and says "Waiting: another operation is using the repository"; it no
+longer fails. With more than one backup
 per destination, a new backup's first moments (while the engine prepares the
 storage) are still taken one backup at a time.
 
@@ -694,7 +698,12 @@ A successful backup run is a claim: bytes were uploaded and the engine
 reported success. The test-restore drill turns that claim into a check that
 you can get your files back.
 
-Choose **Test restore** on a backup card, then choose the scope:
+Choose **Verify** on a backup card. Its window lists the backup's own checks,
+ticked, each with its latest result ("Passed 2d ago"), then other checks to
+run once without adding them to the backup: a structure check, a data sample,
+a test restore and a full data read. **Run** runs the ticked ones one after
+another; they show under Backup health like scheduled checks, and **Stop**
+ends them. A test restore run once lets you choose its scope:
 
 - **Check a sample** defaults to 1% of the stored file sizes and a 1 GiB
   download budget. It uses the smaller limit, shared across source and
@@ -789,7 +798,7 @@ below the sources and destinations, where a backup's progress shows. The bar fol
 then packs read), so it is approximate in time. Its hover has the check's
 full name and size, the destination, the time running, what the check does
 and the latest result. **Last backup** keeps showing the last backup's
-result meanwhile. A test restore you start with **Test restore** shows the
+result meanwhile. A test restore you start with **Verify** shows the
 same way ("Test restore · 2 min", then "Restoring and comparing files · 120
 of 400 files" under its bar). A backup that has not stored anything yet says "No checks
 yet: nothing backed up so far": there is nothing to check until its first

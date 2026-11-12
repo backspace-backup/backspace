@@ -121,6 +121,22 @@ public static class BackupCheckHistory
             && backup.LastRunStatus is BackupRunStatus.Success or BackupRunStatus.Warning;
     }
 
+    /// <summary>This check's latest result in a few words ("passed 2d ago",
+    /// "not run yet"), for the Verify window (U213).</summary>
+    public static string LatestOf(Backup backup, BackupCheck check, IReadOnlyList<BackupCheckEntry> entries, DateTime nowUtc)
+    {
+        var latest = entries.FirstOrDefault(e => Answers(check.Kind, e.Depth));
+        if (latest is null) return "not run yet";
+        var result = latest.Status switch
+        {
+            BackupRunStatus.Success => "passed",
+            BackupRunStatus.Failed => "failed",
+            BackupRunStatus.Warning => "incomplete",
+            _ => "not done",
+        };
+        return $"{result} {Ago(nowUtc, latest.When)}";
+    }
+
     /// <summary>One line per check of the backup: its latest result (U179).</summary>
     public static IReadOnlyList<string> KindLines(Backup backup, IReadOnlyList<BackupCheckEntry> entries, DateTime nowUtc)
         => BackupCheck.InRunOrder(backup.Checks).Select(check =>

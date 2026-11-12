@@ -82,7 +82,7 @@ public sealed partial class ResticEngine
             }
             var planId = MakePlanId(backup, sourcePath, destination, storageName);
             // The cleanup schedule always ends with a full prune.
-            (terminal, cleanup) = await RunDirectRetentionAsync(restic, repoId, repository, planId, backup, ct, lineSink, prune: true).ConfigureAwait(false);
+            (terminal, cleanup) = await RunDirectRetentionAsync(restic, repoId, repository, planId, backup, ct, lineSink, prune: true, waitWhileLocked: true).ConfigureAwait(false);
             if (terminal.Status is TerminalStatus.Success || cleanup != default) Announce(cleanup.Recap(), lineSink);
         }
         else terminal = await RunDirectCheckAsync(restic, repoId, repository, backup, ct, lineSink, progress).ConfigureAwait(false);
@@ -122,17 +122,20 @@ public sealed partial class ResticEngine
         ResticCommand Check(IReadOnlyList<string> arguments) =>
             new(restic, repository, arguments) { OutputToTranscript = true, ProgressFps = progress is null ? 0 : 1 };
         progress?.Invoke(reader.Step, 0);
+        // A check needs the repository alone: another operation using it (a
+        // restore, a test restore, a backup) is waited out, not a failure (U215).
+        void Waiting() => progress?.Invoke(new CheckStep("Waiting: another operation is using the repository"), reader.Percent);
         if (!backup.CheckReadDataSample)
-            return Outcome(await RunResticAsync(repoId, Check(["check"]), lineSink, ct, onLine).ConfigureAwait(false));
+            return Outcome(await RunResticAsync(repoId, Check(["check"]), lineSink, ct, onLine, waitWhileLocked: LockWaitLimit, waiting: Waiting).ConfigureAwait(false));
         if (ReadsAllData(backup))
         {
             Announce("[backspace] Data check reads all stored data; this downloads the whole repository.", lineSink);
-            return Outcome(await RunResticAsync(repoId, Check(DataCheckArguments(backup, null)), lineSink, ct, onLine).ConfigureAwait(false));
+            return Outcome(await RunResticAsync(repoId, Check(DataCheckArguments(backup, null)), lineSink, ct, onLine, waitWhileLocked: LockWaitLimit, waiting: Waiting).ConfigureAwait(false));
         }
         const int sizeLimit = 64 * 1024;
         progress?.Invoke(new CheckStep("Measuring the stored data"), 0);
         var stats = await RunResticAsync(repoId, new ResticCommand(restic, repository, ["stats", "--mode", "raw-data", "--json"]) { CaptureOutput = sizeLimit + 1 },
-            lineSink, ct).ConfigureAwait(false);
+            lineSink, ct, waitWhileLocked: LockWaitLimit, waiting: Waiting).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
         if (!stats.Succeeded)
             throw new IOException("Could not determine the data-check sample size. No data sample was started. " + stats.ErrorText);
@@ -141,7 +144,7 @@ public sealed partial class ResticEngine
         // The entry's own limit (U179), 1 GiB when it has none.
         var sampleBytes = DataCheckSampleBytes(ParseStoredDataSize(stats.Output), backup.DataCheckLimitBytes);
         Announce($"[backspace] Data check targets {sampleBytes:N0} bytes per repository; whole-pack sampling, metadata and retries can change actual traffic.", lineSink);
-        return Outcome(await RunResticAsync(repoId, Check(DataCheckArguments(backup, sampleBytes)), lineSink, ct, onLine).ConfigureAwait(false));
+        return Outcome(await RunResticAsync(repoId, Check(DataCheckArguments(backup, sampleBytes)), lineSink, ct, onLine, waitWhileLocked: LockWaitLimit, waiting: Waiting).ConfigureAwait(false));
     }
 
     /// <summary>restic's check for a data read: all of it, or the sample's

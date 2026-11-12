@@ -283,20 +283,41 @@ public sealed partial class ResticEngine
     /// <summary>Runs a restic command for this repository. One that could not
     /// lock the repository (exit code 11) gets one <c>restic unlock</c>, which
     /// removes stale locks only (never <c>--remove-all</c>), and one more try;
-    /// a live lock survives and the second refusal stands.</summary>
+    /// a live lock survives and the second refusal stands.
+    /// <para>With <paramref name="waitWhileLocked"/> (checks and cleanup, which
+    /// need the repository alone), a live lock is waited out instead: another
+    /// operation is using the repository (a restore, a test restore, a backup,
+    /// perhaps on another computer), so the command tries again each minute, up
+    /// to that long (U215: a check failed while a test restore was reading).
+    /// <paramref name="waiting"/> hears each wait.</para></summary>
     private async Task<ResticResult> RunResticAsync(string repoId, ResticCommand command, Action<string>? lineSink, CancellationToken ct,
-        Action<ResticLine>? onLine = null, Action<int>? onStarted = null, bool gated = true, bool lockRecovery = true, Action? heldBack = null)
+        Action<ResticLine>? onLine = null, Action<int>? onStarted = null, bool gated = true, bool lockRecovery = true, Action? heldBack = null,
+        TimeSpan? waitWhileLocked = null, Action? waiting = null)
     {
+        var started = DateTime.UtcNow;
         for (var attempt = 0; ; attempt++)
         {
             ct.ThrowIfCancellationRequested();
             var result = await RunResticOnceAsync(repoId, command, lineSink, ct, onLine, onStarted, gated, heldBack).ConfigureAwait(false);
-            if (!lockRecovery || attempt != 0 || result.Cancelled || result.ExitCode != 11) return result;
-            var unlock = await RunResticOnceAsync(repoId, new ResticCommand(command.Binary, command.Repository, ["unlock"]) { OutputToTranscript = true },
-                lineSink, ct, null, null, gated, heldBack).ConfigureAwait(false);
-            if (!unlock.Succeeded) return unlock;
+            if (!lockRecovery || result.Cancelled || result.ExitCode != 11) return result;
+            if (attempt == 0)
+            {
+                var unlock = await RunResticOnceAsync(repoId, new ResticCommand(command.Binary, command.Repository, ["unlock"]) { OutputToTranscript = true },
+                    lineSink, ct, null, null, gated, heldBack).ConfigureAwait(false);
+                if (!unlock.Succeeded) return unlock;
+                continue;
+            }
+            if (waitWhileLocked is not { } limit || DateTime.UtcNow - started >= limit) return result;
+            Announce("[backspace] The repository is in use by another operation (a restore, a backup or a check, perhaps on another computer); trying again in a minute.", lineSink);
+            waiting?.Invoke();
+            await Task.Delay(LockWaitInterval, ct).ConfigureAwait(false);
         }
     }
+
+    /// <summary>How long a check or cleanup waits for a repository in use,
+    /// and how often it tries again (U215).</summary>
+    internal static TimeSpan LockWaitLimit = TimeSpan.FromHours(3);
+    internal static TimeSpan LockWaitInterval = TimeSpan.FromMinutes(1);
 
     // This process runs one task per repository: a backup waiting here is
     // not running, and its card says
@@ -560,8 +581,12 @@ public sealed partial class ResticEngine
     /// after a backup that may have left data behind or once a week, a full
     /// prune (U131). The stand-alone cleanup schedule always prunes.</summary>
     private async Task<(DirectOutcome Result, CleanupResult Cleanup)> RunDirectRetentionAsync(string restic, string repoId,
-        ResticRepository repository, string planId, Backup backup, CancellationToken ct, Action<string>? lineSink, bool prune)
+        ResticRepository repository, string planId, Backup backup, CancellationToken ct, Action<string>? lineSink, bool prune, bool waitWhileLocked = false)
     {
+        // A cleanup on its own schedule waits out another operation using the
+        // repository (U215); the one right after a backup keeps its warning and
+        // runs again later, so the backup doesn't stay open for hours.
+        TimeSpan? wait = waitWhileLocked ? LockWaitLimit : null;
         var policy = KeepPolicyRules.Parse(backup.KeepPolicy);
         if (!policy.Valid)
             Announce("[backspace] The retention policy could not be read, so no backup was removed: " + policy.Error, lineSink);
@@ -573,7 +598,7 @@ public sealed partial class ResticEngine
             if (!prune) forget.Add("--prune");
             var figures = new CleanupLines();
             result = Outcome(await RunResticAsync(repoId, new ResticCommand(restic, repository, forget) { OutputToTranscript = true },
-                lineSink, ct, onLine: figures.Accept).ConfigureAwait(false));
+                lineSink, ct, onLine: figures.Accept, waitWhileLocked: wait).ConfigureAwait(false));
             cleanup = figures.Result();
             if (result.Status is not TerminalStatus.Success) return (result, cleanup);
         }
@@ -582,7 +607,7 @@ public sealed partial class ResticEngine
             Announce("[backspace] Removing stored data no backup uses any more", lineSink);
             var figures = new CleanupLines();
             var run = await RunResticAsync(repoId, new ResticCommand(restic, repository, [PruneCommand]) { OutputToTranscript = true },
-                lineSink, ct, onLine: figures.Accept).ConfigureAwait(false);
+                lineSink, ct, onLine: figures.Accept, waitWhileLocked: wait).ConfigureAwait(false);
             if (run.Succeeded) MaintenanceRecords.FullPruneDone(repoId, DateTime.UtcNow, ct);
             return (Outcome(run), cleanup.Plus(figures.Result()));
         }

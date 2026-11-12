@@ -34,11 +34,16 @@ public sealed partial class BackupOrchestrator
     /// (the command line's --check). A backup without checks gets a structure
     /// check: the owner asked for one. Returns one record for them all, not
     /// saved: each check saved its own.</summary>
-    public async Task<RunRecord> RunCheckAsync(Backup backup, CancellationToken ct, IReadOnlyCollection<BackupTarget>? onlyTargets = null)
-    {
-        var checks = backup.Checks.Count > 0
+    public Task<RunRecord> RunCheckAsync(Backup backup, CancellationToken ct, IReadOnlyCollection<BackupTarget>? onlyTargets = null)
+        => RunChecksAsync(backup, backup.Checks.Count > 0
             ? BackupCheck.InRunOrder(backup.Checks).ToList()
-            : [new BackupCheck { Kind = CheckKind.Structure }];
+            : [new BackupCheck { Kind = CheckKind.Structure }], ct, onlyTargets);
+
+    /// <summary>These checks, one after another, in the order given: the
+    /// card's Verify (U213) passes the backup's own and, once, others not
+    /// saved with it. Returns one record for them all; each saved its own.</summary>
+    public async Task<RunRecord> RunChecksAsync(Backup backup, IReadOnlyList<BackupCheck> checks, CancellationToken ct, IReadOnlyCollection<BackupTarget>? onlyTargets = null)
+    {
         var records = new List<RunRecord>();
         try
         {
@@ -184,6 +189,8 @@ public sealed partial class BackupOrchestrator
         using var scope = LogContext.PushProperty("Backup", backup.Name);
         var action = check is null ? "Cleanup" : check.Title;
         var wasConfigured = _config.Current.Backups.Any(b => b.Id == backup.Id);
+        // A check run once from Verify (U213), not one of the backup's own.
+        var oneOff = check is not null && !backup.Checks.Any(c => c.Id == check.Id);
         var started = DateTime.UtcNow;
         var aggregate = new RunRecord
         {
@@ -217,8 +224,8 @@ public sealed partial class BackupOrchestrator
             backup = admitted;
             // The entry as saved now; one removed meanwhile does not run. A
             // check the owner asked for without one saved (--check on a
-            // backup without checks) runs as given.
-            if (check is not null && wasConfigured && backup.Checks.Count > 0)
+            // backup without checks, or once from Verify) runs as given.
+            if (check is not null && wasConfigured && backup.Checks.Count > 0 && !oneOff)
             {
                 if (backup.Checks.FirstOrDefault(c => c.Id == check.Id) is { } saved) check = saved;
                 else return Ended(BackupRunStatus.Skipped, $"{action} skipped: this check was removed before it could start.");

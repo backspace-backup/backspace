@@ -76,6 +76,64 @@ public sealed class CheckProgressTests(ITestOutputHelper output)
     public void The_card_names_the_check_in_short(string activity, string shown)
         => Assert.Equal(shown, BackupCardViewModel.ShortCheckName(activity));
 
+    /// <summary>U215: the owner's data sample check failed because a test
+    /// restore was reading the same repository (restic's live lock, exit code
+    /// 11). A check now waits for the other operation and then runs; the card
+    /// says it is waiting. Here a real restic holds a shared lock while the
+    /// check starts, then lets go.</summary>
+    [AvaloniaFact]
+    public async Task A_check_waits_for_another_operation_using_the_repository()
+    {
+        Assert.True(RealEngineFixture.BinariesPresent, RealEngineFixture.MissingBinariesReason());
+        using var workspace = new TempWorkspace("check-waits");
+        var secrets = new SecretsStore();
+        var source = workspace.Sub("source");
+        File.WriteAllBytes(Path.Combine(source, "a.bin"), RandomNumberGenerator.GetBytes(64 * 1024));
+        var password = Guid.NewGuid().ToString("N");
+        var destination = new Destination { Name = "Local check", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("repo"),
+            Encrypted = true, StoragePasswordRef = secrets.PutNew("check-waits", password) };
+        var backup = new Backup { Name = "Check waits", SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true,
+            PruneSchedule = new BackupSchedule(), Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } } };
+        var engine = new ResticEngine(secrets);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
+        Assert.Equal(BackupRunStatus.Success, (await engine.BackupPruneCheckAsync(backup, source, destination, "default", deadline.Token)).Status);
+
+        // Another operation reads the repository: restic waiting on its input, its lock live.
+        var start = new System.Diagnostics.ProcessStartInfo(AppPaths.ResticBinary) { UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        start.Environment["RESTIC_PASSWORD"] = password;
+        foreach (var arg in new[] { "--repo", destination.PathOrSubpath!, "backup", "--stdin", "--stdin-filename", "held.txt", "--quiet" }) start.ArgumentList.Add(arg);
+        using var held = System.Diagnostics.Process.Start(start)!;
+        var locks = Path.Combine(destination.PathOrSubpath!, "locks");
+        for (var i = 0; i < 200 && !Directory.EnumerateFiles(locks).Any(); i++) await Task.Delay(50, deadline.Token);
+        Assert.NotEmpty(Directory.EnumerateFiles(locks));
+
+        var previous = ResticEngine.LockWaitInterval;
+        ResticEngine.LockWaitInterval = TimeSpan.FromSeconds(1);
+        try
+        {
+            var steps = new ConcurrentQueue<string>();
+            var lines = new ConcurrentQueue<string>();
+            var check = engine.RunCheckOnlyAsync(BackupOrchestrator.EngineViewFor(backup, new BackupCheck { Kind = CheckKind.Structure }),
+                source, destination, "default", deadline.Token, lines.Enqueue, (step, _) => steps.Enqueue(step.Text));
+            for (var i = 0; i < 200 && !steps.Contains("Waiting: another operation is using the repository"); i++) await Task.Delay(50, deadline.Token);
+            Assert.Contains("Waiting: another operation is using the repository", steps);
+            Assert.False(check.IsCompleted);
+            // The other operation ends: the check runs and passes.
+            held.StandardInput.Close();
+            await held.WaitForExitAsync(deadline.Token);
+            var result = await check;
+            foreach (var l in lines) output.WriteLine(l);
+            Assert.True(result.Status == BackupRunStatus.Success, result.Summary + " " + string.Join(" | ", result.Errors));
+            Assert.Contains(lines, l => l.Contains("The repository is in use by another operation", StringComparison.Ordinal));
+        }
+        finally
+        {
+            ResticEngine.LockWaitInterval = previous;
+            if (!held.HasExited) held.Kill(true);
+        }
+    }
+
     /// <summary>The real engine: restic's counts reach the card's progress
     /// once a second, and the run's log keeps only the finished counts.</summary>
     [AvaloniaFact]
