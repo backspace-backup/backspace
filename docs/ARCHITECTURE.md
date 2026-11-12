@@ -660,8 +660,8 @@ only those files has no vault, and the first save asks for a password.
    (restic's exit code 11) can try one normal stale-lock removal
    (`restic unlock`) and retry; unknown outcomes cannot trigger that recovery.
    Active locks are never force-removed.
-   **Backups at once (U156).** `AppConfig.Limits` (`BackupLimits`, Settings ›
-   Backups at once) holds "per destination" (default 1) and "in total"
+   **Simultaneous backups (U156, renamed from "Backups at once" in U202).** `AppConfig.Limits` (`BackupLimits`, Settings ›
+   Simultaneous backups) holds "per destination" (default 1) and "in total"
    (default 2), 1 to 8; the window, scheduled runs and the service's workers
    all read them from the saved settings. `RepositoryAccess` applies them to
    each part of a run (a source to one destination, in the cell loop), across

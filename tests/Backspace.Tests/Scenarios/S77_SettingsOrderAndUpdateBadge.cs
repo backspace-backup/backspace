@@ -48,7 +48,7 @@ public sealed class S77_SettingsOrderAndUpdateBadge : ScenarioBase
             var settings = host.GetVisualDescendants().OfType<SettingsView>().Single();
             var titles = settings.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.Classes.Contains("section-title") && t.IsEffectivelyVisible).Select(t => t.Text).ToList();
-            Assert.Equal(new[] { "Appearance", "Startup and tray", "Backups at once", "Notifications", "Watchdog", "Saved passwords", "Logs & diagnostics",
+            Assert.Equal(new[] { "Appearance", "Startup and tray", "Simultaneous backups", "Notifications", "Watchdog", "Saved passwords", "Logs & diagnostics",
                 "Cloud OAuth apps", "Import existing backups", "Remove Backspace from this PC", "App updates" }, titles.Where(t => t != "Administrator access").ToArray());
             var card = settings.FindControl<Border>("AppUpdatesCard")!;
             var scroller = settings.GetVisualDescendants().OfType<ScrollViewer>().First();

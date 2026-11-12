@@ -157,23 +157,16 @@
                   Classes.running="{Binding HealthTileClass, Converter={x:Static vm:Eq.To}, ConverterParameter=running}">
             <StackPanel Spacing="3">
               <TextBlock Text="Backup health" Classes="band-label"/>
-            <!-- A check running shows here (U197): the turning icon, which
-                 check, a bar of how far it got and its step; everything
-                 else on hover (U198). -->
-            <Grid ColumnDefinitions="16,8,*" RowDefinitions="Auto,Auto,Auto" IsVisible="{Binding IsChecking}"
+            <!-- A check running shows here (U197): the turning icon and which
+                 check; everything else on hover (U198). Its bar and step are
+                 in the strip below, where a backup's progress is (U204). -->
+            <Grid ColumnDefinitions="16,8,*" IsVisible="{Binding ShowsHealthActivity}"
                   Name="CheckRunning" Background="Transparent" ToolTip.Tip="{Binding CheckTooltip}">
               <PathIcon Classes="status-icon running" VerticalAlignment="Center" v:RunningPulse.IsActive="{Binding ShowsCheckProgress}"/>
               <TextBlock Grid.Column="2" Name="CheckRunText" Text="{Binding CheckRunLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold"
                          TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
-              <ProgressBar Grid.Row="1" Grid.Column="2" Name="CheckProgressBar" Minimum="0" Maximum="100" Height="4" MinHeight="4" Margin="0,6,0,0"
-                           Value="{Binding CheckPercent}" IsIndeterminate="{Binding !CheckProgressKnown}"
-                           IsVisible="{Binding ShowsCheckProgress}"
-                           Background="{DynamicResource BS.Brush.AccentTint}" Foreground="{DynamicResource BS.Brush.Accent}"/>
-              <TextBlock Grid.Row="2" Grid.Column="2" Name="CheckStepText" Text="{Binding CheckStepLine}" FontSize="12" Margin="0,4,0,0"
-                         Foreground="{DynamicResource BS.Brush.FgSecondary}" TextTrimming="CharacterEllipsis"
-                         IsVisible="{Binding CheckStepLine, Converter={x:Static vm:NotEmpty.To}}"/>
             </Grid>
-            <Grid ColumnDefinitions="16,8,*" IsVisible="{Binding !IsChecking}">
+            <Grid ColumnDefinitions="16,8,*" IsVisible="{Binding !ShowsHealthActivity}">
               <PathIcon Classes="status-icon" VerticalAlignment="Center"
                       Classes.ok="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
                       Classes.fail="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
@@ -322,6 +315,29 @@
               </ScrollViewer>
             </StackPanel>
           </Grid>
+
+          <!-- A running check's progress (U204): the same strip as a
+               backup's, with its step underneath. -->
+          <Grid ColumnDefinitions="10,14,*,Auto" IsVisible="{Binding ShowsCheckProgress}" Background="Transparent"
+                ToolTip.Tip="{Binding CheckTooltip}">
+            <Border Grid.Column="0" Classes="status-badge running"/>
+            <ProgressBar Grid.Column="2" Name="CheckProgressBar" Minimum="0" Maximum="100" Height="6"
+                         Value="{Binding CheckPercent}" IsIndeterminate="{Binding !CheckProgressKnown}"
+                         Background="{DynamicResource BS.Brush.AccentTint}" Foreground="{DynamicResource BS.Brush.Accent}"
+                         VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="3" FontSize="12" Margin="12,0,0,0" Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                       VerticalAlignment="Center" IsVisible="{Binding CheckProgressKnown}"
+                       Text="{Binding CheckPercent, StringFormat='{}{0:0}%'}"/>
+          </Grid>
+          <TextBlock Name="CheckStepText" FontSize="12" Margin="24,-4,0,0" Foreground="{DynamicResource BS.Brush.FgSecondary}"
+                     TextTrimming="CharacterEllipsis" Text="{Binding CheckStepLine}" ToolTip.Tip="{Binding CheckTooltip}">
+            <TextBlock.IsVisible>
+              <MultiBinding Converter="{x:Static vm:BoolAnd.To}">
+                <Binding Path="ShowsCheckProgress"/>
+                <Binding Path="CheckStepLine" Converter="{x:Static vm:NotEmpty.To}"/>
+              </MultiBinding>
+            </TextBlock.IsVisible>
+          </TextBlock>
 
           <!-- Overall progress strip — only while running. -->
           <Grid ColumnDefinitions="10,14,*,Auto,Auto"

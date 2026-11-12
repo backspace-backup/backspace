@@ -101,7 +101,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _verifyLabel = "No checks recorded";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HealthTileClass))] private string _verifyClass = "never";
     /// <summary>The Backup health tile's tone: running while a check runs (U197).</summary>
-    public string HealthTileClass => IsChecking ? "running" : VerifyClass;
+    public string HealthTileClass => ShowsHealthActivity ? "running" : VerifyClass;
     [ObservableProperty] private string _verifyDetails = "The first scheduled check or Test restore will appear here.";
     [ObservableProperty] private string _checkScopeLabel = "";
     private IReadOnlyList<BackupCheckEntry> _checkEntries = Array.Empty<BackupCheckEntry>();
@@ -143,7 +143,12 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     public bool IsChecking => IsRunning && RunningOperation == "check";
     /// <summary>Last backup says Running: a backup or a cleanup runs, not a check.</summary>
     public bool ShowsRunInLastBackup => IsActuallyRunning && !IsChecking;
-    public bool ShowsCheckProgress => IsChecking && !IsQueued;
+    public bool ShowsCheckProgress => IsChecking && !IsQueued || ShowsTestRestore;
+    /// <summary>A test restore you started (not a scheduled check) shows like
+    /// a check: under Backup health, with its bar and step (U205).</summary>
+    public bool ShowsTestRestore => IsVerifying && !IsChecking && _testSession is not null;
+    /// <summary>Backup health shows something running: a check or a test restore.</summary>
+    public bool ShowsHealthActivity => IsChecking || ShowsTestRestore;
 
     /// <summary>"Checking · Structure + data sample (1 of 2) · 7 min" (U197):
     /// the check's sizes are in the hover.</summary>
@@ -151,6 +156,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     {
         get
         {
+            if (ShowsTestRestore && _testSession is { } test)
+                return "Test restore" + (test.IsPaused ? " · paused" : "") + " · " + Elapsed(UtcNow() - test.StartedUtc);
             if (IsQueued && QueuedReason.Length > 0) return "Check queued: " + QueuedReason;
             var what = RunningActivity.Length > 0 ? "Checking · " + ShortCheckName(RunningActivity) : "Checking";
             return RunStartedUtc is { } started ? what + " · " + Elapsed(UtcNow() - started - QueuedTime()) : what;
@@ -184,7 +191,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             if (RunningActivityWhere.Length > 0) lines.Add("On " + RunningActivityWhere);
             if (RunningActivityStep.Length > 0) lines.Add(RunningActivityStep);
             if (CheckProgressKnown) lines.Add($"About {RunningActivityPercent.ToString("0", System.Globalization.CultureInfo.CurrentCulture)}% of this check done");
-            if (RunStartedUtc is { } started) lines.Add("Running for " + Elapsed(UtcNow() - started - QueuedTime()));
+            if (ShowsTestRestore && _testSession is { } test) lines.Add("Running for " + Elapsed(UtcNow() - test.StartedUtc));
+            else if (RunStartedUtc is { } started) lines.Add("Running for " + Elapsed(UtcNow() - started - QueuedTime()));
             lines.Add("");
             lines.Add(CheckExplanation(RunningActivity));
             if (VerifyLabel.Length > 0) lines.Add("Latest result: " + VerifyLabel);
@@ -197,7 +205,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             ? "Reads the backup's index and snapshots to confirm all their data is present, then downloads a sample of the stored data and verifies it is intact."
         : activity.StartsWith("Structure check", StringComparison.Ordinal)
             ? "Reads the backup's index and snapshots to confirm all their data is present. Only this metadata is downloaded."
-        : activity.StartsWith("Sample test restore", StringComparison.Ordinal)
+        : activity.StartsWith("Sample test restore", StringComparison.Ordinal) || activity.StartsWith("Full test restore", StringComparison.Ordinal)
             ? "Restores a sample of files into a temporary folder and compares them with your originals. Your originals are never changed."
         : activity.StartsWith("Full data read", StringComparison.Ordinal)
             ? "Downloads all the stored data and verifies it is intact."
@@ -206,6 +214,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     private void NotifyCheckState()
     {
         OnPropertyChanged(nameof(IsChecking));
+        OnPropertyChanged(nameof(ShowsTestRestore));
+        OnPropertyChanged(nameof(ShowsHealthActivity));
         OnPropertyChanged(nameof(HealthTileClass));
         OnPropertyChanged(nameof(ShowsRunInLastBackup));
         OnPropertyChanged(nameof(ShowsCheckProgress));
@@ -528,6 +538,45 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(TestRestoreActionLabel));
         OnPropertyChanged(nameof(TestRestoreTooltip));
         OnPropertyChanged(nameof(OperationPhaseLabel));
+        FollowTestRestore(value);
+    }
+
+    private ActiveRestoreSession? _testSession;
+
+    /// <summary>A test restore you started shows on the card as it runs
+    /// (U205): its progress comes from its session.</summary>
+    private void FollowTestRestore(bool running)
+    {
+        var session = running ? ServiceLocator.ActiveRestores?.RunningTestFor(Id) : null;
+        if (!ReferenceEquals(session, _testSession))
+        {
+            if (_testSession is not null) _testSession.PropertyChanged -= OnTestSessionChanged;
+            _testSession = session;
+            if (session is not null) session.PropertyChanged += OnTestSessionChanged;
+        }
+        ApplyTestSession();
+    }
+
+    private void OnTestSessionChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => ApplyTestSession();
+
+    private void ApplyTestSession()
+    {
+        if (!IsChecking)
+        {
+            if (_testSession is { } s && IsVerifying)
+            {
+                RunningActivity = s.SourcePath;
+                RunningActivityWhere = Destinations.Count == 1 ? Destinations[0].Name : "";
+                RunningActivityStep = s.IsPaused || s.IsPausing || s.IsCancelling ? s.StatusLabel
+                    : s.IsProgressIndeterminate ? "Preparing the files to restore" : $"Restoring and comparing files · {s.RestoredCount:N0} of {s.TotalFiles:N0} files";
+                RunningActivityPercent = s.IsProgressIndeterminate ? -1 : s.PercentComplete * 100;
+            }
+            else if (!IsRunning)
+            {
+                RunningActivity = ""; RunningActivityStep = ""; RunningActivityWhere = ""; RunningActivityPercent = -1;
+            }
+        }
+        NotifyCheckState();
     }
 
     /// <summary>Sources rendered as a scrollable per-row list. The row

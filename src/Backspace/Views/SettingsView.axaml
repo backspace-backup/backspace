@@ -163,7 +163,7 @@
             <Border Classes="section-glyph">
               <PathIcon Data="{StaticResource Icon.Backup}"/>
             </Border>
-            <TextBlock Classes="section-title" Text="Backups at once" Margin="0" VerticalAlignment="Center"/>
+            <TextBlock Classes="section-title" Text="Simultaneous backups" Margin="0" VerticalAlignment="Center"/>
           </StackPanel>
         </Expander.Header>
         <StackPanel Spacing="14" Margin="0,8,0,0">
@@ -171,7 +171,7 @@
                      Text="A backup that has to wait its turn says “Queued” and why, then starts by itself. These apply to backups run from this window and by the background service."/>
           <Grid ColumnDefinitions="*,22,*">
             <StackPanel Grid.Column="0" Spacing="6">
-              <TextBlock Classes="label-caps" Text="BACKUPS AT ONCE PER DESTINATION"/>
+              <TextBlock Classes="label-caps" Text="PER DESTINATION"/>
               <NumericUpDown x:Name="BackupsPerDestinationField" Width="120" HorizontalAlignment="Left"
                              Value="{Binding BackupsPerDestination}" Minimum="1" Maximum="{Binding BackupsAtOnceMaximum}"
                              Increment="1" FormatString="0"/>
@@ -179,7 +179,7 @@
                          Text="Backups to the same destination share its connection, so with 1 they take turns and the first one isn’t slowed down."/>
             </StackPanel>
             <StackPanel Grid.Column="2" Spacing="6">
-              <TextBlock Classes="label-caps" Text="BACKUPS AT ONCE IN TOTAL"/>
+              <TextBlock Classes="label-caps" Text="IN TOTAL"/>
               <NumericUpDown x:Name="BackupsInTotalField" Width="120" HorizontalAlignment="Left"
                              Value="{Binding BackupsInTotal}" Minimum="1" Maximum="{Binding BackupsAtOnceMaximum}"
                              Increment="1" FormatString="0"/>
@@ -188,7 +188,7 @@
             </StackPanel>
           </Grid>
           <TextBlock Classes="helper" TextWrapping="Wrap"
-                     Text="Cleanup and checks of a destination always run alone on it: they wait for the backups running there."/>
+                     Text="Cleanup and checks of a destination always run alone on it: they wait for the backups and other checks there. Restores and test restores you start only read, so they aren’t counted and can run while backups do."/>
         </StackPanel>
         </Expander>
       </Border>

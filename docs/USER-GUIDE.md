@@ -174,15 +174,15 @@ one of them (battery, metered connection) is due again and starts once the
 condition is met. A backup never overlaps itself: if it is still running when
 its next run is due, the next is skipped.
 
-### Backups at once
+### Simultaneous backups
 
 Backups that are due together, or that you start one after the other, run
-together up to two limits, in **Settings › Backups at once**:
+together up to two limits, in **Settings › Simultaneous backups**:
 
-- **Backups at once per destination** (1 by default): backups to the same
+- **Per destination** (1 by default): backups to the same
   destination share its connection, so with 1 they take turns and the first
   one isn't slowed down by the second.
-- **Backups at once in total** (2 by default): all destinations together, so
+- **In total** (2 by default): all destinations together, so
   the computer's disk isn't overloaded.
 
 A backup that has to wait says **Queued** on its card instead of **Running**.
@@ -209,7 +209,11 @@ administrator access, backups the background service runs, together. Cleanup
 and checks of a destination always run alone on it, whatever the limits: a
 backup reaching its cleanup waits for the other backups on that destination
 to finish ("Queued: waiting for local_d (same destination) before cleanup and
-checks"), and no new backup starts there meanwhile. With more than one backup
+checks"), and no new backup starts there meanwhile. Two checks of one
+destination never run at the same time either: each waits for the other.
+Restores and test restores you start yourself only read the destination, so
+the limits don't count them and they can run while a backup does (a scheduled
+sample test restore is a check, and runs alone). With more than one backup
 per destination, a new backup's first moments (while the engine prepares the
 storage) are still taken one backup at a time.
 
@@ -496,7 +500,7 @@ deleted; **Activity** lists them too.
 While a backup runs, its card says **Running** with a turning icon and the
 time the run has taken so far, for example **Running · 12 min** (counted from
 the run's start, for a backup run by the background service too, without the
-time it spent queued: see [Backups at once](#backups-at-once)). Each source
+time it spent queued: see [Simultaneous backups](#simultaneous-backups)). Each source
 and the strip below show the percentage, and the line under the strip says
 what is done, in the order it happens, kept to one line: for example
 "88,211 of ~109,320 files checked · about 40 min left". Hovering it shows
@@ -779,13 +783,15 @@ passed in 7 min 50 s". The backup card's **Backup health** line names the
 latest result by the same names ("Data sample passed · 4m ago"; a failure
 stays shown until that check passes again), and its hover lists each
 check's latest result. While a check runs, **Backup health** says so with a
-turning icon, such as "Checking · Structure + data sample (1 of 2) · 7 min",
-with a bar of how far it got and its step underneath ("Reading the data
-sample · 20 of 64 packs"). The bar follows restic's own counts (snapshots,
+turning icon, such as "Checking · Structure + data sample (1 of 2) · 7 min".
+Its bar and current step ("Reading the data sample · 20 of 64 packs") show
+below the sources and destinations, where a backup's progress shows. The bar follows restic's own counts (snapshots,
 then packs read), so it is approximate in time. Its hover has the check's
 full name and size, the destination, the time running, what the check does
 and the latest result. **Last backup** keeps showing the last backup's
-result meanwhile. A backup that has not stored anything yet says "No checks
+result meanwhile. A test restore you start with **Test restore** shows the
+same way ("Test restore · 2 min", then "Restoring and comparing files · 120
+of 400 files" under its bar). A backup that has not stored anything yet says "No checks
 yet: nothing backed up so far": there is nothing to check until its first
 backup succeeds, and Last backup already says what needs attention.
 

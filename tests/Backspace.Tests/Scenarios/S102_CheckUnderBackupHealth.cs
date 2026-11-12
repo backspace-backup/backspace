@@ -115,12 +115,12 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         Assert.Contains("downloads a sample of the stored data", tip);
         Assert.DoesNotContain("0.0%", tip);
         ctx.Snapshot(host, "a check running under backup health",
-            $"local_d's data sample runs: Backup health shows the turning icon, \"{label.Text}\", a bar at 52% and \"Reading the data sample · 20 of 64 packs\". Last backup keeps \"{lastBackup}\". Hover: \"{tip.Replace("\n", " / ")}\".");
+            $"local_d's data sample runs: Backup health shows the turning icon and \"{label.Text}\"; below the sources and destinations, where a backup's progress shows, a bar at 52% and \"Reading the data sample · 20 of 64 packs\" (U204). Last backup keeps \"{lastBackup}\". Hover: \"{tip.Replace("\n", " / ")}\".");
 
         host.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
         Screenshots.ScreenshotDiffTests.SettleInitialTransitions(host);
         await ctx.Driver.PumpAsync(100);
-        ctx.Snapshot(host, "a check running, dark theme", "The same in the dark theme: the running tile in blue under Backup health, the bar and the step; Last backup keeps its green result.");
+        ctx.Snapshot(host, "a check running, dark theme", "The same in the dark theme: Backup health in blue with the check, the bar and step below the sources; Last backup keeps its green result.");
         host.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
 
         // Before restic gives a count: the bar moves without a percentage.
@@ -172,6 +172,30 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         // An out-of-range share is refused by the activity report's checks.
         Assert.Throws<System.IO.InvalidDataException>(() => Backspace.Services.Platform.Windows.ServiceActivity.Parse(
             Backspace.Services.Platform.Windows.ServiceActivity.Encode(checking with { Progress = checking.Progress! with { ActivityPercent = 140 } })));
+        // U205: a test restore you start (Test restore on the card) shows
+        // the same way: under Backup health, with its bar and step below.
+        var cardDrop = Card(localD);
+        var test = ServiceLocator.ActiveRestores.BeginTest(localD, "Sample test restore (1%)", DateTime.UtcNow.AddMinutes(-2), null);
+        cardDrop.UtcNow = () => DateTime.UtcNow;
+        cardDrop.IsVerifying = true;
+        await ctx.Driver.PumpAsync(100);
+        Assert.True(cardDrop.ShowsTestRestore);
+        Assert.Equal("Test restore · 2 min", cardDrop.CheckRunLabel);
+        Assert.False(cardDrop.CheckProgressKnown); // nothing counted yet
+        Assert.Equal("Preparing the files to restore", cardDrop.CheckStepLine.Replace("Google Drive · ", ""));
+        ServiceLocator.ActiveRestores.UpdateProgress(test, 400, 120, 1000, 300);
+        for (var i = 0; i < 20; i++) { Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick(); await ctx.Driver.PumpAsync(50); }
+        Assert.Equal(30, cardDrop.CheckPercent, 1);
+        Assert.Equal("Restoring and comparing files · 120 of 400 files", cardDrop.CheckStepLine);
+        Assert.Contains("Restores a sample of files", cardDrop.CheckTooltip);
+        Assert.True(view.GetVisualDescendants().OfType<ProgressBar>().Single(b => b.Name == "CheckProgressBar").IsEffectivelyVisible);
+        ctx.Snapshot(host, "a test restore running",
+            $"A test restore started from local_d's card: Backup health says \"{cardDrop.CheckRunLabel}\", the strip below the sources shows 30% and \"{cardDrop.CheckStepLine}\".");
+        ServiceLocator.ActiveRestores.End(test, RestoreTerminalStatus.Success, null);
+        cardDrop.IsVerifying = false;
+        await ctx.Driver.PumpAsync(100);
+        Assert.False(cardDrop.ShowsTestRestore);
+        Assert.False(cardDrop.ShowsCheckProgress);
         ctx.Report.RecordNote("Limits", "Headless Avalonia with the orchestrator's progress reports given directly; the real engine's counts are proven by CheckProgressTests (restic run on a local repository). The service relays the same fields through its activity report.");
         host.Close();
     }
