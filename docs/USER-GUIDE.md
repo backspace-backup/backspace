@@ -796,7 +796,7 @@ sample) passed in 7 min 50 s". The card's **Backup health** line names the
 latest result by the same names ("Data check passed · 4m ago"; a failure
 stays shown until that check passes again), and its hover lists each check's
 latest result. While a check runs, **Backup health** says so with a turning
-icon, such as "Checking · Data check (1 of 2) · 7 min". Its bar and current
+icon and the check's name, such as "Data check (1 of 2) · 7 min". Its bar and current
 step ("Reading the data sample · 20 of 64 packs", or "Restoring and comparing
 files · 120 of 400 files") show below the sources and destinations, where a
 backup's progress shows. The bar follows restic's own counts, so it is

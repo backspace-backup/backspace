@@ -102,7 +102,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         Assert.Equal("ok", cardD.StatusClass);
         var label = view.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "CheckRunText");
         Assert.True(label.IsEffectivelyVisible);
-        Assert.Equal("Checking · Data check (1 of 2) · 7 min", label.Text);
+        Assert.Equal("Data check (1 of 2) · 7 min", label.Text);
         var bar = view.GetVisualDescendants().OfType<ProgressBar>().Single(b => b.Name == "CheckProgressBar");
         Assert.True(bar.IsEffectivelyVisible);
         Assert.False(bar.IsIndeterminate);
@@ -126,7 +126,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         // Before restic gives a count: the bar moves without a percentage.
         progress.ReportActivity(localD.Id, "Restore check (1% of files, at most 1 GiB) (2 of 2)");
         await ctx.Driver.PumpAsync(150);
-        Assert.Equal("Checking · Restore check (2 of 2) · 7 min", label.Text);
+        Assert.Equal("Restore check (2 of 2) · 7 min", label.Text);
         Assert.True(bar.IsIndeterminate);
         Assert.False(view.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "CheckStepText").IsVisible);
 

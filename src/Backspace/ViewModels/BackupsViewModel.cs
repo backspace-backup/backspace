@@ -961,7 +961,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             {
                 var started = card.RunStartedUtc is { } at ? "Started at " + at.ToLocalTime().ToString("HH:mm") + " · " : "";
                 if (card.ShowsHealthActivity)
-                    history.SetLive(card.RunningActivity.Length > 0 ? "Check · " + BackupCardViewModel.ShortCheckName(card.RunningActivity) : card.ShowsTestRestore ? "Restore check" : "Check",
+                    history.SetLive(card.RunningActivity.Length > 0 ? BackupCardViewModel.ShortCheckName(card.RunningActivity) : card.ShowsTestRestore ? "Restore check" : "Check",
                         started + "follow it as it happens in its live log.");
                 else if (card.IsRunning)
                     history.SetLive(card.IsQueued ? "Backup · queued" : "Backup", started + "follow it as it happens in its live log.");

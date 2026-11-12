@@ -153,8 +153,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// stopped here now that Restores doesn't list it (U205).</summary>
     public bool ShowsStop => IsRunning || ShowsTestRestore;
 
-    /// <summary>"Checking · Structure + data sample (1 of 2) · 7 min" (U197):
-    /// the check's sizes are in the hover.</summary>
+    /// <summary>"Data check (1 of 2) · 7 min" (U197, U221): the check's sizes
+    /// are in the hover.</summary>
     public string CheckRunLabel
     {
         get
@@ -162,7 +162,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             if (ShowsTestRestore && _testSession is { } test)
                 return "Restore check" + (test.IsPaused ? " · paused" : "") + " · " + Elapsed(UtcNow() - test.StartedUtc);
             if (IsQueued && QueuedReason.Length > 0) return "Check queued: " + QueuedReason;
-            var what = RunningActivity.Length > 0 ? "Checking · " + ShortCheckName(RunningActivity) : "Checking";
+            // The check's name alone beside the turning icon: "Data check (1 of
+            // 2) · 7 min", never "Checking · Data check" (U197: "check twice").
+            var what = RunningActivity.Length > 0 ? ShortCheckName(RunningActivity) : "Checking";
             return RunStartedUtc is { } started ? what + " · " + Elapsed(UtcNow() - started - QueuedTime()) : what;
         }
     }
