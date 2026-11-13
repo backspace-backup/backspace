@@ -143,8 +143,12 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         await syntaxVm.RunLeftOutCommand.ExecuteAsync(null);
         await ctx.Driver.PumpAsync(200);
         var rooted = Assert.Single(syntaxVm.LeftOutResult!.MatchNothing, u => u.Rule == "/top.txt");
-        Assert.True(rooted.Rooted);
-        Assert.Contains(syntaxVm.LeftOutRows.OfType<LeftOutUnusedRow>(), r => r.Rule.Rule == "/top.txt" && r.Why.Contains("?:/", StringComparison.Ordinal));
+        // It matches nothing everywhere; the drive-letter explanation and fix are Windows'.
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.True(rooted.Rooted);
+            Assert.Contains(syntaxVm.LeftOutRows.OfType<LeftOutUnusedRow>(), r => r.Rule.Rule == "/top.txt" && r.Why.Contains("?:/", StringComparison.Ordinal));
+        }
         ctx.Snapshot(syntaxEditor, "rule-starting-with-slash-matches-nothing",
             "Filters > Advanced > Left out with the restic-syntax rules: under 'Rules that match nothing here', /top.txt with why (a Windows path starts with its drive) and the fix (?:/ or C:/); the rule itself stays as written.");
         syntaxEditor.Close();
