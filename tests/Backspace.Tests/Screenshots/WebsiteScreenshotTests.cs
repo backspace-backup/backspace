@@ -375,6 +375,11 @@ public class WebsiteScreenshotTests : IDisposable
                 UseVss  = true,
                 KeepPolicy = "0:365 30:90 7:30 1:7",
                 // PruneSchedule null = inline prune (model default).
+                Checks =
+                {
+                    new BackupCheck { Kind = CheckKind.DataSample, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Weekly, WeeklyDaysBitmask = 1, TimeOfDay = TimeSpan.FromHours(3) } },
+                    new BackupCheck { Kind = CheckKind.TestRestore, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Monthly, TimeOfDay = TimeSpan.FromHours(3) } },
+                },
             });
             cfg.Backups.Add(new Backup
             {
@@ -391,6 +396,7 @@ public class WebsiteScreenshotTests : IDisposable
                 Threads = 8,
                 UseVss  = true,
                 KeepPolicy = "0:365 30:90 7:30 1:7",
+                Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Weekly, WeeklyDaysBitmask = 1, TimeOfDay = TimeSpan.FromHours(3) } } },
             });
             cfg.Backups.Add(new Backup
             {
@@ -408,6 +414,36 @@ public class WebsiteScreenshotTests : IDisposable
                 KeepPolicy = "0:730 30:180 7:60",
             });
         });
+        SeedCheckHistory();
+    }
+
+    /// <summary>Recent passed checks for the demo backups, so their cards
+    /// show their health as a real setup would (U237).</summary>
+    private static void SeedCheckHistory()
+    {
+        var cfg = ServiceLocator.Config.Current;
+        var now = DateTime.UtcNow;
+        void Check(string backupName, CheckKind kind, CheckDepth depth, double daysAgo, string summary)
+        {
+            var backup = cfg.Backups.Single(b => b.Name == backupName);
+            var check = backup.Checks.First(c => c.Kind == kind);
+            var ended = now.AddDays(-daysAgo);
+            var record = new RunRecord
+            {
+                BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Check, CheckId = check.Id, CheckKind = kind,
+                StartedUtc = ended.AddMinutes(-8), EndedUtc = ended, Status = BackupRunStatus.Success, Summary = summary,
+            };
+            foreach (var target in backup.Targets)
+            {
+                var dest = cfg.Destinations.First(d => d.Id == target.DestinationId);
+                record.Checks.Add(new BackupCheckResult { Depth = depth, Status = BackupRunStatus.Success, EndedUtc = ended,
+                    TargetKey = target.DestinationId + "/" + target.StorageName, DestinationName = dest.Name, Summary = summary });
+            }
+            ServiceLocator.Logs.AppendRun(record);
+        }
+        Check("documents", CheckKind.TestRestore, CheckDepth.RestoreSample, 6, "Restore check (1% of files, at most 1 GiB) passed in 6 min 12 s.");
+        Check("documents", CheckKind.DataSample, CheckDepth.SavedDataSample, 2, "Data check (1 GiB sample) passed in 8 min 8 s.");
+        Check("code-and-projects", CheckKind.Structure, CheckDepth.RepositoryStructure, 1, "Structure check passed in 1 min 40 s.");
     }
 
     /// <summary>

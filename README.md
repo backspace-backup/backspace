@@ -61,17 +61,38 @@ installer, no account, no subscription.
     <td valign="top">
       <h3>🕰️ Every file, every day</h3>
       Restore one file or a whole folder from any snapshot, or open a snapshot
-      as a read-only drive in File Explorer.
+      as a read-only drive in File Explorer: its folders list instantly, and a
+      file downloads only when you open it.
     </td>
     <td valign="top">
       <h3>✅ Backups you can trust</h3>
-      Restore checks recover your files for real, on demand or on a schedule,
-      so a broken backup doesn't wait for the day you need it.
+      Structure, data and restore checks, each on its own schedule. Restore
+      checks recover your files for real, so a broken backup doesn't wait for
+      the day you need it.
     </td>
     <td valign="top">
       <h3>🪶 Quiet in the background</h3>
-      Lives in the tray like Dropbox and uses no CPU between backups. With
-      administrator access it includes open files and runs before you sign in.
+      Lives in the tray like Dropbox and uses next to no CPU between backups.
+      One click on administrator access and it includes open files (Windows
+      snapshots, VSS) and runs before you sign in.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h3>🔋 Battery and data-plan aware</h3>
+      Run only on AC power, only on an unmetered connection, or both. A drive
+      on this computer is backed up even offline; the cloud catches up as
+      soon as the network allows.
+    </td>
+    <td valign="top">
+      <h3>📋 Logs you can read</h3>
+      Every backup, check and cleanup says what it did, step by step, and how
+      it ended. restic's full output is one click away.
+    </td>
+    <td valign="top">
+      <h3>🧭 Easy or advanced</h3>
+      A three-step wizard for the everyday case; every restic setting, filter
+      rule and schedule when you want them.
     </td>
   </tr>
 </table>
@@ -152,18 +173,18 @@ checks, alerts and every other detail.
 
 ## Status
 
-Version 1.1 rebuilt the background service. Before each release, the exact build
-passes the full test suite and a real 20,000-file backup and restore with every
-file compared. Live backups and restores on Dropbox, OneDrive and Google Drive,
-and scheduled backups before sign-in in an isolated Windows 11 virtual machine,
-have been run on earlier builds; each release's notes say which checks it did
-not repeat.
+Each release's code runs the full test suite (about 2,300 tests) and a real
+20,000-file backup and restore with every file compared. While releases are
+fast-tracked, these may finish just after a release is published; any failure
+is fixed in the next one. Live backups and restores on Dropbox, OneDrive and
+Google Drive, and scheduled backups before sign-in in an isolated Windows 11
+virtual machine, have been run on earlier builds.
 
 | | |
 |---|---|
 | **Windows 11** | Supported and tested |
 | **Windows 10** | Not tested yet |
-| **macOS, Linux** | Builds, never launched yet. Field reports welcome |
+| **Linux, macOS** | Testing in progress: the test suite runs on Linux and macOS (about 95% passing on Linux), and the first platform bugs it found are fixed. The app hasn't been tried by people there yet, so field reports are very welcome |
 | **OneDrive for Business** | Not supported yet |
 | **Network shares** | Without administrator access, backed up while you are signed in, without Windows snapshots. With it, backed up in the background like other destinations, using the share's user name and password saved with the destination (required then) |
 
@@ -193,7 +214,7 @@ build offline with binaries you place under `src/Backspace/Assets/`).
 dotnet publish src/Backspace -c Release -r win-x64 --self-contained false -f net10.0-windows
 # → bin/Release/net10.0-windows/win-x64/publish/Backspace.exe
 
-# macOS (osx-arm64 or osx-x64) and Linux (linux-x64), untested
+# macOS (osx-arm64 or osx-x64) and Linux (linux-x64): tests run, the app itself is not yet tried by people
 dotnet publish src/Backspace -c Release -r linux-x64 --self-contained -f net10.0 -p:PublishSingleFile=true
 ```
 

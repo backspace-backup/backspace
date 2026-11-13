@@ -561,6 +561,7 @@ header.hero { scroll-margin-top: 80px; }
 
         <div class="pill-row">
             <span class="pill">Windows 11</span>
+            <span class="pill">Linux &amp; macOS: in testing</span>
             <span class="pill">Encrypted (AES-256)</span>
             <span class="pill">Dropbox · OneDrive · Google Drive · S3</span>
             <span class="pill">BSD-2 licensed</span>
@@ -568,13 +569,13 @@ header.hero { scroll-margin-top: 80px; }
 
         <div class="notice">
             <span class="note-tag">Note:</span>
-            Backspace covers the everyday backup loop end-to-end and
-            <b>mostly works for what matters</b>, but it needs more real-world
-            mileage before calling itself stable. Tested on Windows 11.
-            <b>Zero testing on macOS and Linux</b> so far — the code targets
-            both via Avalonia and there's no architectural reason it shouldn't
-            run there. Try it and please file an issue if anything surprises
-            you.
+            Backspace covers the everyday backup loop end-to-end and is used
+            every day, but it needs more real-world mileage before calling
+            itself stable. Tested on Windows 11. <b>Linux and macOS testing is
+            under way</b>: the test suite runs on both (about 95% passing on
+            Linux) and the first bugs it found are fixed, but nobody has used
+            the app there yet. Try it and please file an issue if anything
+            surprises you.
         </div>
     </div>
 </header>
@@ -814,7 +815,7 @@ header.hero { scroll-margin-top: 80px; }
                 <img src="screenshots/12-backup-editor.png" alt="Advanced backup editor">
                 <figcaption class="adv-caption">
                     <h4>Backup editor — the full surface</h4>
-                    <p>Multiple sources, multiple destinations, exclude patterns with live preview, per-target threads, retention policy, prune / check toggles. Anything Restic supports, with a name to it.</p>
+                    <p>Multiple sources and destinations, recommended exclusions you tick, your own rules with a list of what they leave out, retention, a schedule summary with its Backups, Cleanup and Checks tabs, and the conditions to run on. Anything Restic supports, with a name to it.</p>
                 </figcaption>
             </figure>
             <figure class="adv">
@@ -828,7 +829,7 @@ header.hero { scroll-margin-top: 80px; }
                 <img src="screenshots/06-logs.png" alt="Activity and logs view">
                 <figcaption class="adv-caption">
                     <h4>Activity log you can audit</h4>
-                    <p>Every run records its files, bytes, duration, exit status. The raw Restic output is captured next to each run, so when something looks wrong you can see exactly what.</p>
+                    <p>Every backup, check and cleanup says what it did, step by step, coloured by what each line is, and how it ended. Pick any run from a readable list; tick Verbose for restic's own output and Timestamps for each line's time.</p>
                 </figcaption>
             </figure>
         </div>
@@ -872,13 +873,23 @@ header.hero { scroll-margin-top: 80px; }
             </div>
             <div class="feature">
                 <div class="feature-icon"><svg viewBox="0 0 24 24"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></div>
-                <h3>Metered-network guard</h3>
-                <p>On Windows, the only OS that exposes a first-class metered signal: a backup that starts on Wi-Fi and detects a tether mid-run aborts cleanly. No data-plan surprises.</p>
+                <h3>Battery and data-plan aware</h3>
+                <p>Run only on AC power, only on an unmetered connection, or both: a run waits for them, pauses when they stop holding and picks up again by itself. A drive on this computer is backed up even offline; the cloud catches up as soon as the network allows. Start one yourself and Backspace asks before overriding them.</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M3 3h7v7H3z"/><path d="M14 3h7v7h-7z"/><path d="M14 14h7v7h-7z"/><path d="M3 14h7v7H3z"/></svg></div>
+                <h3>Open files included, one click</h3>
+                <p>Allow administrator access once: a small background service then takes a Windows snapshot (VSS) for each backup, so files other programs have open are backed up too, and backups run even before you sign in. No scheduled-task XML, no password stored.</p>
+            </div>
+            <div class="feature">
+                <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+                <h3>Checks you can trust</h3>
+                <p>Structure, data and restore checks, each on its own schedule. A restore check rebuilds real files from the latest backup into a temporary folder and checks each one, so a broken backup doesn't wait for the day you need it.</p>
             </div>
             <div class="feature">
                 <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M3 3h7v7H3z"/><path d="M14 3h7v7h-7z"/><path d="M14 14h7v7h-7z"/><path d="M3 14h7v7H3z"/></svg></div>
                 <h3>Browse &amp; mount snapshots</h3>
-                <p>Browse any snapshot inline — walk the tree, eyeball file sizes, search by name without launching the restore wizard. Or <em>mount</em> the snapshot as a read-only Windows Explorer drive: open files in their usual apps, diff against your working copy, drag-and-drop the one file you actually wanted out. Both surface from the per-backup card.</p>
+                <p>Browse any snapshot inline — walk the tree, eyeball file sizes, search by name without launching the restore wizard. Or <em>mount</em> the snapshot as a read-only Windows Explorer drive: its folders list instantly and a file downloads only when you open it. Open files in their usual apps, diff against your working copy, drag out the one file you wanted. Both surface from the per-backup card.</p>
             </div>
         </div>
     </div>
