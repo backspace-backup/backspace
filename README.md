@@ -5,7 +5,7 @@
 <h1 align="center">Backspace</h1>
 
 <p align="center">
-  <strong>Set-and-forget encrypted backups for Windows.</strong><br>
+  <strong>Set-and-forget encrypted backups, powered by restic.</strong><br>
   Back up in three steps. Restore any file from any day. Know that your backups actually work.
 </p>
 
@@ -13,12 +13,15 @@
   <a href="https://github.com/backspace-backup/backspace/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/backspace-backup/backspace?style=flat-square&color=0061FF"></a>
   <a href="LICENSE"><img alt="License: BSD-2-Clause" src="https://img.shields.io/badge/license-BSD--2--Clause-0061FF?style=flat-square"></a>
   <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11-0061FF?style=flat-square">
+  <img alt="Linux and macOS: beta" src="https://img.shields.io/badge/Linux%20%26%20macOS-beta-F59E0B?style=flat-square">
   <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10-512BD4?style=flat-square">
   <a href="https://restic.net"><img alt="Powered by restic" src="https://img.shields.io/badge/powered%20by-restic-2E7D32?style=flat-square"></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace.exe"><strong>Download for Windows</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#building-from-source">Linux &amp; macOS (beta)</a>
   &nbsp;·&nbsp;
   <a href="https://backspace-backup.github.io">Website</a>
   &nbsp;·&nbsp;
