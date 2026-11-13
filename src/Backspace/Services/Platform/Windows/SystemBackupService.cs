@@ -184,6 +184,7 @@ internal sealed class SystemBackupService : ServiceBase
                 var resumes = !retained.StopRequested && ResumeLater(retained.BackupId, retained.Kind, stopped: false);
                 var outcome = _recovery.Recover(retained.HostRunId, InterruptionReason(retained.StartedUtc, WindowsStartedUtc(), resumes), resumes);
                 run.State = outcome?.Status == BackupRunStatus.Success ? "completed" : "interrupted";
+                Touched();
                 run.Result = run.State == "completed" ? 0 : 4;
                 if (outcome is not null) run.Progress = new(retained.BackupId, 0, "", [], [], outcome, LogRunId: outcome.Id);
                 Remember(run);
@@ -327,7 +328,10 @@ internal sealed class SystemBackupService : ServiceBase
                 request = await BackupServicePipe.ReadMessageAsync(listener, TimeSpan.FromSeconds(10), _stop.Token).ConfigureAwait(false);
                 // Each connection is answered on its own; the run list has its
                 // own short lock, and no file is read while holding it (U224).
-                var reply = Dispatch(request);
+                // "activity-wait" is answered when something changes.
+                var reply = ActivityWait(request) is { } known
+                    ? await WaitForActivityAsync(known, _stop.Token).ConfigureAwait(false)
+                    : Dispatch(request);
                 await BackupServicePipe.SendResponseAsync(listener, reply, TimeSpan.FromSeconds(10), _stop.Token).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or OperationCanceledException or UnauthorizedAccessException) { }
@@ -388,6 +392,7 @@ internal sealed class SystemBackupService : ServiceBase
                 if (cancelled is null) return Reply("not-running");
                 cancelled.Worker!.StandardInput.WriteLine("cancel"); cancelled.Worker.StandardInput.Flush();
                 cancelled.State = "stopping";
+                Touched();
                 reply = Reply(null, cancelled);
             }
             RecordRequestedStop(cancelled);
@@ -423,11 +428,47 @@ internal sealed class SystemBackupService : ServiceBase
     }
 
     /// <summary>The run started last, with every run the service knows.</summary>
+    /// <summary>The activity changed (a run started, moved, stopped or
+    /// ended): a desktop waiting for that hears it at once (U224, owner: "the
+    /// app is not supposed to use any CPU when not in use").</summary>
+    private void Touched()
+    {
+        Interlocked.Increment(ref _activitySequence);
+        Interlocked.Exchange(ref _activityChanged, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+    }
+
+    private long _activitySequence;
+    private TaskCompletionSource _activityChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Answers "activity-wait" once the activity differs from the
+    /// one the desktop holds, or after <see cref="ActivityWaitLongest"/>
+    /// anyway: no one polls while nothing happens.</summary>
+    private async Task<byte[]> WaitForActivityAsync(long known, CancellationToken stop)
+    {
+        var changed = Volatile.Read(ref _activityChanged).Task;
+        if (Interlocked.Read(ref _activitySequence) == known)
+            await Task.WhenAny(changed, Task.Delay(ActivityWaitLongest, stop)).ConfigureAwait(false);
+        lock (_gate) return ServiceActivity.Encode(Activity());
+    }
+
+    internal static readonly TimeSpan ActivityWaitLongest = TimeSpan.FromMinutes(1);
+
+    private static long? ActivityWait(byte[] request)
+    {
+        try
+        {
+            var parsed = ServiceHostRequest.Parse(request);
+            return parsed.Command == "activity-wait" && long.TryParse(parsed.Revision, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var known) ? known : null;
+        }
+        catch (Exception) { return null; }
+    }
+
     private ServiceActivity.Snapshot Activity()
     {
         var runs = _runs.Values.OrderBy(r => r.StartedUtc).Select(r => Snapshot(r, withTail: r.Active)).ToArray();
         var top = _latest is null ? new ServiceActivity.Snapshot(1, null, "idle", null, null, null, null) : Snapshot(_latest, withTail: true);
-        return top with { Runs = runs };
+        return top with { Runs = runs, Sequence = Interlocked.Read(ref _activitySequence) };
     }
 
     private static ServiceActivity.Snapshot Snapshot(WorkerRun run, bool withTail) => new(1, run.RunId, run.State, run.BackupId,
@@ -439,6 +480,7 @@ internal sealed class SystemBackupService : ServiceBase
         foreach (var old in _runs.Values.Where(r => !r.Active && r.BackupId == run.BackupId && r.RunId != run.RunId).ToList())
             _runs.Remove(old.RunId);
         _runs[run.RunId] = run;
+        Touched();
         if (_latest is null || run.StartedUtc >= _latest.StartedUtc) _latest = run;
     }
 
@@ -490,6 +532,7 @@ internal sealed class SystemBackupService : ServiceBase
             // The child waits for 'start' before touching a repository.
             if (!KillOnExitJobObject.TryAssign(process)) throw new IOException("The worker lifetime could not be protected.");
             run.State = "running";
+            Touched();
             SaveStatus(run);
             run.Worker = process;
             run.Exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -506,10 +549,11 @@ internal sealed class SystemBackupService : ServiceBase
                 try { if (!process.HasExited) process.Kill(entireProcessTree: true); stopped = process.WaitForExit(2000); }
                 catch { /* An uncertain child keeps the slot. */ }
             }
-            if (stopped) { process.Dispose(); run.Worker = null; run.State = "failed-to-start"; run.Lease.Clear(); }
+            if (stopped) { process.Dispose(); run.Worker = null; run.State = "failed-to-start"; run.Lease.Clear(); Touched(); }
             else
             {
                 run.Worker = process; run.State = "unknown";
+                Touched();
                 run.Exited ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
                 _ = ObserveWorkerAsync(run, process, ReadProgressAsync(run, process, request.BackupId!));
             }
@@ -534,6 +578,7 @@ internal sealed class SystemBackupService : ServiceBase
                     foreach (var (run, worker) in expired)
                     {
                         run.State = "stopping";
+                        Touched();
                         try { SaveStatus(run); } catch (IOException) { }
                         try { worker.StandardInput.WriteLine("cancel"); worker.StandardInput.Flush(); }
                         catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException) { }
@@ -570,6 +615,7 @@ internal sealed class SystemBackupService : ServiceBase
                 lock (_gate) if (ReferenceEquals(process, run.Worker))
                 {
                     run.Progress = progress;
+                    Touched();
                     if (progress.LogRunId is { } historyId && run.SavedHistoryId != historyId)
                     {
                         try { _recovery.TrackHistory(run.RunId, historyId); run.SavedHistoryId = historyId; }
@@ -608,6 +654,7 @@ internal sealed class SystemBackupService : ServiceBase
             catch (Exception ex) { AppLogger.For<SystemBackupService>().Error(ex, "The interrupted worker outcome remains pending for recovery"); }
             try { SaveStatus(run); } catch (Exception ex) { AppLogger.For<SystemBackupService>().Error(ex, "Could not save service worker exit"); }
             run.Worker = null; run.Lease.Clear(); process.Dispose();
+            Touched();
             run.Exited?.TrySetResult(); run.Exited = null;
         }
     }

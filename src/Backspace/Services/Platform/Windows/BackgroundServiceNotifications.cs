@@ -80,12 +80,36 @@ internal sealed class BackgroundServiceNotifications : IDisposable
                 try { delivered = await DeliverOneAsync(_stop.Token).ConfigureAwait(false); }
                 catch (OperationCanceledException) when (_stop.IsCancellationRequested) { break; }
                 catch (Exception ex) { AppLogger.For<BackgroundServiceNotifications>().Warning(ex, "Background alerts remain pending"); }
-                // Fresh results arrive promptly; an accumulated backlog is
-                // spaced out so it does not open a stack of alerts at sign-in.
-                await Task.Delay(TimeSpan.FromSeconds(delivered ? 10 : 2), _stop.Token).ConfigureAwait(false);
+                // An accumulated backlog is spaced out so it does not open a
+                // stack of alerts at sign-in. Otherwise it looks again when the
+                // service's activity changes (a run ended), or every ten minutes:
+                // nothing polls in between (U224).
+                if (delivered) await Task.Delay(TimeSpan.FromSeconds(10), _stop.Token).ConfigureAwait(false);
+                // Locked or signed out: alerts wait for the desktop, looked for twice a minute.
+                else if (!_desktopReady()) await Task.Delay(TimeSpan.FromSeconds(30), _stop.Token).ConfigureAwait(false);
+                else await WaitForNewsAsync(_stop.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+
+    internal static TimeSpan QuietLook = TimeSpan.FromMinutes(10);
+
+    private static async Task WaitForNewsAsync(CancellationToken stop)
+    {
+        var news = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Activity() => news.TrySetResult();
+        BackgroundServiceActivity.ActivityChanged += Activity;
+        try
+        {
+            await Task.WhenAny(news.Task, Task.Delay(QuietLook, stop)).ConfigureAwait(false);
+            // The alert is saved as the run ends: a moment for it to land.
+            if (news.Task.IsCompleted) await Task.Delay(TimeSpan.FromSeconds(1), stop).ConfigureAwait(false);
+        }
+        finally
+        {
+            BackgroundServiceActivity.ActivityChanged -= Activity;
+        }
     }
 
     internal static void Open(BackgroundNotification notice)

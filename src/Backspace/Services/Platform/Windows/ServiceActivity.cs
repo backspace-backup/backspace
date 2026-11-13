@@ -21,7 +21,7 @@ internal static class ServiceActivity
         double QueuedSeconds = 0, string Activity = "", string ActivityStep = "", string ActivityWhere = "", double ActivityPercent = -1);
     internal const int TranscriptCharacters = 32768;
     internal sealed record Snapshot(int Version, string? RunId, string State, string? BackupId,
-        string? Operation, DateTime? StartedUtc, Progress? Progress, string? Error = null, Snapshot[]? Runs = null);
+        string? Operation, DateTime? StartedUtc, Progress? Progress, string? Error = null, Snapshot[]? Runs = null, long Sequence = 0);
 
     /// <summary>The run of one backup in an activity report: the service runs
     /// several at once (U156). <see cref="Snapshot.Runs"/> lists each one
@@ -131,6 +131,18 @@ internal static class ServiceActivity
         using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-runs", binding.ServiceSid, TimeSpan.FromSeconds(2), deadline.Token).ConfigureAwait(false);
         await BackupServicePipe.WriteMessageAsync(pipe, Encode(new ServiceHostRequest(1, "activity")), TimeSpan.FromSeconds(2), deadline.Token).ConfigureAwait(false);
         return Parse(await BackupServicePipe.ReadResponseAsync(pipe, TimeSpan.FromSeconds(2), deadline.Token).ConfigureAwait(false));
+    }
+
+    /// <summary>The activity once it differs from <paramref name="known"/>
+    /// (U224): the service answers when something changes, or after a minute.</summary>
+    internal static async Task<Snapshot> WaitAsync(ServiceWorkerBinding binding, long known, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(90));
+        using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-runs", binding.ServiceSid, TimeSpan.FromSeconds(2), deadline.Token).ConfigureAwait(false);
+        await BackupServicePipe.WriteMessageAsync(pipe, Encode(new ServiceHostRequest(1, "activity-wait", Revision: known.ToString(System.Globalization.CultureInfo.InvariantCulture))),
+            TimeSpan.FromSeconds(2), deadline.Token).ConfigureAwait(false);
+        return Parse(await BackupServicePipe.ReadResponseAsync(pipe, TimeSpan.FromSeconds(80), deadline.Token).ConfigureAwait(false));
     }
 
     internal static async Task CancelAsync(ServiceWorkerBinding binding, string runId, CancellationToken token)
