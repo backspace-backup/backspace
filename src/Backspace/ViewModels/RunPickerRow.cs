@@ -118,3 +118,39 @@ public sealed record RunPickerRow(string Title, string When, string Outcome, str
         };
     }
 }
+
+/// <summary>
+/// One entry of Activity &amp; logs' backup picker, styled like the run
+/// picker (U232, owner: "Make sure the Backup selector dropdown dimension and
+/// format is as well done as the run selector"): the backup's name with a dot
+/// for how its last backup ended, and when that was.
+/// </summary>
+public sealed record BackupPickerRow(string Name, string Last, bool IsOk, bool IsWarn, bool IsFail, bool IsOff)
+{
+    public static readonly IValueConverter To = new FuncValueConverter<string?, BackupPickerRow?>(name => name is null ? null : From(name));
+
+    public static BackupPickerRow From(string name) => From(name, ServiceLocator.Config.Current.Backups, DateTime.Now);
+
+    internal static BackupPickerRow From(string name, System.Collections.Generic.IEnumerable<Backup> backups, DateTime now)
+    {
+        if (name == StorageCleaner.DestinationsBucketName)
+            return new BackupPickerRow("Removed destinations", "Erasing a destination's data", false, false, false, true);
+        var backup = System.Linq.Enumerable.FirstOrDefault(backups, b => b.Name == name);
+        if (backup is null) return new BackupPickerRow(name, "", false, false, false, true);
+        var status = backup.LastRunStatus;
+        var last = backup.LastRunEndUtc is { } at && status != BackupRunStatus.NeverRun
+            ? "Last backup " + RunPickerRow.WhenLabel(at.ToLocalTime(), now).Replace("Today", "today").Replace("Yesterday", "yesterday") + " · " + status switch
+            {
+                BackupRunStatus.Success => "completed",
+                BackupRunStatus.Warning => "needs attention",
+                BackupRunStatus.Failed => "failed",
+                BackupRunStatus.Skipped => "skipped",
+                _ => status.ToString().ToLowerInvariant(),
+            }
+            : "Not backed up yet";
+        if (!backup.Enabled) last += " · automatic backups off";
+        return new BackupPickerRow(name, last,
+            IsOk: status == BackupRunStatus.Success, IsWarn: status is BackupRunStatus.Warning or BackupRunStatus.Skipped,
+            IsFail: status == BackupRunStatus.Failed, IsOff: status == BackupRunStatus.NeverRun);
+    }
+}

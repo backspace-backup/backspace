@@ -145,6 +145,15 @@ public sealed class E66_CheckLogsAndRunPicker(ITestOutputHelper output) : Backup
         ctx.Snapshot(window, "run picker",
             "The revamped run picker: each run on two lines — a coloured dot, its name (Restore check, Data check (1 GiB sample), Backup) and \"Today HH:mm\", then a coloured outcome pill with the duration and one line of detail. The restore's own record is not listed twice.");
         picker.IsDropDownOpen = false;
+        // The backup picker, like it (owner: "as well done as the run selector").
+        Assert.Equal("local_d", BackupPickerRow.From("local_d").Name);
+        Assert.StartsWith("Last backup today ", BackupPickerRow.From("local_d").Last);
+        var backups = view.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "BackupPicker");
+        backups.IsDropDownOpen = true;
+        await ctx.Driver.PumpAsync(400);
+        ctx.Snapshot(window, "backup picker",
+            "The backup picker, styled like the run picker: each backup with a dot for how its last backup ended, its name, and 'Last backup today HH:mm · completed' below.");
+        backups.IsDropDownOpen = false;
         window.Close();
     }
 }

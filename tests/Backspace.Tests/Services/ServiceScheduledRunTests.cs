@@ -41,13 +41,10 @@ public sealed class ServiceScheduledRunTests
     }
 
     [Fact]
-    public void The_desktop_asks_the_service_every_second_only_while_a_run_is_active()
+    public void The_desktop_asks_the_service_every_second_only_while_its_window_is_shown()
     {
-        Assert.Equal(TimeSpan.FromSeconds(5), BackgroundServiceActivity.IdleOrBusyDelay(null));
-        Assert.Equal(TimeSpan.FromSeconds(5), BackgroundServiceActivity.IdleOrBusyDelay(new ServiceActivity.Snapshot(1, "r", "idle", "b", "backup", null, null)));
-        Assert.Equal(TimeSpan.FromSeconds(5), BackgroundServiceActivity.IdleOrBusyDelay(new ServiceActivity.Snapshot(1, "r", "completed", "b", "backup", null, null)));
-        Assert.Equal(TimeSpan.FromSeconds(1), BackgroundServiceActivity.IdleOrBusyDelay(new ServiceActivity.Snapshot(1, "r", "running", "b", "backup", null, null)));
-        Assert.Equal(TimeSpan.FromSeconds(1), BackgroundServiceActivity.IdleOrBusyDelay(new ServiceActivity.Snapshot(1, "r", "stopping", "b", "backup", null, null)));
+        Assert.Equal(TimeSpan.FromSeconds(1), BackgroundServiceActivity.IdleOrBusyDelay(windowShown: true));
+        Assert.Equal(TimeSpan.FromSeconds(5), BackgroundServiceActivity.IdleOrBusyDelay(windowShown: false));
     }
 
     [Fact]

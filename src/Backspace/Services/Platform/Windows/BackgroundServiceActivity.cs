@@ -59,10 +59,27 @@ internal sealed class BackgroundServiceActivity : IDisposable
 
     internal Task CancelAsync(string runId, CancellationToken token) => _cancel(runId, token);
 
-    /// <summary>Once a second while a run is active (its progress moves), every
-    /// five seconds otherwise, including while the service can't be reached.</summary>
-    internal static TimeSpan IdleOrBusyDelay(ServiceActivity.Snapshot? current) =>
-        ServiceActivity.AnyRunning(current) || current?.State == "unknown" ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
+    /// <summary>Once a second while Backspace's window is shown (owner, U224:
+    /// "If the window is visible then we do want to show up to date info"),
+    /// every five seconds while it is hidden or minimised.</summary>
+    internal static TimeSpan IdleOrBusyDelay(bool windowShown) =>
+        windowShown ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
+
+    private static volatile bool _windowShown;
+    private static event Action? WindowOpened;
+
+    /// <summary>Whether Backspace's window is on screen; set by the app.
+    /// Showing it asks the service at once instead of within five seconds.</summary>
+    internal static bool WindowShown
+    {
+        get => _windowShown;
+        set
+        {
+            var opened = value && !_windowShown;
+            _windowShown = value;
+            if (opened) try { WindowOpened?.Invoke(); } catch { /* a listener can't stop the app */ }
+        }
+    }
 
     private async Task PollAsync()
     {
@@ -71,10 +88,13 @@ internal sealed class BackgroundServiceActivity : IDisposable
             while (!_stop.IsCancellationRequested)
             {
                 await RefreshAsync(_stop.Token).ConfigureAwait(false);
-                // Once a second while something runs, for its progress; every
-                // five seconds when idle (U224, owner: "Make sure we don't overly
-                // poll the service"). Each answer comes from memory.
-                await Task.Delay(IdleOrBusyDelay(Current), _stop.Token).ConfigureAwait(false);
+                // Each answer comes from the service's memory (U224).
+                var wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                void Woken() => wake.TrySetResult();
+                WindowOpened += Woken;
+                try { await Task.WhenAny(Task.Delay(IdleOrBusyDelay(WindowShown), _stop.Token), wake.Task).ConfigureAwait(false); }
+                finally { WindowOpened -= Woken; }
+                _stop.Token.ThrowIfCancellationRequested();
             }
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }

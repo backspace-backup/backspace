@@ -4,6 +4,7 @@
              xmlns:m="using:Backspace.Models"
              xmlns:svc="using:Backspace.Services"
              xmlns:v="using:Backspace.Views"
+             xmlns:sys="using:System"
              x:Class="Backspace.Views.LogsView"
              x:Name="Root"
              x:DataType="vm:LogsViewModel"
@@ -221,10 +222,38 @@
           IsVisible="{Binding !HasNoBackups}">
       <StackPanel Grid.Column="0" Spacing="6">
         <TextBlock Classes="label-caps" Text="BACKUP"/>
-        <ComboBox x:Name="BackupPicker" ItemsSource="{Binding BackupNames}"
+        <!-- The backup picker, like the run picker (U232): a dot for how its
+             last backup ended, its name, and when. -->
+        <ComboBox x:Name="BackupPicker" Classes="run-picker" ItemsSource="{Binding BackupNames}"
                   SelectedItem="{Binding SelectedBackup}"
                   HorizontalAlignment="Stretch"
-                  PlaceholderText="Pick a backup"/>
+                  MaxDropDownHeight="560"
+                  PlaceholderText="Pick a backup">
+          <ComboBox.SelectionBoxItemTemplate>
+            <DataTemplate x:DataType="sys:String">
+              <Grid x:DataType="vm:BackupPickerRow" DataContext="{Binding ., Converter={x:Static vm:BackupPickerRow.To}}"
+                    ColumnDefinitions="Auto,Auto,*" VerticalAlignment="Center">
+                <Ellipse Grid.Column="0" Classes="run-dot" Classes.ok="{Binding IsOk}" Classes.warn="{Binding IsWarn}"
+                         Classes.fail="{Binding IsFail}" Margin="0,0,10,0"/>
+                <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" Classes="run-when" Text="{Binding Last}" Margin="10,0,0,0"
+                           TextTrimming="CharacterEllipsis"/>
+              </Grid>
+            </DataTemplate>
+          </ComboBox.SelectionBoxItemTemplate>
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="sys:String">
+              <Grid x:DataType="vm:BackupPickerRow" DataContext="{Binding ., Converter={x:Static vm:BackupPickerRow.To}}"
+                    ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" Margin="0,5">
+                <Ellipse Grid.RowSpan="2" Classes="run-dot" Classes.ok="{Binding IsOk}" Classes.warn="{Binding IsWarn}"
+                         Classes.fail="{Binding IsFail}" VerticalAlignment="Top" Margin="2,6,12,0"/>
+                <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Classes="run-detail" Text="{Binding Last}" Margin="0,3,0,0"
+                           TextTrimming="CharacterEllipsis"/>
+              </Grid>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
       </StackPanel>
       <StackPanel Grid.Column="2" Spacing="6">
         <TextBlock Classes="label-caps" Text="RUN"/>

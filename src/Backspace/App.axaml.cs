@@ -387,6 +387,22 @@ public partial class App : Application
             desktop.MainWindow = window;
             if (window is not null) window.Activated += (_, _) => RefreshTrayStatus();
             else if (QuitRequested) desktop.Shutdown();
+#if WINDOWS
+            // How often the window asks the background service (U224).
+            if (window is not null)
+            {
+                void Shown() => Services.Platform.Windows.BackgroundServiceActivity.WindowShown =
+                    window.IsVisible && window.WindowState != WindowState.Minimized;
+                window.PropertyChanged += (_, e) =>
+                {
+                    if (e.Property == Visual.IsVisibleProperty || e.Property == Window.WindowStateProperty) Shown();
+                };
+                window.Closed += (_, _) => Services.Platform.Windows.BackgroundServiceActivity.WindowShown = false;
+                Shown();
+            }
+            else Services.Platform.Windows.BackgroundServiceActivity.WindowShown = false;
+#endif
+
         });
         if (!Program.StartedInBackground) _windowHost.GetOrCreate();
         if (Program.Coordinator is { } coordinator)
