@@ -103,6 +103,8 @@ public partial class App : Application
         // from the wrong thread and crash.
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // No white rectangle before a window is drawn (U240).
+            NoWhiteFlash.Install();
             ApplyAccentFromConfig();
             ApplyThemeFromConfig();
 #if WINDOWS
