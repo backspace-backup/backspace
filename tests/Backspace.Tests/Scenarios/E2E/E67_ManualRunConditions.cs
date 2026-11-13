@@ -99,6 +99,31 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             Assert.Empty(asked);
             Assert.Equal(2, ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Count);
 
+            // Started plugged in, it follows its conditions: unplugged mid-run it
+            // stops, waits on the card, and runs again by itself once plugged in.
+            var big = ctx.MakeSource("big", 6702, 300_000_000);
+            ServiceLocator.Config.Update(c => c.Backups.Single(b => b.Id == backup.Id).SourcePaths.Add(big));
+            await ctx.Driver.PumpAsync(200);
+            card = vm.Cards.Single(c => c.Id == backup.Id);
+            var before = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Count;
+            var third = vm.RunNowCommand.ExecuteAsync(card);
+            Assert.True(ctx.Driver.WaitFor(() => ServiceLocator.Orchestrator.IsRunning(backup.Id), 10000), "The run did not start.");
+            await Task.Delay(500);
+            onBattery = true;
+            Assert.True(ctx.Driver.WaitFor(() => card.IsQueued, 60000), "Unplugged, the run was not stopped and queued.");
+            Assert.StartsWith("waiting for AC power since ", card.QueuedReason);
+            var stopped = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).OrderByDescending(r => r.StartedUtc).First();
+            Assert.Equal(before + 1, ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Count);
+            Assert.Equal(BackupRunStatus.Skipped, stopped.Status);
+            Assert.Contains("on battery", stopped.Summary + string.Join(" ", stopped.Cells.Select(c => c.Summary)));
+            ctx.Snapshot(main, "stopped on battery, queued",
+                "local_c started plugged in, then unplugged: the run stopped and the card is Queued again, waiting for AC power.");
+            onBattery = false;
+            await third;
+            var resumed = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).OrderByDescending(r => r.StartedUtc).First();
+            Assert.Equal(before + 2, ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Count);
+            Assert.Equal(BackupRunStatus.Success, resumed.Status);
+
             // The question itself.
             var dialog = new DriveChoiceWindow(question.Title, question.Body, question.WaitLabel, question.AnywayLabel);
             ctx.Driver.Show(dialog);

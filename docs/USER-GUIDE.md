@@ -194,7 +194,9 @@ wait. **Run now anyway** runs it fully, cloud included, and nothing stops it
 if the computer is unplugged or the connection becomes metered. A backup
 with a drive and a cloud destination on a metered connection asks whether to
 back up the drive now and leave the cloud for its next backup, or everything
-now. When the conditions are met, nothing is asked.
+now. When the conditions are met, nothing is asked, and the run follows them
+like a scheduled one: unplugged, it stops and starts again by itself once
+plugged in.
 
 There is no setting for the internet. A backup with a destination on this
 computer and one in the cloud backs up the local one on schedule, even when

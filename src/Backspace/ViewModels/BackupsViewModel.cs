@@ -843,20 +843,69 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         if (!await DriveConfirmation.ConfirmAsync(card.Snapshot, Owner())) return;
         // Its conditions not met: ask (U226).
         if (await ConditionsChoiceAsync(card, checks: null) is not { } waive) return;
-        card.SetRunning();
-        try
+        while (true)
         {
-            // Null: the background service ran it and the card follows its activity.
-            // "Queued: …" while the background service can't start it yet (U156).
-            if (await DesktopBackupRun.RunAsync(card.Snapshot, CancellationToken.None,
-                    reason => OnUiThread(() => ShowServiceQueued(card.Id, reason)), waive) is { } record)
-                card.Apply(record);
-        }
-        catch (Exception ex)
-        {
-            _log.Error(ex, "Run-now threw for {Name}", card.Snapshot.Name);
+            card.SetRunning();
+            // Started with its conditions met, it follows them like a scheduled
+            // run (U226): unplugged, it stops, and starts again by itself once
+            // plugged in. "Run now anyway" is never stopped.
+            using var watching = new CancellationTokenSource();
+            var stoppedOnBattery = false;
+            var backup = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == card.Id) ?? card.Snapshot;
+            var watch = !waive && backup.Schedule.SkipOnBattery
+                ? Task.Run(async () =>
+                {
+                    try
+                    {
+                        await ManualRunConditions.WaitAsync(() => ManualRunConditions.OnBattery() ? null : "plugged in", watching.Token);
+                        stoppedOnBattery = true;
+                        _log.Information("Stopping {Name}, started with Run now: the computer is on battery", backup.Name);
+                        await OnUiThreadAsync(() => StopForConditionAsync(card, "Stopped: the computer is on battery; it runs again once plugged in"));
+                    }
+                    catch (OperationCanceledException) { }
+                })
+                : Task.CompletedTask;
+            try
+            {
+                // Null: the background service ran it and the card follows its activity.
+                // "Queued: …" while the background service can't start it yet (U156).
+                if (await DesktopBackupRun.RunAsync(card.Snapshot, CancellationToken.None,
+                        reason => OnUiThread(() => ShowServiceQueued(card.Id, reason)), waive) is { } record)
+                    card.Apply(record);
+            }
+            catch (Exception ex)
+            {
+                _log.Error(ex, "Run-now threw for {Name}", card.Snapshot.Name);
+            }
+            finally
+            {
+                watching.Cancel();
+                await watch;
+            }
+            if (!stoppedOnBattery) return;
+            if (!await WaitForConditionsAsync(card, () => ManualRunConditions.OnBattery() ? "the computer is on battery" : null, checks: null))
+                return;
         }
     }
+
+    /// <summary>Stops a run its conditions no longer allow, saying why (U226).</summary>
+    private async Task StopForConditionAsync(BackupCardViewModel card, string reason)
+    {
+#if WINDOWS
+        if (card.BackgroundRunId is string backgroundRun && ServiceLocator.BackgroundActivity is { } activity)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try { await activity.CancelAsync(backgroundRun, timeout.Token); }
+            catch (Exception ex) { _log.Warning(ex, "The background run of {Name} could not be stopped for its conditions", card.Snapshot.Name); }
+            return;
+        }
+#endif
+        ServiceLocator.Orchestrator.CancelRun(card.Id, reason);
+        await Task.CompletedTask;
+    }
+
+    private static Task OnUiThreadAsync(Func<Task> action) =>
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(action);
 
     /// <summary>Backups that already have a stop-watchdog armed. Guards
     /// against duplicate Stop clicks stacking N watchdog tasks (each
@@ -1068,26 +1117,33 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             case ManualRunConditions.Choice.RunAnyway: return true;
             case ManualRunConditions.Choice.Run: return false;
             case ManualRunConditions.Choice.WhenAllowed:
-                var wait = new CancellationTokenSource();
-                if (!_conditionWaits.TryAdd(card.Id, wait)) { wait.Dispose(); return null; }
-                try
-                {
-                    var since = DateTime.Now;
-                    card.SetRunning(operation: checks is null ? "backup" : "check");
-                    if (checks is not null) card.RunningActivity = checks.Count == 1 ? checks[0].Title : $"{checks.Count} checks";
-                    card.SetQueuedReason($"waiting for {ManualRunConditions.Awaited(Unmet() ?? "")} since {since:HH:mm}; it starts by itself");
-                    await ManualRunConditions.WaitAsync(Unmet, wait.Token);
-                    card.SetQueuedReason("");
-                    return false;
-                }
-                catch (OperationCanceledException)
-                {
-                    card.EndQueuedWait();
-                    return null;
-                }
-                finally { _conditionWaits.TryRemove(card.Id, out _); wait.Dispose(); }
+                return await WaitForConditionsAsync(card, Unmet, checks) ? false : null;
             default: return null;
         }
+    }
+
+    /// <summary>The run waits on its card ("Queued", why on hover) until
+    /// nothing holds it back; false when Stop ended the wait.</summary>
+    private async Task<bool> WaitForConditionsAsync(BackupCardViewModel card, Func<string?> unmet, IReadOnlyList<BackupCheck>? checks)
+    {
+        var wait = new CancellationTokenSource();
+        if (!_conditionWaits.TryAdd(card.Id, wait)) { wait.Dispose(); return false; }
+        try
+        {
+            var since = DateTime.Now;
+            card.SetRunning(operation: checks is null ? "backup" : "check");
+            if (checks is not null) card.RunningActivity = checks.Count == 1 ? checks[0].Title : $"{checks.Count} checks";
+            card.SetQueuedReason($"waiting for {ManualRunConditions.Awaited(unmet() ?? "")} since {since:HH:mm}; it starts by itself");
+            await ManualRunConditions.WaitAsync(unmet, wait.Token);
+            card.SetQueuedReason("");
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            card.EndQueuedWait();
+            return false;
+        }
+        finally { _conditionWaits.TryRemove(card.Id, out _); wait.Dispose(); }
     }
 
     /// <summary>Checks started with Verify, by backup: Stop ends them (U213).</summary>
