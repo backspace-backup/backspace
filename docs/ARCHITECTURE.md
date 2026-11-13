@@ -285,6 +285,28 @@ the service through its activity report (`ActivityStep`, `ActivityWhere`,
 `ActivityPercent`). A sample test restore's progress is read from its session
 once a second. The run's log keeps only restic's finished counts (100%).
 
+Each check and cleanup keeps its own log (U233): `MaintenanceRunLog` opens a
+run log (the cell log's header with an `operation` field naming the check,
+and its outcome block) in the backup's log folder and sets `RunRecord.LogPath`.
+Everything the run says goes through one sink to the live view and the file:
+a section line named after the check (`Backup.CheckTitle`, set on the
+engine's copy), progress lines from `MaintenanceRunLog.ProgressLines` (a line
+per step and per further tenth), what it met, then `ResultLine`. A restore
+check also takes the engine's lines while it runs and writes every file checked
+as detail lines before its result. A lock restic reports (exit code 11) that
+Backspace removes and retries is logged as a warning
+(`ResticCommand.LockIsRetried`). In Activity & logs, a restore check's own
+`TestRestore` record is folded into its check (`WithoutFoldedRestoreRecords`).
+
+A run the owner starts (Run now, Verify) whose conditions aren't met asks
+first (`ManualRunConditions`, U226): queue it on the card until they are, or
+run it anyway. "Anyway" sets `BackupOrchestrator.ConditionsWaived` on the run's
+flow, passed to the service as `ServiceHostRequest.WaiveConditions`
+(accepted for `start-cli` only) and to its worker as
+`BACKSPACE_WAIVE_CONDITIONS`; no destination then waits for, or is stopped
+by, a metered connection. A Run now started with its conditions met stops on
+battery and runs again once plugged in.
+
 This is an approximate sampling target, not a network quota. Restic converts
 the byte target to a fraction of pack count, with a minimum of one pack.
 Unequal packs, metadata, compression and retries affect traffic. A check
