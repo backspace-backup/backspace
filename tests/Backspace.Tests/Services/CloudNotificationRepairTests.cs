@@ -383,6 +383,7 @@ public sealed class CloudNotificationRepairTests
     [InlineData(true)]
     public async Task Real_orchestrator_missing_share_fails_during_grace_and_retries_rejected_ping_at_completion(bool rejectFirstFailure)
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         using var setup = new Setup(); var backup = setup.AddBackup();
         var destination = new Destination { Name = "Wrong fixture path", Kind = DestinationKind.NetworkShare,
             PathOrSubpath = Path.Combine(setup.Source(), "does-not-exist") };

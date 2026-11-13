@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using Backspace.Services.Platform;
 
@@ -227,10 +228,15 @@ public static class AppPaths
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     };
 
+    private static readonly char[] WindowsInvalidNameChars =
+        [.. Enumerable.Range(0, 32).Select(c => (char)c), '"', '<', '>', '|', ':', '*', '?', '\\', '/'];
+
     internal static string Sanitize(string name)
     {
         if (string.IsNullOrEmpty(name)) return "_";
-        var invalid = Path.GetInvalidFileNameChars();
+        // The characters Windows refuses, on every system: the portable folder
+        // may be moved to Windows, and Linux or macOS allow ? or : in a name.
+        var invalid = WindowsInvalidNameChars;
         Span<char> buf = stackalloc char[name.Length];
         for (int i = 0; i < name.Length; i++)
             buf[i] = Array.IndexOf(invalid, name[i]) >= 0 ? '_' : name[i];

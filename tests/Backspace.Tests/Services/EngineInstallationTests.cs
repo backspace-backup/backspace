@@ -62,6 +62,7 @@ public sealed class EngineInstallationTests
     [Fact]
     public async Task Older_engine_sets_are_removed_at_once_unless_still_running()
     {
+        PlatformTest.WindowsOnly("a file another program holds open (Linux and macOS have no such sharing locks)");
         using var ws = new TempWorkspace("engines-old");
         var (manifest, source) = Release(ws);
         var root = ws.Sub("bin");
@@ -155,6 +156,7 @@ public sealed class EngineInstallationTests
     [Fact]
     public void An_engine_set_is_identified_by_its_files_not_their_order()
     {
+        PlatformTest.WindowsOnly("the downloaded Windows restic and rclone");
         var a = new EngineInstallation.Manifest("1.0.3", new() { ["restic.exe"] = "AA", ["rclone.exe"] = "BB" });
         var b = new EngineInstallation.Manifest("1.0.4", new() { ["rclone.exe"] = "bb", ["restic.exe"] = "aa" });
         var c = new EngineInstallation.Manifest("1.0.3", new() { ["restic.exe"] = "AA", ["rclone.exe"] = "CC" });

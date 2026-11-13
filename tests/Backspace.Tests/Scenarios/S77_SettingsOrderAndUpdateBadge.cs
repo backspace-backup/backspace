@@ -26,6 +26,7 @@ public sealed class S77_SettingsOrderAndUpdateBadge : ScenarioBase
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
+        if (!OperatingSystem.IsWindows()) ctx.Skip("Windows only: Windows-only Settings sections");
         var previous = (ServiceLocator.Config.Current.Preferences.AvailableUpdateVersion, ServiceLocator.Config.Current.Preferences.LastUpdateCheckUtc);
         try
         {

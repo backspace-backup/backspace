@@ -45,7 +45,9 @@ public sealed class S106_CheckFamilies : ScenarioBase
         card.BringIntoView(); await ctx.Driver.PumpAsync(150);
 
         // U228: the summary above the Backups, Cleanup and Checks tabs, one line each.
-        Assert.Equal(new[] { "Data check (1 GiB sample): monthly on the 1st at 21:00", "Restore check (1% of files, at most 1 GiB): monthly on the 1st at 21:00" }, vm.SummaryChecks);
+        // In this computer's time format (9:00 PM on an American system).
+        var at = DateTime.Today.AddHours(21).ToString(System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.ShortTimePattern).Replace('\u202F', ' ');
+        Assert.Equal(new[] { $"Data check (1 GiB sample): monthly on the 1st at {at}", $"Restore check (1% of files, at most 1 GiB): monthly on the 1st at {at}" }, vm.SummaryChecks);
         Assert.Equal("After each backup", vm.SummaryCleanup);
         Assert.StartsWith("Daily at ", vm.SummaryBackups);
         Assert.Equal("Checks (2)", vm.ChecksTabHeader);

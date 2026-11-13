@@ -1,5 +1,6 @@
 using Backspace.ViewModels;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.ViewModels;
 
@@ -91,6 +92,7 @@ public sealed class CloudFoldersInSourcesTests
     [Fact]
     public void Only_cloud_folders_inside_the_sources_are_offered()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         const string oneDrive = @"C:\Users\erwin\OneDrive";
         Assert.False(Backspace.ViewModels.BackupEditorViewModel.InsideSources(oneDrive, [@"D:\"]));
         Assert.True(Backspace.ViewModels.BackupEditorViewModel.InsideSources(oneDrive, [@"D:\", @"C:\"]));

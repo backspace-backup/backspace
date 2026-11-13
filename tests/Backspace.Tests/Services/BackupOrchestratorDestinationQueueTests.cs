@@ -245,8 +245,8 @@ public class BackupOrchestratorDestinationQueueTests
         // Manually grab the destination gate so the next
         // RunBackupAsync is forced into the queueing path.
         var gateName = BackupOrchestrator.MutexNameForDestination(dest.Id, "default");
-        using var holder = new System.Threading.Semaphore(1, 1, gateName);
-        Assert.True(holder.WaitOne(0), "Setup expected the gate to be free before the test took it.");
+        using var holder = new CrossProcessGate(gateName);
+        Assert.True(holder.TryAcquire(), "Setup expected the gate to be free before the test took it.");
         try
         {
             using var cts = new CancellationTokenSource();
@@ -268,7 +268,7 @@ public class BackupOrchestratorDestinationQueueTests
         }
         finally
         {
-            try { holder.Release(); } catch { /* never acquired */ }
+            holder.Release();
         }
     }
 
@@ -351,9 +351,9 @@ public class BackupOrchestratorDestinationQueueTests
 
         var gateName = BackupOrchestrator.MutexNameForDestination(dest.Id, "default");
         RunRecord scheduled;
-        using (var holder = new System.Threading.Semaphore(1, 1, gateName))
+        using (var holder = new CrossProcessGate(gateName))
         {
-            Assert.True(holder.WaitOne(0), "Setup expected the gate to be free before the test took it.");
+            Assert.True(holder.TryAcquire(), "Setup expected the gate to be free before the test took it.");
             var run = ServiceLocator.Orchestrator.RunBackupAsync(backup, CancellationToken.None, automatic: true);
             await Task.Delay(2500);
             Assert.False(run.IsCompleted, "The run should still be queued behind the held destination.");

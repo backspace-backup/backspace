@@ -3,6 +3,7 @@ using System.Linq;
 using Backspace.Models;
 using Backspace.Services;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -185,6 +186,7 @@ public class BackupOrchestratorBuildSummaryTests
     [Fact]
     public void SkippedRun_UnpluggedExternalDrive_SaysToConnectIt()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         var letter = "QRSTUVWXYZ".Select(c => c + ":").First(l => !new System.IO.DriveInfo(l).IsReady);
         var dest = new Destination { Id = "d1", Name = "Passport", Kind = DestinationKind.ExternalDrive, ExpectedDriveLetter = letter, PathOrSubpath = letter + @"Backup" };
         var backup = new Backup { Id = "b1", Name = "test", LastSuccessUtc = DateTime.UtcNow.AddDays(-1),

@@ -249,13 +249,7 @@ public class EngineBackedSnapshotTreeProviderTests : IDisposable
         var sentinel = Path.Combine(outside, "2026", "a.jpg");
         File.WriteAllText(sentinel, "LIVE LOCAL FILE, NOT BACKUP DATA");
         var junction = Path.Combine(_cacheDir, "files", "photos");
-        var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true };
-        start.ArgumentList.Add("/c"); start.ArgumentList.Add("mklink"); start.ArgumentList.Add("/J");
-        start.ArgumentList.Add(junction); start.ArgumentList.Add(outside);
-        using var child = Process.Start(start)!;
-        await child.WaitForExitAsync();
-        Assert.Equal(0, child.ExitCode);
+        PlatformTest.LinkFolder(junction, outside);
         try
         {
             var error = await Assert.ThrowsAsync<IOException>(() => provider.OpenAsync("photos/2026/a.jpg", CancellationToken.None));

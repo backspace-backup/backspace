@@ -128,7 +128,8 @@ public class InteractionLiveTailTests
             // ZZ: is virtually never mounted on a Windows test box.
             // If it IS, the test will (correctly) detect a different
             // failure shape; the assertion below tolerates either.
-            PathOrSubpath = @"ZZ:\backspace-tests-must-fail\storage",
+            // Elsewhere: beneath a file, where no folder can be made.
+            PathOrSubpath = OperatingSystem.IsWindows() ? @"ZZ:\backspace-tests-must-fail\storage" : Blocked(ws),
             Encrypted = false,
         };
         var backup = new Backup
@@ -254,6 +255,13 @@ public class InteractionLiveTailTests
             $"non-empty text: {midRunObservations.Count(o => o.textLen > 0)}.");
 
         logsVm.Dispose();
+    }
+
+    private static string Blocked(TempWorkspace ws)
+    {
+        var file = Path.Combine(ws.Root, "not-a-folder");
+        File.WriteAllText(file, "a file where the storage folder would go");
+        return Path.Combine(file, "storage");
     }
 
     private static void ResetConfig() =>

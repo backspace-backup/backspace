@@ -89,7 +89,8 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         {
             while (session.IsRunning && (session.BytesRestored == 0 || session.BytesRestored >= session.TotalBytes))
             { await Task.Delay(50, deadline.Token); ctx.Driver.Pump(); }
-            Assert.True(session.IsRunning, session.ErrorMessage ?? session.Detail);
+            Assert.True(session.IsRunning, $"Ended after {(DateTime.UtcNow - session.StartedUtc).TotalSeconds:0.0} s, {session.BytesRestored:N0} of {session.TotalBytes:N0} bytes seen: "
+                + (session.ErrorMessage ?? session.Detail));
             Assert.InRange(session.PercentComplete, 0.00001, 0.99999);
         }
         TestRestoreJournal Latest() => Directory.GetFiles(Path.Combine(AppPaths.ConfigRoot, "test-restores"), "*.json")

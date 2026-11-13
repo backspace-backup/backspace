@@ -38,6 +38,7 @@ public sealed class E06_AdvancedModeEditor : BackupE2EBase
 
     protected override async Task RunE2EAsync(ScenarioContext ctx, RealEngineFixture fixture)
     {
+        if (!OperatingSystem.IsWindows()) ctx.Skip("Windows only: VSS");
         var sourcePath = ctx.MakeSource("workspace", seed: 53, targetBytes: 1_500_000);
         var destPath   = ctx.MakeLocalDestination("local-advanced");
         var restoreDir = ctx.MakeRestoreTarget("restored");

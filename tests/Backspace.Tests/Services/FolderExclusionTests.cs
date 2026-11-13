@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using Backspace.Services;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -61,6 +62,7 @@ public class FolderExclusionTests
     [Fact]
     public void Add_puts_the_rule_at_the_end_of_the_custom_block_and_keeps_everything_else()
     {
+        PlatformTest.WindowsOnly("Windows exclusion rules (?:/...); Linux and macOS get their own");
         var recommended = RecommendedFilters.RenderBlock(false, false, Array.Empty<RecommendedFilters.CloudSyncFolder>());
         var existing = RecommendedFilters.MergeIntoFilters(Header + "\nnode_modules/\n" + Footer, recommended);
         var after = FolderExclusion.Add(existing, "?:/Users/me/Videos/");

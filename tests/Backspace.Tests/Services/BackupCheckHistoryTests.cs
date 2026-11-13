@@ -112,6 +112,7 @@ public sealed class BackupCheckHistoryTests
     /// scanner) is waited for, as long as it takes; no result is lost.</summary>
     [Fact] public void Locked_timeline_is_waited_out_without_losing_results()
     {
+        PlatformTest.WindowsOnly("a file another program holds open (Linux and macOS have no such sharing locks)");
         using var ws = new TempWorkspace(); var logs = new LogStore { RetainLastNRuns = 1 }; var b = Backup();
         var first = Check(b, CheckDepth.RestoreAllFiles, BackupRunStatus.Failed, 20); logs.AppendRun(first);
         var timeline = Path.Combine(Path.GetDirectoryName(logs.GetHistoryFile(b.Name))!, "timeline.json");

@@ -56,6 +56,7 @@ public sealed class E2E_WindowsUpdateBundle
     [Fact]
     public async Task Real_portable_bundle_download_install_launch_and_rollback()
     {
+        PlatformTest.WindowsOnly("the Windows release bundle");
         var candidate = Environment.GetEnvironmentVariable("BACKSPACE_UPDATE_CANDIDATE");
         Assert.True(OperatingSystem.IsWindows() && Directory.Exists(candidate),
             "Set BACKSPACE_UPDATE_CANDIDATE to a published, framework-dependent Windows release folder.");

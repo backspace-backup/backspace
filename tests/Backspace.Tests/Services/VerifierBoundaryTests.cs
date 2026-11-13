@@ -82,6 +82,8 @@ public sealed class VerifierBoundaryTests
     [InlineData("file.txt\n/other.txt")]
     public void Unsafe_snapshot_path_cannot_reach_file_verification_or_cleanup(string relative)
     {
+        // Elsewhere a backslash is an ordinary character in a name.
+        if (relative.StartsWith('\\')) PlatformTest.WindowsOnly("\\\\server paths");
         using var workspace = new TempWorkspace();
         var source = workspace.Sub("source");
         var restored = workspace.Sub("restored");

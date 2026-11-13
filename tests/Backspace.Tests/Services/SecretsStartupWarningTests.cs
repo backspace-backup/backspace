@@ -44,6 +44,7 @@ public sealed class SecretsStartupWarningTests
     [Fact]
     public async Task A_file_held_by_another_program_is_waited_out_without_a_warning()
     {
+        PlatformTest.WindowsOnly("a file another program holds open (Linux and macOS have no such sharing locks)");
         using var workspace = new TempWorkspace();
         var initial = new SecretsStore();
         initial.Set("test-ref", "keep-original-value");

@@ -111,7 +111,7 @@ public sealed class S95_ExcludeFolderFromChanges : ScenarioBase
         await ctx.Driver.PumpAsync(200);
         Assert.Equal(Path.Combine("profile", "Projects", "app [beta]", "bin", "Debug"), vm.Location);
         var debug = Path.Combine(source, "Projects", "app [beta]", "bin", "Debug");
-        var rule = "?:" + source[2..].Replace('\\', '/').Replace("[", "[[]").Replace("$", "$$") + "/Projects/app [[]beta]/bin/Debug/";
+        var rule = (OperatingSystem.IsWindows() ? "?:" + source[2..].Replace('\\', '/') : source).Replace("[", "[[]").Replace("$", "$$") + "/Projects/app [[]beta]/bin/Debug/";
         Assert.Equal(rule, vm.ExcludeRule);
         Assert.True(exclude.IsEffectivelyVisible);
         // The button sits right after the path, not at the far edge.

@@ -187,7 +187,8 @@ public sealed class BackupSchedule
         {
             var d = DateTime.Today.Add(t);
             var fmt = System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.ShortTimePattern;
-            return d.ToString(fmt, System.Globalization.CultureInfo.CurrentCulture);
+            // Linux and macOS put a narrow no-break space before AM/PM: a plain one, as on Windows.
+            return d.ToString(fmt, System.Globalization.CultureInfo.CurrentCulture).Replace('\u202F', ' ');
         }
         catch
         {

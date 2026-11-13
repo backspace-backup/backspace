@@ -27,6 +27,7 @@ public sealed class S80_EditorWording : ScenarioBase
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
+        if (!OperatingSystem.IsWindows()) ctx.Skip("Windows only: drive letters and names");
         Options(ctx, DestinationKind.GoogleDrive, "(name)", "google drive options");
         Options(ctx, DestinationKind.S3Compatible, "(name, region, bucket prefix)", "s3 options");
 

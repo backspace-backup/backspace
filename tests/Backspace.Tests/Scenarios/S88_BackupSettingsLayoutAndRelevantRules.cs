@@ -30,6 +30,7 @@ public sealed class S88_BackupSettingsLayoutAndRelevantRules : ScenarioBase
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
+        if (!OperatingSystem.IsWindows()) ctx.Skip("Windows only: Windows exclusion rules (?:/...); Linux and macOS get their own");
         await Layout(ctx);
         await RemovedRuleOfferedAgain(ctx);
         RulesOutsideTheFoldersAreNotOffered(ctx);

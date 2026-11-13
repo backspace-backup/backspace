@@ -150,7 +150,7 @@ public sealed class E42_StreamingRestoreProgress : BackupE2EBase
         {
             Assert.StartsWith(Path.GetFullPath(dest.PathOrSubpath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar,
                 Path.GetFullPath(pack), StringComparison.OrdinalIgnoreCase);
-            File.WriteAllBytes(pack, new byte[] { 1, 2, 3 });
+            PlatformTest.Overwrite(pack, new byte[] { 1, 2, 3 });
         }
         var failedTarget = ctx.MakeRestoreTarget("failed-selected-files");
         foreach (var file in selected)

@@ -3,6 +3,7 @@ using System.Linq;
 using Backspace.Models;
 using Backspace.Services;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -41,6 +42,7 @@ public class NameGeneratorTests
     [Fact]
     public void ForBackup_driveRoot_usesDriveLetterLabel()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         var name = NameGenerator.ForBackup(new[] { @"C:\" }, _ => false);
         Assert.StartsWith("drive-c-", name);
     }
@@ -50,6 +52,7 @@ public class NameGeneratorTests
     [Fact]
     public void ForBackup_retriesSuffixOnCollision()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         // Force the first two suggestions to collide.
         int calls = 0;
         var name = NameGenerator.ForBackup(

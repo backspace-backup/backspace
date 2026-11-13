@@ -127,6 +127,7 @@ public class FileSystemNodeTests
         Assert.Equal(new[] { "Mine", "OneDriveTemp", "PerfLogs", "Recovery" }, root.Children.Select(c => c.DisplayName));
 
         // At the top of the system drive, System Volume Information stays hidden.
+        if (!OperatingSystem.IsWindows()) return;
         var drive = new FileSystemNode(Path.GetPathRoot(Environment.SystemDirectory)!, "C:", isDirectory: true) { IsExpanded = true };
         Assert.DoesNotContain(drive.Children, c => c.DisplayName.Equals("System Volume Information", StringComparison.OrdinalIgnoreCase));
     }

@@ -140,6 +140,7 @@ public sealed class DriveRepositoryGuardTests : IDisposable
     [Fact]
     public void Answers_go_to_the_root_and_then_beside_the_backup_folder()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         DriveRepositoryGuard.MarkerRootOverride = null;
         try
         {

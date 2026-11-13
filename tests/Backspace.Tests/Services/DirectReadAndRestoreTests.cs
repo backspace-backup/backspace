@@ -229,7 +229,7 @@ public sealed class DirectReadAndRestoreTests(ITestOutputHelper output)
         var packs = Directory.GetFiles(Path.Combine(rig.Destination.PathOrSubpath, "data"), "*", SearchOption.AllDirectories)
             .Where(p => new FileInfo(p).Length > 1024 * 1024).ToArray();
         Assert.NotEmpty(packs);
-        foreach (var pack in packs) File.WriteAllBytes(pack, [1, 2, 3]);
+        foreach (var pack in packs) PlatformTest.Overwrite(pack, [1, 2, 3]);
         var target = rig.Workspace.Sub("target");
         File.WriteAllText(Path.Combine(target, "big.bin"), "original survives");
         var result = await Restore(rig, target, ["big.bin"], ["big.bin"], id);

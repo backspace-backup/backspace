@@ -25,6 +25,7 @@ public sealed class S49_ReviewUiRepairs : ScenarioBase
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
+        if (!OperatingSystem.IsWindows()) ctx.Skip("Windows only: mounted backups get a drive letter");
         var registry = new MountFixture();
         var backup = new Backup { Name = "Travel documents", LastRunStatus = BackupRunStatus.Success, LastRunEndUtc = DateTime.UtcNow.AddHours(-1), LastSuccessUtc = DateTime.UtcNow.AddHours(-1) };
         using var card = new BackupCardViewModel(backup, true, false, registry);

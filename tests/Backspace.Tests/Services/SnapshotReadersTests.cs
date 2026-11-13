@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Backspace.Models;
 using Backspace.Services;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -80,6 +81,7 @@ public sealed class SnapshotReadersTests
     [Fact]
     public async Task Another_process_holding_a_mount_blocks_cleanup_here_until_it_ends()
     {
+        PlatformTest.WindowsOnly("a PowerShell process holds the file");
         // The background service and the window are separate processes:
         // the lock is the file, not anything in memory. A process that ends
         // (even killed) releases it.

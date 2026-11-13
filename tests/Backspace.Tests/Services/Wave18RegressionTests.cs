@@ -7,6 +7,7 @@ using Backspace.Models;
 using Backspace.Services;
 using Backspace.Services.WebDav;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -23,6 +24,7 @@ public class Wave18RegressionTests
     [Fact]
     public void ConfigStore_Load_keepsInMemoryState_whenFileIsLockedByConcurrentWriter()
     {
+        PlatformTest.WindowsOnly("a file another program holds open (Linux and macOS have no such sharing locks)");
         // Arrange — point ConfigRoot at an isolated temp dir + write a
         // valid config, then open the file with FileShare.None to
         // simulate an in-flight atomic-replace.

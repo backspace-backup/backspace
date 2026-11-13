@@ -16,6 +16,8 @@ public sealed class RepositoryQueueAliasTests
     [InlineData(true)]
     public async Task Unavailable_process_gate_fails_instead_of_running_unguarded(bool destinationGate)
     {
+        // A same-named kernel object of another kind: a Windows namespace collision.
+        PlatformTest.WindowsOnly("another kind of named object can hold the gate's name");
         using var workspace = new TempWorkspace();
         var config = new ConfigStore(); config.Load();
         var secrets = new SecretsStore();
@@ -60,8 +62,8 @@ public sealed class RepositoryQueueAliasTests
         var engine = new InMemoryBackupEngine();
         var orchestrator = new BackupOrchestrator(config, secrets, engine, new LogStore(),
             new HealthcheckService(config, secrets), new MailService(config, secrets), new NotificationService(config), new BackupProgressService());
-        using var gate = new Semaphore(1, 1, BackupOrchestrator.MutexNameForDestination(destination.Id, alias));
-        Assert.True(gate.WaitOne(0));
+        using var gate = new CrossProcessGate(BackupOrchestrator.MutexNameForDestination(destination.Id, alias));
+        Assert.True(gate.TryAcquire());
         var queued = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         orchestrator.RunQueuedReasonChanged += (_, reason) => { if (reason.Length > 0) queued.TrySetResult(); };
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));

@@ -95,8 +95,11 @@ public sealed class RunHistoryFileTests
     [Theory]
     [InlineData(5,true)] [InlineData(32,true)] [InlineData(33,true)] [InlineData(1175,true)]
     [InlineData(112,false)] [InlineData(1176,false)] [InlineData(1177,false)] [InlineData(3,false)]
-    public void OnlyKnownUnchangedFileFailuresAreRetried(int error,bool expected) =>
+    public void OnlyKnownUnchangedFileFailuresAreRetried(int error,bool expected)
+    {
+        PlatformTest.WindowsOnly("Windows error codes");
         Assert.Equal(expected,FileReplacementErrors.CanRetry(new IOException("Synthetic Windows error",unchecked((int)0x80070000)|error)));
+    }
 
     [Fact]
     public void ArbitrarySimilarlyNamedFilesAreNeverReadOrDeleted()

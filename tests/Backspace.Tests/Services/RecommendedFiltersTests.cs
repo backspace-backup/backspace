@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Backspace.Services;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -58,6 +59,7 @@ public class RecommendedFiltersTests
     [Fact]
     public void RenderBlock_includesAtLeastOnePagefilePattern_whenWindowsSelected()
     {
+        PlatformTest.WindowsOnly("Windows exclusion rules (?:/...); Linux and macOS get their own");
         var block = RecommendedFilters.RenderBlock(
             includeWindowsSystem: true,
             includeCachesAndJunk: false,
@@ -70,6 +72,7 @@ public class RecommendedFiltersTests
     [Fact]
     public void RenderBlock_omitsBroadWindowsPatterns_whenNotSelected_butKeepsEssentials()
     {
+        PlatformTest.WindowsOnly("Windows exclusion rules (?:/...); Linux and macOS get their own");
         // After the refactor, "essentials" (pagefile, recycle bin,
         // $WinREAgent, etc.) are ALWAYS emitted regardless of toggles —
         // they protect the user even if they later add a drive root as
@@ -146,6 +149,7 @@ public class RecommendedFiltersTests
     [Fact]
     public void MergeIntoFilters_replacesExistingBlock_inPlace()
     {
+        PlatformTest.WindowsOnly("Windows exclusion rules (?:/...); Linux and macOS get their own");
         // The OLD block had only the broader Windows-system rules
         // (toggle ON, caches OFF). The NEW block has caches ON,
         // Windows-system OFF. Replacement should swap the toggleable
@@ -486,6 +490,7 @@ public class RecommendedFiltersTests
     [Fact]
     public void A_declined_essential_addition_is_not_brought_back()
     {
+        PlatformTest.WindowsOnly("Windows exclusion rules (?:/...); Linux and macOS get their own");
         var missing = RecommendedFilters.EssentialPatterns.Last();
         var saved = RecommendedFilters.RenderBlock(RecommendedFilters.EssentialPatterns.Where(p => p != missing).ToList());
         var all = RecommendedFilters.CheckForUpdates(saved);

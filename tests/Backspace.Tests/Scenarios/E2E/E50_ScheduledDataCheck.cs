@@ -81,14 +81,14 @@ public sealed class E50_ScheduledDataCheck(ITestOutputHelper output) : BackupE2E
         var original = File.ReadAllBytes(pack);
         try
         {
-            File.WriteAllBytes(pack, original[..(original.Length / 2)]);
+            PlatformTest.Overwrite(pack, original[..(original.Length / 2)]);
             var damaged = await ServiceLocator.Orchestrator.RunCheckAsync(backup, sample, deadline.Token);
             Assert.Equal(BackupRunStatus.Failed, damaged.Status);
             Assert.NotEmpty(damaged.Errors);
             Assert.Equal(BackupRunStatus.Failed, ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Single(r => r.Id == damaged.Id).Status);
             ctx.Report.RecordNote("Damaged repository is not successful", "A saved data pack was deliberately truncated in the disposable repository. The same production check path reported Failed and preserved the failure in history. This proves failure handling; because pack size is invalid, it does not prove every possible byte corruption would be selected by a 1% random sample.");
         }
-        finally { File.WriteAllBytes(pack, original); }
+        finally { PlatformTest.Overwrite(pack, original); }
         var recovered = await ServiceLocator.Orchestrator.RunCheckAsync(backup, sample, deadline.Token);
         Assert.Equal(BackupRunStatus.Success, recovered.Status);
         ctx.Report.RecordNote("Proof limits", "Real encrypted local repository and production check coordinator. Interface input and screenshots use headless Avalonia. This did not launch a Windows scheduled task, change real schedules, or measure live-cloud traffic. Random sampling can miss damage outside the selected packs.");

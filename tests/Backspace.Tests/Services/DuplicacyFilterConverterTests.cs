@@ -4,6 +4,7 @@ using System.Linq;
 using Backspace.Models;
 using Backspace.Services;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -48,6 +49,7 @@ public sealed class DuplicacyFilterConverterTests
     [Fact]
     public void Loading_settings_converts_a_stored_Duplicacy_filter_once_and_saves_it()
     {
+        PlatformTest.WindowsOnly("Windows exclusion rules (?:/...); Linux and macOS get their own");
         using var workspace = new Backspace.Tests.TestHelpers.TempWorkspace("u151");
         var writer = new ConfigStore();
         writer.Load();
@@ -124,6 +126,7 @@ public sealed class DuplicacyFilterConverterTests
     [Fact]
     public void Importing_from_Duplicacy_writes_restic_rules_with_the_essentials_ticked()
     {
+        PlatformTest.WindowsOnly("Windows exclusion rules (?:/...); Linux and macOS get their own");
         var text = ConfigMigrator.ImportFilters("e:(?i)^Windows/\ne:(?i)^Users/[^/]+/Dropbox/\n", new[] { @"C:\" });
         Assert.False(DuplicacyFilterConverter.NeedsConversion(text));
         var lines = text.Replace("\r\n", "\n").Split('\n');

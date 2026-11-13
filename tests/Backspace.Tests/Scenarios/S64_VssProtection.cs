@@ -23,6 +23,7 @@ public sealed class S64_VssProtection : ScenarioBase
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
+        if (!OperatingSystem.IsWindows()) ctx.Skip("Windows only: VSS");
         var destination = new Destination { Name = "Local archive", Kind = DestinationKind.LocalFolder,
             PathOrSubpath = ctx.MakeLocalDestination("archive") };
         var backup = new Backup { Name = "Family documents", SourcePaths = { ctx.MakeSource("documents", 74, 1024) },

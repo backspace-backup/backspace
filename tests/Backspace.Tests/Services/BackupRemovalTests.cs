@@ -83,6 +83,7 @@ public class BackupRemovalTests
     [Fact]
     public async Task An_unplugged_drive_is_cleaned_up_once_it_is_connected_again()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         using var tmp = new TempWorkspace("removal-later");
         var logs = new LogStore(tmp.Sub("engine-logs"));
         var (removal, engine, pendingFile) = Create(tmp, logs);
@@ -159,6 +160,7 @@ public class BackupRemovalTests
     [Fact]
     public async Task A_removed_destination_drops_its_queued_cleanup()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         using var tmp = new TempWorkspace("removal-forget");
         var (removal, _, _) = Create(tmp);
         var source = tmp.Sub("source");

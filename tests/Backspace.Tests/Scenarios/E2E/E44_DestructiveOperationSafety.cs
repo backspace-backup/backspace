@@ -83,10 +83,7 @@ public sealed class E44_DestructiveOperationSafety : BackupE2EBase
         // refused before the production restore writes any temporary output.
         var linkParent = ctx.MakeRestoreTarget("linked-target-test");
         var linkedTarget = Path.Combine(linkParent, "redirect");
-        using (var process = Process.Start(new ProcessStartInfo("cmd.exe") {
-            Arguments = $"/c mklink /J \"{linkedTarget}\" \"{keepTarget}\"", UseShellExecute = false,
-            CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true })!)
-        { await process.WaitForExitAsync(ct); Assert.Equal(0, process.ExitCode); }
+        PlatformTest.LinkFolder(linkedTarget, keepTarget);
         try
         {
             foreach (var target in new[] { linkedTarget, Path.Combine(linkedTarget, "new-child") })

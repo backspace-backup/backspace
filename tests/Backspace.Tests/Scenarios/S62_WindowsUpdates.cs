@@ -25,6 +25,7 @@ public sealed class S62_WindowsUpdates : ScenarioBase
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
+        if (!OperatingSystem.IsWindows()) ctx.Skip("Windows only: Windows updates");
         App.QuitRequested = false;
         using var http = new HttpClient(new WindowsUpdateTests.ReplyHandler(WindowsUpdateTests.ReleaseJson()));
         using var updates = new WindowsUpdateViewModel(http, _ => throw new Exception("No restart expected"), true);

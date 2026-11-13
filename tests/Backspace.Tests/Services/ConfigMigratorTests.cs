@@ -4,6 +4,7 @@ using System.Linq;
 using Backspace.Models;
 using Backspace.Services;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -266,6 +267,7 @@ public class ConfigMigratorTests
     [Fact]
     public void PrefDirLayout_isFound_andRestoreProfilesDoNotReplaceTheBackup()
     {
+        PlatformTest.WindowsOnly("Windows exclusion rules (?:/...); Linux and macOS get their own");
         using var sandbox = new ConfigSandbox();
         using var parent = new TempDir();
         void PrefDirRepo(string folder, string id, string repository, string? filters)

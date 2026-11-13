@@ -33,6 +33,7 @@ public sealed class S90_DuplicacyRulesConvertedOnce : ScenarioBase
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
+        if (!OperatingSystem.IsWindows()) ctx.Skip("Windows only: Windows exclusion rules (?:/...); Linux and macOS get their own");
         // A whole drive, as local_c backs up C:\. A drive this computer doesn't
         // have, so the editor's size estimate reads nothing: the rules for any
         // drive start with ?:/, so the text is the same as for C:\.

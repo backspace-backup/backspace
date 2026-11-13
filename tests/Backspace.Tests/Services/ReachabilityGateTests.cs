@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Backspace.Models;
 using Backspace.Services;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -32,6 +33,7 @@ public class ReachabilityGateTests
     [Fact]
     public async Task NetworkShare_NonexistentUnc_ReturnsSkippedCellOutcome()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         // A nonexistent host produces a known network-path outage or hits
         // the five-second deadline. Both are tolerable skips. The production
         // probe uses GetAttributes so permission/missing-folder failures

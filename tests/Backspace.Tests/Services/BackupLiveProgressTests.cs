@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using Backspace.Services;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -390,6 +391,7 @@ public sealed class BackupLiveProgressTests
     [Fact]
     public void A_first_backup_lists_every_file_from_the_snapshot_listing()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         Assert.Equal("[file] added: C:\\Users\\me\\Documents\\taxes 2026.pdf", BackupLiveProgress.ListedFileLine(
             "{\"name\":\"taxes 2026.pdf\",\"type\":\"file\",\"path\":\"/C/Users/me/Documents/taxes 2026.pdf\",\"size\":1024,\"struct_type\":\"node\"}"));
         Assert.Null(BackupLiveProgress.ListedFileLine("{\"name\":\"Documents\",\"type\":\"dir\",\"path\":\"/C/Users/me/Documents\",\"struct_type\":\"node\"}"));

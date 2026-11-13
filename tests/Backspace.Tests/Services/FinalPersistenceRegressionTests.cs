@@ -73,6 +73,7 @@ public sealed class FinalPersistenceRegressionTests
     [Fact]
     public async Task Actual_unattended_entry_point_waits_out_a_locked_vault_without_changing_bytes()
     {
+        PlatformTest.WindowsOnly("a file another program holds open (Linux and macOS have no such sharing locks)");
         using var workspace = new TempWorkspace("unattended-locked-vault");
         var store = new SecretsStore();
         store.Set("fixture", "keep");

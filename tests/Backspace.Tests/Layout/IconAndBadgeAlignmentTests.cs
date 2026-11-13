@@ -16,6 +16,7 @@ using Backspace.Services;
 using Backspace.ViewModels;
 using Backspace.Views;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Layout;
 
@@ -108,6 +109,7 @@ public class IconAndBadgeAlignmentTests
     [InlineData(true)]
     public void Count_badge_lines_up_with_the_title_letters(bool destinations) => WithHeader(destinations, 1180, (view, window) =>
     {
+        PlatformTest.WindowsOnly("measured with Windows' Segoe UI font");
         var badge = view.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("count-badge"));
         Assert.True(badge.IsEffectivelyVisible);
         var title = PageHeaderAlignmentTests.FindByClass(view, "page-title")!;
@@ -158,6 +160,7 @@ public class IconAndBadgeAlignmentTests
     [InlineData(true, 760)]
     public void Header_action_spans_title_and_subtitle(bool destinations, double width) => WithHeader(destinations, width, (view, window) =>
     {
+        PlatformTest.WindowsOnly("measured with Windows' Segoe UI font");
         var title = PageHeaderAlignmentTests.FindByClass(view, "page-title")!;
         var subtitle = PageHeaderAlignmentTests.FindByClass(view, "page-subtitle")!;
         var action = view.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("primary") && b.IsEffectivelyVisible);
@@ -304,6 +307,7 @@ public class IconAndBadgeAlignmentTests
     [InlineData(500, 2)]
     public void Notice_keeps_last_activity_whole(double width, int expectedLines)
     {
+        PlatformTest.WindowsOnly("measured with Windows' Segoe UI font");
         ServiceLocator.Config.Update(cfg =>
         {
             cfg.Backups.Clear();

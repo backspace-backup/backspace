@@ -5,6 +5,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Screenshots;
 
@@ -193,6 +194,7 @@ public class ScreenshotDiffTests
     [Fact]
     public void AllScreenshots_MatchBaselineWithinTolerance()
     {
+        PlatformTest.WindowsOnly("the baselines are Windows screenshots");
         lock (ImageFilesLock) CheckAllScreenshots();
     }
 

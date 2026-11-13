@@ -49,6 +49,9 @@ public sealed class S29_LenientFolderPickerClick : ScenarioBase
         subfolder.Parent = root;
         root.Children.Clear(); // drop the lazy placeholder
         root.Children.Add(subfolder);
+        // Only this tree: on Linux and macOS the computer's own top folder,
+        // opened, would push this row out of the window.
+        vm.Roots.Clear();
         vm.Roots.Add(root);
 
         var win = new SourceTreePickerWindow();

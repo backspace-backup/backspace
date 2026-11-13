@@ -24,6 +24,7 @@ public sealed class S54_EditorialMinimumWidth : ScenarioBase
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
+        if (!OperatingSystem.IsWindows()) ctx.Skip("Windows only: measured with Windows' Segoe UI font");
         var destination = new Destination { Name = "Family archive and important documents",
             Kind = DestinationKind.LocalFolder, PathOrSubpath = ctx.MakeLocalDestination("archive") };
         var backup = new Backup

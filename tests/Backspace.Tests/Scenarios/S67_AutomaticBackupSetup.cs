@@ -20,6 +20,7 @@ public sealed class S67_AutomaticBackupSetup : ScenarioBase
 
     protected override async Task RunAsync(ScenarioContext ctx)
     {
+        if (!OperatingSystem.IsWindows()) ctx.Skip("Windows only: administrator access for the background service");
         var backend = new ControlledSetup();
         var automatic = new BackgroundBackupViewModel(backend);
         using var settings = new SettingsViewModel(null, automatic);

@@ -62,7 +62,7 @@ public sealed class S101_SidebarHoverFade : ScenarioBase
             Assert.Equal(hover, frames[^1]);
             // The fade really ran (several partial frames), and every frame is
             // the hover colour at some opacity: never a lighter tone.
-            Assert.True(frames.Count(c => c.A is > 0 and < 255) >= 3, $"{theme}: the fade was not sampled ({frames.Count} frames).");
+            Assert.True(frames.Count(c => c.A is > 0 and < 255) >= 3, $"{theme}: the fade was not sampled ({frames.Count} frames; alpha seen: {string.Join(", ", frames.Select(c => c.A).Distinct())}).");
             var off = frames.Where(c => c.A > 0 && (c.R, c.G, c.B) != (hover.R, hover.G, hover.B)).ToArray();
             Assert.True(off.Length == 0, $"{theme}: frames off the hover hue: {string.Join(", ", off.Select(c => c.ToString()))}");
             ctx.Snapshot(host, $"destinations hovered {theme}",

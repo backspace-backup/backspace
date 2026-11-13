@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Backspace.Models;
 using Backspace.Services;
 using Xunit;
+using Backspace.Tests.TestHelpers;
 
 namespace Backspace.Tests.Services;
 
@@ -296,6 +297,7 @@ public class ResticEngineTests
     [Fact]
     public void FindRestoredFile_LocatesUnderPreservedUncSourceTree()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         // UNC source paths like \\server\share\foo need their double-
         // backslash anchor stripped (not eaten by a generic leading-
         // separator trim that would leave us reading "share\foo" and
@@ -448,6 +450,43 @@ public class ResticEngineTests
     public void StatusFromTerminal_unknownOrEmpty_defaultsToFailed(string input, Backspace.Models.BackupRunStatus expected)
     {
         Assert.Equal(expected, ResticEngine.StatusFromTerminal(input));
+    }
+
+    /// <summary>U235: restic lists dates to the nanosecond; the disk shows them
+    /// to 100 ns, dropping the rest. Rounding instead made about half of the
+    /// unchanged files on Linux and macOS look changed, so a restore check
+    /// never compared them with their originals.</summary>
+    [Theory]
+    [InlineData("2026-11-13T05:46:01.123456789Z", 1234567)] // rounding gives 1234568
+    [InlineData("2026-11-13T05:46:01.123456749Z", 1234567)]
+    [InlineData("2026-11-13T05:46:01.1234567Z", 1234567)]
+    [InlineData("2026-11-13T05:46:01Z", 0)]
+    public void File_dates_from_restic_keep_what_the_disk_shows(string listed, long ticksInSecond)
+    {
+        var parsed = ResticEngine.ParseFileTime(listed);
+        Assert.Equal(DateTimeKind.Utc, parsed.Kind);
+        Assert.Equal(new DateTime(2026, 11, 13, 5, 46, 1, DateTimeKind.Utc).AddTicks(ticksInSecond), parsed);
+    }
+
+    [Fact]
+    public void File_dates_from_restic_with_an_offset_are_read_as_utc()
+    {
+        Assert.Equal(new DateTime(2026, 11, 13, 4, 46, 1, DateTimeKind.Utc).AddTicks(9999999),
+            ResticEngine.ParseFileTime("2026-11-13T05:46:01.999999999+01:00"));
+        Assert.Equal(DateTime.MinValue, ResticEngine.ParseFileTime(null));
+        Assert.Equal(DateTime.MinValue, ResticEngine.ParseFileTime("not a date"));
+    }
+
+    /// <summary>U235: a colon is a drive or a hidden stream only on Windows; on
+    /// Linux and macOS a file may be called "notes:old.txt" and is restored.</summary>
+    [Fact]
+    public void A_colon_in_a_name_is_refused_only_on_windows()
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Throws<InvalidOperationException>(() => ResticEngine.NormalizeRestoreRelativePath("docs/notes:old.txt"));
+        else
+            Assert.Equal("docs/notes:old.txt", ResticEngine.NormalizeRestoreRelativePath("docs/notes:old.txt"));
+        Assert.Throws<InvalidOperationException>(() => ResticEngine.NormalizeRestoreRelativePath("docs/../outside.txt"));
     }
 
     // ---- helpers ----

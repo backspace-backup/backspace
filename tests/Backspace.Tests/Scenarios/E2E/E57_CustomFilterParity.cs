@@ -229,7 +229,8 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         if (!Directory.Exists(repo)) Run("init", "-r", repo, "-q");
         var output = Run("backup", "-r", repo, "--dry-run", "-vv", "--no-scan", FilterTranslator.ExcludeFileFlag, file, source);
         // "new       /C/Users/…/file.txt, saved in …" (folders end with "/").
-        var prefix = "/" + source.Replace('\\', '/').Replace(":", "") + "/";
+        // On Linux and macOS, the path as it is.
+        var prefix = (OperatingSystem.IsWindows() ? "/" + source.Replace('\\', '/').Replace(":", "") : source) + "/";
         return output.Split('\n')
             .Select(l => System.Text.RegularExpressions.Regex.Match(l, @"^new\s+(.+?), saved in"))
             .Where(m => m.Success).Select(m => m.Groups[1].Value)

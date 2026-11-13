@@ -163,6 +163,7 @@ public sealed class WindowsUpdateTests
     [Fact]
     public void Plan_save_keeps_the_old_record_and_staged_copy_when_access_stays_blocked()
     {
+        PlatformTest.WindowsOnly("Windows updates");
         using var ws = new TempWorkspace(); var root = ws.Sub("app"); var plan = Prepare(root);
         var planPath = Path.Combine(plan.Work, "plan.json");
         var original = File.ReadAllText(planPath);
@@ -264,6 +265,7 @@ public sealed class WindowsUpdateTests
     [Fact]
     public void An_update_leaves_only_the_app_and_Backspace_config_beside_it()
     {
+        PlatformTest.WindowsOnly("Windows updates");
         using var ws = new TempWorkspace(); var root = ws.Sub("app");
         var plan = Prepare(root);
         File.Delete(Path.Combine(root, "personal-notes.txt"));
@@ -444,6 +446,7 @@ public sealed class WindowsUpdateTests
     [Fact]
     public void Owned_update_cleanup_retains_a_persistently_locked_file_and_reports_the_failure()
     {
+        PlatformTest.WindowsOnly("Windows updates");
         using var ws = new TempWorkspace(); var root = ws.Sub("app"); var plan = Prepare(root);
         var path = Path.Combine(plan.Work, "download.zip");
         using var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);

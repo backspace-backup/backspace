@@ -104,6 +104,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
     [Fact]
     public void The_command_line_matches_the_owners_transcript()
     {
+        PlatformTest.WindowsOnly("the owner\'s Windows command line (D:\\, VSS)");
         var backup = new Backup { Id = "b2", UseVss = true, ExcludeCloudFiles = true };
         var destination = new Destination { Id = "d2", Kind = DestinationKind.GoogleDrive, Encrypted = true, StoragePasswordRef = "ref" };
         var planId = ResticEngine.MakePlanId(backup, @"D:\", destination, "target-952aab70");
@@ -124,6 +125,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
     [Fact]
     public void A_remembered_snapshot_is_used_only_when_restic_confirms_it_is_this_plans()
     {
+        PlatformTest.WindowsOnly("Windows paths (drive letters, \\\\server shares)");
         ((string Id, DateTime When)? Snapshot, string? Problem) Check(string answer, string source = @"D:\", string host = "pc-1")
         {
             using var json = JsonDocument.Parse(answer);
@@ -363,7 +365,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
                 // (which restic would read instead): restic cannot read it,
                 // and lists the others.
                 var repositoryId = ResticEngine.RepositoryId((await rig.ResticAsync("cat", "config")).Output)!;
-                File.WriteAllBytes(Path.Combine(rig.Destination.PathOrSubpath!, "snapshots", latest), RandomNumberGenerator.GetBytes(300));
+                PlatformTest.Overwrite(Path.Combine(rig.Destination.PathOrSubpath!, "snapshots", latest), RandomNumberGenerator.GetBytes(300));
                 var cached = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "restic", repositoryId, "snapshots", latest[..2], latest);
                 if (File.Exists(cached)) File.Delete(cached);
                 expectedParent = older;
@@ -403,6 +405,7 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
     [Fact]
     public async Task A_file_restic_cannot_read_gives_a_saved_backup_with_a_warning()
     {
+        PlatformTest.WindowsOnly("a file another program holds open (Linux and macOS have no such sharing locks)");
         await using var rig = new Rig("partial");
         using (new FileStream(Path.Combine(rig.Source, "file00.bin"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {

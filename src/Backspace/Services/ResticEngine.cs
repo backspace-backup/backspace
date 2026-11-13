@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -634,12 +635,33 @@ public sealed partial class ResticEngine : IBackupEngine
                 // brings it back.
                 if (parsed.type == "symlink") return;
                 var directory = parsed.type == "dir";
-                var modified = DateTime.TryParse(parsed.mtime, out var mt) ? mt.ToUniversalTime() : DateTime.MinValue;
+                var modified = ParseFileTime(parsed.mtime);
                 _nodes.Add(new(relative, directory, directory ? 0 : parsed.size, modified));
                 if (!directory) _files++;
                 if (progress is not null && _nodes.Count % 5000 == 0) progress.Report(_files);
             }
         }
+    }
+
+    /// <summary>
+    /// A file's date as restic lists it, to the 100 ns the file system shows.
+    /// restic gives nanoseconds; parsing rounds the extra digits, while the
+    /// date read from the disk drops them, so on Linux and macOS (whose dates
+    /// keep nanoseconds) about half the unchanged files looked changed and were
+    /// never compared with their originals. Windows dates stop at 100 ns.
+    /// </summary>
+    internal static DateTime ParseFileTime(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return DateTime.MinValue;
+        var dot = value.IndexOf('.');
+        if (dot >= 0)
+        {
+            var end = dot + 1;
+            while (end < value.Length && char.IsAsciiDigit(value[end])) end++;
+            if (end - dot - 1 > 7) value = value[..(dot + 8)] + value[end..];
+        }
+        return DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed)
+            ? DateTime.SpecifyKind(parsed, DateTimeKind.Utc) : DateTime.MinValue;
     }
 
     private sealed class ResticLsLine
@@ -1046,10 +1068,11 @@ public sealed partial class ResticEngine : IBackupEngine
         }
     }
 
+    // A colon is a drive or a hidden stream on Windows only; elsewhere names may hold one.
     internal static string NormalizeRestoreRelativePath(string path)
     {
         var relative = path.Replace('\\', '/').TrimStart('/');
-        if (relative.Split('/').Any(p => p is ".." or ".") || relative.Contains(':') || relative.Contains('\n') || relative.Contains('\r'))
+        if (relative.Split('/').Any(p => p is ".." or ".") || (OperatingSystem.IsWindows() && relative.Contains(':')) || relative.Contains('\n') || relative.Contains('\r'))
             throw new InvalidOperationException($"Unsafe snapshot path: {path}");
         return relative;
     }
