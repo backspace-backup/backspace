@@ -1,0 +1,80 @@
+name: Cross-platform tests
+
+# The whole test suite on Linux and macOS (U235), to say truthfully in the
+# README how well Backspace works there. Windows-only tests (the background
+# service, WinFsp mounting, Credential Manager, Task Scheduler, shadow copies)
+# are left out of that build; the test project lists them. Cloud tests need
+# sign-ins this workflow doesn't have and report so.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Tools the engine download needs
+        if: runner.os == 'Linux'
+        run: command -v jq || (sudo apt-get update && sudo apt-get install -y jq)
+
+      - name: Build the tests (fetches this platform's restic and rclone)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: dotnet build tests/Backspace.Tests --nologo
+
+      - name: Run the tests
+        run: >
+          dotnet test tests/Backspace.Tests --no-build --nologo
+          --logger "trx;LogFileName=results.trx"
+          --logger "console;verbosity=normal"
+          --results-directory test-results
+        continue-on-error: true
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          f=$(find test-results -name results.trx | head -1)
+          if [ -z "$f" ]; then echo "No results." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          python3 - "$f" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          ns = {'t': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
+          root = ET.parse(sys.argv[1]).getroot()
+          c = root.find('.//t:Counters', ns).attrib
+          print(f"### {c.get('total')} tests: {c.get('passed')} passed, {c.get('failed')} failed, {int(c.get('total')) - int(c.get('executed'))} not run\n")
+          failed = [r.attrib['testName'] for r in root.findall('.//t:UnitTestResult', ns) if r.attrib.get('outcome') == 'Failed']
+          for name in sorted(failed): print(f"- {name}")
+          PY
+
+      - name: Keep the results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.os }}
+          path: |
+            test-results
+            tests/Backspace.Tests/artifacts/scenarios
+          retention-days: 14

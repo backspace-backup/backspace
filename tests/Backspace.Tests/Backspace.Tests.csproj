@@ -1,7 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Windows: the full app. Linux and macOS (or -p:CrossPlatformTests=true
+         on Windows, to try that build): the cross-platform app (U235). -->
+    <TargetFramework Condition="'$(OS)' == 'Windows_NT' and '$(CrossPlatformTests)' != 'true'">net10.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(OS)' != 'Windows_NT' or '$(CrossPlatformTests)' == 'true'">net10.0</TargetFramework>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
@@ -76,6 +79,15 @@
              Condition="Exists('..\..\src\Backspace\Assets\restic.exe')"
              Link="restic.exe"
              CopyToOutputDirectory="PreserveNewest" />
+    <!-- Linux and macOS: no extension (U235). -->
+    <TestEngineBinary Include="..\..\src\Backspace\Assets\restic"
+             Condition="Exists('..\..\src\Backspace\Assets\restic')"
+             Link="restic"
+             CopyToOutputDirectory="PreserveNewest" />
+    <TestEngineBinary Include="..\..\src\Backspace\Assets\rclone"
+             Condition="Exists('..\..\src\Backspace\Assets\rclone')"
+             Link="rclone"
+             CopyToOutputDirectory="PreserveNewest" />
     <TestEngineBinary Include="..\..\src\Backspace\Assets\rclone.exe"
              Condition="Exists('..\..\src\Backspace\Assets\rclone.exe')"
              Link="rclone.exe"
@@ -83,5 +95,78 @@
   </ItemGroup>
   <Copy SourceFiles="@(TestEngineBinary)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
   </Target>
+
+  <!-- BEGIN windows-only tests -->
+  <!-- Left out on Linux and macOS (U235): these test Windows-only parts (the
+       background service, WinFsp mounting, Credential Manager, Task Scheduler,
+       shadow copies, Windows file APIs) and do not build there. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <Compile Remove="Models/BackupChecksTests.cs" />
+    <Compile Remove="Scenarios/E2E/CloudRoundTripFlow.cs" />
+    <Compile Remove="Scenarios/E2E/E04_SnapshotMountWindows.cs" />
+    <Compile Remove="Scenarios/E2E/E07_DropboxRoundTrip.cs" />
+    <Compile Remove="Scenarios/E2E/E08_OneDriveRoundTrip.cs" />
+    <Compile Remove="Scenarios/E2E/E09_GoogleDriveRoundTrip.cs" />
+    <Compile Remove="Scenarios/E2E/E10_TwoConcurrentMultiCloud.cs" />
+    <Compile Remove="Scenarios/E2E/E43_CloudSourceChangeDetection.cs" />
+    <Compile Remove="Scenarios/E2E/E58_DropboxScaleBenchmark.cs" />
+    <Compile Remove="Scenarios/E2E/E61_EngineStopsWhenIdle.cs" />
+    <Compile Remove="Scenarios/E2E/E63_SavedPasswordsVault.cs" />
+    <Compile Remove="Scenarios/E2E/E65_MountSpeedAndSafety.cs" />
+    <Compile Remove="Scenarios/S102_CheckUnderBackupHealth.cs" />
+    <Compile Remove="Scenarios/S107_LiveLogOfServiceCheck.cs" />
+    <Compile Remove="Scenarios/S68_BackgroundBackupResults.cs" />
+    <Compile Remove="Scenarios/S69_BackgroundBackupProgress.cs" />
+    <Compile Remove="Scenarios/S71_BackgroundRunLogs.cs" />
+    <Compile Remove="Scenarios/S72_BackgroundNotifications.cs" />
+    <Compile Remove="Scenarios/S83_BackgroundRunEndedUnseen.cs" />
+    <Compile Remove="Scenarios/S84_BackgroundRunLogsInHistory.cs" />
+    <Compile Remove="Scenarios/S91_BackupsAtOnce.cs" />
+    <Compile Remove="Scenarios/S92_MountFeedback.cs" />
+    <Compile Remove="Scenarios/S93_MountRevisionPicker.cs" />
+    <Compile Remove="Services/BackgroundQueueTests.cs" />
+    <Compile Remove="Services/BackupMountTreeProviderTests.cs" />
+    <Compile Remove="Services/BackupServicePipeTests.cs" />
+    <Compile Remove="Services/DestinationReadinessTests.cs" />
+    <Compile Remove="Services/EmbeddedAssetCacheTests.cs" />
+    <Compile Remove="Services/ExactPathDeleteTests.cs" />
+    <Compile Remove="Services/HandleRenameTests.cs" />
+    <Compile Remove="Services/InteractiveCloudOptInTests.cs" />
+    <Compile Remove="Services/MountBenchmark.cs" />
+    <Compile Remove="Services/ResticRunnerTests.cs" />
+    <Compile Remove="Services/RunChangesTests.cs" />
+    <Compile Remove="Services/RunDetailsTests.cs" />
+    <Compile Remove="Services/RuntimeGuardCoverageTests.cs" />
+    <Compile Remove="Services/SafeTreeDeleteTests.cs" />
+    <Compile Remove="Services/SecretsStoreTests.cs" />
+    <Compile Remove="Services/ServiceActivityTests.cs" />
+    <Compile Remove="Services/ServiceCommandLineRunTests.cs" />
+    <Compile Remove="Services/ServiceConfigurationComparisonTests.cs" />
+    <Compile Remove="Services/ServiceExternalDrivesTests.cs" />
+    <Compile Remove="Services/ServiceHostRequestTests.cs" />
+    <Compile Remove="Services/ServiceInstallationSecurityTests.cs" />
+    <Compile Remove="Services/ServiceNetworkSharesTests.cs" />
+    <Compile Remove="Services/ServiceNotificationTests.cs" />
+    <Compile Remove="Services/ServiceRunJournalTests.cs" />
+    <Compile Remove="Services/ServiceRunRecoveryTests.cs" />
+    <Compile Remove="Services/ServiceScheduledRunTests.cs" />
+    <Compile Remove="Services/ServiceStartRaceTests.cs" />
+    <Compile Remove="Services/ServiceWorkerTests.cs" />
+    <Compile Remove="Services/SessionTaskControlTests.cs" />
+    <Compile Remove="Services/SourceSizeRulesTests.cs" />
+    <Compile Remove="Services/SystemServiceTests.cs" />
+    <Compile Remove="Services/UnreadableFolderSizeTests.cs" />
+    <Compile Remove="Services/VaultServiceAndPathsTests.cs" />
+    <Compile Remove="Services/WinFspInstallerTests.cs" />
+    <Compile Remove="Services/WinFspReadTimeoutTests.cs" />
+    <Compile Remove="Services/WinFspSecurityTests.cs" />
+    <Compile Remove="Services/WinFspSnapshotFsTests.cs" />
+    <Compile Remove="Services/WindowsMeteredNetworkProbeTests.cs" />
+    <Compile Remove="TestHelpers/CloudCredentialsLoader.cs" />
+    <Compile Remove="TestHelpers/InteractiveTokenAcquirer.cs" />
+    <Compile Remove="TestHelpers/ReviewSignInFile.cs" />
+    <Compile Remove="ViewModels/ServiceHistorySelectionTests.cs" />
+  </ItemGroup>
+  <!-- END windows-only tests -->
 
 </Project>
