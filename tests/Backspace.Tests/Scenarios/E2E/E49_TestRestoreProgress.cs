@@ -45,7 +45,13 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         using var vm = new MainWindowViewModel();
         var main = ctx.Driver.Show(new MainWindow { DataContext = vm, Width = 1024, Height = 768 });
         var backupsView = main.GetVisualDescendants().OfType<BackupsView>().Single();
-        Assert.Equal(BackupRunStatus.Success, (await RunBackupViaUiAsync(ctx, backup, backupsView, default)).Status);
+        // Small packs (4 MiB, restic's least): a sample spans several, so its
+        // progress moves in steps everywhere. With two 16 MiB packs downloaded
+        // side by side, it could jump from nothing to all (seen on Linux).
+        var packSize = Environment.GetEnvironmentVariable("RESTIC_PACK_SIZE");
+        Environment.SetEnvironmentVariable("RESTIC_PACK_SIZE", "4");
+        try { Assert.Equal(BackupRunStatus.Success, (await RunBackupViaUiAsync(ctx, backup, backupsView, default)).Status); }
+        finally { Environment.SetEnvironmentVariable("RESTIC_PACK_SIZE", packSize); }
         await ctx.Driver.PumpAsync(200);
         // A backup without check entries (U179) says so on its card.
         var label = main.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "No checks set up");
