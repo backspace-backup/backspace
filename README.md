@@ -184,7 +184,7 @@ virtual machine, have been run on earlier builds.
 |---|---|
 | **Windows 11** | Supported and tested |
 | **Windows 10** | Not tested yet |
-| **Linux, macOS** | Testing in progress: the test suite runs on Linux and macOS (about 95% passing on Linux), and the first platform bugs it found are fixed. The app hasn't been tried by people there yet, so field reports are very welcome |
+| **Linux, macOS** | The automated test suite passes on Linux and macOS (the Windows-only parts, such as the background service, shadow copies and drive mounting, are left out there), and the platform bugs it found are fixed. The app hasn't been tried by people there yet, so field reports are very welcome |
 | **OneDrive for Business** | Not supported yet |
 | **Network shares** | Without administrator access, backed up while you are signed in, without Windows snapshots. With it, backed up in the background like other destinations, using the share's user name and password saved with the destination (required then) |
 
