@@ -75,7 +75,10 @@ public sealed class E46_RestoreOptionsThroughUi : BackupE2EBase
         await Toggle("ReplaceFilesOption");
         Assert.False(vm.PreserveStructure);
         Assert.False(vm.OverwriteExisting);
-        ctx.Snapshot(window, "restore-options-off", "Both options are off. Files should go directly into the selected folder, while existing files stay unchanged.");
+        // U217: another folder, so the folder's permissions by default.
+        Assert.False(vm.KeepPermissions);
+        Assert.False(view.FindControl<CheckBox>("KeepPermissionsOption")!.IsChecked);
+        ctx.Snapshot(window, "restore-options-off", "Both options are off. Files should go directly into the selected folder, while existing files stay unchanged. Below, Keep the files' permissions is unticked by default for another folder, with what it means.");
         await PressButton(vm.NextFromTargetCommand);
         await Until(() => vm.CurrentStep == RestoreViewModel.Step.Summary);
         Assert.Equal("USER ORIGINAL", File.ReadAllText(Path.Combine(target, "keep.txt")));
