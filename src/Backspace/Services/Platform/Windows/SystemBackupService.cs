@@ -329,8 +329,8 @@ internal sealed class SystemBackupService : ServiceBase
                 // Each connection is answered on its own; the run list has its
                 // own short lock, and no file is read while holding it (U224).
                 // "activity-wait" is answered when something changes.
-                var reply = ActivityWait(request) is { } known
-                    ? await WaitForActivityAsync(known, _stop.Token).ConfigureAwait(false)
+                var reply = ActivityWait(request) is { } wait
+                    ? await WaitForActivityAsync(wait.Known, wait.StateOnly, listener, _stop.Token).ConfigureAwait(false)
                     : Dispatch(request);
                 await BackupServicePipe.SendResponseAsync(listener, reply, TimeSpan.FromSeconds(10), _stop.Token).ConfigureAwait(false);
             }
@@ -431,35 +431,64 @@ internal sealed class SystemBackupService : ServiceBase
     /// <summary>The activity changed (a run started, moved, stopped or
     /// ended): a desktop waiting for that hears it at once (U224, owner: "the
     /// app is not supposed to use any CPU when not in use").</summary>
-    private void Touched()
+    /// <param name="progress">Only a run's progress moved: a hidden window
+    /// waiting for runs to start or end is not woken (U224).</param>
+    private void Touched(bool progress = false)
     {
         Interlocked.Increment(ref _activitySequence);
+        if (!progress) Interlocked.Increment(ref _stateSequence);
         Interlocked.Exchange(ref _activityChanged, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
     }
 
     private long _activitySequence;
+    private long _stateSequence;
     private TaskCompletionSource _activityChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    /// <summary>Answers "activity-wait" once the activity differs from the
-    /// one the desktop holds, or after <see cref="ActivityWaitLongest"/>
-    /// anyway: no one polls while nothing happens.</summary>
-    private async Task<byte[]> WaitForActivityAsync(long known, CancellationToken stop)
+    /// <summary>Answers "activity-wait" once the activity differs from the one
+    /// the desktop holds ("state-wait": once a run started, stopped or ended).
+    /// Nothing answers on a timer (U224, owner: "purely event based"); a
+    /// desktop that goes away ends the wait, so it never holds a connection.</summary>
+    private async Task<byte[]> WaitForActivityAsync(long known, bool stateOnly, System.IO.Pipes.NamedPipeServerStream client, CancellationToken stop)
     {
-        var changed = Volatile.Read(ref _activityChanged).Task;
-        if (Interlocked.Read(ref _activitySequence) == known)
-            await Task.WhenAny(changed, Task.Delay(ActivityWaitLongest, stop)).ConfigureAwait(false);
+        await WaitUntilChangedAsync(() => stateOnly ? Interlocked.Read(ref _stateSequence) : Interlocked.Read(ref _activitySequence),
+            known, () => Volatile.Read(ref _activityChanged).Task, client, stop).ConfigureAwait(false);
         lock (_gate) return ServiceActivity.Encode(Activity());
     }
 
-    internal static readonly TimeSpan ActivityWaitLongest = TimeSpan.FromMinutes(1);
+    /// <summary>Returns once <paramref name="seen"/> differs from <paramref name="known"/>;
+    /// throws when the client disconnects first. The client sends nothing
+    /// more until its answer, so a read that ends means it went away; that
+    /// read is cancelled before the answer, and the pipe stays usable.</summary>
+    internal static async Task WaitUntilChangedAsync(Func<long> seen, long known, Func<Task> changed, Stream client, CancellationToken stop)
+    {
+        using var listening = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        var gone = client.ReadAsync(new byte[1], listening.Token).AsTask();
+        var stopped = Task.Delay(Timeout.Infinite, listening.Token);
+        try
+        {
+            while (seen() == known)
+            {
+                var next = changed();
+                if (seen() != known) break;
+                if (await Task.WhenAny(next, gone, stopped).ConfigureAwait(false) == gone)
+                    throw new IOException("The desktop stopped waiting.");
+                stop.ThrowIfCancellationRequested();
+            }
+        }
+        finally
+        {
+            listening.Cancel();
+            try { await gone.ConfigureAwait(false); } catch (OperationCanceledException) { } catch (IOException) { }
+        }
+    }
 
-    private static long? ActivityWait(byte[] request)
+    private static (long Known, bool StateOnly)? ActivityWait(byte[] request)
     {
         try
         {
             var parsed = ServiceHostRequest.Parse(request);
-            return parsed.Command == "activity-wait" && long.TryParse(parsed.Revision, System.Globalization.NumberStyles.None,
-                System.Globalization.CultureInfo.InvariantCulture, out var known) ? known : null;
+            return parsed.Command is "activity-wait" or "state-wait" && long.TryParse(parsed.Revision, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var known) ? (known, parsed.Command == "state-wait") : null;
         }
         catch (Exception) { return null; }
     }
@@ -468,7 +497,7 @@ internal sealed class SystemBackupService : ServiceBase
     {
         var runs = _runs.Values.OrderBy(r => r.StartedUtc).Select(r => Snapshot(r, withTail: r.Active)).ToArray();
         var top = _latest is null ? new ServiceActivity.Snapshot(1, null, "idle", null, null, null, null) : Snapshot(_latest, withTail: true);
-        return top with { Runs = runs, Sequence = Interlocked.Read(ref _activitySequence) };
+        return top with { Runs = runs, Sequence = Interlocked.Read(ref _activitySequence), StateSequence = Interlocked.Read(ref _stateSequence) };
     }
 
     private static ServiceActivity.Snapshot Snapshot(WorkerRun run, bool withTail) => new(1, run.RunId, run.State, run.BackupId,
@@ -616,7 +645,8 @@ internal sealed class SystemBackupService : ServiceBase
                 lock (_gate) if (ReferenceEquals(process, run.Worker))
                 {
                     run.Progress = progress;
-                    Touched();
+                    // Its progress, unless its state changed with it (a result).
+                    Touched(progress: progress.Result is null);
                     if (progress.LogRunId is { } historyId && run.SavedHistoryId != historyId)
                     {
                         try { _recovery.TrackHistory(run.RunId, historyId); run.SavedHistoryId = historyId; }

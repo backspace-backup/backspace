@@ -166,8 +166,11 @@ internal static class BackupServicePipe
         return response;
     }
 
+    /// <param name="timeout">At most a minute; Timeout.InfiniteTimeSpan only
+    /// for a wait for news, which the caller's token ends (U224).</param>
     private static CancellationTokenSource Deadline(TimeSpan timeout, CancellationToken token)
     {
+        if (timeout == Timeout.InfiniteTimeSpan) return CancellationTokenSource.CreateLinkedTokenSource(token);
         if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromMinutes(1))
             throw new ArgumentOutOfRangeException(nameof(timeout));
         var source = CancellationTokenSource.CreateLinkedTokenSource(token);

@@ -45,7 +45,7 @@ internal sealed record ServiceHostRequest(int Version, string Command, string? R
                 || (request.VaultId is not null && (!VaultFile.IsId(request.VaultId) || !IsKey(request.Key))),
             "status" or "activity" => request.Revision is not null || request.BackupId is not null || request.Operation is not null || request.RunId is not null,
             // U224: the activity once it differs from the one the desktop holds (its sequence).
-            "activity-wait" => request.Revision is not { Length: > 0 and <= 20 } known || !System.Linq.Enumerable.All(known, char.IsAsciiDigit)
+            "activity-wait" or "state-wait" => request.Revision is not { Length: > 0 and <= 20 } known || !System.Linq.Enumerable.All(known, char.IsAsciiDigit)
                 || request.BackupId is not null || request.Operation is not null || request.RunId is not null,
             "cancel" or "heartbeat" => !Guid.TryParseExact(request.RunId, "N", out _) || request.Revision is not null || request.BackupId is not null || request.Operation is not null,
             "start" or "start-cli" => !Guid.TryParseExact(request.Revision, "N", out _) || string.IsNullOrWhiteSpace(request.BackupId)

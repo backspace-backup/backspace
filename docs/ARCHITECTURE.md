@@ -857,8 +857,17 @@ only those files has no vault, and the first save asks for a password.
    reason it is queued and the time it has spent queued, and final metadata);
    a card picks its own with `ServiceActivity.ForBackup`, and only running runs
    carry their transcript tail. Private
-   transcript paths are removed. One desktop polling loop updates cards even
-   when the backup began before the window opened. An unavailable service leaves
+   transcript paths are removed. One desktop loop (`BackgroundServiceActivity`)
+   updates cards even when the backup began before the window opened. It is
+   event based (U224): it keeps one request open that the service answers when
+   something changes, `activity-wait` (every change, while the window is shown)
+   or `state-wait` (a run starting, stopping or ending, while it is hidden);
+   the service ends a wait whose desktop disconnected
+   (`SystemBackupService.WaitUntilChangedAsync`). A worker reports at most
+   twice a second and at least every 10 s; while a run goes, a desktop that
+   has heard nothing for twelve of those heartbeats (`Watchdog`) asks once.
+   Background alerts are looked for when a run starts, stops or ends and when
+   the session is unlocked (`SessionUnlockWatcher`). An unavailable service leaves
    the last known operation visibly unconfirmed; it never becomes a success.
    Stop carries that exact host run ID, so a delayed request cannot stop a newer
    run. Completed metadata is merged with history without changing saved settings.

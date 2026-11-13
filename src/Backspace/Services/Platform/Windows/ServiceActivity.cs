@@ -21,7 +21,8 @@ internal static class ServiceActivity
         double QueuedSeconds = 0, string Activity = "", string ActivityStep = "", string ActivityWhere = "", double ActivityPercent = -1);
     internal const int TranscriptCharacters = 32768;
     internal sealed record Snapshot(int Version, string? RunId, string State, string? BackupId,
-        string? Operation, DateTime? StartedUtc, Progress? Progress, string? Error = null, Snapshot[]? Runs = null, long Sequence = 0);
+        string? Operation, DateTime? StartedUtc, Progress? Progress, string? Error = null, Snapshot[]? Runs = null, long Sequence = 0,
+        long StateSequence = 0);
 
     /// <summary>The run of one backup in an activity report: the service runs
     /// several at once (U156). <see cref="Snapshot.Runs"/> lists each one
@@ -134,15 +135,15 @@ internal static class ServiceActivity
     }
 
     /// <summary>The activity once it differs from <paramref name="known"/>
-    /// (U224): the service answers when something changes, or after a minute.</summary>
-    internal static async Task<Snapshot> WaitAsync(ServiceWorkerBinding binding, long known, CancellationToken token)
+    /// (U224): the service answers when something changes, never on a timer;
+    /// with <paramref name="stateOnly"/>, when a run starts, stops or ends.
+    /// The service stopping breaks the connection, which ends the wait.</summary>
+    internal static async Task<Snapshot> WaitAsync(ServiceWorkerBinding binding, long known, bool stateOnly, CancellationToken token)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(90));
-        using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-runs", binding.ServiceSid, TimeSpan.FromSeconds(2), deadline.Token).ConfigureAwait(false);
-        await BackupServicePipe.WriteMessageAsync(pipe, Encode(new ServiceHostRequest(1, "activity-wait", Revision: known.ToString(System.Globalization.CultureInfo.InvariantCulture))),
-            TimeSpan.FromSeconds(2), deadline.Token).ConfigureAwait(false);
-        return Parse(await BackupServicePipe.ReadResponseAsync(pipe, TimeSpan.FromSeconds(80), deadline.Token).ConfigureAwait(false));
+        using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-runs", binding.ServiceSid, TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
+        await BackupServicePipe.WriteMessageAsync(pipe, Encode(new ServiceHostRequest(1, stateOnly ? "state-wait" : "activity-wait",
+                Revision: known.ToString(System.Globalization.CultureInfo.InvariantCulture))), TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
+        return Parse(await BackupServicePipe.ReadResponseAsync(pipe, Timeout.InfiniteTimeSpan, token).ConfigureAwait(false));
     }
 
     internal static async Task CancelAsync(ServiceWorkerBinding binding, string runId, CancellationToken token)

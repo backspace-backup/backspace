@@ -53,6 +53,7 @@ internal sealed class BackgroundServiceNotifications : IDisposable
             });
             await shown.Task.WaitAsync(TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
         }, DesktopReady);
+        monitor._listensForUnlock = true;
         _ = monitor.PollAsync();
         return monitor;
     }
@@ -72,45 +73,44 @@ internal sealed class BackgroundServiceNotifications : IDisposable
 
     private async Task PollAsync()
     {
+        // Purely event based (U224, owner, 13 November 2026): alerts are
+        // looked for at start, when a run of the service starts, stops or
+        // ends (its alert is saved then), and when the session is unlocked.
+        // Nothing looks on a timer.
+        BackgroundServiceActivity.ActivityChanged += News;
+        if (_listensForUnlock) SessionUnlockWatcher.Unlocked += News;
         try
         {
             while (!_stop.IsCancellationRequested)
             {
+                // Taken before looking, so news that comes meanwhile isn't missed.
+                var news = Volatile.Read(ref _news).Task;
                 var delivered = false;
                 try { delivered = await DeliverOneAsync(_stop.Token).ConfigureAwait(false); }
                 catch (OperationCanceledException) when (_stop.IsCancellationRequested) { break; }
                 catch (Exception ex) { AppLogger.For<BackgroundServiceNotifications>().Warning(ex, "Background alerts remain pending"); }
                 // An accumulated backlog is spaced out so it does not open a
-                // stack of alerts at sign-in. Otherwise it looks again when the
-                // service's activity changes (a run ended), or every ten minutes:
-                // nothing polls in between (U224).
-                if (delivered) await Task.Delay(TimeSpan.FromSeconds(10), _stop.Token).ConfigureAwait(false);
-                // Locked or signed out: alerts wait for the desktop, looked for twice a minute.
-                else if (!_desktopReady()) await Task.Delay(TimeSpan.FromSeconds(30), _stop.Token).ConfigureAwait(false);
-                else await WaitForNewsAsync(_stop.Token).ConfigureAwait(false);
+                // stack of alerts at sign-in.
+                if (delivered) { await Task.Delay(TimeSpan.FromSeconds(10), _stop.Token).ConfigureAwait(false); continue; }
+                // Otherwise (and while locked) it waits for news.
+                await news.WaitAsync(_stop.Token).ConfigureAwait(false);
+                // The alert is saved as the run ends: a moment for it to land.
+                await Task.Delay(TimeSpan.FromSeconds(1), _stop.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
-    }
-
-    internal static TimeSpan QuietLook = TimeSpan.FromMinutes(10);
-
-    private static async Task WaitForNewsAsync(CancellationToken stop)
-    {
-        var news = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        void Activity() => news.TrySetResult();
-        BackgroundServiceActivity.ActivityChanged += Activity;
-        try
-        {
-            await Task.WhenAny(news.Task, Task.Delay(QuietLook, stop)).ConfigureAwait(false);
-            // The alert is saved as the run ends: a moment for it to land.
-            if (news.Task.IsCompleted) await Task.Delay(TimeSpan.FromSeconds(1), stop).ConfigureAwait(false);
-        }
         finally
         {
-            BackgroundServiceActivity.ActivityChanged -= Activity;
+            BackgroundServiceActivity.ActivityChanged -= News;
+            if (_listensForUnlock) SessionUnlockWatcher.Unlocked -= News;
         }
     }
+
+    private TaskCompletionSource _news = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private void News() => Interlocked.Exchange(ref _news, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+
+    /// <summary>The app's own monitor follows session unlocks; tests don't.</summary>
+    private bool _listensForUnlock;
 
     internal static void Open(BackgroundNotification notice)
     {

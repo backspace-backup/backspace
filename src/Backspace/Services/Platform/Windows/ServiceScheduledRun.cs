@@ -58,6 +58,8 @@ internal static class ServiceScheduledRun
             { AppLogger.For(nameof(ServiceScheduledRun)).Debug(ex, "The command line could not read the run's progress"); }
         }
         string? finishedLine = null;
+        // A monitor with nothing to wait for (no service before) asks now (U224).
+        BackgroundServiceActivity.Poke();
         var code = await RunAsync(request, async (message, token) =>
         {
             using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-runs",
