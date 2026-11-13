@@ -20,6 +20,8 @@ public sealed class ActiveRestoreRegistry
     public event Action<ActiveRestoreSession>? SessionOpened;
     public bool HasAny => Sessions.Count > 0;
     public bool HasRunning => !_running.IsEmpty;
+    /// <summary>The sessions running now (diagnostics).</summary>
+    internal System.Collections.Generic.IReadOnlyList<ActiveRestoreSession> RunningSessions => _running.Values.ToList();
     /// <summary>A restore of files is running: test restores show on their
     /// backup's card, not in Restores (U205).</summary>
     public bool HasRunningFileRestores => _running.Values.Any(s => !s.IsTestRestore);

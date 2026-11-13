@@ -29,6 +29,28 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
     protected override async Task RunE2EAsync(ScenarioContext ctx, RealEngineFixture fixture)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        // U207 (owner go-ahead, 13 November 2026): it hung once for 30 minutes,
+        // past this deadline. Past 2 minutes a watchdog thread, independent of
+        // the test's own waits, records what was running and in which state,
+        // then cancels the test instead of letting the full run hang.
+        var step = "setup";
+        var watchdogDone = new ManualResetEventSlim();
+        var watchdog = new Thread(() =>
+        {
+            if (watchdogDone.Wait(Watchdog)) return;
+            var report = new System.Text.StringBuilder();
+            report.AppendLine($"E52 still running after {Watchdog.TotalMinutes} min, at step: {step}");
+            foreach (var session in ServiceLocator.ActiveRestores.RunningSessions)
+                report.AppendLine($"restore session {session.Id}: running={session.IsRunning} paused={session.IsPaused} cancelling={session.IsCancelling} control={session.Control?.State} files={session.RestoredCount}/{session.TotalFiles}");
+            foreach (var process in System.Diagnostics.Process.GetProcessesByName("restic"))
+                try { report.AppendLine($"restic pid {process.Id} started {process.StartTime:HH:mm:ss}"); } catch { }
+            report.AppendLine($"maintenance readers={ServiceLocator.Maintenance.HasReaders} active={ServiceLocator.Maintenance.IsActive}");
+            try { File.WriteAllText(Path.Combine(Path.GetDirectoryName(ctx.ScreenshotsDir)!, "hang-diagnostics.txt"), report.ToString()); } catch { }
+            output.WriteLine(report.ToString());
+            try { deadline.Cancel(); } catch { }
+        }) { IsBackground = true, Name = "E52 watchdog" };
+        watchdog.Start();
+        using var stopWatchdog = new Disposable(() => watchdogDone.Set());
         var source = Path.Combine(ctx.SourcesDir, "documents"); Directory.CreateDirectory(source);
         var original = RandomNumberGenerator.GetBytes(2 * 1024 * 1024);
         File.WriteAllBytes(Path.Combine(source, "photo.bin"), original);
@@ -49,8 +71,10 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
         var target = ctx.MakeRestoreTarget("recovered");
         File.WriteAllText(Path.Combine(target, "photo.bin"), "USER ORIGINAL");
         File.WriteAllText(Path.Combine(target, "unrelated.txt"), "UNRELATED");
+        step = "restore started";
         var run = await StartWizard(target);
         await Until(() => Directory.GetDirectories(target, ".backspace-restore-*").Any());
+        step = "pausing the restore";
         Click("Pause");
         await Until(() => model.Restore.IsRestorePaused);
         Assert.True(ServiceLocator.ActiveRestores.HasRunning);
@@ -99,6 +123,7 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
         File.WriteAllText(Path.Combine(cancelTarget, "photo.bin"), "KEEP THIS ORIGINAL");
         var cancelRun = await StartWizard(cancelTarget);
         await Until(() => Directory.GetDirectories(cancelTarget, ".backspace-restore-*").Any());
+        step = "pausing the cancelled restore";
         Click("Pause"); await Until(() => model.Restore.IsRestorePaused);
         Click("Cancel"); await cancelRun.WaitAsync(deadline.Token); await ctx.Driver.PumpAsync(100);
         Assert.Equal("KEEP THIS ORIGINAL", File.ReadAllText(Path.Combine(cancelTarget, "photo.bin")));
@@ -116,6 +141,7 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
         // U205: a test restore isn't listed in Restores; it is stopped from
         // its card (here, its session's own stop, which the card calls).
         var test = ServiceLocator.TestRestores.Start(ServiceLocator.Config.Current.Backups.Single(), new TestRestoreOptions(Full: true));
+        step = "restore check running";
         await Until(() => test.IsRunning && test.TotalFiles > 0);
         Assert.DoesNotContain(model.ActiveRestores.Sessions, s => s.IsTestRestore);
         var journalDir = Path.Combine(AppPaths.ConfigRoot, "test-restores");
@@ -189,4 +215,9 @@ public sealed class E52_RestorePauseAndCancel(ITestOutputHelper output) : Backup
             .SelectMany(d => Directory.GetFiles(d, "*", SearchOption.AllDirectories)).OrderBy(p => p)
             .Select(p => p + ":" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p)))).ToArray();
     }
+
+    /// <summary>2 minutes; BACKSPACE_E52_WATCHDOG_SECONDS shortens it to check the watchdog itself.</summary>
+    internal static TimeSpan Watchdog = double.TryParse(Environment.GetEnvironmentVariable("BACKSPACE_E52_WATCHDOG_SECONDS"), out var s) ? TimeSpan.FromSeconds(s) : TimeSpan.FromMinutes(2);
+
+    private sealed class Disposable(Action dispose) : IDisposable { public void Dispose() => dispose(); }
 }
