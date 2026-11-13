@@ -45,6 +45,7 @@ public sealed class S49_ReviewUiRepairs : ScenarioBase
         using var editor = new BackupEditorViewModel(new Backup { Name = "Every setting stays reachable", Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Monthly } } } }, false);
         var window = ctx.Driver.Show(new BackupEditorWindow { DataContext = editor, Width = 980, Height = 640 });
         window.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
+        window.FindControl<TabControl>("ScheduleSubTabs")!.SelectedIndex = 2; // Checks (U228)
         ctx.Driver.Pump(); window.UpdateLayout();
         var label = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "CHECKS");
         var scroller = label.GetVisualAncestors().OfType<ScrollViewer>().First();
