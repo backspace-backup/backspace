@@ -554,7 +554,7 @@ public partial class App : Application
     /// switching replaces just that dictionary so we don't churn icons or
     /// the core theme.
     /// </summary>
-    private void ApplyAccentFromConfig()
+    internal void ApplyAccentFromConfig()
     {
         var accent = ServiceLocator.Config.Current.Preferences.Accent;
         if (_lastAppliedAccent == accent && _currentAccent is not null) return;
@@ -580,5 +580,51 @@ public partial class App : Application
             Resources.MergedDictionaries.Remove(_currentAccent);
         _currentAccent = include;
         _lastAppliedAccent = accent;
+        ApplyAccentToStandardControls(include);
+    }
+
+    /// <summary>Check boxes, the selected tab's underline, radio buttons and
+    /// other standard controls take Backspace's accent, not Windows' (owner,
+    /// 12 November 2026: "Since when do we use orange as the checkbox colors
+    /// and underline for Schedule?" — their Windows accent is orange-red;
+    /// those controls had always followed it, unlike the rest of the app).</summary>
+    private ResourceDictionary? _standardAccent;
+
+    private void ApplyAccentToStandardControls(ResourceInclude include)
+    {
+        try
+        {
+            // The app's own resources are looked up before the Fluent theme's,
+            // so these replace Windows' accent for every standard control.
+            var colors = new ResourceDictionary();
+            foreach (var variant in new[] { ThemeVariant.Light, ThemeVariant.Dark })
+            {
+                if (!include.TryGetResource("BS.Brush.Accent", variant, out var value) || value is not Avalonia.Media.ISolidColorBrush brush) continue;
+                var accent = brush.Color;
+                var shades = new ResourceDictionary
+                {
+                    ["SystemAccentColor"] = accent,
+                    // Light: fills use Dark1; dark: fills use Light2. Both are the accent itself.
+                    ["SystemAccentColorDark1"] = variant == ThemeVariant.Light ? accent : Shade(accent, -0.15),
+                    ["SystemAccentColorDark2"] = Shade(accent, variant == ThemeVariant.Light ? -0.12 : -0.30),
+                    ["SystemAccentColorDark3"] = Shade(accent, variant == ThemeVariant.Light ? -0.25 : -0.45),
+                    ["SystemAccentColorLight1"] = variant == ThemeVariant.Dark ? accent : Shade(accent, 0.15),
+                    ["SystemAccentColorLight2"] = variant == ThemeVariant.Dark ? accent : Shade(accent, 0.30),
+                    ["SystemAccentColorLight3"] = Shade(accent, variant == ThemeVariant.Dark ? 0.15 : 0.45),
+                };
+                colors.ThemeDictionaries[variant] = shades;
+            }
+            Resources.MergedDictionaries.Add(colors);
+            if (_standardAccent is not null) Resources.MergedDictionaries.Remove(_standardAccent);
+            _standardAccent = colors;
+        }
+        catch (Exception ex) { AppLogger.For<App>().Warning(ex, "Could not apply the accent to standard controls"); }
+    }
+
+    /// <summary>The colour mixed towards white (positive) or black (negative).</summary>
+    internal static Avalonia.Media.Color Shade(Avalonia.Media.Color c, double amount)
+    {
+        byte Mix(byte v) => (byte)Math.Clamp(Math.Round(amount >= 0 ? v + (255 - v) * amount : v * (1 + amount)), 0, 255);
+        return Avalonia.Media.Color.FromArgb(c.A, Mix(c.R), Mix(c.G), Mix(c.B));
     }
 }

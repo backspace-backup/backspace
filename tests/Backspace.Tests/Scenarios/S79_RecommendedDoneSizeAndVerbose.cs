@@ -160,7 +160,7 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         var verbose = view.FindControl<CheckBox>("VerboseLog")!;
         Assert.True(verbose.IsEffectivelyVisible);
         Assert.False(verbose.IsChecked);
-        Assert.DoesNotContain("\tdebug\t", main.Logs.DisplayText);
+        Assert.DoesNotContain("[restic] debug\t", main.Logs.DisplayText);
         Assert.DoesNotContain("command: restic backup", main.Logs.DisplayText);
         Assert.Contains("[progress] 42.5%", main.Logs.DisplayText);
         ctx.Snapshot(host, "readable log, verbose off",
@@ -169,7 +169,7 @@ public sealed class S79_RecommendedDoneSizeAndVerbose : ScenarioBase
         verbose.IsChecked = true;
         await ctx.Driver.PumpAsync(200);
         Assert.True(VerboseLogFilter.IsVerboseOn());
-        Assert.True(ctx.Driver.WaitFor(() => main.Logs.DisplayText.Contains("\tdebug\t")), "Verbose did not reveal the saved debug lines.");
+        Assert.True(ctx.Driver.WaitFor(() => main.Logs.DisplayText.Contains("[restic] debug\t")), "Verbose did not reveal the saved debug lines.");
         Assert.Contains("command: restic backup", main.Logs.DisplayText);
         ctx.Snapshot(host, "verbose on shows earlier lines",
             "Verbose ticked: the same saved run now also shows restic's debug lines, without rerunning anything.");
