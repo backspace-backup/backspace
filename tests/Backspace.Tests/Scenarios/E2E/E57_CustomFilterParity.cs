@@ -65,6 +65,9 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
             "Twin/a/node_modules/x", "Twin/b/node_modules/d/y", "Twin/c/d/node_modules/z" };
         // *.tmp ignores case only on Windows: elsewhere scratch.TMP stays, as restic does.
         if (!OperatingSystem.IsWindows()) { kept2 = [.. kept2, "scratch.TMP"]; omitted2 = omitted2.Where(o => o != "scratch.TMP").ToArray(); }
+        // Two ** in one rule: only Backspace's Windows restic carries the fix (restic issue 22131);
+        // elsewhere official restic, and the estimate with it, keep Twin/a/node_modules/x.
+        if (!OperatingSystem.IsWindows()) { kept2 = [.. kept2, "Twin/a/node_modules/x"]; omitted2 = omitted2.Where(o => o != "Twin/a/node_modules/x").ToArray(); }
         await Write(syntax, kept2.Where(k => k != "cache").Concat(omitted2));
         var rules2 = string.Join("\n",
             "# restic's own syntax (U151)",
