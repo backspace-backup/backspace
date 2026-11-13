@@ -14,6 +14,7 @@ internal sealed class CrossProcessGate(string name, string? holder = null) : IDi
 {
     private Semaphore? _semaphore;
     private FileStream? _file;
+    private IDisposable? _mutex;
     private bool _held;
 
     internal string Name => name;
@@ -31,18 +32,14 @@ internal sealed class CrossProcessGate(string name, string? holder = null) : IDi
         }
 #endif
         // Linux and macOS have no named semaphores (U235: every backup there
-        // failed with "could not lock this backup against duplicate runs").
-        // A file opened without sharing is locked by the system for as long
-        // as this process holds it, and freed when it ends, even by a crash.
+        // failed with "could not lock this backup against duplicate runs"):
+        // the system's named mutex instead, held by a thread of its own so
+        // any thread can release the gate, and freed when the process ends.
         if (!OperatingSystem.IsWindows())
         {
-            var directory = Path.Combine(EngineWorkPaths.MachineRoot, "locks");
-            System.IO.Directory.CreateDirectory(directory);
-            var path = Path.Combine(directory, Convert.ToHexString(
-                System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(name)))[..32] + ".lock");
-            try { _file = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
-            catch (IOException) { _file = null; }
-            _held = _file is not null;
+            _mutex = RuntimeGate.TryHold(@"Global\Backspace-gate-" + Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(name)))[..32]);
+            _held = _mutex is not null;
             if (_held) NoteHolder();
             return _held;
         }
@@ -56,7 +53,8 @@ internal sealed class CrossProcessGate(string name, string? holder = null) : IDi
     {
         if (!_held) return;
         if (holder is not null) Holders.Clear(name, holder);
-        if (_file is not null) { _file.Dispose(); _file = null; }
+        if (_mutex is not null) { _mutex.Dispose(); _mutex = null; }
+        else if (_file is not null) { _file.Dispose(); _file = null; }
         else _semaphore!.Release();
         _held = false;
     }

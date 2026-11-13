@@ -92,6 +92,18 @@ internal static class RuntimeGate
         return null;
     }
 
+    /// <summary>One named mutex, held by a thread of its own until disposed,
+    /// so any thread may release it; null when another process (or holder)
+    /// has it. A process that ends frees it, a crash included.</summary>
+    internal static IDisposable? TryHold(string name) => Holder.Start(() =>
+    {
+        var mutex = new Mutex(false, name);
+        try { if (mutex.WaitOne(0)) return [mutex]; }
+        catch (AbandonedMutexException) { return [mutex]; }
+        mutex.Dispose();
+        return null;
+    });
+
     private sealed class Holder : IDisposable
     {
         private readonly ManualResetEventSlim _release = new();
