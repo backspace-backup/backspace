@@ -140,6 +140,8 @@
     <Compile Remove="Services/SafeTreeDeleteTests.cs" />
     <Compile Remove="Services/SecretsStoreTests.cs" />
     <Compile Remove="Services/ServiceActivityTests.cs" />
+    <Compile Remove="Services/ServiceActivityWaitTests.cs" />
+    <Compile Remove="Services/CommandLineTranscriptTests.cs" />
     <Compile Remove="Services/ServiceCommandLineRunTests.cs" />
     <Compile Remove="Services/ServiceConfigurationComparisonTests.cs" />
     <Compile Remove="Services/ServiceExternalDrivesTests.cs" />
