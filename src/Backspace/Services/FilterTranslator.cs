@@ -166,6 +166,26 @@ public static class FilterTranslator
     /// this system.</summary>
     internal static List<CompiledRule> CompileRules(string? text) => CompileRules(text, IgnoresCase);
 
+    /// <summary>Each rule's expression is built once per process (U227): the
+    /// non-backtracking engine takes milliseconds to build one, and opening a
+    /// backup's editor compiled its few hundred rules several times over
+    /// (about 400 ms on every opening). A regex can be shared: it holds no
+    /// state between matches.</summary>
+    private static Regex Cached(string pattern, RegexOptions options)
+    {
+        var key = ((int)options).ToString(System.Globalization.CultureInfo.InvariantCulture) + "|" + pattern;
+        if (RegexCache.TryGetValue(key, out var cached)) return cached;
+        var regex = new Regex(pattern, options);
+        // Bounded: rules typed one character at a time leave many behind.
+        if (RegexCache.Count >= 8192) RegexCache.Clear();
+        return RegexCache.GetOrAdd(key, regex);
+    }
+
+    /// <summary>The recommended rules every editor shows, compiled ahead (U227).</summary>
+    internal static void WarmUpRecommended() => _ = CompileRules(string.Join("\n", RecommendedFilters.EssentialPatterns
+        .Concat(RecommendedFilters.WindowsSystemPatterns).Concat(RecommendedFilters.CachesAndJunkPatterns)));
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Regex> RegexCache = new(StringComparer.Ordinal);
+
     internal static List<CompiledRule> CompileRules(string? text, bool ignoreCase)
     {
         var rules = new List<CompiledRule>();
@@ -183,7 +203,7 @@ public static class FilterTranslator
             Regex regex;
             // Restic refuses the whole file for an invalid rule; the editor
             // says which (InvalidRules). Here it simply matches nothing.
-            try { regex = new Regex(GlobToRegex(glob), options); }
+            try { regex = Cached(GlobToRegex(glob), options); }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException) { regex = new Regex(@"[^\s\S]"); }
             rules.Add(new(line, regex, negated, ignoreCase, RequiredText(glob), IsRooted(glob), ResticParts(glob, options)));
         }
@@ -203,7 +223,7 @@ public static class FilterTranslator
         foreach (var name in names)
         {
             if (name == "**" || name.IndexOfAny(['\\', '[', ']', '*', '?']) < 0) { parts.Add(new(name, null)); continue; }
-            try { parts.Add(new(name, new Regex(GlobToRegex(name), options))); }
+            try { parts.Add(new(name, Cached(GlobToRegex(name), options))); }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException) { return null; }
         }
         return parts;

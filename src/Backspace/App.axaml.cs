@@ -149,6 +149,7 @@ public partial class App : Application
             });
 
             AttachDesktopWindows(desktop);
+            WarmUpEditor();
 #if WINDOWS
             _backgroundNotifications = Services.Platform.Windows.BackgroundServiceNotifications.Start(ServiceLocator.Notifier);
 #endif
@@ -377,6 +378,38 @@ public partial class App : Application
         desktop.Shutdown();
     }
 #endif
+
+    /// <summary>Opening a backup's editor is quick from the first time (U227,
+    /// owner: "Why can't we precompute this when Backspace's main window first
+    /// loads?"). A few seconds after start, while nothing else happens, each
+    /// backup's rules are compiled (they are kept for the process) and one
+    /// editor is built and thrown away, so its layout is ready too.</summary>
+    private static void WarmUpEditor()
+    {
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            try
+            {
+                await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                FilterTranslator.WarmUpRecommended();
+                foreach (var backup in ServiceLocator.Config.Current.Backups)
+                    _ = FilterTranslator.CompileRules(backup.FiltersText);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    try
+                    {
+                        // No sources: nothing is measured or read.
+                        var editor = new BackupEditorWindow(new Backup { Name = "warm-up" }, isNew: false);
+                        editor.Measure(new Size(1100, 800));
+                        editor.Arrange(new Rect(0, 0, 1100, 800));
+                        (editor.DataContext as IDisposable)?.Dispose();
+                    }
+                    catch (Exception ex) { AppLogger.For<App>().Debug(ex, "Editor warm-up failed"); }
+                }, DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex) { AppLogger.For<App>().Debug(ex, "Rule warm-up failed"); }
+        });
+    }
 
     internal TrayWindowHost AttachDesktopWindows(IClassicDesktopStyleApplicationLifetime desktop)
     {

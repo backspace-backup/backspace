@@ -174,3 +174,25 @@ public sealed class CheckLogReadabilityTests
         Assert.Equal(3, LogsViewModel.WithoutFoldedRestoreRecords([check, own, earlier]).Count);
     }
 }
+
+/// <summary>U227 (owner: "Clicking edit backup takes like 0.5s-1s"): most of
+/// the wait was building each filter rule's expression again on every
+/// opening. They are built once per process now.</summary>
+public sealed class FilterRuleCacheTests
+{
+    [Fact]
+    public void A_rule_is_compiled_once_and_still_matches_as_before()
+    {
+        var text = string.Join("\n", @"C:\Users\*\AppData\Local\Temp", @"!C:\Users\*\AppData\Local\Temp\keep", "*.tmp-u227");
+        var first = FilterTranslator.CompileRules(text);
+        var second = FilterTranslator.CompileRules(text);
+        Assert.Equal(3, first.Count);
+        for (var i = 0; i < first.Count; i++) Assert.Same(first[i].Pattern, second[i].Pattern);
+        // The same answers as ever: excluded, re-included, not matched.
+        Assert.True(FilterTranslator.Evaluate(first, FilterTranslator.ResticPath(@"C:\Users\sam\AppData\Local\Temp\x.log")).Excluded);
+        Assert.False(FilterTranslator.Evaluate(first, FilterTranslator.ResticPath(@"C:\Users\sam\AppData\Local\Temp\keep")).Excluded);
+        Assert.False(FilterTranslator.Evaluate(first, FilterTranslator.ResticPath(@"C:\Users\sam\Documents\a.txt")).Excluded);
+        // Case-sensitive and -insensitive compilations stay apart.
+        Assert.NotSame(FilterTranslator.CompileRules("*.tmp-u227", ignoreCase: true)[0].Pattern, FilterTranslator.CompileRules("*.tmp-u227", ignoreCase: false)[0].Pattern);
+    }
+}
