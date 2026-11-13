@@ -440,6 +440,7 @@ public class RecommendedFiltersTests
     [Fact]
     public void Changed_lists_are_offered_for_the_groups_the_backup_uses_only()
     {
+        PlatformTest.WindowsOnly("Windows' recommended rules");
         var update = RecommendedFilters.CheckForUpdates(SavedBlock());
         Assert.Contains("Config.Msi/", update.Remove);
         // Recovery is no longer recommended at all (U106): offered for removal, never added.
@@ -462,6 +463,7 @@ public class RecommendedFiltersTests
     [Fact]
     public void Applying_an_update_keeps_own_rules_and_cloud_folders_and_settles()
     {
+        PlatformTest.WindowsOnly("Windows' recommended rules");
         var saved = SavedBlock();
         var updated = RecommendedFilters.ApplyUpdates(saved, RecommendedFilters.CheckForUpdates(saved)).Replace("\r\n", "\n");
         var lines = updated.Split('\n').Select(l => l.Trim()).ToList();

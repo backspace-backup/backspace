@@ -25,6 +25,7 @@ public class NameGeneratorTests
     [Fact]
     public void ForBackup_singleSource_usesLeafDirname()
     {
+        PlatformTest.WindowsOnly("a drive-letter path is a folder path only on Windows");
         var name = NameGenerator.ForBackup(
             new[] { @"C:\Users\me\Documents" }, _ => false);
         Assert.StartsWith("documents-", name);

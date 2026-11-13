@@ -18,6 +18,7 @@ public sealed class E2E_WindowsUpdateBundle
     [Fact]
     public async Task Recovery_launcher_waits_for_native_failure_and_preserves_the_installation()
     {
+        PlatformTest.WindowsOnly("the Windows update bundle and its native launcher");
         var candidate = Environment.GetEnvironmentVariable("BACKSPACE_UPDATE_CANDIDATE");
         Assert.True(OperatingSystem.IsWindows() && Directory.Exists(candidate),
             "Set BACKSPACE_UPDATE_CANDIDATE to a published, framework-dependent Windows release folder.");

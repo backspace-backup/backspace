@@ -71,7 +71,7 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
             "!" + top + "/Chrome/Keep",       // the last matching rule decides
             "*.tmp",                          // case ignored on Windows
             top + "/$$money/",                // a literal $
-            top + "/env-$USERNAME/",          // an environment variable, as restic expands it
+            top + (OperatingSystem.IsWindows() ? "/env-$USERNAME/" : "/env-$USER/"), // an environment variable, as restic expands it
             "/top.txt",                       // a plain leading / matches nothing on Windows
             "Deep/**/drop.me",
             top + "/Twin/**/*/**/node_modules/*", // two **: official restic leaves Twin/a/node_modules/x in (issue 22131); ours doesn't

@@ -84,6 +84,8 @@ public sealed class VerifierBoundaryTests
     {
         // Elsewhere a backslash is an ordinary character in a name.
         if (relative.StartsWith('\\')) PlatformTest.WindowsOnly("\\\\server paths");
+        // And "C:" is an ordinary folder name, inside the restore.
+        if (relative.StartsWith("C:", StringComparison.Ordinal)) PlatformTest.WindowsOnly("drive letters");
         using var workspace = new TempWorkspace();
         var source = workspace.Sub("source");
         var restored = workspace.Sub("restored");

@@ -138,6 +138,7 @@ public sealed class WindowsUpdateTests
     [Fact]
     public void Plan_save_retries_a_temporary_windows_file_access_conflict()
     {
+        PlatformTest.WindowsOnly("Windows file sharing conflicts");
         using var ws = new TempWorkspace(); var root = ws.Sub("app"); var plan = Prepare(root);
         var planPath = Path.Combine(plan.Work, "plan.json");
         var original = File.ReadAllText(planPath);

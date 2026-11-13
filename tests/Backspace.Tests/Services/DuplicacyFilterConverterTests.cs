@@ -25,6 +25,7 @@ public sealed class DuplicacyFilterConverterTests
     [InlineData("local_dropbox", @"C:\Users\Erwin\Dropbox\")]
     public void The_owners_backups_convert_to_the_approved_text_byte_for_byte(string backup, string source)
     {
+        PlatformTest.WindowsOnly("the approved text holds Windows' recommended rules");
         var converted = DuplicacyFilterConverter.Convert(Fixture(backup + ".txt"), new[] { source });
         // Since U165 the Essentials are the recommended block's first group
         // instead of a block of their own: the approved text in that form.

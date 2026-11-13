@@ -377,6 +377,7 @@ public sealed class BackupLiveProgressTests
     [Fact]
     public void Each_changed_file_becomes_a_line_but_folders_and_totals_do_not()
     {
+        PlatformTest.WindowsOnly("restic's /C/… paths become drive paths only on Windows");
         Assert.Equal("[file] added: C:\\Users\\me\\new.txt", BackupLiveProgress.FileLine("+    /C/Users/me/new.txt"));
         Assert.Equal("[file] changed: C:\\Users\\me\\report.docx", BackupLiveProgress.FileLine("M    /C/Users/me/report.docx"));
         Assert.Equal("[file] removed: C:\\Users\\me\\old.txt", BackupLiveProgress.FileLine("-    /C/Users/me/old.txt"));

@@ -34,6 +34,17 @@ public sealed class S101_SidebarHoverFade : ScenarioBase
         using var main = new MainWindowViewModel();
         var host = ctx.Driver.Show(new MainWindow { Width = 1100, Height = 820, DataContext = main });
         await ctx.Driver.PumpAsync(200);
+        // One hover first, unmeasured: the first animation of a fresh window
+        // pays for loading and compiling, and on a slow machine (Linux CI)
+        // that alone outlasted the fade.
+        {
+            var warm = host.GetVisualDescendants().OfType<RadioButton>()
+                .Single(r => r.Classes.Contains("nav") && r.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Destinations"));
+            host.MouseMove(warm.TranslatePoint(new Point(warm.Bounds.Width / 2, warm.Bounds.Height / 2), host)!.Value);
+            for (var i = 0; i < 40; i++) { AvaloniaHeadlessPlatform.ForceRenderTimerTick(); ctx.Driver.Pump(); await Task.Delay(10); }
+            host.MouseMove(new Point(600, 700));
+            await Settle(ctx);
+        }
         foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
         {
             host.RequestedThemeVariant = theme;

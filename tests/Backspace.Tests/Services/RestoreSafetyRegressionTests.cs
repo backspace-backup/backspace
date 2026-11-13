@@ -92,7 +92,11 @@ public sealed class RestoreSafetyRegressionTests
     [InlineData("C:/outside.txt")]
     [InlineData("file.txt\n/other.txt")]
     public void UnsafeSnapshotPaths_AreRejected(string relative)
-        => Assert.Throws<InvalidOperationException>(() => ResticEngine.NormalizeRestoreRelativePath(relative));
+    {
+        // Elsewhere "C:" is an ordinary folder name, inside the restore.
+        if (relative.StartsWith("C:", StringComparison.Ordinal)) PlatformTest.WindowsOnly("drive letters");
+        Assert.Throws<InvalidOperationException>(() => ResticEngine.NormalizeRestoreRelativePath(relative));
+    }
 
     [Fact]
     public void LiveProgress_UsesBytesAndSkippedCounts()

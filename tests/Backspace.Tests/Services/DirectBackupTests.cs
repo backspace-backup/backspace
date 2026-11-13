@@ -366,8 +366,15 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
                 // and lists the others.
                 var repositoryId = ResticEngine.RepositoryId((await rig.ResticAsync("cat", "config")).Output)!;
                 PlatformTest.Overwrite(Path.Combine(rig.Destination.PathOrSubpath!, "snapshots", latest), RandomNumberGenerator.GetBytes(300));
-                var cached = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "restic", repositoryId, "snapshots", latest[..2], latest);
-                if (File.Exists(cached)) File.Delete(cached);
+                // restic's cache: LocalAppData on Windows, ~/Library/Caches on
+                // macOS, $XDG_CACHE_HOME or ~/.cache elsewhere.
+                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                var cacheRoot = Environment.GetEnvironmentVariable("RESTIC_CACHE_DIR") is { Length: > 0 } set ? set
+                    : OperatingSystem.IsWindows() ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "restic")
+                    : OperatingSystem.IsMacOS() ? Path.Combine(home, "Library", "Caches", "restic")
+                    : Path.Combine(Environment.GetEnvironmentVariable("XDG_CACHE_HOME") is { Length: > 0 } xdg ? xdg : Path.Combine(home, ".cache"), "restic");
+                foreach (var cached in new[] { Path.Combine(cacheRoot, repositoryId, "snapshots", latest[..2], latest), Path.Combine(cacheRoot, repositoryId, "snapshots", latest) })
+                    if (File.Exists(cached)) File.Delete(cached);
                 expectedParent = older;
                 break;
             }

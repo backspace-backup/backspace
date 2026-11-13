@@ -121,6 +121,8 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         ctx.Report.RecordNote("Rotating samples", "Two real 25% checks recovered 75 files each. The second sample contained none of the files checked by the first. Restic validated the recovered data; neither check compared it with today's originals.");
 
         var completedVerification = ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id).LastVerifyUtc;
+        // Slower still, so Stop lands well before the end on fast machines (macOS).
+        ServiceLocator.Config.Update(c => c.Backups.Single(b => b.Id == backup.Id).BandwidthLimitKBps = 256);
         var cancel = await Start(true);
         await Intermediate(cancel);
         // Stopped with the card's Stop (U205).

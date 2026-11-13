@@ -246,9 +246,11 @@ internal static class EdgeCaseFileTree
             var deep = Path.Combine(root, "longpath");
             for (int i = 0; i < 8; i++) deep = Path.Combine(deep, $"{seg}-{i:00}");
 
-            Directory.CreateDirectory(@"\\?\" + deep);
+            // Only Windows has the prefix; elsewhere it would name a folder "\\?\…".
+            var prefix = OperatingSystem.IsWindows() ? @"\\?\" : "";
+            Directory.CreateDirectory(prefix + deep);
             var leafFile = Path.Combine(deep, "leaf.txt");
-            File.WriteAllText(@"\\?\" + leafFile, "found at the bottom of a very long path");
+            File.WriteAllText(prefix + leafFile,"found at the bottom of a very long path");
 
             if (leafFile.Length <= 260)
                 throw new InvalidOperationException($"Long-path leaf length {leafFile.Length} is not actually long.");
