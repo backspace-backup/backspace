@@ -58,6 +58,12 @@ internal sealed class BackgroundServiceActivity : IDisposable
     }
 
     internal Task CancelAsync(string runId, CancellationToken token) => _cancel(runId, token);
+
+    /// <summary>Once a second while a run is active (its progress moves), every
+    /// five seconds otherwise, including while the service can't be reached.</summary>
+    internal static TimeSpan IdleOrBusyDelay(ServiceActivity.Snapshot? current) =>
+        ServiceActivity.AnyRunning(current) || current?.State == "unknown" ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
+
     private async Task PollAsync()
     {
         try
@@ -65,7 +71,10 @@ internal sealed class BackgroundServiceActivity : IDisposable
             while (!_stop.IsCancellationRequested)
             {
                 await RefreshAsync(_stop.Token).ConfigureAwait(false);
-                await Task.Delay(1000, _stop.Token).ConfigureAwait(false);
+                // Once a second while something runs, for its progress; every
+                // five seconds when idle (U224, owner: "Make sure we don't overly
+                // poll the service"). Each answer comes from memory.
+                await Task.Delay(IdleOrBusyDelay(Current), _stop.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }

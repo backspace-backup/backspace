@@ -34,10 +34,20 @@ public sealed class ServiceScheduledRunTests
     [Fact]
     public void Short_runs_are_observed_promptly_without_polling_long_runs_at_the_same_rate()
     {
-        Assert.Equal(TimeSpan.FromMilliseconds(250), ServiceScheduledRun.PollInterval(TimeSpan.Zero));
-        Assert.Equal(TimeSpan.FromMilliseconds(250), ServiceScheduledRun.PollInterval(TimeSpan.FromSeconds(14)));
+        Assert.Equal(TimeSpan.FromSeconds(1), ServiceScheduledRun.PollInterval(TimeSpan.Zero));
+        Assert.Equal(TimeSpan.FromSeconds(1), ServiceScheduledRun.PollInterval(TimeSpan.FromSeconds(14)));
         Assert.Equal(TimeSpan.FromSeconds(5), ServiceScheduledRun.PollInterval(TimeSpan.FromSeconds(15)));
         Assert.Equal(TimeSpan.FromSeconds(5), ServiceScheduledRun.PollInterval(TimeSpan.FromHours(6)));
+    }
+
+    [Fact]
+    public void The_desktop_asks_the_service_every_second_only_while_a_run_is_active()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(5), BackgroundServiceActivity.IdleOrBusyDelay(null));
+        Assert.Equal(TimeSpan.FromSeconds(5), BackgroundServiceActivity.IdleOrBusyDelay(new ServiceActivity.Snapshot(1, "r", "idle", "b", "backup", null, null)));
+        Assert.Equal(TimeSpan.FromSeconds(5), BackgroundServiceActivity.IdleOrBusyDelay(new ServiceActivity.Snapshot(1, "r", "completed", "b", "backup", null, null)));
+        Assert.Equal(TimeSpan.FromSeconds(1), BackgroundServiceActivity.IdleOrBusyDelay(new ServiceActivity.Snapshot(1, "r", "running", "b", "backup", null, null)));
+        Assert.Equal(TimeSpan.FromSeconds(1), BackgroundServiceActivity.IdleOrBusyDelay(new ServiceActivity.Snapshot(1, "r", "stopping", "b", "backup", null, null)));
     }
 
     [Fact]

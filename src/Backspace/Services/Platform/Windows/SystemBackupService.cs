@@ -298,9 +298,8 @@ internal sealed class SystemBackupService : ServiceBase
     /// errors on local_c and local_d). With one, a Stop waited behind each
     /// running backup's status checks and the app's own, and gave up after
     /// a few seconds: "The background stop request could not be confirmed".
-    /// Requests are still handled one at a time.</summary>
+    /// Status requests are answered from memory, side by side.</summary>
     internal const int CommandInstances = 6;
-    private readonly SemaphoreSlim _dispatchGate = new(1, 1);
 
     private async Task ServeCommandsAsync()
     {
@@ -326,10 +325,9 @@ internal sealed class SystemBackupService : ServiceBase
             try
             {
                 request = await BackupServicePipe.ReadMessageAsync(listener, TimeSpan.FromSeconds(10), _stop.Token).ConfigureAwait(false);
-                byte[] reply;
-                await _dispatchGate.WaitAsync(_stop.Token).ConfigureAwait(false);
-                try { reply = Dispatch(request); }
-                finally { _dispatchGate.Release(); }
+                // Each connection is answered on its own; the run list has its
+                // own short lock, and no file is read while holding it (U224).
+                var reply = Dispatch(request);
                 await BackupServicePipe.SendResponseAsync(listener, reply, TimeSpan.FromSeconds(10), _stop.Token).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or OperationCanceledException or UnauthorizedAccessException) { }
@@ -365,6 +363,37 @@ internal sealed class SystemBackupService : ServiceBase
     private byte[] DispatchCore(byte[] bytes)
     {
         var request = ServiceHostRequest.Parse(bytes);
+        // A finished run's record is a file in the settings folder, which
+        // Dropbox may hold for a moment: read it without blocking the other
+        // requests (U224, owner: "why can't the service just answer all these
+        // requests for status?").
+        if (request.Command == "heartbeat")
+        {
+            lock (_gate)
+            {
+                if (ActiveRun(request.RunId) is { } beating)
+                    return beating.Lease.Renew(request.RunId!) ? Reply(null, beating) : Reply("lease-expired", beating);
+            }
+            return new ServiceRunJournal(_binding.DataDirectory).ReadFinished(request.RunId!) ?? Reply("not-running");
+        }
+        // Stop: the worker hears it at once; the reason and status files are
+        // written after, outside the lock (U224).
+        if (request.Command == "cancel")
+        {
+            WorkerRun? cancelled;
+            byte[] reply;
+            lock (_gate)
+            {
+                cancelled = ActiveRun(request.RunId);
+                if (cancelled is null) return Reply("not-running");
+                cancelled.Worker!.StandardInput.WriteLine("cancel"); cancelled.Worker.StandardInput.Flush();
+                cancelled.State = "stopping";
+                reply = Reply(null, cancelled);
+            }
+            RecordRequestedStop(cancelled);
+            SaveStatus(cancelled);
+            return reply;
+        }
         lock (_gate)
         {
             switch (request.Command)
@@ -377,12 +406,6 @@ internal sealed class SystemBackupService : ServiceBase
                     if (Busy(request.BackupId!)) return Reply("busy");
                     var approved = SystemServiceRuns.Authorize(_installation, request.BackupId!, request.Operation!, ownerCommand: request.Command == "start-cli");
                     return Reply(null, StartWorker(request, approved));
-                case "cancel":
-                    if (ActiveRun(request.RunId) is not { } cancelled) return Reply("not-running");
-                    RecordRequestedStop(cancelled);
-                    cancelled.Worker!.StandardInput.WriteLine("cancel"); cancelled.Worker.StandardInput.Flush();
-                    cancelled.State = "stopping"; SaveStatus(cancelled);
-                    return Reply(null, cancelled);
                 case "heartbeat":
                     if (ActiveRun(request.RunId) is not { } beating)
                         return new ServiceRunJournal(_binding.DataDirectory).ReadFinished(request.RunId!) ?? Reply("not-running");

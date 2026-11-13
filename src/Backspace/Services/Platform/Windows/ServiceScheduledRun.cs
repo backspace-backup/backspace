@@ -59,8 +59,10 @@ internal static class ServiceScheduledRun
     /// <summary>Shown while the service can't start the run yet.</summary>
     internal const string BusyReason = "waiting for the background service to start it";
 
+    /// <summary>Once a second while it starts, then every five (U224: not four
+    /// times a second as before).</summary>
     internal static TimeSpan PollInterval(TimeSpan elapsed) => elapsed < TimeSpan.FromSeconds(15)
-        ? TimeSpan.FromMilliseconds(250) : TimeSpan.FromSeconds(5);
+        ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
 
     internal static async Task<int> RunAsync(ServiceHostRequest start,
         Func<ServiceHostRequest, CancellationToken, Task<Response>> exchange,
