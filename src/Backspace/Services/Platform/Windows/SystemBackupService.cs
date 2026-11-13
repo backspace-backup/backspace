@@ -43,7 +43,7 @@ internal sealed class SystemBackupService : ServiceBase
     private readonly object _gate = new();
     private readonly ServiceSizeMeasurements _measurements;
     private readonly ServiceRunRecovery _recovery;
-    private Task? _lifetime, _leaseMonitor;
+    private Task? _lifetime;
     // Each worker's run, and the last finished run of each backup, by run id.
     private readonly Dictionary<string, WorkerRun> _runs = new(StringComparer.Ordinal);
     private WorkerRun? _latest;
@@ -64,7 +64,6 @@ internal sealed class SystemBackupService : ServiceBase
         internal ServiceRunAuthorization.AuthorizedRun? Approved;
         internal Process? Worker;
         internal TaskCompletionSource? Exited;
-        internal readonly ServiceRunLease Lease = new();
         internal bool Active => Worker is not null;
     }
 
@@ -136,7 +135,6 @@ internal sealed class SystemBackupService : ServiceBase
         catch (Win32Exception ex) { log.Warning(ex, "Backup rights could not be enabled; files only Windows may read are skipped"); }
         RestoreSavedStatus();
         _lifetime = Task.Run(ServeAsync);
-        _leaseMonitor = Task.Run(MonitorCommandLineLeaseAsync);
     }
 
     private static DateTime WindowsStartedUtc() => DateTime.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
@@ -367,16 +365,17 @@ internal sealed class SystemBackupService : ServiceBase
     private byte[] DispatchCore(byte[] bytes)
     {
         var request = ServiceHostRequest.Parse(bytes);
-        // A finished run's record is a file in the settings folder, which
-        // Dropbox may hold for a moment: read it without blocking the other
-        // requests (U224, owner: "why can't the service just answer all these
-        // requests for status?").
-        if (request.Command == "heartbeat")
+        // A run's state, asked once its activity changed. The run belongs to
+        // the service, not to the window or command line that started it: it
+        // goes on if they close or crash (U224, owner: "The less we make the
+        // service and window tightly coupled, the better"). A finished run's
+        // record is a file in the settings folder, which Dropbox may hold for
+        // a moment: read it without blocking the other requests.
+        if (request.Command == "run-status")
         {
             lock (_gate)
             {
-                if (ActiveRun(request.RunId) is { } beating)
-                    return beating.Lease.Renew(request.RunId!) ? Reply(null, beating) : Reply("lease-expired", beating);
+                if (ActiveRun(request.RunId) is { } running) return Reply(null, running);
             }
             return new ServiceRunJournal(_binding.DataDirectory).ReadFinished(request.RunId!) ?? Reply("not-running");
         }
@@ -411,11 +410,6 @@ internal sealed class SystemBackupService : ServiceBase
                     if (Busy(request.BackupId!)) return Reply("busy");
                     var approved = SystemServiceRuns.Authorize(_installation, request.BackupId!, request.Operation!, ownerCommand: request.Command == "start-cli");
                     return Reply(null, StartWorker(request, approved, onlyTargets: request.OnlyTargets?.Split('|', StringSplitOptions.RemoveEmptyEntries)));
-                case "heartbeat":
-                    if (ActiveRun(request.RunId) is not { } beating)
-                        return new ServiceRunJournal(_binding.DataDirectory).ReadFinished(request.RunId!) ?? Reply("not-running");
-                    if (!beating.Lease.Renew(request.RunId!)) return Reply("lease-expired", beating);
-                    return Reply(null, beating);
                 case "measure":
                     return _measurements.Start(request.Path!, new SourceSizeRules(request.Filters, request.SkipCloudOnly));
                 case "measure-result":
@@ -566,7 +560,6 @@ internal sealed class SystemBackupService : ServiceBase
             SaveStatus(run);
             run.Worker = process;
             run.Exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            if (request.Command == "start-cli") run.Lease.Begin(run.RunId); else run.Lease.Clear();
             process.StandardInput.WriteLine("start"); process.StandardInput.Flush();
             _ = ObserveWorkerAsync(run, process, ReadProgressAsync(run, process, request.BackupId!));
             return run;
@@ -579,7 +572,7 @@ internal sealed class SystemBackupService : ServiceBase
                 try { if (!process.HasExited) process.Kill(entireProcessTree: true); stopped = process.WaitForExit(2000); }
                 catch { /* An uncertain child keeps the slot. */ }
             }
-            if (stopped) { process.Dispose(); run.Worker = null; run.State = "failed-to-start"; run.Lease.Clear(); Touched(); }
+            if (stopped) { process.Dispose(); run.Worker = null; run.State = "failed-to-start"; Touched(); }
             else
             {
                 run.Worker = process; run.State = "unknown";
@@ -591,42 +584,6 @@ internal sealed class SystemBackupService : ServiceBase
             if (stopped) try { _ = _recovery.Recover(run.RunId); } catch (Exception ex) { AppLogger.For<SystemBackupService>().Error(ex, "The failed startup remains pending in its recovery record"); }
             throw;
         }
-    }
-
-    private async Task MonitorCommandLineLeaseAsync()
-    {
-        try
-        {
-            while (!_stop.IsCancellationRequested)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), _stop.Token).ConfigureAwait(false);
-                List<(WorkerRun Run, Process Worker)> expired;
-                lock (_gate)
-                {
-                    expired = _runs.Values.Where(r => r.Active && r.Lease.IsExpired && r.State != "stopping")
-                        .Select(r => (r, r.Worker!)).ToList();
-                    foreach (var (run, worker) in expired)
-                    {
-                        run.State = "stopping";
-                        Touched();
-                        try { SaveStatus(run); } catch (IOException) { }
-                        try { worker.StandardInput.WriteLine("cancel"); worker.StandardInput.Flush(); }
-                        catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException) { }
-                    }
-                }
-                foreach (var (run, worker) in expired)
-                    _ = KillIfStuckAsync(run, worker);
-            }
-        }
-        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
-    }
-
-    private async Task KillIfStuckAsync(WorkerRun run, Process worker)
-    {
-        try { await worker.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(false); }
-        catch (System.TimeoutException)
-        { lock (_gate) if (ReferenceEquals(run.Worker, worker) && !worker.HasExited) worker.Kill(entireProcessTree: true); }
-        catch (InvalidOperationException) { }
     }
 
     // Read until the worker's output ends, also while the service stops: a
@@ -684,7 +641,7 @@ internal sealed class SystemBackupService : ServiceBase
             }
             catch (Exception ex) { AppLogger.For<SystemBackupService>().Error(ex, "The interrupted worker outcome remains pending for recovery"); }
             try { SaveStatus(run); } catch (Exception ex) { AppLogger.For<SystemBackupService>().Error(ex, "Could not save service worker exit"); }
-            run.Worker = null; run.Lease.Clear(); process.Dispose();
+            run.Worker = null; process.Dispose();
             Touched();
             run.Exited?.TrySetResult(); run.Exited = null;
         }
@@ -821,7 +778,6 @@ internal sealed class SystemBackupService : ServiceBase
             }
         }
         try { _lifetime?.GetAwaiter().GetResult(); } catch (OperationCanceledException) { }
-        try { _leaseMonitor?.GetAwaiter().GetResult(); } catch (OperationCanceledException) { }
         AppLogger.For<SystemBackupService>().Information("The background service stopped");
     }
 

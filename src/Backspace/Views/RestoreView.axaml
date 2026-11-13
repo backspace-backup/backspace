@@ -85,7 +85,7 @@
     <StackPanel DockPanel.Dock="Top" Margin="32,4,32,16">
       <TextBlock Classes="page-title" Text="Bring files back"/>
       <TextBlock Classes="page-subtitle" MaxWidth="720"
-                 Text="Choose a backup, a date and the files you need. They go back where they came from, or to another folder if you’d rather not overwrite anything."/>
+                 Text="Choose a backup, a date and the files you need. They are restored to the original folder where they came from, or to another folder if you’d rather not overwrite anything."/>
     </StackPanel>
 
     <Border DockPanel.Dock="Top" Classes="rule" Margin="32,0,32,0"/>
@@ -460,7 +460,7 @@
              under the choice it explains, in that choice's words, and says
              what happens as the choice is set now. -->
         <StackPanel IsVisible="{Binding IsStepPickTarget}" Spacing="10" MaxWidth="760" HorizontalAlignment="Left">
-          <TextBlock Classes="section-title" Text="Where should the files go?"/>
+          <TextBlock Classes="section-title" Text="Where should the files be restored?"/>
 
           <Border Classes="settings-card" Padding="20,16">
             <StackPanel Spacing="12">
@@ -475,7 +475,7 @@
               <StackPanel Spacing="4">
                 <RadioButton x:Name="TargetOriginalRadio" GroupName="target"
                              IsChecked="{Binding TargetOriginalSource, Mode=OneWay}"
-                             Content="Back where they came from"
+                             Content="To the original folder where they came from"
                              FontWeight="SemiBold"
                              Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
                 <TextBlock x:Name="OriginalPlace" Classes="dim" Margin="28,0,0,0"
@@ -487,7 +487,7 @@
               <StackPanel Spacing="8">
                 <RadioButton x:Name="TargetDifferentRadio" GroupName="target"
                              IsChecked="{Binding TargetDifferentFolder, Mode=OneWay}"
-                             Content="In another folder"
+                             Content="To another folder"
                              FontWeight="SemiBold"
                              Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
                 <!-- Shown once chosen: a greyed-out path read as a choice already made. -->
@@ -501,7 +501,7 @@
             </StackPanel>
           </Border>
 
-          <TextBlock Classes="section-title" Text="How" Margin="0,14,0,0"/>
+          <TextBlock Classes="section-title" Text="How should they be restored?" Margin="0,14,0,0"/>
           <Border x:Name="RestoreOptions" Classes="settings-card" Padding="20,16">
             <StackPanel Spacing="12">
               <StackPanel Spacing="2">

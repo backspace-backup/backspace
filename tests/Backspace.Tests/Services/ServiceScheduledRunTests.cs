@@ -19,7 +19,7 @@ public sealed class ServiceScheduledRunTests
     private static ServiceScheduledRun.Response Running => new(1, RunId, "running", null, null);
 
     [Fact]
-    public async Task Paused_schedule_does_not_heartbeat_or_cancel_the_previous_run()
+    public async Task Paused_schedule_does_not_ask_for_or_cancel_the_previous_run()
     {
         var calls = new List<string>();
         var code = await ServiceScheduledRun.RunAsync(Start, (request, _) =>
@@ -32,52 +32,10 @@ public sealed class ServiceScheduledRunTests
     }
 
     [Fact]
-    public void Short_runs_are_observed_promptly_without_polling_long_runs_at_the_same_rate()
-    {
-        Assert.Equal(TimeSpan.FromSeconds(1), ServiceScheduledRun.PollInterval(TimeSpan.Zero));
-        Assert.Equal(TimeSpan.FromSeconds(1), ServiceScheduledRun.PollInterval(TimeSpan.FromSeconds(14)));
-        Assert.Equal(TimeSpan.FromSeconds(5), ServiceScheduledRun.PollInterval(TimeSpan.FromSeconds(15)));
-        Assert.Equal(TimeSpan.FromSeconds(5), ServiceScheduledRun.PollInterval(TimeSpan.FromHours(6)));
-    }
-
-    [Fact]
     public void The_desktop_asks_the_service_every_second_only_while_its_window_is_shown()
     {
         Assert.Equal(TimeSpan.FromSeconds(1), BackgroundServiceActivity.IdleOrBusyDelay(windowShown: true));
         Assert.Equal(TimeSpan.FromSeconds(5), BackgroundServiceActivity.IdleOrBusyDelay(windowShown: false));
-    }
-
-    [Fact]
-    public void Expired_lease_cannot_be_revived_by_a_late_heartbeat_or_clock_change()
-    {
-        var clock = new Clock();
-        var lease = new ServiceRunLease(clock);
-        lease.Begin(RunId);
-        clock.Ticks += TimeSpan.FromSeconds(29).Ticks;
-        Assert.False(lease.IsExpired);
-        Assert.False(lease.Renew(Guid.NewGuid().ToString("N")));
-        clock.Ticks += TimeSpan.FromSeconds(1).Ticks;
-        Assert.True(lease.IsExpired);
-        Assert.False(lease.Renew(RunId));
-        clock.Ticks = 0;
-        Assert.True(lease.IsExpired);
-        lease.Clear();
-        Assert.False(lease.IsExpired);
-        Assert.False(lease.Renew(RunId));
-    }
-
-    [Fact]
-    public void Valid_heartbeats_extend_only_the_matching_run()
-    {
-        var clock = new Clock();
-        var lease = new ServiceRunLease(clock);
-        lease.Begin(RunId);
-        clock.Ticks += TimeSpan.FromSeconds(20).Ticks;
-        Assert.True(lease.Renew(RunId));
-        clock.Ticks += TimeSpan.FromSeconds(20).Ticks;
-        Assert.False(lease.IsExpired);
-        lease.Begin(Guid.NewGuid().ToString("N"));
-        Assert.False(lease.Renew(RunId));
     }
 
     [Theory]
@@ -95,13 +53,13 @@ public sealed class ServiceScheduledRunTests
                 new ServiceScheduledRun.Response(1, RunId, exitCode == 0 ? "completed" : "failed", exitCode, "not-running"));
         }, _ => Task.CompletedTask, TestContext.Current.CancellationToken);
         Assert.Equal(exitCode, code);
-        Assert.Equal(new[] { "start-cli", "heartbeat", "heartbeat" }, calls);
+        Assert.Equal(new[] { "start-cli", "run-status", "run-status" }, calls);
     }
 
     [Theory]
     [InlineData("lost-response")]
     [InlineData("different-run")]
-    [InlineData("lease-expired")]
+    [InlineData("rejected")]
     [InlineData("interrupted")]
     [InlineData("missing-exit")]
     [InlineData("failed-zero")]
@@ -117,15 +75,38 @@ public sealed class ServiceScheduledRunTests
             {
                 "lost-response" => throw new IOException("Connection closed"),
                 "different-run" => Task.FromResult(Running with { RunId = Guid.NewGuid().ToString("N") }),
-                "lease-expired" => Task.FromResult(Running with { Error = "lease-expired" }),
+                "rejected" => Task.FromResult(Running with { Error = "request-rejected" }),
                 "interrupted" => Task.FromResult(Running with { State = "interrupted" }),
                 "failed-zero" => Task.FromResult(Running with { State = "failed", ExitCode = 0 }),
                 "completed-error" => Task.FromResult(Running with { State = "completed", ExitCode = 0, Error = "request-rejected" }),
                 _ => Task.FromResult(Running with { State = "completed" }),
             };
         }, _ => Task.CompletedTask, TestContext.Current.CancellationToken));
-        Assert.Equal(new[] { "start-cli", "heartbeat", "cancel" }, calls.ConvertAll(x => x.Command));
+        Assert.Equal(new[] { "start-cli", "run-status", "cancel" }, calls.ConvertAll(x => x.Command));
         Assert.Equal(RunId, calls[^1].RunId);
+    }
+
+    /// <summary>U224 (owner, 13 November 2026: "The less we make the service
+    /// and window tightly coupled, the better"): the run belongs to the
+    /// service. Its state is asked only after each change the service
+    /// announces, never on a timer, and nothing keeps it alive: no heartbeat
+    /// request exists any more.</summary>
+    [Fact]
+    public async Task A_run_is_followed_by_its_changes_and_needs_no_heartbeat()
+    {
+        var log = new List<string>();
+        var code = await ServiceScheduledRun.RunAsync(Start, (request, _) =>
+        {
+            log.Add(request.Command);
+            if (request.Command == "start-cli") return Task.FromResult(Running);
+            return Task.FromResult(log.Count < 6 ? Running : Running with { State = "completed", ExitCode = 0, Error = "not-running" });
+        }, _ => { log.Add("change"); return Task.CompletedTask; }, TestContext.Current.CancellationToken);
+        Assert.Equal(0, code);
+        Assert.Equal(new[] { "start-cli", "change", "run-status", "change", "run-status", "change", "run-status" }, log);
+        Assert.ThrowsAny<Exception>(() => ServiceHostRequest.Parse(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new ServiceHostRequest(1, "heartbeat", RunId: RunId), ServiceRunAuthorization.Json)));
+        Assert.Equal("run-status", ServiceHostRequest.Parse(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new ServiceHostRequest(1, "run-status", RunId: RunId), ServiceRunAuthorization.Json)).Command);
     }
 
     [Fact]
@@ -153,14 +134,7 @@ public sealed class ServiceScheduledRunTests
             });
         }, _ => Task.CompletedTask, TestContext.Current.CancellationToken);
         Assert.Equal(0, result);
-        Assert.Equal(new[] { "start-cli", "start-cli", "heartbeat" }, calls);
-    }
-
-    private sealed class Clock : TimeProvider
-    {
-        internal long Ticks;
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-        public override long GetTimestamp() => Ticks;
+        Assert.Equal(new[] { "start-cli", "start-cli", "run-status" }, calls);
     }
 
     /// <summary>U044, found offline in the VM on 30 October 2026: every task

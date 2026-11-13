@@ -184,7 +184,7 @@ virtual machine, have been run on earlier builds.
 |---|---|
 | **Windows 11** | Supported and tested |
 | **Windows 10** | Not tested yet |
-| **Linux, macOS** | The automated test suite passes on Linux and macOS (the Windows-only parts, such as the background service, shadow copies and drive mounting, are left out there), and the platform bugs it found are fixed. The app hasn't been tried by people there yet, so field reports are very welcome |
+| **Linux, macOS** | Beta. The full automated test suite passes on both, and we're looking for early testers: [build it](#building-from-source), try your own backups and restores, and [open an issue](https://github.com/backspace-backup/backspace/issues) with what works and what doesn't |
 | **OneDrive for Business** | Not supported yet |
 | **Network shares** | Without administrator access, backed up while you are signed in, without Windows snapshots. With it, backed up in the background like other destinations, using the share's user name and password saved with the destination (required then) |
 
@@ -214,7 +214,7 @@ build offline with binaries you place under `src/Backspace/Assets/`).
 dotnet publish src/Backspace -c Release -r win-x64 --self-contained false -f net10.0-windows
 # → bin/Release/net10.0-windows/win-x64/publish/Backspace.exe
 
-# macOS (osx-arm64 or osx-x64) and Linux (linux-x64): tests run, the app itself is not yet tried by people
+# macOS (osx-arm64 or osx-x64) and Linux (linux-x64): beta, testers wanted
 dotnet publish src/Backspace -c Release -r linux-x64 --self-contained -f net10.0 -p:PublishSingleFile=true
 ```
 

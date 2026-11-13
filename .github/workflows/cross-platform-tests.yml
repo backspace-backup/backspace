@@ -3,8 +3,9 @@ name: Cross-platform tests
 # The whole test suite on Linux and macOS (U235), to say truthfully in the
 # README how well Backspace works there. Windows-only tests (the background
 # service, WinFsp mounting, Credential Manager, Task Scheduler, shadow copies)
-# are left out of that build; the test project lists them. Cloud tests need
-# sign-ins this workflow doesn't have and report so.
+# are left out of that build; the test project lists them. Cloud tests read
+# their tokens from the repository's encrypted secrets (U244), written to the
+# Git-excluded secrets.env for this run only; without them they skip and say so.
 
 on:
   workflow_dispatch:
@@ -45,7 +46,29 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: dotnet build tests/Backspace.Tests --nologo
 
+      - name: Cloud test tokens (encrypted secrets, this run only)
+        shell: bash
+        env:
+          DROPBOX_TEST_TOKEN: ${{ secrets.DROPBOX_TEST_TOKEN }}
+          ONEDRIVE_TEST_TOKEN: ${{ secrets.ONEDRIVE_TEST_TOKEN }}
+          GOOGLEDRIVE_TEST_TOKEN: ${{ secrets.GOOGLEDRIVE_TEST_TOKEN }}
+        run: |
+          f=tests/Backspace.Tests/secrets.env
+          : > "$f"; chmod 600 "$f"
+          folder="backspace-ci/${{ github.run_id }}-${{ matrix.os }}"
+          for p in DROPBOX ONEDRIVE GOOGLEDRIVE; do
+            v="${p}_TEST_TOKEN"
+            if [ -n "${!v}" ]; then
+              { echo "$v=${!v}"; echo "${p}_TEST_FOLDER=$folder"; } >> "$f"
+              echo "$p: token present"
+            else
+              echo "$p: no token, its tests skip"
+            fi
+          done
+
       - name: Run the tests
+        env:
+          BACKSPACE_E2E_NONINTERACTIVE: '1'
         run: >
           dotnet test tests/Backspace.Tests --no-build --nologo
           --logger "trx;LogFileName=results.trx"
@@ -68,6 +91,11 @@ jobs:
           failed = [r.attrib['testName'] for r in root.findall('.//t:UnitTestResult', ns) if r.attrib.get('outcome') == 'Failed']
           for name in sorted(failed): print(f"- {name}")
           PY
+
+      - name: Remove the tokens file
+        if: always()
+        shell: bash
+        run: rm -f tests/Backspace.Tests/secrets.env
 
       - name: Keep the results and screenshots
         if: always()

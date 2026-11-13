@@ -10,9 +10,10 @@ using System.Threading.Tasks;
 namespace Backspace.Services.Platform.Windows;
 
 /// <summary>Run now, Save and run, and the owner's command line, sent to the
-/// background service. The client starts the approved run, then keeps it
-/// alive with heartbeats and follows it to its result; the backup runs in the
-/// service. The service runs its own schedule itself.</summary>
+/// background service. The client starts the approved run and follows it to
+/// its result, asking its state only when the service says its activity
+/// changed. The run belongs to the service: it goes on if the window or
+/// command line crashes, and only a stop the user asks for ends it.</summary>
 internal static class ServiceScheduledRun
 {
     internal sealed record Response(int Version, string? RunId, string State, int? ExitCode, string? Error);
@@ -42,7 +43,6 @@ internal static class ServiceScheduledRun
         // The owner's command line runs even after Quit, without bringing the
         // schedule back (U180); Run now comes from an open Backspace.
         ServiceRegistration.EnsureRunning(controller, StartTimeout, commandLine ? [SystemServiceLifetime.ForCommand] : []);
-        var elapsed = System.Diagnostics.Stopwatch.StartNew();
         // The command line prints what the run does (U180).
         var transcript = commandLine && status is not null ? new CommandLineTranscript(backupId, DateTime.UtcNow, status) : null;
         async Task ShowProgressAsync(bool finished, CancellationToken token)
@@ -60,6 +60,18 @@ internal static class ServiceScheduledRun
         string? finishedLine = null;
         // A monitor with nothing to wait for (no service before) asks now (U224).
         BackgroundServiceActivity.Poke();
+        // Event based (U224): the first look reads the activity, each later one
+        // waits until it differs from the last seen, so a change between two
+        // looks is never missed. The command line prints progress, so it wakes
+        // on every change; the window, only when a run starts, stops or ends.
+        ServiceActivity.Snapshot? seen = null;
+        async Task NextChangeAsync(CancellationToken token)
+        {
+            seen = seen is null ? await ServiceActivity.ReadAsync(binding, token).ConfigureAwait(false)
+                : await ServiceActivity.WaitAsync(binding, transcript is null ? seen.StateSequence : seen.Sequence,
+                    stateOnly: transcript is null, token).ConfigureAwait(false);
+            transcript?.Show(seen);
+        }
         var code = await RunAsync(request, async (message, token) =>
         {
             using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-runs",
@@ -69,7 +81,7 @@ internal static class ServiceScheduledRun
             var bytes = await BackupServicePipe.ReadResponseAsync(pipe, ExchangeTimeout, token).ConfigureAwait(false);
             return JsonSerializer.Deserialize<Response>(bytes, ServiceRunAuthorization.Json)
                 ?? throw new InvalidDataException("The backup service returned an empty status.");
-        }, delay: async token => { await Task.Delay(PollInterval(elapsed.Elapsed), token).ConfigureAwait(false); await ShowProgressAsync(false, token).ConfigureAwait(false); },
+        }, delay: NextChangeAsync,
             cancellation, outcome => finishedLine = (
             outcome.State == "paused" ? "Automatic backups are paused for this Windows session. Nothing was started."
             : outcome.ExitCode == 0 ? $"Command finished. See Activity & logs for the {ServiceCommandLineRun.Noun(operation)} result."
@@ -82,11 +94,6 @@ internal static class ServiceScheduledRun
 
     /// <summary>Shown while the service can't start the run yet.</summary>
     internal const string BusyReason = "waiting for the background service to start it";
-
-    /// <summary>Once a second while it starts, then every five (U224: not four
-    /// times a second as before).</summary>
-    internal static TimeSpan PollInterval(TimeSpan elapsed) => elapsed < TimeSpan.FromSeconds(15)
-        ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
 
     internal static async Task<int> RunAsync(ServiceHostRequest start,
         Func<ServiceHostRequest, CancellationToken, Task<Response>> exchange,
@@ -112,7 +119,7 @@ internal static class ServiceScheduledRun
             }
             if (waited) queued?.Invoke("");
             // A paused schedule did not start a worker. No guessed identity,
-            // heartbeat or cancellation is sent for the preceding run.
+            // status request or cancellation is sent for the preceding run.
             if (response is { Version: 1, State: "paused", RunId: null, ExitCode: 0, Error: null })
             { finishedResponse?.Invoke(response); return 0; }
             if (response.Version != 1 || response.Error is not null
@@ -135,7 +142,7 @@ internal static class ServiceScheduledRun
                 if (response.Error is not null || response.State is not ("running" or "stopping"))
                     throw new IOException("The scheduled backup could not continue.");
                 await delay(cancellation).ConfigureAwait(false);
-                response = await exchange(new ServiceHostRequest(1, "heartbeat", RunId: runId), cancellation).ConfigureAwait(false);
+                response = await exchange(new ServiceHostRequest(1, "run-status", RunId: runId), cancellation).ConfigureAwait(false);
             }
         }
         finally
@@ -143,7 +150,7 @@ internal static class ServiceScheduledRun
             if (runId is not null && !finished)
             {
                 // Never cancel an unknown/newer run or retry a start whose
-                // reply was lost. A hard-killed dispatcher is handled by the lease.
+                // reply was lost. A run whose window or command line was killed goes on.
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
                 try { await exchange(new ServiceHostRequest(1, "cancel", RunId: runId), timeout.Token).ConfigureAwait(false); }
                 catch (Exception ex) when (ex is IOException or OperationCanceledException or SecurityException) { }

@@ -70,7 +70,7 @@ public sealed class E46_RestoreOptionsThroughUi : BackupE2EBase
         File.WriteAllText(Path.Combine(target, "keep.txt"), "USER ORIGINAL");
         await ctx.Driver.PumpAsync(300);
         Assert.Equal("A file already there is replaced by its backed-up copy. You confirm this before anything is changed.", view.FindControl<TextBlock>("ReplaceHelp")!.Text);
-        ctx.Snapshot(window, "where-and-how-defaults", "The last step as it opens: Back where they came from (its folder below), In another folder; then How: Replace files already there, Keep files in their folders, Keep the files' permissions, each with one line saying what it does as set. Above Restore: 2 files, their size and the backup date.");
+        ctx.Snapshot(window, "where-and-how-defaults", "The last step as it opens: To the original folder where they came from (its folder below), To another folder; then How should they be restored?: Replace files already there, Keep files in their folders, Keep the files' permissions, each with one line saying what it does as set. Above Restore: 2 files, their size and the backup date.");
         vm.TargetOriginalSource = false;
         Assert.True(ctx.Driver.EnterText(view, "Pick a folder", target));
         await Toggle("PreserveFoldersOption");

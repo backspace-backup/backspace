@@ -822,8 +822,12 @@ only those files has no vault, and the first save asks for a password.
    pipe name ends with a random part the service picks every time it starts,
    kept in `Backspace.config\service\pipe-names`; clients read it before each
    connection (U152). The runs pipe accepts a fixed vocabulary
-   (`ServiceHostRequest`): activity, start, cancel, heartbeat, measure and
-   `unlock` (the vault key, U153).
+   (`ServiceHostRequest`): activity, start, cancel, run-status, measure and
+   `unlock` (the vault key, U153). A run started by Run now or the command
+   line belongs to the service, like a scheduled one: the starter asks its
+   state (`run-status`) only after each change the service announces, and
+   nothing keeps it alive, so it goes on if the window or command line closes
+   or crashes. Only a stop the user asks for ends it (U224).
 
    The version-3 service (Windows' own account) writes its history and logs in
    `Backspace.config\service\logs\engine`, where they inherit the portable

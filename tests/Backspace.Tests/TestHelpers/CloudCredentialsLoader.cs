@@ -170,7 +170,10 @@ public static class CloudCredentialsLoader
     /// vault. The vault is only read here.</summary>
     private static Credential? TryGetFromVault(Provider provider)
     {
-        if (!OperatingSystem.IsWindows() || VaultRoot is not { } root) return null;
+#if !WINDOWS
+        return null; // The review vaults are Windows-protected (DPAPI).
+#else
+        if (VaultRoot is not { } root) return null;
         var kinds = provider switch
         {
             Provider.Dropbox     => new[] { DestinationKind.DropboxAppScoped },
@@ -197,6 +200,7 @@ public static class CloudCredentialsLoader
             }
         }
         return null;
+#endif
     }
 
     /// <summary>Write a token the engine refreshed during the test back to
@@ -205,7 +209,9 @@ public static class CloudCredentialsLoader
     {
         if (!OperatingSystem.IsWindows() || cred.VaultPath is null || cred.TokenRef is null || dest.OAuthTokenRef is null) return;
         if (!testSecrets.TryGet(dest.OAuthTokenRef, out var latest) || string.IsNullOrWhiteSpace(latest) || latest == cred.TokenJson) return;
+#if WINDOWS
         new ReviewSignInFile(cred.VaultPath).Set(cred.TokenRef, latest);
+#endif
     }
 
     /// <summary>Human-readable reason a test should log when it

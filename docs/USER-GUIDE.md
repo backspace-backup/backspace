@@ -688,7 +688,7 @@ whether to replace existing files and whether to keep their original folder
 structure.
 
 Restores run as you, so you own the files you restore. **Keep the files' permissions**
-(under Advanced) gives them back who may read and change them, as when they
+(under **How should they be restored?**) gives them back who may read and change them, as when they
 were backed up; unticked, they get the permissions of the folder they land in,
 like files you copy there. It is ticked by default only when restoring to their
 original place on the computer that backed them up: elsewhere, saved

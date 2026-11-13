@@ -102,12 +102,7 @@
        shadow copies, Windows file APIs) and do not build there. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <Compile Remove="Models/BackupChecksTests.cs" />
-    <Compile Remove="Scenarios/E2E/CloudRoundTripFlow.cs" />
     <Compile Remove="Scenarios/E2E/E04_SnapshotMountWindows.cs" />
-    <Compile Remove="Scenarios/E2E/E07_DropboxRoundTrip.cs" />
-    <Compile Remove="Scenarios/E2E/E08_OneDriveRoundTrip.cs" />
-    <Compile Remove="Scenarios/E2E/E09_GoogleDriveRoundTrip.cs" />
-    <Compile Remove="Scenarios/E2E/E10_TwoConcurrentMultiCloud.cs" />
     <Compile Remove="Scenarios/E2E/E43_CloudSourceChangeDetection.cs" />
     <Compile Remove="Scenarios/E2E/E58_DropboxScaleBenchmark.cs" />
     <Compile Remove="Scenarios/E2E/E61_EngineStopsWhenIdle.cs" />
@@ -164,8 +159,6 @@
     <Compile Remove="Services/WinFspSecurityTests.cs" />
     <Compile Remove="Services/WinFspSnapshotFsTests.cs" />
     <Compile Remove="Services/WindowsMeteredNetworkProbeTests.cs" />
-    <Compile Remove="TestHelpers/CloudCredentialsLoader.cs" />
-    <Compile Remove="TestHelpers/InteractiveTokenAcquirer.cs" />
     <Compile Remove="TestHelpers/ReviewSignInFile.cs" />
     <Compile Remove="ViewModels/ServiceHistorySelectionTests.cs" />
   </ItemGroup>

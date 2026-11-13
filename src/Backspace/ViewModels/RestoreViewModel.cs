@@ -72,7 +72,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         SourcesForBackup.Any(r => r.IsSelected);
 
     /// <summary>
-    /// Where "Back where they came from" puts the files, under that choice
+    /// Where "To the original folder where they came from" puts the files, under that choice
     /// on the last step: the folder, or how many folders. What happens to
     /// files already there is said under "Replace files already there"
     /// (U217, owner: help text in the words of what it comments on).
