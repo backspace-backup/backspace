@@ -121,7 +121,7 @@ internal static class ServiceApprovedWorker
             if (Environment.GetEnvironmentVariable(ScheduledRuns.OnlyTargetsVariable) is { Length: > 0 } only && run.Kind == RunKind.Backup)
                 backup = ScheduledRuns.ForTargets(backup, only.Split('|', StringSplitOptions.RemoveEmptyEntries));
             // "Run now anyway" (U226), for the owner's own run only.
-            BackupOrchestrator.ConditionsWaived.Value = ownerCommand && Environment.GetEnvironmentVariable(WaiveConditionsVariable) == "1";
+            BackupOrchestrator.ConditionsWaived.Value = ownerCommand ? WaivedConditions.Decode(Environment.GetEnvironmentVariable(WaiveConditionsVariable)) : default;
             await using var activity = activityOutput is not null
                 ? new ServiceWorkerActivity(activityOutput, backupId, ServiceLocator.Progress, ServiceLocator.Orchestrator, ServiceLocator.Engine) : null;
             var result = run.Kind switch

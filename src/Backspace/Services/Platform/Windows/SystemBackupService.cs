@@ -410,7 +410,7 @@ internal sealed class SystemBackupService : ServiceBase
                         return Reply("setup-incomplete");
                     if (Busy(request.BackupId!)) return Reply("busy");
                     var approved = SystemServiceRuns.Authorize(_installation, request.BackupId!, request.Operation!, ownerCommand: request.Command == "start-cli");
-                    return Reply(null, StartWorker(request, approved));
+                    return Reply(null, StartWorker(request, approved, onlyTargets: request.OnlyTargets?.Split('|', StringSplitOptions.RemoveEmptyEntries)));
                 case "heartbeat":
                     if (ActiveRun(request.RunId) is not { } beating)
                         return new ServiceRunJournal(_binding.DataDirectory).ReadFinished(request.RunId!) ?? Reply("not-running");
@@ -513,7 +513,8 @@ internal sealed class SystemBackupService : ServiceBase
         // Only the network destinations that waited (U226).
         start.Environment[ScheduledRuns.OnlyTargetsVariable] = onlyTargets is null ? "" : string.Join("|", onlyTargets);
         // "Run now anyway" (U226): the owner's run, not stopped by its conditions.
-        start.Environment[ServiceApprovedWorker.WaiveConditionsVariable] = request is { Command: "start-cli", WaiveConditions: true } ? "1" : "0";
+        start.Environment[ServiceApprovedWorker.WaiveConditionsVariable] = request.Command == "start-cli"
+            ? new WaivedConditions(request.WaiveBattery, request.WaiveConditions).Encode() : "";
         // The run's identity is the worker's revision: its reason file is named after it.
         foreach (var argument in new[] { request.Command == "start-cli" ? "--service-worker-cli" : "--service-worker-owned",
             run.RunId, request.BackupId!, request.Operation! })

@@ -418,6 +418,17 @@
                 <TextBlock Text="Run now" VerticalAlignment="Center"/>
               </StackPanel>
             </Button>
+            <Button Classes="primary" Name="RunAnywayButton"
+                    IsVisible="{Binding CanRunAnyway}"
+                    ToolTip.Tip="{Binding RunAnywayTip}"
+                    Margin="0,0,8,6"
+                    Command="{Binding $parent[ItemsControl].((vm:BackupsViewModel)DataContext).RunNowAnywayCommand}"
+                    CommandParameter="{Binding}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.Play}" Width="12" Height="12" Foreground="White"/>
+                <TextBlock Text="Run now anyway" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
             <Button Classes="danger" Name="StopButton"
                     IsVisible="{Binding ShowsStop}"
                     Margin="0,0,8,6"

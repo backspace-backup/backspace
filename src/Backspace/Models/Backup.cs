@@ -51,9 +51,17 @@ public sealed class Backup : IJsonOnDeserialized
         destinations.FirstOrDefault(d => d.Id == target.DestinationId) is not { } d || DestinationNeedsNetwork(d);
 
     /// <summary>Cloud, S3, SFTP and network shares (a UNC path) need the network.</summary>
-    public static bool DestinationNeedsNetwork(Destination d) =>
+    public static bool DestinationNeedsNetwork(Destination d) => NeedsNetworkOverride?.Invoke(d) ?? (
         d.Kind is not (DestinationKind.LocalFolder or DestinationKind.ExternalDrive)
-        || (d.PathOrSubpath ?? "").StartsWith(@"\\", StringComparison.Ordinal);
+        || (d.PathOrSubpath ?? "").StartsWith(@"\\", StringComparison.Ordinal));
+
+    /// <summary>A run of only these destinations (TargetKey), the parts a
+    /// pause or the network left (U226); null for the whole backup. Never saved.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal IReadOnlyCollection<string>? OnlyTargets { get; set; }
+
+    /// <summary>Tests: a folder on this computer treated as a network destination.</summary>
+    internal static Func<Destination, bool?>? NeedsNetworkOverride;
 
     /// <summary>"destination id/storage name": how a waiting destination is named (U226).</summary>
     public static string TargetKey(string destinationId, string? storageName) =>

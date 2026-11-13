@@ -92,23 +92,55 @@ public sealed class OrchestratorNetworkDestinationsTests
         using var workspace = new TempWorkspace();
         var drive = new Destination { Name = "Drive", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("drive") };
         var cloud = new Destination { Name = "Cloud", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"\\?\" + workspace.Sub("cloud") };
-        var backup = new Backup { Name = "Mixed", UseVss = false, VssDisabledAcknowledged = true, SourcePaths = { workspace.Sub("source") },
+        var backup = new Backup { Name = "Mixed " + Guid.NewGuid().ToString("N")[..8], UseVss = false, VssDisabledAcknowledged = true, SourcePaths = { workspace.Sub("source") },
             WaitForUnmeteredNetwork = true, AbortOnMeteredNetwork = true,
             Targets = { new() { DestinationId = drive.Id }, new() { DestinationId = cloud.Id } } };
         var (orchestrator, _, _, watchdogs) = Setup(workspace, backup, drive, cloud);
         orchestrator.MeteredOverride = () => true;
         orchestrator.NetworkAvailableOverride = () => true;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        BackupOrchestrator.ConditionsWaived.Value = waived;
+        BackupOrchestrator.ConditionsWaived.Value = new(false, waived);
         RunRecord record;
         try { record = await orchestrator.RunBackupAsync(backup, deadline.Token); }
-        finally { BackupOrchestrator.ConditionsWaived.Value = false; }
+        finally { BackupOrchestrator.ConditionsWaived.Value = default; }
         var cloudCell = Assert.Single(record.Cells, c => c.DestinationName == "Cloud");
         Assert.True(cloudCell.Status != BackupRunStatus.Failed, cloudCell.Summary + " | " + cloudCell.LastError);
         Assert.Equal(waived ? BackupRunStatus.Success : BackupRunStatus.Skipped, cloudCell.Status);
         Assert.Equal(waived ? null : "unmetered", cloudCell.WaitingFor);
         Assert.Equal(waived ? BackupRunStatus.Success : BackupRunStatus.Warning, record.Status);
         if (waived) Assert.Equal(0, watchdogs[0]);
+        // The run says why it used the metered connection, in its record and
+        // in each part's log; a run without it says nothing (U226).
+        // The orchestrator's own log of each part (the engine keeps its own too).
+        var partLogs = Directory.GetFiles(AppPaths.LogDirForBackup(backup.Name), "*.log").Select(File.ReadAllText)
+            .Where(l => l.StartsWith(ConsoleLogParser.HeaderMarker, StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(partLogs);
+        if (waived)
+        {
+            Assert.Equal(new[] { WaivedConditions.MeteredNote }, record.Notes);
+            Assert.All(partLogs, log => Assert.Contains("[backspace] " + WaivedConditions.MeteredNote, log));
+        }
+        else
+        {
+            Assert.Null(record.Notes);
+            Assert.All(partLogs, log => Assert.DoesNotContain("at your request", log));
+        }
+    }
+
+    /// <summary>U226: what the background service's worker receives.</summary>
+    [Theory]
+    [InlineData(false, false, "")]
+    [InlineData(true, false, "battery")]
+    [InlineData(false, true, "metered")]
+    [InlineData(true, true, "battery,metered")]
+    public void Waived_conditions_reach_the_worker_as_written(bool battery, bool metered, string encoded)
+    {
+        var waived = new WaivedConditions(battery, metered);
+        Assert.Equal(encoded, waived.Encode());
+        Assert.Equal(waived, WaivedConditions.Decode(encoded));
+        // The former "1" (metered only) and anything unknown waive nothing.
+        Assert.Equal(default, WaivedConditions.Decode("1"));
+        Assert.Equal(default, WaivedConditions.Decode(null));
     }
 
     [Fact]

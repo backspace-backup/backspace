@@ -35,6 +35,16 @@ internal static class ManualRunConditions
     internal sealed record Decision(bool WaiveBattery, bool WaiveMetered)
     {
         internal static readonly Decision None = new(false, false);
+
+        /// <summary>As the run receives it, to write in its log.</summary>
+        internal Services.WaivedConditions Waived => new(WaiveBattery, WaiveMetered);
+
+        /// <summary>"Run now anyway" while it waits: also ignores what holds it back now.</summary>
+        internal Decision Waiving(IReadOnlyList<Condition> holding) => this with
+        {
+            WaiveBattery = WaiveBattery || holding.Contains(Condition.Battery),
+            WaiveMetered = WaiveMetered || holding.Contains(Condition.Metered),
+        };
     }
 
     internal static Func<bool> OnBattery = ScheduleConditions.OnBattery;
@@ -72,6 +82,17 @@ internal static class ManualRunConditions
             _ => true,
         }).ToList();
 
+    /// <summary>What Run now anyway does while these hold the run back;
+    /// empty when it can't help (no network).</summary>
+    internal static string RunAnywayTip(IReadOnlyList<Condition> waiting) =>
+        (waiting.Contains(Condition.Battery), waiting.Contains(Condition.Metered)) switch
+        {
+            (true, true) => "Start now, on battery and over this metered connection, until the run ends.",
+            (true, false) => "Start now, on battery, until the run ends.",
+            (false, true) => "Start now over this metered connection, until the run ends.",
+            _ => "",
+        };
+
     /// <summary>What to wait for, in the card's words: "AC power".</summary>
     internal static string Awaited(Condition condition) => condition switch
     {
@@ -88,7 +109,8 @@ internal static class ManualRunConditions
 
     /// <summary>Waits until nothing in <paramref name="blocking"/> holds the
     /// run back: on a power or network change, or every 15 seconds.</summary>
-    internal static async Task WaitAsync(Func<IReadOnlyList<Condition>> blocking, CancellationToken ct)
+    /// <param name="wake">Looks again at once when it completes ("Run now anyway").</param>
+    internal static async Task WaitAsync(Func<IReadOnlyList<Condition>> blocking, CancellationToken ct, Task? wake = null)
     {
         while (blocking().Count > 0)
         {
@@ -98,7 +120,7 @@ internal static class ManualRunConditions
             Services.Platform.Windows.ScheduleSignals.Changed += Woken;
             Services.Platform.Windows.ScheduleSignals.NetworkChanged += Woken;
 #endif
-            try { await Task.WhenAny(changed.Task, Task.Delay(Poll, ct)).ConfigureAwait(false); }
+            try { await Task.WhenAny(changed.Task, Task.Delay(Poll, ct), wake ?? Task.Delay(Timeout.Infinite, ct)).ConfigureAwait(false); }
             finally
             {
 #if WINDOWS

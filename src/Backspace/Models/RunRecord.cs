@@ -102,6 +102,11 @@ public sealed class RunRecord
         return total < TimeSpan.Zero ? TimeSpan.Zero : total;
     }
 
+    /// <summary>How the run was started, when that explains it (U226):
+    /// "Started on battery at your request."</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Notes { get; set; }
+
     public List<string> Errors { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
 

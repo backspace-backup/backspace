@@ -18,9 +18,12 @@ internal static class DesktopBackupRun
     /// result arrives through the background activity instead.</summary>
     /// <param name="queued">Hears "Queued" reasons while the service can't
     /// start the run yet, then "" (U156).</param>
-    /// <param name="waiveConditions">"Run now anyway" (U226): its conditions
-    /// neither hold it back nor stop it.</param>
-    internal static async Task<RunRecord?> RunAsync(Backup backup, CancellationToken ct, Action<string>? queued = null, bool waiveConditions = false)
+    /// <param name="waived">"Run now anyway" (U226): the conditions that
+    /// neither hold it back nor stop it, written in its log.</param>
+    /// <param name="onlyTargets">Only these destinations (Backup.TargetKey):
+    /// the parts a pause left, when it continues (U226).</param>
+    internal static async Task<RunRecord?> RunAsync(Backup backup, CancellationToken ct, Action<string>? queued = null,
+        WaivedConditions waived = default, System.Collections.Generic.IReadOnlyList<string>? onlyTargets = null)
     {
 #if WINDOWS
         if (OperatingSystem.IsWindows())
@@ -29,7 +32,7 @@ internal static class DesktopBackupRun
             {
                 string? notStarted = null;
                 if (await Platform.Windows.ServiceCommandLineRun.TryRunFromDesktopAsync(
-                        AppContext.BaseDirectory.TrimEnd('\\'), backup, ct, reason => notStarted = reason, queued, waiveConditions).ConfigureAwait(false))
+                        AppContext.BaseDirectory.TrimEnd('\\'), backup, ct, reason => notStarted = reason, queued, waived, onlyTargets).ConfigureAwait(false))
                     return notStarted is null ? null : new RunRecord
                     {
                         BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Backup,
@@ -51,8 +54,8 @@ internal static class DesktopBackupRun
             }
         }
 #endif
-        BackupOrchestrator.ConditionsWaived.Value = waiveConditions;
-        try { return await ServiceLocator.Orchestrator.RunBackupAsync(backup, ct).ConfigureAwait(false); }
-        finally { BackupOrchestrator.ConditionsWaived.Value = false; }
+        BackupOrchestrator.ConditionsWaived.Value = waived;
+        try { return await ServiceLocator.Orchestrator.RunBackupAsync(ScheduledRuns.ForTargets(backup, onlyTargets), ct).ConfigureAwait(false); }
+        finally { BackupOrchestrator.ConditionsWaived.Value = default; }
     }
 }

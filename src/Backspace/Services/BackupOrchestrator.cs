@@ -639,6 +639,7 @@ public sealed partial class BackupOrchestrator
                 Status = BackupRunStatus.Running,
                 Summary = "Running…",
                 TriggeredAutomatically = automatic,
+                Notes = ConditionsWaived.Value.Notes().ToList() is { Count: > 0 } notes ? notes : null,
             };
             var runningInfo = new RunningInfo(localCts, result.StartedUtc, result);
             if (!_runningRuns.TryAdd(backup.Id, runningInfo))
@@ -744,7 +745,8 @@ public sealed partial class BackupOrchestrator
         // Same-process updates already refresh the hash. They must still
         // replace the caller's pre-wait object, or a removed backup can run.
         if (!changed && !wasConfigured) return backup;
-        return _config.Current.Backups.FirstOrDefault(b => b.Id == backup.Id);
+        // The saved settings, still limited to the parts this run is for (U226).
+        return _config.Current.Backups.FirstOrDefault(b => b.Id == backup.Id) is { } saved ? ScheduledRuns.ForTargets(saved, backup.OnlyTargets) : null;
     }
 
     private async Task<RunRecord> ReportAdmissionFailureAsync(Backup backup, RunKind kind, Exception error,

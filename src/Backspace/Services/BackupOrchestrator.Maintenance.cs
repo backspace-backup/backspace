@@ -137,7 +137,7 @@ public sealed partial class BackupOrchestrator
         {
             if (!NetworkAvailableNow()) return "Waits for a network connection; it runs right after the next backup there.";
             var unmeteredOnly = check?.Schedule is { OwnConditions: true } own ? own.UnmeteredOnly : backup.WaitForUnmeteredNetwork;
-            if (unmeteredOnly && !ConditionsWaived.Value && MeteredNow()) return "Waits for an unmetered connection; it runs right after the next backup there.";
+            if (unmeteredOnly && !ConditionsWaived.Value.Metered && MeteredNow()) return "Waits for an unmetered connection; it runs right after the next backup there.";
         }
         if (dest.IsLocalLike && VolumeDetector.Check(dest.ExpectedDriveLetter, dest.ExpectedVolumeLabel) is { Verdict: not VolumeDetector.Verdict.Mounted } volume)
             return volume.Detail;
@@ -296,6 +296,8 @@ public sealed partial class BackupOrchestrator
                 if (!teeing.Value) log.Write(line);
             }
             var progressLines = new MaintenanceRunLog.ProgressLines(Say);
+            // What you chose to ignore for this run, in its log (U226).
+            foreach (var note in ConditionsWaived.Value.Notes()) Say("[backspace] " + note);
             var waitingFor = new List<string>();
             if (check is { Kind: CheckKind.TestRestore })
                 await RunTestRestoreCheckAsync(backup, check, distinctTargets, aggregate, waitingFor, linked, () => meteredAborted, Say, log, teeing).ConfigureAwait(false);
@@ -399,6 +401,7 @@ public sealed partial class BackupOrchestrator
                 }
             }
             aggregate.EndedUtc = DateTime.UtcNow;
+            if (ConditionsWaived.Value.Notes().ToList() is { Count: > 0 } notes) aggregate.Notes = notes;
             aggregate.Status = CheckRunWording.StatusOf(aggregate.Cells);
             aggregate.Summary = check is null
                 ? CheckRunWording.CleanupSummary(aggregate, meteredAborted)
@@ -443,7 +446,7 @@ public sealed partial class BackupOrchestrator
     /// at the start he wanted to bypass the conditions"): no destination waits
     /// for an unmetered connection and nothing stops it when one becomes
     /// metered. Set around the run, on its flow.</summary>
-    internal static readonly AsyncLocal<bool> ConditionsWaived = new();
+    internal static readonly AsyncLocal<WaivedConditions> ConditionsWaived = new();
 
     /// <summary>Checks run from the card's Verify, on this flow.</summary>
     private static readonly AsyncLocal<bool> ChecksStartedByOwner = new();

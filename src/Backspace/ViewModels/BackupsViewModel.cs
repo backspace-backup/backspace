@@ -826,6 +826,8 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     private async Task RunNow(BackupCardViewModel card)
     {
         if (card is null) return;
+        // Already waiting for its conditions: start it now, never queue it twice (U226).
+        if (_conditionWaits.ContainsKey(card.Id)) { RunNowAnyway(card); return; }
         // The saved passwords must be open on this computer (U153): a new
         // computer asks for their password here, once.
         if (!await VaultGate.EnsureReadableAsync("Backspace needs your saved passwords to run this backup.")) return;
@@ -850,13 +852,13 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
 
     /// <summary>A backup you started, its conditions decided (U226).</summary>
     private Task StartBackupAsync(BackupCardViewModel card, ManualRunConditions.Decision decision) =>
-        RunFollowingConditionsAsync(card, null, decision, async ct =>
+        RunFollowingConditionsAsync(card, null, decision, async (ct, waived, only) =>
         {
             // Null: the background service ran it and the card follows its activity.
             // "Queued: …" while the background service can't start it yet (U156).
             var before = DateTime.UtcNow;
             var record = await DesktopBackupRun.RunAsync(card.Snapshot, ct,
-                reason => OnUiThread(() => ShowServiceQueued(card.Id, reason)), decision.WaiveMetered);
+                reason => OnUiThread(() => ShowServiceQueued(card.Id, reason)), waived.Waived, only);
             if (record is not null) card.Apply(record);
             return record ?? LatestRun(card.Id, before);
         });
@@ -875,11 +877,16 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     /// Backspace says so in a notification you can click to continue anyway
     /// (until the run ends); otherwise it waits on its card and runs again by
     /// itself once the condition is met. A backup only sends what changed.
+    /// After a metered pause, only the parts it left run again: what was done
+    /// is kept (U226).
     /// </summary>
+    /// <param name="run">Runs it with the conditions you ignored, and only
+    /// these destinations (Backup.TargetKey) when not null.</param>
     private async Task RunFollowingConditionsAsync(BackupCardViewModel card, IReadOnlyList<BackupCheck>? checks,
-        ManualRunConditions.Decision decision, Func<CancellationToken, Task<RunRecord?>> run)
+        ManualRunConditions.Decision decision, Func<CancellationToken, ManualRunConditions.Decision, IReadOnlyList<string>?, Task<RunRecord?>> run)
     {
         var what = checks is null ? "backup" : checks.Count == 1 ? checks[0].Title.ToLowerInvariant() : "checks";
+        IReadOnlyList<string>? only = null;
         while (true)
         {
             card.SetRunning(operation: checks is null ? "backup" : "check");
@@ -907,7 +914,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 })
                 : Task.CompletedTask;
             RunRecord? record = null;
-            try { record = await run(stop.Token); }
+            try { record = await run(stop.Token, decision, only); }
             catch (OperationCanceledException) { }
             catch (Exception ex) { _log.Error(ex, "Run-now threw for {Name}", card.Snapshot.Name); }
             finally
@@ -916,9 +923,11 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 await watch;
             }
             // What paused it, if anything: unplugged, or its cloud part met a metered connection.
-            var meteredPause = !decision.WaiveMetered && record is not null
-                && record.Cells.Any(c => c.WaitingFor == "unmetered" || (c.Summary ?? "").Contains("metered", StringComparison.OrdinalIgnoreCase) && c.Status == BackupRunStatus.Skipped);
+            var meteredParts = decision.WaiveMetered || record is null ? [] : MeteredParts(record);
+            var meteredPause = meteredParts.Count > 0;
             if (!stoppedOnBattery && !meteredPause) return;
+            // What was done is kept; only the parts the connection held back run again.
+            if (!stoppedOnBattery) only = meteredParts.Select(c => Backup.TargetKey(c.DestinationId!, c.StorageName)).Distinct().ToList();
             var condition = stoppedOnBattery ? ManualRunConditions.Condition.Battery : ManualRunConditions.Condition.Metered;
             using var anyway = new CancellationTokenSource();
             var continueAnyway = false;
@@ -937,10 +946,11 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                     try { anyway.Cancel(); } catch (ObjectDisposedException) { }
                 }
             }));
-            if (!await WaitForConditionsAsync(card, decision, () => continueAnyway || anyway.IsCancellationRequested ? []
+            if (await WaitForConditionsAsync(card, decision, () => continueAnyway || anyway.IsCancellationRequested ? []
                     : condition == ManualRunConditions.Condition.Battery ? (ManualRunConditions.OnBattery() ? [condition] : [])
-                    : (ManualRunConditions.Metered() ? [condition] : []), checks))
+                    : (ManualRunConditions.Metered() ? [condition] : []), checks) is not { } next)
                 return;
+            decision = next;
             if (continueAnyway)
                 decision = condition == ManualRunConditions.Condition.Battery ? decision with { WaiveBattery = true } : decision with { WaiveMetered = true };
         }
@@ -1019,7 +1029,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         // previous generic "Skipped in 1m 12s" / "drive unplugged or
         // network gone" line that was wrong for the manual case.
         // A run waiting for its conditions (U226): the wait ends, nothing runs.
-        if (_conditionWaits.TryGetValue(card.Id, out var waiting)) { try { waiting.Cancel(); } catch (ObjectDisposedException) { } return; }
+        if (_conditionWaits.TryGetValue(card.Id, out var waiting)) { try { waiting.Stop.Cancel(); } catch (ObjectDisposedException) { } return; }
         // Checks started with Verify (U213).
         if (_verifications.TryGetValue(card.Id, out var verifying)) { try { verifying.Cancel(); } catch (ObjectDisposedException) { } return; }
         // A test restore the schedule started (U205: Stop is on the card now).
@@ -1156,11 +1166,12 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         {
             try
             {
-                await RunFollowingConditionsAsync(card, checks, decision, async ct =>
+                await RunFollowingConditionsAsync(card, checks, decision, async (ct, waived, only) =>
                 {
                     using var both = CancellationTokenSource.CreateLinkedTokenSource(ct, stop.Token);
-                    BackupOrchestrator.ConditionsWaived.Value = decision.WaiveMetered;
-                    var record = await ServiceLocator.Orchestrator.RunChecksAsync(backup, checks, both.Token, startedByOwner: true);
+                    BackupOrchestrator.ConditionsWaived.Value = waived.Waived;
+                    var targets = only is null ? null : backup.Targets.Where(t => only.Contains(Backup.TargetKey(t.DestinationId, t.StorageName))).ToList();
+                    var record = await ServiceLocator.Orchestrator.RunChecksAsync(backup, checks, both.Token, targets, startedByOwner: true);
                     _log.Information("Verify of {Name}: {Status}", backup.Name, record.Status);
                     return record;
                 });
@@ -1176,8 +1187,29 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     }
 
 
-    /// <summary>Runs waiting for their conditions, by backup: Stop ends the wait (U226).</summary>
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _conditionWaits = new();
+    /// <summary>Runs waiting for their conditions, by backup: Stop ends the
+    /// wait, Run now anyway starts it at once (U226).</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ConditionWait> _conditionWaits = new();
+
+    private sealed class ConditionWait : IDisposable
+    {
+        internal readonly CancellationTokenSource Stop = new();
+        internal readonly TaskCompletionSource Anyway = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Dispose() => Stop.Dispose();
+    }
+
+    /// <summary>The parts of a run a metered connection held back (U226).</summary>
+    internal static IReadOnlyList<CellOutcome> MeteredParts(RunRecord record) =>
+        record.Cells.Where(c => !string.IsNullOrEmpty(c.DestinationId) && (c.WaitingFor == "unmetered"
+            || c.Status == BackupRunStatus.Skipped && (c.Summary ?? "").Contains("metered", StringComparison.OrdinalIgnoreCase))).ToList();
+
+    /// <summary>"Run now anyway" on a run waiting for its conditions (U226):
+    /// it starts at once, ignoring what held it back until it ends.</summary>
+    [RelayCommand]
+    private void RunNowAnyway(BackupCardViewModel card)
+    {
+        if (card is not null && _conditionWaits.TryGetValue(card.Id, out var waiting)) waiting.Anyway.TrySetResult();
+    }
 
     /// <summary>Asks what to do when a run you start isn't allowed by its
     /// conditions now (U226): null for not now; otherwise the conditions you
@@ -1192,38 +1224,51 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         var decision = await ManualRunConditions.AskAsync(card.Snapshot.Name, checks is not null, assessment, TestRestoreOwner?.Invoke() ?? Owner());
         if (decision is null) return null;
         if (ManualRunConditions.Blocking(Assess(), decision).Count == 0) return decision;
-        return await WaitForConditionsAsync(card, decision, () => ManualRunConditions.Blocking(Assess(), decision), checks) ? decision : null;
+        return await WaitForConditionsAsync(card, decision, () => ManualRunConditions.Blocking(Assess(), decision), checks);
     }
 
     /// <summary>The run waits on its card ("Queued", why on hover) until
-    /// nothing holds it back; false when Stop ended the wait.</summary>
-    private async Task<bool> WaitForConditionsAsync(BackupCardViewModel card, ManualRunConditions.Decision decision,
+    /// nothing holds it back, or you click Run now anyway: the conditions it
+    /// then runs with; null when Stop ended the wait.</summary>
+    private async Task<ManualRunConditions.Decision?> WaitForConditionsAsync(BackupCardViewModel card, ManualRunConditions.Decision decision,
         Func<IReadOnlyList<ManualRunConditions.Condition>> blocking, IReadOnlyList<BackupCheck>? checks, DateTime? sinceUtc = null)
     {
-        var wait = new CancellationTokenSource();
-        if (!_conditionWaits.TryAdd(card.Id, wait)) { wait.Dispose(); return false; }
+        var wait = new ConditionWait();
+        if (!_conditionWaits.TryAdd(card.Id, wait)) { wait.Dispose(); return null; }
         // Kept in Backspace.config: it still starts after a restart (U226).
         QueuedManualRuns.Add(new(card.Id, checks?.Select(c => c.Id).ToArray(), decision.WaiveBattery, decision.WaiveMetered, sinceUtc ?? DateTime.UtcNow));
         try
         {
             var since = (sinceUtc ?? DateTime.UtcNow).ToLocalTime();
+            IReadOnlyList<ManualRunConditions.Condition> held = [];
             void Say()
             {
                 var waiting = blocking();
-                if (waiting.Count > 0)
-                    card.SetQueuedReason($"waiting for {string.Join(" and ", waiting.Select(ManualRunConditions.Awaited))} since {since:HH:mm}; it starts by itself");
+                if (waiting.Count == 0) return;
+                card.SetQueuedReason($"waiting for {string.Join(" and ", waiting.Select(ManualRunConditions.Awaited))} since {since:HH:mm}; it starts by itself");
+                // Battery and a metered connection can be ignored; no network can't.
+                card.RunAnywayTip = ManualRunConditions.RunAnywayTip(waiting);
             }
             card.SetRunning(operation: checks is null ? "backup" : "check");
             if (checks is not null) card.RunningActivity = checks.Count == 1 ? checks[0].Title : $"{checks.Count} checks";
             Say();
-            await ManualRunConditions.WaitAsync(() => { var b = blocking(); if (b.Count > 0) OnUiThread(Say); return b; }, wait.Token);
+            await ManualRunConditions.WaitAsync(() =>
+            {
+                var b = blocking();
+                if (wait.Anyway.Task.IsCompleted) { held = b; return []; }
+                if (b.Count > 0) OnUiThread(Say);
+                return b;
+            }, wait.Stop.Token, wait.Anyway.Task);
+            card.RunAnywayTip = "";
             card.SetQueuedReason("");
-            return true;
+            if (held.Count > 0) _log.Information("Run now anyway: {Name} starts without waiting for {Conditions}", card.Snapshot.Name, string.Join(", ", held));
+            return decision.Waiving(held);
         }
         catch (OperationCanceledException)
         {
+            card.RunAnywayTip = "";
             card.EndQueuedWait();
-            return false;
+            return null;
         }
         finally { _conditionWaits.TryRemove(card.Id, out _); wait.Dispose(); QueuedManualRuns.Remove(card.Id); }
     }
@@ -1248,9 +1293,9 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             {
                 try
                 {
-                    if (!await OnUiThreadAsync(() => WaitForConditionsAsync(card, decision, () => ManualRunConditions.Blocking(Assess(), decision), checks, entry.SinceUtc))) return;
-                    if (checks is null) await OnUiThreadAsync(() => StartBackupAsync(card, decision));
-                    else OnUiThread(() => StartChecks(card, backup, checks, decision));
+                    if (await OnUiThreadAsync(() => WaitForConditionsAsync(card, decision, () => ManualRunConditions.Blocking(Assess(), decision), checks, entry.SinceUtc)) is not { } chosen) return;
+                    if (checks is null) await OnUiThreadAsync(() => StartBackupAsync(card, chosen));
+                    else OnUiThread(() => StartChecks(card, backup, checks, chosen));
                 }
                 catch (Exception ex) { _log.Warning(ex, "A queued run of {Name} could not resume", backup.Name); }
             });

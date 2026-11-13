@@ -502,6 +502,7 @@ public sealed partial class BackupOrchestrator
         if (r.EndedUtc is DateTime e) sb.AppendLine($"Ended:    {e.ToLocalTime():yyyy-MM-dd HH:mm:ss}");
         sb.AppendLine($"Status:   {r.Status}");
         sb.AppendLine($"Summary:  {r.Summary}");
+        foreach (var note in r.Notes ?? []) sb.AppendLine($"Note:     {note}");
 
         // Per-cell breakdown — for a multi-source or multi-target
         // backup this is where the user actually learns what happened.

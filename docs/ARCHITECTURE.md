@@ -300,12 +300,19 @@ Backspace removes and retries is logged as a warning
 
 A run the owner starts (Run now, Verify) whose conditions aren't met asks
 first (`ManualRunConditions`, U226): queue it on the card until they are, or
-run it anyway. "Anyway" sets `BackupOrchestrator.ConditionsWaived` on the run's
-flow, passed to the service as `ServiceHostRequest.WaiveConditions`
-(accepted for `start-cli` only) and to its worker as
-`BACKSPACE_WAIVE_CONDITIONS`; no destination then waits for, or is stopped
-by, a metered connection. A Run now started with its conditions met stops on
-battery and runs again once plugged in.
+run it anyway. A queued run shows Run now anyway on its card (Run now on it
+does the same); it is never queued twice. "Anyway" sets
+`BackupOrchestrator.ConditionsWaived` (`WaivedConditions`: battery, metered)
+on the run's flow, passed to the service as `ServiceHostRequest.WaiveConditions`
+and `WaiveBattery` (accepted for `start-cli` only) and to its worker as
+`BACKSPACE_WAIVE_CONDITIONS` ("battery,metered"); no destination then waits
+for, or is stopped by, a metered connection. Each waived condition is written
+in the run's log and `RunRecord.Notes` ("Started on battery at your
+request."). A Run now started with its conditions met stops on battery and
+runs again once plugged in. After a metered pause only the parts left run
+again (`ServiceHostRequest.OnlyTargets`, `ScheduledRuns.ForTargets`); the
+orchestrator keeps that limit (`Backup.OnlyTargets`) when it reloads the
+settings at admission.
 
 This is an approximate sampling target, not a network quota. Restic converts
 the byte target to a fraction of pack count, with a minimum of one pack.

@@ -36,6 +36,14 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ShowMountLine))]
     private string? _mountedDrive;
 
+    /// <summary>A run you started waits for AC power or an unmetered
+    /// connection: "Run now anyway" starts it at once (U226).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanRunAnyway))]
+    private string _runAnywayTip = "";
+
+    public bool CanRunAnyway => RunAnywayTip.Length > 0;
+
     /// <summary>What the mounted drive shows ("7 Nov 2026 14:30", "3 revisions", U162).</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(MountedLine))]

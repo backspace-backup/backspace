@@ -21,6 +21,7 @@ internal static class ScheduledRuns
         if (only is null) return backup;
         var copy = System.Text.Json.JsonSerializer.Deserialize<Backup>(System.Text.Json.JsonSerializer.Serialize(backup))!;
         copy.Targets = copy.Targets.Where(t => only.Contains(Backup.TargetKey(t.DestinationId, t.StorageName))).ToList();
+        copy.OnlyTargets = only;
         return copy;
     }
 

@@ -7,7 +7,8 @@ namespace Backspace.Services.Platform.Windows;
 /// <summary>One request on the background service's run pipe.</summary>
 internal sealed record ServiceHostRequest(int Version, string Command, string? Revision = null,
     string? BackupId = null, string? Operation = null, string? RunId = null, string? Path = null,
-    string? Filters = null, bool SkipCloudOnly = false, string? VaultId = null, string? Key = null, bool WaiveConditions = false)
+    string? Filters = null, bool SkipCloudOnly = false, string? VaultId = null, string? Key = null, bool WaiveConditions = false,
+    bool WaiveBattery = false, string? OnlyTargets = null)
 {
     // A size estimate carries the backup's exclusion rules (U123), which can
     // run to tens of kilobytes; every other request stays small.
@@ -24,7 +25,12 @@ internal sealed record ServiceHostRequest(int Version, string Command, string? R
         var request = JsonSerializer.Deserialize<ServiceHostRequest>(bytes, ServiceRunAuthorization.Json)
             ?? throw new JsonException("Empty request.");
         // Only the owner's own run may skip its conditions (U226).
-        if (request.WaiveConditions && request.Command != "start-cli") throw new InvalidDataException("Unsupported run request.");
+        if ((request.WaiveConditions || request.WaiveBattery || request.OnlyTargets is not null) && request.Command != "start-cli")
+            throw new InvalidDataException("Unsupported run request.");
+        // The destinations left after a pause (U226): "id/storage|…", checked against the backup by the worker.
+        if (request.OnlyTargets is { } only && (only.Length is 0 or > 2048 || request.Operation != "backup"
+                || System.Linq.Enumerable.Any(only, c => char.IsControl(c))))
+            throw new InvalidDataException("Unsupported run request.");
         if (request.Command != "unlock" && (request.VaultId is not null || request.Key is not null))
             throw new InvalidDataException("Unsupported run request.");
         if (request.Version != 1 || (request.Command is not ("measure") && (request.Path is not null || request.Filters is not null

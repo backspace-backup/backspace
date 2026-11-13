@@ -149,6 +149,112 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             }
             Assert.Empty(QueuedManualRuns.Load());
 
+            // Owner's additions (U226, 13 November 2026). The big source out, to keep it quick.
+            ServiceLocator.Config.Update(c => c.Backups.Single(b => b.Id == backup.Id).SourcePaths.Remove(big));
+            await ctx.Driver.PumpAsync(200);
+            card = vm.Cards.Single(c => c.Id == backup.Id);
+
+            // 1. Queued on battery, the card offers Run now anyway: it starts at
+            //    once and is never queued twice.
+            onBattery = true;
+            asked.Clear();
+            answer = ManualRunConditions.Decision.None;
+            var atStart = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Count;
+            var waiting = vm.RunNowCommand.ExecuteAsync(card);
+            Assert.True(ctx.Driver.WaitFor(() => card.IsQueued && card.CanRunAnyway, 5000), "The run was not queued with Run now anyway.");
+            Assert.Equal("Start now, on battery, until the run ends.", card.RunAnywayTip);
+            await ctx.Driver.PumpAsync(200);
+            var anywayButton = main.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "RunAnywayButton" && b.DataContext == card);
+            Assert.True(anywayButton.IsEffectivelyVisible);
+            ctx.Snapshot(main, "queued with run now anyway",
+                "local_c queued on battery: next to Stop, a «Run now anyway» button (its hover: «Start now, on battery, until the run ends.»).");
+            // Run now again on the queued backup: it runs now, nothing is asked again.
+            await vm.RunNowCommand.ExecuteAsync(card);
+            await waiting;
+            Assert.Single(asked);
+            Assert.Empty(QueuedManualRuns.Load());
+            var history = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).OrderByDescending(r => r.StartedUtc).ToList();
+            Assert.Equal(atStart + 1, history.Count);
+            var anyway = history[0];
+            Assert.Equal(BackupRunStatus.Success, anyway.Status);
+            Assert.False(card.CanRunAnyway);
+
+            // 2. The run says why it ran on battery, in its record and its log.
+            Assert.Equal(new[] { WaivedConditions.BatteryNote }, anyway.Notes);
+            using (var logs = new LogsViewModel())
+            {
+                logs.SelectedBackup = "local_c";
+                var logView = new LogsView { DataContext = logs };
+                var logWindow = ctx.Driver.Show(new Window { Content = logView, Width = 1180, Height = 640 });
+                logs.SelectedRun = logs.History.First(r => r.Id == anyway.Id);
+                await ctx.Driver.PumpAsync(800);
+                Assert.Contains(logs.DisplayLines, l => l.Text == "[backspace] " + WaivedConditions.BatteryNote);
+                ctx.Snapshot(logWindow, "the run says it ran on battery",
+                    "The saved log of that run: right under its header, «[backspace] Started on battery at your request.», then the backup as usual.");
+                logWindow.Close();
+            }
+            // A run plugged in says nothing of the kind.
+            Assert.All(history.Skip(1), r => Assert.Null(r.Notes));
+
+            // 3. On a metered connection, a backup to a drive and a cloud backs up
+            //    the drive now; after the pause only the cloud runs: the drive's
+            //    part is kept, not done again.
+            if (OperatingSystem.IsWindows())
+            {
+                onBattery = false;
+                var metered = true;
+                var (meteredNow, online) = (ManualRunConditions.Metered, ManualRunConditions.Online);
+                ManualRunConditions.Metered = () => metered;
+                ManualRunConditions.Online = () => true;
+                ServiceLocator.Orchestrator.MeteredOverride = () => metered;
+                ServiceLocator.Orchestrator.NetworkAvailableOverride = () => true;
+                try
+                {
+                    // A folder here, counted as a network destination as a cloud would be.
+                    var cloud = new Destination { Name = "Cloud", Kind = DestinationKind.LocalFolder, PathOrSubpath = ctx.MakeLocalDestination("cloud") };
+                    Backup.NeedsNetworkOverride = d => d.Id == cloud.Id ? true : null;
+                    ServiceLocator.Config.Update(c =>
+                    {
+                        c.Destinations.Add(cloud);
+                        var b = c.Backups.Single(x => x.Id == backup.Id);
+                        b.Targets.Add(new() { DestinationId = cloud.Id });
+                        b.WaitForUnmeteredNetwork = true;
+                    });
+                    await ctx.Driver.PumpAsync(200);
+                    card = vm.Cards.Single(c => c.Id == backup.Id);
+                    asked.Clear();
+                    var before3 = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Count;
+                    var meteredRun = vm.RunNowCommand.ExecuteAsync(card);
+                    Assert.True(ctx.Driver.WaitFor(() => card.IsQueued && card.QueuedReason.StartsWith("waiting for an unmetered connection", StringComparison.Ordinal), 60000),
+                        $"After the drive, the cloud part did not wait for an unmetered connection. Card: queued={card.IsQueued} running={card.IsRunning} label={card.LastRunLabel}; asked={asked.Count}");
+                    Assert.Equal(new[] { ManualRunConditions.Condition.Metered }, Assert.Single(asked).Unmet);
+                    var first = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).OrderByDescending(r => r.StartedUtc).First();
+                    Assert.Equal(BackupRunStatus.Success, Assert.Single(first.Cells, c => c.DestinationName == "USB drive").Status);
+                    Assert.Equal("unmetered", Assert.Single(first.Cells, c => c.DestinationName == "Cloud").WaitingFor);
+                    Assert.Equal("Start now over this metered connection, until the run ends.", card.RunAnywayTip);
+                    ctx.Snapshot(main, "drive done, cloud waits",
+                        "local_c on a metered connection: the drive was backed up; the card is Queued, waiting for an unmetered connection for the cloud part, with Run now anyway.");
+                    metered = false;
+                    await meteredRun;
+                    var after = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).OrderByDescending(r => r.StartedUtc).ToList();
+                    Assert.Equal(before3 + 2, after.Count);
+                    // Only the part left: the cloud. The drive's part is not run again.
+                    Assert.True(after[0].Cells.Count == 1, string.Join(" | ", after.Take(3).Select(r => r.StartedUtc.ToString("HH:mm:ss.fff") + " " + string.Join("; ", r.Cells.Select(c => System.IO.Path.GetFileName(c.SourcePath) + "->" + c.DestinationName + "=" + c.Status + "/" + c.WaitingFor)))));
+                    var rest = Assert.Single(after[0].Cells);
+                    Assert.Equal("Cloud", rest.DestinationName);
+                    Assert.Equal(BackupRunStatus.Success, rest.Status);
+                    Assert.Null(after[0].Notes);
+                }
+                finally
+                {
+                    ManualRunConditions.Metered = meteredNow;
+                    ManualRunConditions.Online = online;
+                    ServiceLocator.Orchestrator.MeteredOverride = null;
+                    ServiceLocator.Orchestrator.NetworkAvailableOverride = null;
+                    Backup.NeedsNetworkOverride = null;
+                }
+            }
+
             // The question itself.
             var both = new ManualRunConditions.Assessment([ManualRunConditions.Condition.Battery, ManualRunConditions.Condition.Metered], true, ["Google Drive"]);
             var dialog = new RunConditionsWindow("local_c", false, both);
