@@ -64,6 +64,10 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             Assert.StartsWith("waiting for AC power since ", card.QueuedReason);
             Assert.Equal("Queued", card.LastRunLabel);
             Assert.Empty(ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id));
+            // U239: the sidebar says something waits on the Backups page.
+            Assert.True(mainVm.BackupsActive);
+            Assert.Equal("local_c · queued", mainVm.BackupsActivityTip);
+            Assert.True(main.FindControl<Avalonia.Controls.PathIcon>("BackupsActivity")!.IsEffectivelyVisible);
             ctx.Snapshot(main, "queued until plugged in",
                 "local_c's card after Run now on battery and \"Run when plugged in\": Queued, its hover says \"waiting for AC power since HH:mm; it starts by itself\". Nothing has run.");
 
@@ -73,6 +77,8 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             var record = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).OrderByDescending(r => r.StartedUtc).FirstOrDefault();
             Assert.NotNull(record);
             Assert.Equal(BackupRunStatus.Success, record!.Status);
+            await ctx.Driver.PumpAsync(200);
+            Assert.False(mainVm.BackupsActive);
 
             // On battery again: asked, queued, then Stop: nothing runs.
             onBattery = true;

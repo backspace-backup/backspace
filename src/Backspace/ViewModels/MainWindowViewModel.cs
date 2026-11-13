@@ -111,6 +111,39 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         HasRunningRestores = ServiceLocator.ActiveRestores.HasRunningFileRestores;
         ServiceLocator.Config.Changed += OnProtectionChanged;
         RefreshProtection();
+        // The sidebar's turning icon beside Backups (U239).
+        Backups.Cards.CollectionChanged += OnCardsChanged;
+        foreach (var card in Backups.Cards) card.PropertyChanged += OnCardChanged;
+        RefreshBackupsActivity();
+    }
+
+    /// <summary>Something runs or waits on the Backups page (U239, owner:
+    /// "show the rotating icon at the right of the Backups menu entry"): the
+    /// card's turning icon beside the entry, what runs on hover.</summary>
+    [ObservableProperty] private bool _backupsActive;
+    [ObservableProperty] private string _backupsActivityTip = "";
+
+    private void OnCardsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems is not null) foreach (BackupCardViewModel card in e.OldItems) card.PropertyChanged -= OnCardChanged;
+        if (e.NewItems is not null) foreach (BackupCardViewModel card in e.NewItems) card.PropertyChanged += OnCardChanged;
+        if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+            foreach (var card in Backups.Cards) { card.PropertyChanged -= OnCardChanged; card.PropertyChanged += OnCardChanged; }
+        RefreshBackupsActivity();
+    }
+
+    private void OnCardChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(BackupCardViewModel.IsRunning) or nameof(BackupCardViewModel.IsQueued) or nameof(BackupCardViewModel.RunningOperation))
+            RefreshBackupsActivity();
+    }
+
+    internal void RefreshBackupsActivity()
+    {
+        var running = Backups.Cards.Where(c => c.IsRunning).ToList();
+        BackupsActive = running.Count > 0;
+        BackupsActivityTip = running.Count == 0 ? "" : string.Join("\n", running.Select(c =>
+            c.Name + " · " + (c.IsQueued ? "queued" : c.RunningOperation switch { "check" => "checking", "prune" => "cleaning up", _ => "backing up" })));
     }
 
     private void OnActiveRestoresChanged()

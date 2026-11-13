@@ -122,6 +122,10 @@
               <StackPanel Orientation="Horizontal" Spacing="12">
                 <PathIcon Data="{StaticResource Icon.Backup}" Width="16" Height="16"/>
                 <TextBlock Text="Backups" VerticalAlignment="Center"/>
+                <!-- Something runs (U239): the card's turning icon, what runs on hover. -->
+                <PathIcon Name="BackupsActivity" Classes="status-icon running" Width="13" Height="13" VerticalAlignment="Center"
+                          IsVisible="{Binding BackupsActive}" v:RunningPulse.IsActive="{Binding BackupsActive}"
+                          ToolTip.Tip="{Binding BackupsActivityTip}"/>
               </StackPanel>
             </RadioButton>
             <RadioButton Classes="nav" GroupName="nav"
