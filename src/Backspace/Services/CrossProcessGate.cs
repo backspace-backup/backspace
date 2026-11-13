@@ -30,6 +30,22 @@ internal sealed class CrossProcessGate(string name, string? holder = null) : IDi
             return _held;
         }
 #endif
+        // Linux and macOS have no named semaphores (U235: every backup there
+        // failed with "could not lock this backup against duplicate runs").
+        // A file opened without sharing is locked by the system for as long
+        // as this process holds it, and freed when it ends, even by a crash.
+        if (!OperatingSystem.IsWindows())
+        {
+            var directory = Path.Combine(EngineWorkPaths.MachineRoot, "locks");
+            System.IO.Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(name)))[..32] + ".lock");
+            try { _file = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+            catch (IOException) { _file = null; }
+            _held = _file is not null;
+            if (_held) NoteHolder();
+            return _held;
+        }
         _semaphore ??= new Semaphore(1, 1, name);
         _held = _semaphore.WaitOne(0);
         if (_held) NoteHolder();
