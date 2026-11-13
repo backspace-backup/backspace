@@ -455,11 +455,15 @@
              "fill remaining space" impossible. -->
 
         <!-- ===================== Step 5: PICK TARGET ===================== -->
-        <StackPanel IsVisible="{Binding IsStepPickTarget}" Spacing="16">
-          <TextBlock Classes="section-title" Text="Where to?"/>
+        <!-- U217 (owner: "Redo this screen with fresh eyes"): where the
+             files go, then how, each in its own card. Every help line sits
+             under the choice it explains, in that choice's words, and says
+             what happens as the choice is set now. -->
+        <StackPanel IsVisible="{Binding IsStepPickTarget}" Spacing="10" MaxWidth="760" HorizontalAlignment="Left">
+          <TextBlock Classes="section-title" Text="Where should the files go?"/>
 
-          <Border Classes="section">
-            <StackPanel Spacing="14">
+          <Border Classes="settings-card" Padding="20,16">
+            <StackPanel Spacing="12">
               <!-- Both radios bind One-WAY and never write back; user
                    clicks reach the VM through check-only handlers in
                    RestoreView.axaml.cs. Two-way radio bindings in one
@@ -468,70 +472,74 @@
                    and flipped the source, which re-flipped the sibling) —
                    it hung a screenshot test at 100% CPU. One-way-in plus
                    idempotent-out cannot cycle. -->
-              <RadioButton x:Name="TargetOriginalRadio" GroupName="target"
-                           IsChecked="{Binding TargetOriginalSource, Mode=OneWay}"
-                           Content="Restore to the original source"
-                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-              <TextBlock Classes="dim" Margin="26,0,0,0" TextWrapping="Wrap"
-                         Text="{Binding OriginalSourceTargetLabel}"/>
+              <StackPanel Spacing="4">
+                <RadioButton x:Name="TargetOriginalRadio" GroupName="target"
+                             IsChecked="{Binding TargetOriginalSource, Mode=OneWay}"
+                             Content="Back where they came from"
+                             FontWeight="SemiBold"
+                             Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                <TextBlock x:Name="OriginalPlace" Classes="dim" Margin="28,0,0,0"
+                           TextWrapping="NoWrap" TextTrimming="PrefixCharacterEllipsis"
+                           Text="{Binding OriginalSourceTargetLabel}"
+                           ToolTip.Tip="{Binding OriginalSourceTargetLabel}"/>
+              </StackPanel>
               <Border Classes="rule"/>
-              <RadioButton x:Name="TargetDifferentRadio" GroupName="target"
-                           IsChecked="{Binding TargetDifferentFolder, Mode=OneWay}"
-                           Content="Restore to a different folder"
-                           Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-              <Grid ColumnDefinitions="*,Auto" Margin="26,0,0,0">
-                <TextBox Grid.Column="0" Text="{Binding CustomTargetPath}"
-                         PlaceholderText="Pick a folder"
-                         IsEnabled="{Binding TargetDifferentFolder}"/>
-                <Button Grid.Column="1" Classes="ghost" Content="Browse" Margin="10,0,0,0"
-                        IsEnabled="{Binding TargetDifferentFolder}"
-                        Command="{Binding BrowseCustomTargetCommand}"/>
-              </Grid>
+              <StackPanel Spacing="8">
+                <RadioButton x:Name="TargetDifferentRadio" GroupName="target"
+                             IsChecked="{Binding TargetDifferentFolder, Mode=OneWay}"
+                             Content="In another folder"
+                             FontWeight="SemiBold"
+                             Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                <!-- Shown once chosen: a greyed-out path read as a choice already made. -->
+                <Grid ColumnDefinitions="*,Auto" Margin="28,0,0,0" IsVisible="{Binding TargetDifferentFolder}">
+                  <TextBox Grid.Column="0" Text="{Binding CustomTargetPath}"
+                           PlaceholderText="Pick a folder"/>
+                  <Button Grid.Column="1" Classes="ghost" Content="Browse…" Margin="10,0,0,0"
+                          Command="{Binding BrowseCustomTargetCommand}"/>
+                </Grid>
+              </StackPanel>
             </StackPanel>
           </Border>
 
-          <!-- Advanced: collapsed by default so beginners aren't
-               distracted by knobs they don't need. Power users
-               toggle it open to control folder layout and replacement.
-               Styled in Controls.axaml as Expander.advanced —
-               small chevron, subtle uppercase header, no chunky
-               border. The rule between this and the primary
-               "Where to?" panel is provided by Border.section's
-               own bottom-border above; we DON'T add a separate
-               <Border Classes="rule"/> here (the user reported
-               "there are even 2 horizontal separators weirdly"
-               from the duplicate). -->
-          <Expander x:Name="RestoreOptions" Classes="advanced" Header="Advanced" IsExpanded="False">
-            <StackPanel Spacing="14" Margin="0,8,0,0">
-              <Grid ColumnDefinitions="*,16,*" RowDefinitions="Auto" VerticalAlignment="Top">
-                <CheckBox x:Name="PreserveFoldersOption" Grid.Column="0"
+          <TextBlock Classes="section-title" Text="How" Margin="0,14,0,0"/>
+          <Border x:Name="RestoreOptions" Classes="settings-card" Padding="20,16">
+            <StackPanel Spacing="12">
+              <StackPanel Spacing="2">
+                <CheckBox x:Name="ReplaceFilesOption"
+                          IsChecked="{Binding OverwriteExisting}"
+                          Content="Replace files already there"
+                          Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                <TextBlock x:Name="ReplaceHelp" Classes="dim" Margin="28,0,0,0" Text="{Binding ReplaceHelp}"/>
+              </StackPanel>
+              <Border Classes="rule"/>
+              <StackPanel Spacing="2">
+                <CheckBox x:Name="PreserveFoldersOption"
                           IsChecked="{Binding PreserveStructure}"
                           Content="Keep files in their folders"
-                          Foreground="{DynamicResource BS.Brush.FgPrimary}"
-                          VerticalAlignment="Center"/>
-                <CheckBox x:Name="ReplaceFilesOption" Grid.Column="2"
-                          IsChecked="{Binding OverwriteExisting}"
-                          Content="Replace existing files"
-                          Foreground="{DynamicResource BS.Brush.FgPrimary}"
-                          VerticalAlignment="Center"/>
-              </Grid>
-              <TextBlock Classes="dim" TextWrapping="Wrap"
-                         Text="Turn off replacement to leave existing files unchanged. Without folders, files go directly into the chosen folder; duplicate names stop the restore so neither file is lost."/>
+                          Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                <TextBlock x:Name="FoldersHelp" Classes="dim" Margin="28,0,0,0" Text="{Binding FoldersHelp}"/>
+              </StackPanel>
+              <Border Classes="rule"/>
               <!-- U217: the files' saved permissions, or the folder's. -->
-              <CheckBox x:Name="KeepPermissionsOption" IsChecked="{Binding KeepPermissions}"
-                        Content="Keep the files' permissions"
-                        Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-              <TextBlock Classes="dim" TextWrapping="Wrap"
-                         Text="Ticked, the files get back who may read and change them, as when they were backed up. Unticked, they get the permissions of the folder they land in, like files you copy there. Either way you own what you restore. Ticked by default only when restoring to their original place on the computer that backed them up."/>
+              <StackPanel Spacing="2">
+                <CheckBox x:Name="KeepPermissionsOption" IsChecked="{Binding KeepPermissions}"
+                          Content="Keep the files' permissions"
+                          Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                <TextBlock x:Name="PermissionsHelp" Classes="dim" Margin="28,0,0,0" Text="{Binding PermissionsHelp}"/>
+              </StackPanel>
             </StackPanel>
-          </Expander>
+          </Border>
 
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
-            <Button Classes="ghost" Content="Back"
-                    IsVisible="{Binding CanGoBack}"
-                    Command="{Binding BackCommand}"/>
-            <Button Classes="primary" Content="Restore" Command="{Binding NextFromTargetCommand}"/>
-          </StackPanel>
+          <Grid ColumnDefinitions="*,Auto" Margin="0,16,0,0">
+            <TextBlock x:Name="RestoreWhat" Grid.Column="0" Classes="dim" VerticalAlignment="Center" Margin="0,0,16,0"
+                       Text="{Binding RestoreWhatLabel}"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+              <Button Classes="ghost" Content="Back"
+                      IsVisible="{Binding CanGoBack}"
+                      Command="{Binding BackCommand}"/>
+              <Button Classes="primary" Content="Restore" Command="{Binding NextFromTargetCommand}"/>
+            </StackPanel>
+          </Grid>
         </StackPanel>
 
         <!-- Step 6 (Progress) is rendered OUTSIDE this ScrollViewer

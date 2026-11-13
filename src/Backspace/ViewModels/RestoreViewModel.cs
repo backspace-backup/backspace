@@ -72,26 +72,38 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         SourcesForBackup.Any(r => r.IsSelected);
 
     /// <summary>
-    /// Label shown next to the "Restore to the original source" radio
-    /// on the PickTarget step. Single-source: "→ &lt;source&gt; …".
-    /// Multi-source: a count + the OVERWRITE warning so the user
-    /// understands every checked folder will be replaced.
+    /// Where "Back where they came from" puts the files, under that choice
+    /// on the last step: the folder, or how many folders. What happens to
+    /// files already there is said under "Replace files already there"
+    /// (U217, owner: help text in the words of what it comments on).
     /// </summary>
-    public string OriginalSourceTargetLabel
-    {
-        get
-        {
-            var behavior = OverwriteExisting
-                ? "existing files will be replaced; type OK to confirm before restoring"
-                : "existing files will stay unchanged";
-            if (MultiSourceMode)
-            {
-                var n = CheckedSourcePaths.Count;
-                return $"→ Each of the {n} selected folders ({behavior})";
-            }
-            return $"→ {SelectedSourcePath} ({behavior})";
-        }
-    }
+    public string OriginalSourceTargetLabel => MultiSourceMode
+        ? $"Each of the {CheckedSourcePaths.Count} folders you chose, as it was backed up"
+        : SelectedSourcePath ?? "";
+
+    /// <summary>What "Replace files already there" does, as it is set (U217).</summary>
+    public string ReplaceHelp => OverwriteExisting
+        ? (TargetOriginalSource
+            ? "A file already there is replaced by its backed-up copy. You confirm this before anything is changed."
+            : "A file already there is replaced by its backed-up copy.")
+        : "A file already there stays as it is, and its backed-up copy is skipped.";
+
+    /// <summary>What "Keep files in their folders" does, as it is set (U217).</summary>
+    public string FoldersHelp => PreserveStructure
+        ? "Each file goes back into its folder, as in the backup."
+        : "Every file goes straight into the chosen folder. If two have the same name, the restore stops, so neither is lost.";
+
+    /// <summary>What "Keep the files' permissions" does, as it is set (U217).</summary>
+    public string PermissionsHelp => KeepPermissions
+        ? "Each file gets back who may read and change it, as when it was backed up. You own the files either way."
+        : "Each file gets the permissions of the folder it lands in, like a file you copy there. You own the files either way.";
+
+    /// <summary>What this restore brings back, above its button (U217).</summary>
+    public string RestoreWhatLabel => MultiSourceMode
+        ? $"{CheckedSourcePaths.Count} folders, each as backed up on the date you chose."
+        : SelectedRevision is { } revision
+            ? $"{SelectedFilesCount:N0} {(SelectedFilesCount == 1 ? "file" : "files")} ({HumanFormat.Size(SelectedFilesBytes)}), as backed up on {revision.CreatedUtc.ToLocalTime():d MMM yyyy, HH:mm}."
+            : "";
 
     /// <summary>
     /// Re-fire all derived properties that change with multi-source
@@ -103,6 +115,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     partial void OnMultiSourceModeChanged(bool value)
     {
         OnPropertyChanged(nameof(OriginalSourceTargetLabel));
+        OnPropertyChanged(nameof(RestoreWhatLabel));
         OnPropertyChanged(nameof(WizardStepLabel));
         OnPropertyChanged(nameof(CanGoBack));
         // Multi-source mode flips the "Next" button labels because
@@ -158,7 +171,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     // Step 3
     public ObservableCollection<RevisionSummary> Revisions { get; } = new();
     [ObservableProperty] private RevisionSummary? _selectedRevision;
-    partial void OnSelectedRevisionChanged(RevisionSummary? value) => RefreshKeepPermissions();
+    partial void OnSelectedRevisionChanged(RevisionSummary? value) { RefreshKeepPermissions(); OnPropertyChanged(nameof(RestoreWhatLabel)); }
     [ObservableProperty] private bool _loadingRevisions;
 
     /// <summary>
@@ -196,8 +209,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     public ObservableCollection<RevisionFileRow> FilteredFiles { get; } = new();
     [ObservableProperty] private string _fileFilter = "";
     [ObservableProperty] private bool _loadingFiles;
-    [ObservableProperty] private int _selectedFilesCount;
-    [ObservableProperty] private long _selectedFilesBytes;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(RestoreWhatLabel))] private int _selectedFilesCount;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(RestoreWhatLabel))] private long _selectedFilesBytes;
 
     /// <summary>Materialised list of paths currently checked — the wire format for RestoreEngine.</summary>
     public IReadOnlyList<string> SelectedPaths =>
@@ -219,6 +232,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     partial void OnTargetOriginalSourceChanged(bool value)
     {
         OnPropertyChanged(nameof(TargetDifferentFolder));
+        OnPropertyChanged(nameof(ReplaceHelp));
         RefreshKeepPermissions();
     }
 
@@ -228,7 +242,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     /// restoring to their original place on the computer that backed them up;
     /// unticked elsewhere, where the saved lists may name accounts that don't
     /// exist. Run as you, you own what you restore either way.</summary>
-    [ObservableProperty] private bool _keepPermissions = true;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(PermissionsHelp))] private bool _keepPermissions = true;
     private bool _keepPermissionsChosen;
 
     partial void OnKeepPermissionsChanged(bool value) { if (!_settingKeepPermissions) _keepPermissionsChosen = true; }
@@ -261,8 +275,8 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
         + "Restore to another folder, then move the files with administrator rights if you need them there. Nothing was changed.";
 
     [ObservableProperty] private string _customTargetPath = "";
-    [ObservableProperty] private bool _preserveStructure = true;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(OriginalSourceTargetLabel))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(FoldersHelp))] private bool _preserveStructure = true;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ReplaceHelp))]
     private bool _overwriteExisting = true;
     [ObservableProperty] private int _threads = 4;
 

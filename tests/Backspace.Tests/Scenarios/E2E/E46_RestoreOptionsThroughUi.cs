@@ -68,9 +68,11 @@ public sealed class E46_RestoreOptionsThroughUi : BackupE2EBase
         Assert.Equal(RestoreViewModel.Step.PickTarget, vm.CurrentStep);
         var target = ctx.MakeRestoreTarget("selected-target");
         File.WriteAllText(Path.Combine(target, "keep.txt"), "USER ORIGINAL");
+        await ctx.Driver.PumpAsync(300);
+        Assert.Equal("A file already there is replaced by its backed-up copy. You confirm this before anything is changed.", view.FindControl<TextBlock>("ReplaceHelp")!.Text);
+        ctx.Snapshot(window, "where-and-how-defaults", "The last step as it opens: Back where they came from (its folder below), In another folder; then How: Replace files already there, Keep files in their folders, Keep the files' permissions, each with one line saying what it does as set. Above Restore: 2 files, their size and the backup date.");
         vm.TargetOriginalSource = false;
         Assert.True(ctx.Driver.EnterText(view, "Pick a folder", target));
-        view.FindControl<Expander>("RestoreOptions")!.IsExpanded = true;
         await Toggle("PreserveFoldersOption");
         await Toggle("ReplaceFilesOption");
         Assert.False(vm.PreserveStructure);
@@ -78,6 +80,12 @@ public sealed class E46_RestoreOptionsThroughUi : BackupE2EBase
         // U217: another folder, so the folder's permissions by default.
         Assert.False(vm.KeepPermissions);
         Assert.False(view.FindControl<CheckBox>("KeepPermissionsOption")!.IsChecked);
+        // U217: each choice says what it does, as it is set now.
+        Assert.Equal("A file already there stays as it is, and its backed-up copy is skipped.", view.FindControl<TextBlock>("ReplaceHelp")!.Text);
+        Assert.StartsWith("Every file goes straight into the chosen folder.", view.FindControl<TextBlock>("FoldersHelp")!.Text);
+        Assert.StartsWith("Each file gets the permissions of the folder it lands in", view.FindControl<TextBlock>("PermissionsHelp")!.Text);
+        Assert.True(view.FindControl<Border>("RestoreOptions")!.IsEffectivelyVisible);
+        Assert.StartsWith("2 files (", view.FindControl<TextBlock>("RestoreWhat")!.Text);
         ctx.Snapshot(window, "restore-options-off", "Both options are off. Files should go directly into the selected folder, while existing files stay unchanged. Below, Keep the files' permissions is unticked by default for another folder, with what it means.");
         await PressButton(vm.NextFromTargetCommand);
         await Until(() => vm.CurrentStep == RestoreViewModel.Step.Summary);
