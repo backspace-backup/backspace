@@ -865,8 +865,9 @@
               <ProgressBar IsVisible="{Binding IsWaitingForWork}" IsIndeterminate="True" Height="4"/>
               <Button IsVisible="{Binding IsBusy}" Content="Cancel" Command="{Binding CancelCommand}" Classes="ghost" HorizontalAlignment="Left"/>
               <WrapPanel IsVisible="{Binding IsWaitingForWork}">
-                <Button Name="StopAndUpdate" Classes="primary" Content="Stop it now and update" Command="{Binding StopAndUpdateCommand}" Margin="0,0,10,0"/>
-                <Button Classes="ghost" Content="Don't wait" Command="{Binding CancelWaitingCommand}"/>
+                <Button Name="StopAndUpdate" Classes="primary" Content="Stop it and restart now" Command="{Binding StopAndUpdateCommand}" Margin="0,0,10,0"/>
+                <Button Classes="ghost" Content="Cancel the restart" Command="{Binding CancelWaitingCommand}"
+                        ToolTip.Tip="The update stays downloaded; install it later with Download and restart."/>
               </WrapPanel>
             </StackPanel>
           </Border>

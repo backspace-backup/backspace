@@ -345,16 +345,11 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
     private static async Task<BusyChoice> AskAsync(System.Collections.Generic.IReadOnlyList<string> running, string version)
     {
         var owner = Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: { } window } ? window : null;
-        var one = running.Count == 1;
-        var choice = await new DriveChoiceWindow(
-            $"Update to {version} when {(one ? "it finishes" : "they finish")}?",
-            $"Running now: {Join(running)}. Backspace can restart to {version} by itself as soon as {(one ? "it finishes" : "they finish")}, "
-                + $"or stop {(one ? "it" : "them")} now. A stopped backup runs again at its next time and only sends what changed.",
-            one ? "Update when it finishes" : "Update when they finish", one ? "Stop it and update now" : "Stop them and update now").AskAsync(owner);
+        var choice = await new UpdateBusyWindow(version, running).AskAsync(owner);
         return choice switch
         {
-            DriveChoiceWindow.Choice.UseDrive => BusyChoice.WhenFinished,
-            DriveChoiceWindow.Choice.Decline => BusyChoice.StopNow,
+            UpdateBusyWindow.Choice.WhenDone => BusyChoice.WhenFinished,
+            UpdateBusyWindow.Choice.StopNow => BusyChoice.StopNow,
             _ => BusyChoice.NotNow,
         };
     }

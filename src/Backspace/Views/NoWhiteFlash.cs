@@ -2,7 +2,6 @@ using System;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Threading;
 
 namespace Backspace.Views;
 
@@ -11,8 +10,7 @@ namespace Backspace.Views;
 /// before showing window (dark theme)"). Windows shows a new window before
 /// Backspace has drawn it, as a white rectangle for a moment. Every window is
 /// hidden from view (DWM "cloaked") while it is laid out, and shown once its
-/// first frame is drawn; at most a quarter of a second later in any case, so
-/// a window can never stay invisible.
+/// first frame is drawn, already painted.
 /// </summary>
 internal static class NoWhiteFlash
 {
@@ -45,8 +43,9 @@ internal static class NoWhiteFlash
         window.Opened += (_, _) =>
         {
             // Two frames: the first lays the window out, the second has drawn it.
+            // A cloaked window still renders (only Windows hides it), so these
+            // frames come as they would for any open window.
             window.RequestAnimationFrame(_ => window.RequestAnimationFrame(_ => Show()));
-            DispatcherTimer.RunOnce(Show, TimeSpan.FromMilliseconds(250));
         };
         window.Closed += (_, _) => shown = true;
     }

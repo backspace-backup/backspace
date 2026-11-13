@@ -88,12 +88,10 @@ public sealed class S109_UpdateWhileWorkRuns : ScenarioBase
             Assert.Equal("Backspace 99.0.0 is downloaded. «local_c» backup is still running: choose Download and restart when you're ready; it won't download again.", updates.Status);
 
             // The question itself.
-            var dialog = new DriveChoiceWindow("Update to 99.0.0 when it finishes?",
-                "Running now: «local_c» backup in the background. Backspace can restart to 99.0.0 by itself as soon as it finishes, or stop it now. A stopped backup runs again at its next time and only sends what changed.",
-                "Update when it finishes", "Stop it and update now");
+            var dialog = new UpdateBusyWindow("99.0.0", new[] { "«local_c» backup in the background", "«local_d» check in the background" });
             ctx.Driver.Show(dialog);
             await ctx.Driver.PumpAsync(150);
-            ctx.Snapshot(dialog, "the question", "Asked when Download and restart meets a running backup: Update when it finishes (default), Stop it and update now, Not now.");
+            ctx.Snapshot(dialog, "the question", "Asked when Download and restart meets running work: Restart to install Backspace 99.0.0?, the two running items each with the turning icon, why stopping is safe, then Not now, Stop them and restart now, Restart when done (default).");
             dialog.Close();
         }
         finally { WindowsUpdateViewModel.WaitPoll = poll; }
