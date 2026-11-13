@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -9,18 +10,32 @@ using Backspace.Models;
 
 namespace Backspace.Services;
 
-/// <summary>Static status badge; no idle animation or polling timer.</summary>
+/// <summary>
+/// The tray icon with its status badge; no idle animation or polling timer.
+/// Sharp at every display scale (U241, owner: "ensure we're using retina
+/// quality icons"): each size Windows may ask for (16 px at 100 % up to 64 px
+/// at 400 %) is drawn on its own from the 256 px artwork, and handed over as
+/// one multi-size icon, so Windows never enlarges or squeezes a single image.
+/// </summary>
 internal sealed class TrayStatusPresenter
 {
+    /// <summary>The sizes in the icon: the tray's 16 px at 100 %, 125 %,
+    /// 150 %, 175 %, 200 %, 250 %, 300 % and 400 %.</summary>
+    internal static readonly int[] Sizes = [16, 20, 24, 28, 32, 40, 48, 64];
+
     private readonly Dictionary<string, WindowIcon> _icons = new();
-    internal static RenderTargetBitmap RenderIcon(AccentColor accent, ScheduleReadiness state, bool busy)
+
+    /// <summary>The badge drawn at <paramref name="size"/> pixels square.</summary>
+    internal static RenderTargetBitmap RenderIcon(AccentColor accent, ScheduleReadiness state, bool busy, int size = 64)
     {
-        var output = new RenderTargetBitmap(new PixelSize(64, 64), new Vector(96, 96));
-        using var stream = AssetLoader.Open(new Uri($"avares://Backspace/Assets/Backspace-{accent}.ico"));
-        using var source = new Bitmap(stream);
+        var output = new RenderTargetBitmap(new PixelSize(size, size), new Vector(96, 96));
+        using var source = LargestFrame(accent);
         using (var dc = output.CreateDrawingContext())
         {
-            dc.DrawImage(source, new Rect(0, 0, 64, 64));
+            using (dc.PushRenderOptions(new RenderOptions { BitmapInterpolationMode = BitmapInterpolationMode.HighQuality }))
+                dc.DrawImage(source, new Rect(0, 0, size, size));
+            // Drawn on a 64-unit grid, scaled to the size.
+            using var scale = dc.PushTransform(Matrix.CreateScale(size / 64.0, size / 64.0));
             var color = busy ? "#2563EB" : state switch {
                 ScheduleReadiness.Ready => "#15803D", ScheduleReadiness.Attention => "#B45309",
                 ScheduleReadiness.Paused => "#B45309", _ => "#64748B" };
@@ -35,13 +50,61 @@ internal sealed class TrayStatusPresenter
         return output;
     }
 
+    /// <summary>The accent's artwork at its largest (256 px), whatever frame a
+    /// decoder would pick from the .ico by itself.</summary>
+    internal static Bitmap LargestFrame(AccentColor accent)
+    {
+        using var stream = AssetLoader.Open(new Uri($"avares://Backspace/Assets/Backspace-{accent}.ico"));
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        var ico = memory.ToArray();
+        var count = BitConverter.ToUInt16(ico, 4);
+        int best = -1, bestSize = 0;
+        for (var i = 0; i < count; i++)
+        {
+            var at = 6 + i * 16;
+            var width = ico[at] == 0 ? 256 : ico[at];
+            if (width > bestSize) { bestSize = width; best = at; }
+        }
+        if (best < 0) { memory.Position = 0; return new Bitmap(memory); }
+        var length = BitConverter.ToInt32(ico, best + 8);
+        var offset = BitConverter.ToInt32(ico, best + 12);
+        return new Bitmap(new MemoryStream(ico, offset, length, writable: false));
+    }
+
+    /// <summary>One .ico holding every size, each drawn at its own size (PNG frames).</summary>
+    internal static byte[] RenderIconFile(AccentColor accent, ScheduleReadiness state, bool busy)
+    {
+        var frames = new List<byte[]>();
+        foreach (var size in Sizes)
+        {
+            using var bitmap = RenderIcon(accent, state, busy, size);
+            using var png = new MemoryStream();
+            bitmap.Save(png);
+            frames.Add(png.ToArray());
+        }
+        using var ico = new MemoryStream();
+        using var w = new BinaryWriter(ico);
+        w.Write((ushort)0); w.Write((ushort)1); w.Write((ushort)frames.Count);
+        var offset = 6 + 16 * frames.Count;
+        for (var i = 0; i < frames.Count; i++)
+        {
+            w.Write((byte)Sizes[i]); w.Write((byte)Sizes[i]); w.Write((byte)0); w.Write((byte)0);
+            w.Write((ushort)1); w.Write((ushort)32); w.Write(frames[i].Length); w.Write(offset);
+            offset += frames[i].Length;
+        }
+        foreach (var frame in frames) w.Write(frame);
+        w.Flush();
+        return ico.ToArray();
+    }
+
     internal void Apply(TrayIcon icon, TrayScheduleStatus status, AccentColor accent, bool busy)
     {
         var key = $"{accent}/{status.State}/{busy}";
         if (!_icons.TryGetValue(key, out var image))
         {
-            using var bitmap = RenderIcon(accent,status.State,busy);
-            image = new WindowIcon(bitmap); _icons.Add(key,image);
+            image = new WindowIcon(new MemoryStream(RenderIconFile(accent, status.State, busy)));
+            _icons.Add(key, image);
         }
         icon.Icon = image;
         icon.ToolTipText = "Backspace · " + (busy ? "Work in progress · " : "") + status.Title;
