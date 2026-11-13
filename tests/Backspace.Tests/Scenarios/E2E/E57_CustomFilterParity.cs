@@ -103,7 +103,8 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         Assert.StartsWith(DuplicacyFilterConverter.RunHeader1, converted.FiltersText);
         Assert.Contains("# was: e:(?i)^Applications/Duplicacy/", converted.FiltersText);
         Assert.Contains(top.Replace("/restic-syntax", "/Dropbox") + "/Applications/Duplicacy/*", converted.FiltersText);
-        Assert.Contains(RecommendedFilters.EssentialsHeading, converted.FiltersText);
+        // The recommended block comes with a conversion on Windows, where Duplicacy setups come from.
+        if (OperatingSystem.IsWindows()) Assert.Contains(RecommendedFilters.EssentialsHeading, converted.FiltersText);
         Assert.DoesNotContain("\\ne:(?i)", File.ReadAllText(AppPaths.ConfigFile));
         ctx.Driver.Pump();
         await Check(ctx, view, destination, null, dropbox, converted.FiltersText, kept3, omitted3, converted);
