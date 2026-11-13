@@ -8,6 +8,13 @@
              x:DataType="vm:SettingsViewModel"
              Background="{DynamicResource BS.Brush.BgBase}">
 
+  <UserControl.Styles>
+    <!-- The update's quiet status; an amber notice when it needs you (U238). -->
+    <Style Selector="Border.update-status:not(.warn)">
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.BgBase}"/>
+    </Style>
+  </UserControl.Styles>
+
   <!-- Always-visible scrollbar so users never miss that there's
        more below the fold — earlier `Auto` (the default) only
        showed the scrollbar while actively scrolling, easy to miss
@@ -843,11 +850,24 @@
             </StackPanel>
             <ComboBox Grid.Column="2" ItemsSource="{Binding Frequencies}" SelectedItem="{Binding Frequency}" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
           </Grid>
-          <Border CornerRadius="8" Padding="14" Background="{DynamicResource BS.Brush.BgBase}">
+          <!-- Something to act on (an update waiting for running work, U238)
+               is an amber notice with what to do; otherwise a quiet status. -->
+          <Border Name="UpdateStatus" CornerRadius="8" Padding="14" Classes="update-status"
+                  Classes.notice="{Binding StatusIsWarning}" Classes.warn="{Binding StatusIsWarning}">
             <StackPanel Spacing="10">
-              <TextBlock Classes="body" Text="{Binding Status}" TextWrapping="Wrap"/>
+              <Grid ColumnDefinitions="Auto,*">
+                <Border Classes="notice-glyph" IsVisible="{Binding StatusIsWarning}" Margin="0,0,12,0" VerticalAlignment="Top">
+                  <PathIcon Classes="status-icon warn"/>
+                </Border>
+                <TextBlock Grid.Column="1" Name="UpdateStatusText" Classes="body" Text="{Binding Status}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+              </Grid>
               <ProgressBar IsVisible="{Binding IsDownloading}" Value="{Binding Progress}" Minimum="0" Maximum="100" Height="6"/>
+              <ProgressBar IsVisible="{Binding IsWaitingForWork}" IsIndeterminate="True" Height="4"/>
               <Button IsVisible="{Binding IsBusy}" Content="Cancel" Command="{Binding CancelCommand}" Classes="ghost" HorizontalAlignment="Left"/>
+              <WrapPanel IsVisible="{Binding IsWaitingForWork}">
+                <Button Name="StopAndUpdate" Classes="primary" Content="Stop it now and update" Command="{Binding StopAndUpdateCommand}" Margin="0,0,10,0"/>
+                <Button Classes="ghost" Content="Don't wait" Command="{Binding CancelWaitingCommand}"/>
+              </WrapPanel>
             </StackPanel>
           </Border>
           <StackPanel IsVisible="{Binding HasUpdate}" Spacing="12">

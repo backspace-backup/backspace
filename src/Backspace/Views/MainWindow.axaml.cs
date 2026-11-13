@@ -428,7 +428,7 @@ public partial class MainWindow : Window
             if (_shutdownAdmission is null)
                 ServiceLocator.Maintenance.TryBeginShutdown(out _shutdownAdmission);
             // Each stopped run records how it ended before Backspace exits (U126).
-            await ServiceLocator.Orchestrator.CancelAndRecordRunsAsync(CancelEverything, TimeSpan.FromSeconds(5), "Backspace was force quit");
+            await ServiceLocator.Orchestrator.CancelAndRecordRunsAsync(() => CancelEverything(), TimeSpan.FromSeconds(5), "Backspace was force quit");
             // End this instance's restic runs at once, with everything they
             // started (U175); Windows also owns their process job.
             ResticRunner.EndAll();
@@ -540,10 +540,53 @@ public partial class MainWindow : Window
         }
     }
 
-    internal static void CancelEverything()
+    /// <summary>What runs now, in words, for the update's question (U238):
+    /// "«local_c» backup", "a restore", "«local_d» check in the background".</summary>
+    internal static System.Collections.Generic.IReadOnlyList<string> DescribeRunningWork()
+    {
+        var items = new System.Collections.Generic.List<string>();
+        var backups = ServiceLocator.Config.Current.Backups;
+        string Name(string id) => backups.FirstOrDefault(b => b.Id == id)?.Name is { } n ? "«" + n + "»" : "a backup";
+        foreach (var id in ServiceLocator.Orchestrator.SnapshotRunningBackupIds()) items.Add(Name(id) + " backup");
+        if (ServiceLocator.ActiveRestores.HasRunning) items.Add("a restore");
+        if (ServiceLocator.SnapshotMounts?.HasPendingOperations == true) items.Add("a snapshot being mounted");
+        if (ServiceLocator.Maintenance.IsActive || ServiceLocator.Maintenance.HasReaders) items.Add("storage maintenance");
+#if WINDOWS
+        var activity = ServiceLocator.BackgroundActivity?.Current;
+        var runs = activity?.Runs is { Length: > 0 } list ? list : activity is null ? [] : [activity];
+        foreach (var run in runs.Where(r => r.State is "starting" or "running" or "stopping" && r.BackupId is not null))
+            items.Add(Name(run.BackupId!) + (run.Operation switch { "check" => " check", "prune" => " cleanup", _ => " backup" }) + " in the background");
+#endif
+        if (items.Count == 0 && ServiceHasRunningTasks()) items.Add("work in the background");
+        return items.Distinct().ToList();
+    }
+
+    /// <summary>Stops what runs, for an update (U238): this app's work and the
+    /// background service's runs, then waits up to a minute for them to end.</summary>
+    internal static async System.Threading.Tasks.Task StopWorkForUpdateAsync()
+    {
+        CancelEverything("Stopped for an update");
+#if WINDOWS
+        if (ServiceLocator.BackgroundActivity is { } monitor && monitor.Current is { } activity)
+        {
+            var runs = activity.Runs is { Length: > 0 } list ? list : [activity];
+            foreach (var run in runs.Where(r => r.State is "starting" or "running" && r.RunId is not null))
+            {
+                using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
+                try { await monitor.CancelAsync(run.RunId!, timeout.Token); }
+                catch (Exception ex) { AppLogger.For<MainWindow>().Warning(ex, "Could not stop a background run for the update"); }
+            }
+        }
+#endif
+        var deadline = DateTime.UtcNow.AddMinutes(1);
+        while (HasAnyRunningOperation() && DateTime.UtcNow < deadline)
+            await System.Threading.Tasks.Task.Delay(250);
+    }
+
+    internal static void CancelEverything(string reason = "User quit Backspace")
     {
         foreach (var id in ServiceLocator.Orchestrator.SnapshotRunningBackupIds())
-            ServiceLocator.Orchestrator.CancelRun(id, "User quit Backspace");
+            ServiceLocator.Orchestrator.CancelRun(id, reason);
         ServiceLocator.ActiveRestores.CancelAll();
         ServiceLocator.SnapshotMounts?.CancelPending();
         ServiceLocator.Maintenance.CancelReaders();

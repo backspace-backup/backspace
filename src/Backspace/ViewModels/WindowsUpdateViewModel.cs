@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -23,6 +24,23 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(30) };
     private readonly HttpClient _http;
     private readonly Func<Action, bool> _requestRestart;
+
+    /// <summary>What to do when work runs as the update is ready (U238).</summary>
+    internal enum BusyChoice { NotNow, WhenFinished, StopNow }
+
+    /// <summary>What runs now, in words ("«local_c» backup"); empty when nothing does. Replaceable in tests.</summary>
+    internal Func<System.Collections.Generic.IReadOnlyList<string>> RunningWork { get; set; } = MainWindow.DescribeRunningWork;
+    /// <summary>Stops what runs, for the update. Replaceable in tests.</summary>
+    internal Func<Task> StopWork { get; set; } = MainWindow.StopWorkForUpdateAsync;
+    /// <summary>Asks what to do while work runs. Replaceable in tests.</summary>
+    internal Func<System.Collections.Generic.IReadOnlyList<string>, string, Task<BusyChoice>> AskWhenBusy { get; set; } = AskAsync;
+    internal static TimeSpan WaitPoll = TimeSpan.FromSeconds(5);
+    private CancellationTokenSource? _waiting;
+
+    /// <summary>The update waits for work to finish, then restarts by itself (U238).</summary>
+    [ObservableProperty] private bool _isWaitingForWork;
+    /// <summary>The status is something to act on: drawn as an amber notice.</summary>
+    [ObservableProperty] private bool _statusIsWarning;
     private WindowsUpdatePackage.Release? _release;
     private WindowsUpdatePackage.Plan? _prepared;
     private CancellationTokenSource? _operation;
@@ -83,7 +101,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(FooterTooltip));
     }
 
-    public bool CanDownload => HasUpdate && !IsBusy && InstallAvailable;
+    public bool CanDownload => HasUpdate && !IsBusy && InstallAvailable && !IsWaitingForWork;
     public bool CanSkip => HasUpdate && !IsBusy;
 
     public WindowsUpdateViewModel() : this(Http, RequestRestart) { }
@@ -92,7 +110,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
         _http = http; _requestRestart = restart;
         var available = WindowsUpdateRuntime.CanInstall(out var why);
         InstallAvailable = installAvailable ?? available;
-        InstallExplanation = InstallAvailable ? "Your settings stay in place. Active backups and restores must finish first; mounted snapshots will close when the app restarts." : why;
+        InstallExplanation = InstallAvailable ? "Your settings stay in place. Mounted snapshots close when Backspace restarts." : why;
         _loading = true;
         Frequency = NormalizeFrequency(ServiceLocator.Config.Current.Preferences.UpdateCheckFrequency);
         _loading = false;
@@ -120,6 +138,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
         if (_started) ScheduleNext();
     }
     partial void OnIsBusyChanged(bool value) => UpdateButtons();
+    partial void OnIsWaitingForWorkChanged(bool value) => UpdateButtons();
     partial void OnHasUpdateChanged(bool value) { UpdateButtons(); RaiseFooter(); }
     private void UpdateButtons()
     {
@@ -208,15 +227,137 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
                     new Progress<double>(p => Progress = p * 100), _operation.Token);
             }
             Status = "The update is ready. Checking that Backspace can restart safely…";
-            var plan = _prepared;
-            if (!_requestRestart(() => WindowsUpdateRuntime.Pending = plan))
-                Status = "The download is ready. Finish active backups, restores or maintenance, then choose Download and restart again. It won’t download twice.";
+            StatusIsWarning = false;
+            await RestartWhenPossibleAsync(release.Version.ToString());
         }
         catch (OperationCanceledException) { Status = "Download cancelled. Your installed version has not changed."; }
         catch (Exception ex) { Status = "The update was not installed. " + ex.Message; }
         finally { _operation?.Dispose(); _operation = null; IsDownloading = false; IsBusy = false; ScheduleNext(); }
     }
+    /// <summary>Restarts into the downloaded update, or, while work runs, says
+    /// what runs and offers to wait for it or stop it (U238).</summary>
+    internal async Task RestartWhenPossibleAsync(string version)
+    {
+        if (!TryRestart())
+        {
+            // Something runs (U238): say what, and offer to wait for it or stop it.
+            var running = RunningWork();
+            if (running.Count == 0)
+            {
+                Status = $"Backspace {version} is downloaded, but Backspace can't restart yet: storage maintenance must finish first. Choose Download and restart again later; it won't download again.";
+                StatusIsWarning = true;
+            }
+            else switch (await AskWhenBusy(running, version))
+            {
+                case BusyChoice.StopNow:
+                    Status = $"Stopping {Join(running)}…";
+                    await StopWork();
+                    if (!TryRestart()) StartWaiting(version);
+                    break;
+                case BusyChoice.WhenFinished:
+                    StartWaiting(version);
+                    break;
+                default:
+                    Status = $"Backspace {version} is downloaded. {Capitalize(Join(running))} {(running.Count == 1 ? "is" : "are")} still running: choose Download and restart when you're ready; it won't download again.";
+                    StatusIsWarning = true;
+                    break;
+            }
+        }
+    }
+
+    /// <summary>Tests: an update already downloaded.</summary>
+    internal void UsePrepared(WindowsUpdatePackage.Plan plan) => _prepared = plan;
+
     [RelayCommand] private void Cancel() => _operation?.Cancel();
+
+    private bool TryRestart()
+    {
+        var plan = _prepared;
+        return plan is not null && _requestRestart(() => WindowsUpdateRuntime.Pending = plan);
+    }
+
+    /// <summary>Waits for the work to finish, then restarts (U238).</summary>
+    private void StartWaiting(string version)
+    {
+        _waiting?.Cancel();
+        var waiting = _waiting = new CancellationTokenSource();
+        IsWaitingForWork = true;
+        StatusIsWarning = true;
+        void Say()
+        {
+            var running = RunningWork();
+            Status = running.Count == 0
+                ? $"Restarting to Backspace {version}…"
+                : $"Waiting for {Join(running)} to finish. Backspace then restarts to {version} by itself.";
+        }
+        Say();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!waiting.IsCancellationRequested)
+                {
+                    await Task.Delay(WaitPoll, waiting.Token);
+                    var restarted = await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (waiting.IsCancellationRequested) return true;
+                        if (TryRestart()) { IsWaitingForWork = false; return true; }
+                        Say();
+                        return false;
+                    });
+                    if (restarted) return;
+                }
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
+
+    /// <summary>Stops waiting: the update stays downloaded.</summary>
+    [RelayCommand]
+    private void CancelWaiting()
+    {
+        _waiting?.Cancel();
+        IsWaitingForWork = false;
+        StatusIsWarning = false;
+        Status = "The update stays downloaded. Choose Download and restart when you're ready; it won't download again.";
+    }
+
+    /// <summary>Stops what runs now and restarts (U238).</summary>
+    [RelayCommand]
+    private async Task StopAndUpdate()
+    {
+        if (_release is not { } release) return;
+        Status = $"Stopping {Join(RunningWork())}…";
+        await StopWork();
+        if (TryRestart()) return;
+        StartWaiting(release.Version.ToString());
+    }
+
+    internal static string Join(System.Collections.Generic.IReadOnlyList<string> items) => items.Count switch
+    {
+        0 => "",
+        1 => items[0],
+        _ => string.Join(", ", items.Take(items.Count - 1)) + " and " + items[^1],
+    };
+
+    private static string Capitalize(string text) => text.Length == 0 || char.IsUpper(text[0]) || text[0] == '«' ? text : char.ToUpperInvariant(text[0]) + text[1..];
+
+    private static async Task<BusyChoice> AskAsync(System.Collections.Generic.IReadOnlyList<string> running, string version)
+    {
+        var owner = Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: { } window } ? window : null;
+        var one = running.Count == 1;
+        var choice = await new DriveChoiceWindow(
+            $"Update to {version} when {(one ? "it finishes" : "they finish")}?",
+            $"Running now: {Join(running)}. Backspace can restart to {version} by itself as soon as {(one ? "it finishes" : "they finish")}, "
+                + $"or stop {(one ? "it" : "them")} now. A stopped backup runs again at its next time and only sends what changed.",
+            one ? "Update when it finishes" : "Update when they finish", one ? "Stop it and update now" : "Stop them and update now").AskAsync(owner);
+        return choice switch
+        {
+            DriveChoiceWindow.Choice.UseDrive => BusyChoice.WhenFinished,
+            DriveChoiceWindow.Choice.Decline => BusyChoice.StopNow,
+            _ => BusyChoice.NotNow,
+        };
+    }
     [RelayCommand(CanExecute = nameof(CanSkip))]
     private void SkipVersion()
     {
@@ -234,5 +375,5 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
     }
     private static bool RequestRestart(Action prepare) => Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: MainWindow window }
         && window.TryQuitForUpdate(prepare);
-    public void Dispose() { _disposed = true; _timer?.Dispose(); _operation?.Cancel(); }
+    public void Dispose() { _disposed = true; _timer?.Dispose(); _operation?.Cancel(); _waiting?.Cancel(); }
 }
