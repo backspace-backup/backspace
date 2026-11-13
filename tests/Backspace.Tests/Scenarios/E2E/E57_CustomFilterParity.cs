@@ -63,6 +63,8 @@ public sealed class E57_CustomFilterParity(ITestOutputHelper output) : BackupE2E
         var omitted2 = new[] { "cache/x.bin", "Chrome/History", "Chrome/Cache/data", "$money/x.txt", "env-" + user + "/x.txt",
             "Deep/a/b/drop.me", "Deep/drop.me", "Folder/inside.txt", "notes/Folder", "scratch.TMP",
             "Twin/a/node_modules/x", "Twin/b/node_modules/d/y", "Twin/c/d/node_modules/z" };
+        // *.tmp ignores case only on Windows: elsewhere scratch.TMP stays, as restic does.
+        if (!OperatingSystem.IsWindows()) { kept2 = [.. kept2, "scratch.TMP"]; omitted2 = omitted2.Where(o => o != "scratch.TMP").ToArray(); }
         await Write(syntax, kept2.Where(k => k != "cache").Concat(omitted2));
         var rules2 = string.Join("\n",
             "# restic's own syntax (U151)",
