@@ -126,6 +126,9 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         // Stopped with the card's Stop (U205).
         var stop = main.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "StopButton" && b.IsEffectivelyVisible);
         var atStop = $"{(DateTime.UtcNow - cancel.StartedUtc).TotalSeconds:0.0} s in, {cancel.BytesRestored:N0} of {cancel.TotalBytes:N0} bytes, running {cancel.IsRunning}";
+        var stopAt = stop.TranslatePoint(new Point(stop.Bounds.Width / 2, stop.Bounds.Height / 2), main)!.Value;
+        var hit = main.InputHitTest(stopAt) as Avalonia.Visual;
+        atStop += $", the click lands on {hit?.GetType().Name} {(hit as Control)?.Name} (in the Stop button: {hit is not null && (ReferenceEquals(hit, stop) || hit.GetVisualAncestors().Contains(stop))})";
         Click(main, stop);
         await cancel.Completion.WaitAsync(deadline.Token); await Settled(); await ctx.Driver.PumpAsync(150);
         Assert.True(cancel.Status == RestoreTerminalStatus.Cancelled, $"{cancel.Status} after Stop at {atStop}; then {cancel.Detail} | {cancel.ErrorMessage}");
