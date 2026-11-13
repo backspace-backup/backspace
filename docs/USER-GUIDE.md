@@ -185,18 +185,23 @@ then runs again as soon as it is.
 They apply to the backup, its cleanup and its checks. A check can have its
 own instead: untick **Same conditions as the backup** in its entry.
 
-A run you start yourself (**Run now**, **Verify**) while its conditions aren't
-met asks first: on battery, "«local_c» runs only on AC power". **Run when
-plugged in** (or when unmetered, or when connected) queues it: the card says
+A run you start yourself (**Run now**, **Verify**) while a condition isn't
+met asks first, listing each one on its own: on battery, **Run on battery
+anyway**; on a metered connection, **Use this metered connection anyway**.
+What you tick is ignored until that run ends; nothing else is. What you leave
+unticked holds the run back: **Run when ready** queues it, the card says
 Queued, its hover "waiting for AC power since 14:02", and it starts by itself
-as soon as the condition is met while Backspace is open; **Stop** ends the
-wait. **Run now anyway** runs it fully, cloud included, and nothing stops it
-if the computer is unplugged or the connection becomes metered. A backup
-with a drive and a cloud destination on a metered connection asks whether to
-back up the drive now and leave the cloud for its next backup, or everything
-now. When the conditions are met, nothing is asked, and the run follows them
-like a scheduled one: unplugged, it stops and starts again by itself once
-plugged in.
+once the condition is met. The queue is kept in Backspace.config, so it
+survives closing the window and restarting Backspace or Windows; **Stop** on
+the card cancels it. A backup with a drive and a cloud destination is backed
+up to the drive now either way: only its cloud part waits for an unmetered
+connection.
+
+A run you started pauses if a condition you didn't ignore stops holding while
+it runs: unplugged, it stops; on a metered connection, its cloud part waits.
+Backspace says so in a notification: click it to continue anyway until the
+run ends, or let it wait, and it runs again by itself once the condition is
+met. A backup only sends what changed.
 
 There is no setting for the internet. A backup with a destination on this
 computer and one in the cloud backs up the local one on schedule, even when

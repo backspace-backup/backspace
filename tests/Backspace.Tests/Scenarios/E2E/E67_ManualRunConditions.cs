@@ -38,12 +38,12 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
         ServiceLocator.Config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(dest); });
 
         var onBattery = true;
-        var asked = new System.Collections.Generic.List<ManualRunConditions.Question>();
-        var answer = ManualRunConditions.Choice.WhenAllowed;
+        var asked = new System.Collections.Generic.List<ManualRunConditions.Assessment>();
+        ManualRunConditions.Decision? answer = ManualRunConditions.Decision.None; // "Run when ready"
         var (battery, poll) = (ManualRunConditions.OnBattery, ManualRunConditions.Poll);
         ManualRunConditions.OnBattery = () => onBattery;
         ManualRunConditions.Poll = TimeSpan.FromMilliseconds(200);
-        ManualRunConditions.AskOverride = q => { asked.Add(q); return Task.FromResult(answer); };
+        ManualRunConditions.AskOverride = (_, _, a) => { asked.Add(a); return Task.FromResult(answer); };
         try
         {
             using var mainVm = new MainWindowViewModel();
@@ -57,10 +57,11 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             var run = vm.RunNowCommand.ExecuteAsync(card);
             Assert.True(ctx.Driver.WaitFor(() => card.IsQueued, 5000), "The run was not queued.");
             var question = Assert.Single(asked);
-            Assert.Equal("«local_c» runs only on AC power", question.Title);
-            Assert.Equal("Run when plugged in", question.WaitLabel);
-            Assert.Equal("Run now anyway", question.AnywayLabel);
-            Assert.Contains("not stopped if the computer is unplugged", question.Body);
+            Assert.Equal(new[] { ManualRunConditions.Condition.Battery }, question.Unmet);
+            // Kept in Backspace.config, so a restart doesn't lose it (owner: "people will not keep the app open").
+            var saved = Assert.Single(QueuedManualRuns.Load());
+            Assert.Equal(backup.Id, saved.BackupId);
+            Assert.False(saved.WaiveBattery);
             Assert.StartsWith("waiting for AC power since ", card.QueuedReason);
             Assert.Equal("Queued", card.LastRunLabel);
             Assert.Empty(ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id));
@@ -77,6 +78,7 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             var record = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).OrderByDescending(r => r.StartedUtc).FirstOrDefault();
             Assert.NotNull(record);
             Assert.Equal(BackupRunStatus.Success, record!.Status);
+            Assert.Empty(QueuedManualRuns.Load());
             await ctx.Driver.PumpAsync(200);
             Assert.False(mainVm.BackupsActive);
 
@@ -92,7 +94,7 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             Assert.Single(ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id));
 
             // Not now: nothing.
-            answer = ManualRunConditions.Choice.NotNow;
+            answer = null; // Not now
             await vm.RunNowCommand.ExecuteAsync(card);
             Assert.False(card.IsRunning);
             Assert.Single(ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id));
@@ -100,7 +102,7 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             // Plugged in: nothing is asked.
             onBattery = false;
             asked.Clear();
-            answer = ManualRunConditions.Choice.WhenAllowed;
+            answer = ManualRunConditions.Decision.None;
             await vm.RunNowCommand.ExecuteAsync(card);
             Assert.Empty(asked);
             Assert.Equal(2, ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Count);
@@ -130,13 +132,43 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             Assert.Equal(before + 2, ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Count);
             Assert.Equal(BackupRunStatus.Success, resumed.Status);
 
+            // Queued, then Backspace restarted: it waits again and runs by itself.
+            onBattery = true;
+            QueuedManualRuns.Add(new(backup.Id, null, false, false, DateTime.UtcNow.AddMinutes(-30)));
+            var count = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Count;
+            using (var again = new MainWindowViewModel())
+            {
+                var reopened = ctx.Driver.Show(new MainWindow { DataContext = again, Width = 1100, Height = 760 });
+                var resumed2 = again.Backups.Cards.Single(c => c.Id == backup.Id);
+                Assert.True(ctx.Driver.WaitFor(() => resumed2.IsQueued, 5000), "The queued run did not resume after a restart.");
+                Assert.StartsWith("waiting for AC power since ", resumed2.QueuedReason);
+                onBattery = false;
+                Assert.True(ctx.Driver.WaitFor(() => ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).Count > count, 60000), "The resumed run did not start.");
+                Assert.True(ctx.Driver.WaitFor(() => !resumed2.IsRunning, 60000));
+                reopened.Close();
+            }
+            Assert.Empty(QueuedManualRuns.Load());
+
             // The question itself.
-            var dialog = new DriveChoiceWindow(question.Title, question.Body, question.WaitLabel, question.AnywayLabel);
+            var both = new ManualRunConditions.Assessment([ManualRunConditions.Condition.Battery, ManualRunConditions.Condition.Metered], true, ["Google Drive"]);
+            var dialog = new RunConditionsWindow("local_c", false, both);
             ctx.Driver.Show(dialog);
             await ctx.Driver.PumpAsync(150);
+            var go = dialog.GetVisualDescendants().OfType<Avalonia.Controls.Button>().Single(b => b.Name == "RunConditionsGo");
+            Assert.Equal("Run when ready", go.Content);
             ctx.Snapshot(dialog, "the question",
-                "\"«local_c» runs only on AC power\": the computer is on battery; Run when plugged in (default), Run now anyway (not stopped if unplugged), Not now.");
+                "Both conditions unmet: each listed on its own (on battery; metered, where the drive is backed up now either way and only Google Drive waits), each with its own 'anyway'. The main button says Run when ready.");
+            dialog.GetVisualDescendants().OfType<Avalonia.Controls.CheckBox>().Single(b => b.Name == "WaiveBattery").IsChecked = true;
+            await ctx.Driver.PumpAsync(100);
+            // The metered connection alone doesn't hold back a backup with a drive: it runs now.
+            Assert.Equal("Run now", go.Content);
             dialog.Close();
+            // Each decided on its own.
+            Assert.Equal(new[] { ManualRunConditions.Condition.Battery }, ManualRunConditions.Blocking(both, ManualRunConditions.Decision.None));
+            Assert.Empty(ManualRunConditions.Blocking(both, new(WaiveBattery: true, WaiveMetered: false)));
+            var cloudOnly = both with { LocalAlsoRuns = false };
+            Assert.Equal(new[] { ManualRunConditions.Condition.Metered }, ManualRunConditions.Blocking(cloudOnly, new(WaiveBattery: true, WaiveMetered: false)));
+            Assert.Empty(ManualRunConditions.Blocking(cloudOnly, new(WaiveBattery: true, WaiveMetered: true)));
         }
         finally
         {
