@@ -167,6 +167,10 @@ public class ScreenshotDiffTests
             return;
         }
         var diff = Diff(baselinePath, currentPath, diffDir, name);
+        // The references are Windows renders: Linux and macOS draw text with
+        // their own fonts, so there the screenshot is kept to look at, with
+        // its difference, but not compared (U235).
+        if (!OperatingSystem.IsWindows()) return;
         Assert.True(diff.Fraction <= MaxDiffFraction,
             $"Fresh screenshot regression: {name}: {diff.Fraction:P2} pixels differ; inspect {diff.DiffPath}.");
     }
