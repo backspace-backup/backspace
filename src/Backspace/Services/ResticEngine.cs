@@ -1063,17 +1063,24 @@ public sealed partial class ResticEngine : IBackupEngine
         if (!result.StartsWith(fullRoot, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             throw new InvalidOperationException("Restore path escapes its destination.");
         for (var parent = Path.GetDirectoryName(result); parent is not null && parent.Length >= fullRoot.Length; parent = Path.GetDirectoryName(parent))
-            if (Directory.Exists(parent) && (File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
+            if (Directory.Exists(parent) && (File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0 && !IsSystemLink(parent))
                 throw new IOException($"Cannot restore through the linked folder {parent}. Choose an ordinary folder as the destination.");
         return result;
     }
+
+    /// <summary>macOS's own links at the top of the disk (/var, /tmp and /etc
+    /// lead into /private): every temporary folder is under one, so they are
+    /// not a link someone chose (U235: every restore to a temporary folder
+    /// failed on macOS).</summary>
+    internal static bool IsSystemLink(string path) => OperatingSystem.IsMacOS()
+        && path.TrimEnd('/') is "/var" or "/tmp" or "/etc";
 
     internal static void ValidateRestoreTarget(string target)
     {
         // Check the target AND every existing ancestor before creating staging.
         // Checking only descendants misses a junction chosen as the target.
         for (var path = Path.GetFullPath(target); path is not null; path = Path.GetDirectoryName(path))
-            if (Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            if (Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0 && !IsSystemLink(path))
                 throw new IOException($"Cannot restore through the linked folder {path}. Choose an ordinary folder as the destination.");
     }
 

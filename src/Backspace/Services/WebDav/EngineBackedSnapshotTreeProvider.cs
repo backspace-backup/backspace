@@ -325,7 +325,7 @@ public sealed class EngineBackedSnapshotTreeProvider : ISnapshotTreeProvider, ID
         // A restored link points at today's local filesystem, not the chosen
         // snapshot's bytes. Never follow it while presenting a read-only backup.
         for (var current = Path.GetFullPath(path); current is not null; current = Path.GetDirectoryName(current))
-            if (Path.Exists(current) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+            if (Path.Exists(current) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0 && !ResticEngine.IsSystemLink(current))
                 throw new IOException("This snapshot contains a linked file or folder. Backspace cannot open links from a mounted backup because they may point outside the snapshot. Use Restore to recover the link itself.");
         return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: false);
     }
