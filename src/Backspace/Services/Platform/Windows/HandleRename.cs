@@ -19,7 +19,7 @@ namespace Backspace.Services.Platform.Windows;
 [SupportedOSPlatform("windows")]
 internal static class HandleRename
 {
-    private const uint ReadAttributes = 0x0080, DeleteAccess = 0x00010000, Synchronize = 0x00100000;
+    private const uint ReadAttributes = 0x0080, WriteAttributes = 0x0100, DeleteAccess = 0x00010000, Synchronize = 0x00100000;
     private const uint ShareAll = 0x7, ShareRead = 0x1, ShareWrite = 0x2, OpenExisting = 3, GenericRead = 0x80000000;
     private const uint OpenReparsePoint = 0x00200000, BackupSemantics = 0x02000000;
     private const uint ReparsePointAttribute = 0x400, DirectoryAttribute = 0x10;
@@ -74,7 +74,7 @@ internal static class HandleRename
         var expectedSource = Inside(root, source) ? Expected(root, rootLocation, source) : Path.GetFullPath(source);
         var parent = Path.GetDirectoryName(Path.GetFullPath(destination))!;
         var expectedParent = Expected(root, rootLocation, parent);
-        using var item = Open(source, DeleteAccess | ReadAttributes | Synchronize)
+        using var item = Open(source, DeleteAccess | ReadAttributes | WriteAttributes | Synchronize)
             ?? throw new FileNotFoundException("The restored item is missing.", source);
         if (!SamePath(ExactPathDelete.FinalPath(item), expectedSource))
             throw new IOException($"{source} no longer leads into the restore folder; it was left in place.");
@@ -83,7 +83,12 @@ internal static class HandleRename
         RequireOrdinaryFolder(folder, parent);
         if (!SamePath(ExactPathDelete.FinalPath(folder), expectedParent))
             throw new IOException($"{parent} no longer leads into the restore folder; nothing was moved there.");
+        // Windows gives an item renamed into a name vacated moments ago the
+        // creation date of the item that left ("tunneling"): a replaced file
+        // would keep the replaced one's date instead of its backed-up date.
+        var created = File.GetCreationTimeUtc(item);
         Rename(item, folder, Path.GetFileName(destination), destination);
+        if (File.GetCreationTimeUtc(item) != created) File.SetCreationTimeUtc(item, created);
     }
 
     /// <summary>Throws unless the open file is really at

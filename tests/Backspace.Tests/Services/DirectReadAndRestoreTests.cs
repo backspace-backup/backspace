@@ -203,6 +203,45 @@ public sealed class DirectReadAndRestoreTests(ITestOutputHelper output)
         Assert.Empty(Directory.GetDirectories(target, ".backspace-restore-*"));
     }
 
+    /// <summary>A restored file gets back its exact dates, to the finest step
+    /// the system shows (100 ns), with nothing rounded on the way. Odd sub-second
+    /// digits, so a rounding to milliseconds or seconds would show.</summary>
+    [Fact]
+    public async Task A_restore_brings_back_each_files_exact_dates()
+    {
+        var modified = new DateTime(2021, 3, 4, 5, 6, 7, DateTimeKind.Utc).AddTicks(1234567);
+        var created = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(7654321);
+        await using var rig = new ResticRig("restore-dates", source =>
+        {
+            Files(source);
+            foreach (var file in AllFiles)
+            {
+                var path = Path.Combine(source, file);
+                if (OperatingSystem.IsWindows()) File.SetCreationTimeUtc(path, created);
+                File.SetLastWriteTimeUtc(path, modified);
+            }
+        });
+        await rig.BackUpAsync();
+        var inPlace = rig.Workspace.Sub("in-place");
+        var elsewhere = rig.Workspace.Sub("elsewhere");
+        foreach (var target in new[] { elsewhere, inPlace })
+        {
+            // One target already holds a newer copy of a file, replaced by the restore.
+            if (target == inPlace) File.WriteAllText(Path.Combine(target, "kept.txt"), "newer");
+            var result = await Restore(rig, target, [""]);
+            Assert.True(result.Status == RestoreTerminalStatus.Success, result.ErrorMessage);
+            foreach (var file in AllFiles)
+            {
+                var path = Path.Combine(target, file);
+                Assert.Equal(File.ReadAllText(Path.Combine(rig.Source, file)), File.ReadAllText(path));
+                Assert.Equal(modified, File.GetLastWriteTimeUtc(path));
+                if (OperatingSystem.IsWindows()) Assert.Equal(created, File.GetCreationTimeUtc(path));
+                output.WriteLine($"{file}: modified {File.GetLastWriteTimeUtc(path):o}" +
+                    (OperatingSystem.IsWindows() ? $", created {File.GetCreationTimeUtc(path):o}" : ""));
+            }
+        }
+    }
+
     [Fact]
     public async Task A_restore_that_brings_nothing_back_is_an_error_and_part_of_it_a_warning()
     {
