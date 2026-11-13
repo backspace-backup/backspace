@@ -288,7 +288,7 @@ public sealed partial class ResticEngine : IBackupEngine
                 CreatedUtc: DateTimeOffset.FromUnixTimeMilliseconds(s.UnixTimeMs).UtcDateTime,
                 // Known from restic 0.17's snapshot summary; 0 when unknown.
                 FileCount: (int)Math.Min(int.MaxValue, s.TotalFiles),
-                TotalBytes: s.TotalBytes) { SnapshotId = s.Id });
+                TotalBytes: s.TotalBytes) { SnapshotId = s.Id, Hostname = s.Hostname });
         }
         return revisions;
     }

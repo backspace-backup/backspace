@@ -158,6 +158,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     // Step 3
     public ObservableCollection<RevisionSummary> Revisions { get; } = new();
     [ObservableProperty] private RevisionSummary? _selectedRevision;
+    partial void OnSelectedRevisionChanged(RevisionSummary? value) => RefreshKeepPermissions();
     [ObservableProperty] private bool _loadingRevisions;
 
     /// <summary>
@@ -216,7 +217,48 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
     public bool TargetDifferentFolder => !TargetOriginalSource;
 
     partial void OnTargetOriginalSourceChanged(bool value)
-        => OnPropertyChanged(nameof(TargetDifferentFolder));
+    {
+        OnPropertyChanged(nameof(TargetDifferentFolder));
+        RefreshKeepPermissions();
+    }
+
+    /// <summary>"Keep the files' permissions" (U217, owner go-ahead, 13
+    /// November 2026): the saved access lists of the files, or those of the
+    /// folder they land in, as files copied there would get. Ticked when
+    /// restoring to their original place on the computer that backed them up;
+    /// unticked elsewhere, where the saved lists may name accounts that don't
+    /// exist. Run as you, you own what you restore either way.</summary>
+    [ObservableProperty] private bool _keepPermissions = true;
+    private bool _keepPermissionsChosen;
+
+    partial void OnKeepPermissionsChanged(bool value) { if (!_settingKeepPermissions) _keepPermissionsChosen = true; }
+    private bool _settingKeepPermissions;
+
+    /// <summary>The default unless the person chose: the original place, on the computer that made the backup.</summary>
+    internal static bool KeepPermissionsByDefault(bool originalPlace, string? snapshotHost) =>
+        originalPlace && (string.IsNullOrEmpty(snapshotHost) || string.Equals(snapshotHost, Environment.MachineName, StringComparison.OrdinalIgnoreCase));
+
+    private void RefreshKeepPermissions()
+    {
+        if (_keepPermissionsChosen) return;
+        _settingKeepPermissions = true;
+        try { KeepPermissions = KeepPermissionsByDefault(TargetOriginalSource, SelectedRevision?.Hostname); }
+        finally { _settingKeepPermissions = false; }
+    }
+
+    /// <summary>Whether Backspace, run as you, may add and remove files in the
+    /// folder a restore writes to, or in its nearest existing parent: Windows
+    /// checks the folder's access and nothing is created (U217).</summary>
+    internal static bool CanWriteInto(string target)
+    {
+        for (var folder = target; !string.IsNullOrEmpty(folder); folder = System.IO.Path.GetDirectoryName(folder))
+            if (System.IO.Directory.Exists(folder)) return WindowsUpdateRuntime.MayReplaceIn(folder);
+        return true;
+    }
+
+    internal static string CannotWriteMessage(string target) =>
+        $"Backspace can't write to «{target}»: your account isn't allowed to add files there (Program Files, Windows and other accounts' folders are like this). "
+        + "Restore to another folder, then move the files with administrator rights if you need them there. Nothing was changed.";
 
     [ObservableProperty] private string _customTargetPath = "";
     [ObservableProperty] private bool _preserveStructure = true;
@@ -1039,6 +1081,14 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        // A folder you can't write to is said before anything starts (U217).
+        if (!CanWriteInto(target))
+        {
+            if (OwnerWindow() is { } blocked) await DestructiveConfirmWindow.ShowInfoAsync(blocked, "Backspace can't write there", CannotWriteMessage(target));
+            else ResetProgressLog(CannotWriteMessage(target) + "\n");
+            return;
+        }
+
         // Type-OK gate when restoring onto the original source — same
         // confirm shape used for backup delete + destination wipe so
         // the user has one mental model for "this is destructive".
@@ -1079,6 +1129,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
             PreserveStructure = capturedPreserveStructure,
             Threads = capturedThreads,
             RetryDelaysSeconds = capturedRetryDelays,
+            FolderPermissions = !KeepPermissions,
         };
 
         TotalFiles = _currentRequest.Files.Count;
@@ -1364,6 +1415,7 @@ public sealed partial class RestoreViewModel : ViewModelBase, IDisposable
                     IncludePatterns = new[] { "" },
                     TargetPath = perSourceTarget,
                     Overwrite = capturedOverwrite,
+                    FolderPermissions = !KeepPermissions,
                     // Honour the user's "Preserve directory structure"
                     // toggle from the Target step. Earlier this was
                     // hard-coded to true and the UI checkbox was

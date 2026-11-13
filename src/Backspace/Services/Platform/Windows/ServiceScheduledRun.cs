@@ -41,7 +41,22 @@ internal static class ServiceScheduledRun
         // schedule back (U180); Run now comes from an open Backspace.
         ServiceRegistration.EnsureRunning(controller, StartTimeout, commandLine ? [SystemServiceLifetime.ForCommand] : []);
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
-        return await RunAsync(request, async (message, token) =>
+        // The command line prints what the run does (U180).
+        var transcript = commandLine && status is not null ? new CommandLineTranscript(backupId, DateTime.UtcNow, status) : null;
+        async Task ShowProgressAsync(bool finished, CancellationToken token)
+        {
+            if (transcript is null) return;
+            try
+            {
+                var activity = await ServiceActivity.ReadAsync(binding, token).ConfigureAwait(false);
+                transcript.Show(activity);
+                if (finished) transcript.ShowSummary(activity);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+            { AppLogger.For(nameof(ServiceScheduledRun)).Debug(ex, "The command line could not read the run's progress"); }
+        }
+        string? finishedLine = null;
+        var code = await RunAsync(request, async (message, token) =>
         {
             using var pipe = await BackupServicePipe.ConnectAsync(binding.ServiceName + "-runs",
                 binding.ServiceSid, ExchangeTimeout, token).ConfigureAwait(false);
@@ -50,10 +65,15 @@ internal static class ServiceScheduledRun
             var bytes = await BackupServicePipe.ReadResponseAsync(pipe, ExchangeTimeout, token).ConfigureAwait(false);
             return JsonSerializer.Deserialize<Response>(bytes, ServiceRunAuthorization.Json)
                 ?? throw new InvalidDataException("The backup service returned an empty status.");
-        }, delay: token => Task.Delay(PollInterval(elapsed.Elapsed), token), cancellation, outcome => status?.Invoke(
+        }, delay: async token => { await Task.Delay(PollInterval(elapsed.Elapsed), token).ConfigureAwait(false); await ShowProgressAsync(false, token).ConfigureAwait(false); },
+            cancellation, outcome => finishedLine = (
             outcome.State == "paused" ? "Automatic backups are paused for this Windows session. Nothing was started."
             : outcome.ExitCode == 0 ? $"Command finished. See Activity & logs for the {ServiceCommandLineRun.Noun(operation)} result."
             : "The operation did not finish successfully. See Activity & logs for details."), queued).ConfigureAwait(false);
+        // What it did, then how it ended.
+        await ShowProgressAsync(true, CancellationToken.None).ConfigureAwait(false);
+        if (finishedLine is not null) status?.Invoke(finishedLine);
+        return code;
     }
 
     /// <summary>Shown while the service can't start the run yet.</summary>

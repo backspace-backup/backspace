@@ -682,6 +682,15 @@ a moment in time, tick the files you want and choose where they go. You decide
 whether to replace existing files and whether to keep their original folder
 structure.
 
+Restores run as you, so you own the files you restore. **Keep the files' permissions**
+(under Advanced) gives them back who may read and change them, as when they
+were backed up; unticked, they get the permissions of the folder they land in,
+like files you copy there. It is ticked by default only when restoring to their
+original place on the computer that backed them up: elsewhere, saved
+permissions may name accounts that don't exist there. A folder your account
+can't write to (Program Files, Windows, another account's folders) is said
+before anything starts; restore elsewhere instead.
+
 You can leave the wizard and return through **Restores**, pause and resume,
 or cancel safely while other work continues. Cancel removes files copied by
 that attempt and puts replaced originals back. If another program edited a
@@ -1077,6 +1086,8 @@ PowerShell window they were started from. Backspace is a Windows program, so
 Command Prompt shows its prompt again at once and the result follows a moment
 later; to wait for it, use `start /wait Backspace --check <backup-name>`. In
 PowerShell, add `| Out-Host` to wait.
+
+While the background service runs a command, the window it was started from shows what it does: each check or backup as a heading, its steps and its result, then its summary.
 
 With the background service set up, these commands run in it. After **Quit**
 they still run: the service starts for that command only, keeps scheduled

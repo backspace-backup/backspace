@@ -249,7 +249,7 @@ public sealed partial class ResticEngine
 
     /// <summary>A snapshot as restic lists it: its id, time and, for restic
     /// 0.17 and later, the files and bytes its backup processed.</summary>
-    internal sealed record PlanSnapshot(string Id, long UnixTimeMs, long TotalFiles, long TotalBytes, IReadOnlyList<string> Paths);
+    internal sealed record PlanSnapshot(string Id, long UnixTimeMs, long TotalFiles, long TotalBytes, IReadOnlyList<string> Paths, string? Hostname = null);
 
     /// <summary>Every snapshot of a backup's plan:
     /// <c>restic snapshots --json --tag plan:&lt;id&gt;,created-by:backspace</c>,
@@ -286,7 +286,7 @@ public sealed partial class ResticEngine
                 if (summary.TryGetProperty("total_files_processed", out var f) && f.TryGetInt64(out var fv)) files = fv;
                 if (summary.TryGetProperty("total_bytes_processed", out var b) && b.TryGetInt64(out var bv)) bytes = bv;
             }
-            snapshots.Add(new PlanSnapshot(id, time.ToUnixTimeMilliseconds(), files, bytes, Strings(snapshot, "paths")));
+            snapshots.Add(new PlanSnapshot(id, time.ToUnixTimeMilliseconds(), files, bytes, Strings(snapshot, "paths"), Text(snapshot, "hostname")));
         }
         return snapshots;
     }

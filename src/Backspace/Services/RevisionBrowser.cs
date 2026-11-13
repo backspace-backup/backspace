@@ -57,5 +57,7 @@ public readonly record struct RevisionSummary(int Number, DateTime CreatedUtc, i
 {
     /// <summary>Immutable engine identity. Number is only a display position and can change after retention.</summary>
     public string? SnapshotId { get; init; }
+    /// <summary>The computer the backup was made on (U217).</summary>
+    public string? Hostname { get; init; }
 }
 public readonly record struct RevisionFile(string Path, long SizeBytes, DateTime ModifiedUtc);

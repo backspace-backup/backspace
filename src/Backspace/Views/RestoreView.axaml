@@ -517,6 +517,12 @@
               </Grid>
               <TextBlock Classes="dim" TextWrapping="Wrap"
                          Text="Turn off replacement to leave existing files unchanged. Without folders, files go directly into the chosen folder; duplicate names stop the restore so neither file is lost."/>
+              <!-- U217: the files' saved permissions, or the folder's. -->
+              <CheckBox x:Name="KeepPermissionsOption" IsChecked="{Binding KeepPermissions}"
+                        Content="Keep the files' permissions"
+                        Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+              <TextBlock Classes="dim" TextWrapping="Wrap"
+                         Text="Ticked, the files get back who may read and change them, as when they were backed up. Unticked, they get the permissions of the folder they land in, like files you copy there. Either way you own what you restore. Ticked by default only when restoring to their original place on the computer that backed them up."/>
             </StackPanel>
           </Expander>
 
