@@ -16,9 +16,23 @@ namespace Backspace.Services;
 internal static class ConsoleLineClassifier
 {
     // The restic runner's records: "[restic] 21:31:49.992Z<TAB>debug<TAB>…".
+    // The console shows them without restic's own time, which is in UTC
+    // (U230): "[restic] error<TAB>…", the line's local time in its column.
     private static readonly Regex Leveled = new(
-        @"^\[[\w-]+\] \d{2}:\d{2}:\d{2}(?:\.\d+)?Z?\s+(?<level>debug|info|warn|error|dpanic|panic|fatal)\s",
+        @"^\[[\w-]+\] (?:(?<time>\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+|(?<=^\[restic\] ))(?<level>debug|info|warn|error|dpanic|panic|fatal)\s",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>The line without the UTC time restic's runner wrote in it
+    /// (U230: "00:39:09.512Z" beside local times looked wrong); the line's
+    /// own time, local, is in the Timestamps column.</summary>
+    internal static string WithoutRecordTime(string text)
+    {
+        if (!text.StartsWith('[') || Leveled.Match(text) is not { Success: true } m || !m.Groups["time"].Success) return text;
+        var t = m.Groups["time"];
+        var after = t.Index + t.Length;
+        while (after < text.Length && char.IsWhiteSpace(text[after])) after++;
+        return text[..t.Index] + text[after..];
+    }
     // Older engine format: "2026-04-30 14:00:00 INFO …".
     private static readonly Regex Dated = new(
         @"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? (?<level>[A-Z]+) ",
@@ -38,6 +52,9 @@ internal static class ConsoleLineClassifier
         @"^\[orchestrator\] «[^»]+» (isn't|is not) set up\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex RestoreDone = new(
         @"^\[restore\] done: status=(?<status>\w+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex RestoreCheckFile = new(
+        @"^\[(?<status>OK|OkNoCompare|Recovered|SizeMismatch|BytesMismatch|RestoreFailed)\] .+ — [\d,]+/[\d,]+ bytes",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex GenericError = new(
         @"^(Fatal|FATAL|Error|ERROR|error)\b[: ]|\bERROR\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex GenericWarning = new(
@@ -90,6 +107,12 @@ internal static class ConsoleLineClassifier
                 || text.StartsWith("[restore] aborted:", StringComparison.Ordinal)
                 ? ConsoleLineKind.Error : ConsoleLineKind.Plain;
         }
+        // A restore check's list of every file (U233): with Verbose only,
+        // except a file that didn't come back as saved.
+        if (RestoreCheckFile.Match(text) is { Success: true } checkedFile)
+            return checkedFile.Groups["status"].Value is "OK" or "OkNoCompare" or "Recovered" ? ConsoleLineKind.File : ConsoleLineKind.Error;
+        if (text is "=== Every file checked ===") return ConsoleLineKind.Detail;
+        if (text is "=== Summary ===") return ConsoleLineKind.Meta;
         if (text.StartsWith("[error] ", StringComparison.Ordinal) || text.StartsWith("[err] ", StringComparison.Ordinal))
             return ConsoleLineKind.Error;
         if (text.StartsWith("[skip] ", StringComparison.Ordinal)) return ConsoleLineKind.Warning;

@@ -112,7 +112,7 @@ public sealed class S11_LogsViewPopulated : ScenarioBase
         Assert.False(chip.Classes.Contains("fail") || chip.Classes.Contains("warn"));
         Assert.Equal("Success", Assert.IsType<TextBlock>(chip.Child).Text);
         Assert.DoesNotContain("Success", context.Text);
-        Assert.StartsWith("Run from ", context.Text);
+        Assert.StartsWith("Backup · ", context.Text);
         ctx.Snapshot(host, "logs populated past-run",
             "The actual Activity & logs navigation opens the saved successful run. Its output is visible; no LIVE indicator or Clear view action is shown for history.");
 

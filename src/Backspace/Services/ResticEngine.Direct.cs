@@ -298,10 +298,14 @@ public sealed partial class ResticEngine
         for (var attempt = 0; ; attempt++)
         {
             ct.ThrowIfCancellationRequested();
-            var result = await RunResticOnceAsync(repoId, command, lineSink, ct, onLine, onStarted, gated, heldBack).ConfigureAwait(false);
+            // A lock that will be handled is no error yet (U231).
+            var retried = lockRecovery && (attempt == 0 || waitWhileLocked is { } wait && DateTime.UtcNow - started < wait);
+            var result = await RunResticOnceAsync(repoId, retried ? command with { LockIsRetried = true } : command,
+                lineSink, ct, onLine, onStarted, gated, heldBack).ConfigureAwait(false);
             if (!lockRecovery || result.Cancelled || result.ExitCode != 11) return result;
             if (attempt == 0)
             {
+                Announce("[backspace] The repository is locked. Removing locks left by operations that no longer run (never one in use), then trying again.", lineSink);
                 var unlock = await RunResticOnceAsync(repoId, new ResticCommand(command.Binary, command.Repository, ["unlock"]) { OutputToTranscript = true },
                     lineSink, ct, null, null, gated, heldBack).ConfigureAwait(false);
                 if (!unlock.Succeeded) return unlock;

@@ -227,7 +227,7 @@ public sealed class S96_LogConsole : ScenarioBase
             // Colours come from the theme's dark-variant status tokens.
             Assert.Equal(DarkBrush("BS.Brush.AccentTintFg"), Row(l => l.Text.StartsWith("[recap]")).TextBlock.Foreground);
             Assert.Equal(DarkBrush("BS.Brush.AccentTintFg"), Row(l => l.Text.Contains("online-only")).TextBlock.Foreground);
-            Assert.Equal(DarkBrush("BS.Brush.FgDim"), Row(l => l.Text.Contains("\tinfo\trepository opened")).TextBlock.Foreground);
+            Assert.Equal(DarkBrush("BS.Brush.FgDim"), Row(l => l.Text.Contains("[restic] info\trepository opened")).TextBlock.Foreground);
 
             scroll.Offset = new Vector(0, 0);
             await ctx.Driver.PumpAsync(150);

@@ -282,6 +282,11 @@ public sealed class Backup : IJsonOnDeserialized
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? DataCheckLimitBytes { get; set; }
 
+    /// <summary>The check's name in its log ("Data check (1 GiB sample)"):
+    /// set on the engine's copy only, never saved (U233).</summary>
+    [JsonIgnore]
+    public string? CheckTitle { get; set; }
+
     /// <summary>Stop if the network becomes metered mid-run (watchdog): the
     /// backup's and its checks' and cleanup's runs.</summary>
     public bool AbortOnMeteredNetwork { get; set; } = true;

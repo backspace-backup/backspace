@@ -440,17 +440,18 @@ public sealed class BackupVerifier
             // disappears and is replaced by the summary".
             var sb = new System.Text.StringBuilder();
             sb.Append(capturedLog ?? "");
-            if (!string.IsNullOrWhiteSpace(outcome.Summary))
-            {
-                if (sb.Length > 0 && sb[^1] != '\n') sb.AppendLine();
-                sb.AppendLine();
-                sb.AppendLine("=== Summary ===");
-                sb.Append(outcome.Summary);
-            }
-            sb.AppendLine();
+            if (sb.Length > 0 && sb[^1] != '\n') sb.AppendLine();
+            // Every file checked (shown with Verbose), then the result, last,
+            // where a reader looks for it (U233).
             sb.AppendLine("=== Every file checked ===");
             foreach (var file in outcome.Files)
                 sb.AppendLine($"[{file.Status}] {file.DestinationName} / {file.SourcePath} / {file.Path} — {file.ActualBytes:N0}/{file.ExpectedBytes:N0} bytes{(file.Detail is null ? "" : ": " + file.Detail)}");
+            if (!string.IsNullOrWhiteSpace(outcome.Summary))
+            {
+                sb.AppendLine();
+                sb.AppendLine("=== Summary ===");
+                sb.AppendLine(outcome.Summary);
+            }
             System.IO.File.WriteAllText(logPath, sb.ToString());
         }
         catch (Exception ex)

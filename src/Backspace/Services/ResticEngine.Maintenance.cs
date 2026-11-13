@@ -64,7 +64,7 @@ public sealed partial class ResticEngine
         DirectOutcome terminal;
         CleanupResult cleanup = default;
         // Where this check or cleanup starts in the log (U176).
-        Announce(LogSection.Line(backup.Name, kind == RunKind.Prune ? "cleanup" : "check", destination.Name), lineSink);
+        Announce(LogSection.Line(backup.Name, kind == RunKind.Prune ? "cleanup" : backup.CheckTitle ?? "check", destination.Name), lineSink);
         if (kind == RunKind.Prune)
         {
             // Never while a snapshot here is mounted or restored (U159).

@@ -35,6 +35,9 @@ internal sealed record ResticCommand(string Binary, ResticRepository Repository,
     public int CaptureOutput { get; init; }
     /// <summary>The longest line read whole; longer lines are cut there.</summary>
     public int MaximumLine { get; init; } = ResticRunner.MaximumLineCharacters;
+    /// <summary>A locked repository (exit code 11) will be handled and tried
+    /// again: its lines are warnings, not errors (U231).</summary>
+    public bool LockIsRetried { get; init; }
     /// <summary>The command's name in the log: "backup", "forget"…</summary>
     public string Name => Arguments.Count == 0 ? "restic" : Arguments[0] == "cat" && Arguments.Count > 1 ? "cat " + Arguments[1] : Arguments[0];
 }
@@ -297,8 +300,9 @@ internal static class ResticRunner
             // Verbose off: a command that worked says nothing more than
             // Backspace's own lines do; one that failed or was stopped shows
             // its command line and how it ended (U196, owner, 11 November).
+            var retried = exitCode == 11 && command.LockIsRetried;
             if (stop != ResticStop.None || forced || exitCode != 0)
-                Write(TranscriptLine(stop == ResticStop.None && !forced && exitCode != 3 ? "error" : "warn", commandLine));
+                Write(TranscriptLine(stop == ResticStop.None && !forced && exitCode != 3 && !retried ? "error" : "warn", commandLine));
             if (stop == ResticStop.Gentle)
                 Write(TranscriptLine("warn", $"{command.Name} stopped on request after {took}: restic ended by itself (exit code {exitCode})"));
             else if (stop == ResticStop.Ended || forced)
@@ -308,7 +312,7 @@ internal static class ResticRunner
                     ? $"{command.Name} stopped on request after {took}: restic did not end within {Seconds(GentleStopWait)} and was ended with everything it started"
                     : $"{command.Name} ended after {took}: its output could not be read"));
             else
-                Write(TranscriptLine(exitCode == 0 ? "debug" : exitCode == 3 ? "warn" : "error",
+                Write(TranscriptLine(exitCode == 0 ? "debug" : exitCode == 3 || retried ? "warn" : "error",
                     $"{command.Name} finished: exit code {exitCode} ({meaning}) after {took}" + output.FileErrorNote()
                     + (exitCode == 0 ? "" : output.Reason() is { Length: > 0 } reason ? ": " + reason : "")));
             AppLogger.For("EngineTiming").Debug("restic {Command} finished in {ElapsedMs} ms; exit={ExitCode}; stop={Stop}",

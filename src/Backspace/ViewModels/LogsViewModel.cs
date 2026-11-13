@@ -99,6 +99,10 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         SelectedRun is null
         || SelectedRun is { EndedUtc: null, Status: BackupRunStatus.Running };
 
+    /// <summary>The live view mixes this app's runs; the background service's
+    /// run, picked, shows its own output only (U229).</summary>
+    public bool ShowsCombinedOutput => IsShowingLive && (SelectedRun is null || !ReferenceEquals(SelectedRun, _serviceRun));
+
     /// <summary>Context for the unified log pane. The view owns the
     /// single LIVE indicator. Engine line events are a combined stream,
     /// so never imply that live output belongs only to the selected run.
@@ -107,7 +111,8 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     {
         get
         {
-            if (SelectedRun is null || IsShowingLive) return "All current activity";
+            if (SelectedRun is null) return "All current activity";
+            if (IsShowingLive) return DisplayContext;
             return $"{DisplayContext} · {RunStatusLabel}";
         }
     }
@@ -120,19 +125,24 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         get
         {
             var r = SelectedRun;
-            if (r is null || IsShowingLive) return "All current activity";
-            var stamp = r.StartedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-            // Kind label so the title bar tells the user whether
-            // they're reading a backup, a restore, or a test-restore
-            // log — same vocabulary as the dropdown row prefix.
-            var kindLabel = r.Kind switch
-            {
-                RunKind.Restore     => "Restore",
-                RunKind.TestRestore => "Restore check",
-                _                   => "Run",
-            };
-            return $"{kindLabel} from {stamp}";
+            if (r is null) return "All current activity";
+            // The running run picked (U229): what it is, not "all activity".
+            // The service reports each backup's output apart: its run is named.
+            // This app's own runs share one stream, labelled as such (N034).
+            if (IsShowingLive) return ReferenceEquals(r, _serviceRun) ? RunningTitle(r) : "All current activity";
+            // What the run was and when, as the run picker says it (U232):
+            // "Data check (1 GiB sample) · Today 14:38".
+            var row = RunPickerRow.From(r);
+            return $"{row.Title} · {row.When}";
         }
+    }
+
+    /// <summary>"local_d · Restore check (2 of 2)": a running run's title.</summary>
+    internal static string RunningTitle(RunRecord r)
+    {
+        var what = (r.Summary ?? "").StartsWith("Running: ", StringComparison.Ordinal) ? r.Summary![9..]
+            : RunPickerRow.From(r).Title;
+        return $"{r.BackupName} · {what}";
     }
 
     /// <summary>Outcome of the past run being read; null while live.</summary>
@@ -181,8 +191,12 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         }
         if (IsShowingLive)
         {
-            AddVisible(_liveLines);
-            if (_serviceObjects.Count > 0 || _serviceErrorLine is not null)
+            // The background service's run picked: its own output only; a run
+            // of this app picked: this app's output only (U229).
+            var serviceOnly = SelectedRun is not null && ReferenceEquals(SelectedRun, _serviceRun);
+            var appOnly = SelectedRun is not null && !serviceOnly;
+            if (!serviceOnly) AddVisible(_liveLines);
+            if (!appOnly && (_serviceObjects.Count > 0 || _serviceErrorLine is not null))
             {
                 if (next.Count > 0) next.Add(_serviceHeader);
                 AddVisible(_serviceObjects);
@@ -303,9 +317,33 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     public void ShowLive(string backupId)
     {
         SelectBackupById(backupId);
+#if WINDOWS
+        // The service's run of this backup, not of the backup shown before
+        // (U229: the running check was missing, so "Pick a run" stayed blank).
+        UpdateServiceRun();
+#endif
         ReloadHistoryForSelected();
         SelectedRun = History.FirstOrDefault(r => r is { Status: BackupRunStatus.Running, EndedUtc: null });
+        // Not listed yet (the service reports it within a second): picked
+        // as soon as it is.
+        _liveWantedFor = SelectedRun is null ? backupId : null;
         SyncDisplay();
+    }
+
+    /// <summary>The backup whose running run "Open live log" asked for, until
+    /// it is listed and picked.</summary>
+    private string? _liveWantedFor;
+
+    private void PickWantedLiveRun()
+    {
+        if (_liveWantedFor is null || SelectedRun is not null) return;
+        var selectedId = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Name == SelectedBackup)?.Id;
+        if (selectedId != _liveWantedFor) { _liveWantedFor = null; return; }
+        if (History.FirstOrDefault(r => r is { Status: BackupRunStatus.Running, EndedUtc: null }) is { } running)
+        {
+            _liveWantedFor = null;
+            SelectedRun = running;
+        }
     }
 
     /// <summary>A notification refers to its own run even if a newer run has finished.</summary>
@@ -399,6 +437,20 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
     private void OnBackgroundActivityChanged() => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
     {
         if (_disposed) return;
+        if (UpdateServiceRun())
+        {
+            var showingLive = SelectedRun is null;
+            ReloadHistoryForSelected();
+            if (showingLive) SelectedRun = null;
+            PickWantedLiveRun();
+        }
+        SyncDisplay();
+    });
+
+    /// <summary>The background service's run of the selected backup and its
+    /// output; true when the run listed changed.</summary>
+    private bool UpdateServiceRun()
+    {
         // The selected backup's run when several run at once (U156).
         var selectedId = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Name == SelectedBackup)?.Id;
         var current = selectedId is null ? _backgroundActivity?.Current
@@ -445,14 +497,8 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
                 Summary = "The background worker stopped without a saved result. Completion was not confirmed.", TriggeredAutomatically = true };
         }
         else _serviceRun = null;
-        if (oldId != _serviceRun?.Id || oldStatus != _serviceRun?.Status)
-        {
-            var showingLive = SelectedRun is null;
-            ReloadHistoryForSelected();
-            if (showingLive) SelectedRun = null;
-        }
-        SyncDisplay();
-    });
+        return oldId != _serviceRun?.Id || oldStatus != _serviceRun?.Status;
+    }
 #endif
 
     /// <summary>Turns the background service's transcript into console lines,
@@ -518,6 +564,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             {
                 SelectedRun = running;
             }
+            PickWantedLiveRun();
         });
     }
 
@@ -939,6 +986,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         // Combined and de-duped against `persisted` by Id (same Id is
         // re-used across the synth → persisted swap so the row stays
         // stable when the user clicks it mid-run).
+        persisted = WithoutFoldedRestoreRecords(persisted);
         if (b is null) return persisted;
 
         var inFlight = new List<RunRecord>(2);
@@ -961,6 +1009,19 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
             .ToList();
         if (deduped.Count == 0) return persisted;
         return deduped.Concat(persisted);
+    }
+
+    /// <summary>A restore check run as a check is listed once (U232): the
+    /// check's record, whose log holds the restore's lines and every file
+    /// checked, not the restore's own record beside it. Records from before
+    /// checks kept a log keep both.</summary>
+    internal static IReadOnlyList<RunRecord> WithoutFoldedRestoreRecords(IReadOnlyList<RunRecord> runs)
+    {
+        var checks = runs.Where(r => r is { Kind: RunKind.Check, CheckKind: CheckKind.TestRestore, EndedUtc: not null }
+            && !string.IsNullOrEmpty(r.LogPath)).ToList();
+        if (checks.Count == 0) return runs;
+        return runs.Where(r => r.Kind != RunKind.TestRestore || !checks.Any(c =>
+            r.StartedUtc >= c.StartedUtc.AddMinutes(-1) && (r.EndedUtc ?? r.StartedUtc) <= c.EndedUtc!.Value.AddMinutes(1))).ToList();
     }
 
     // Batched live-tail updates. Two concerns drove this design:
@@ -1128,6 +1189,9 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
 
     partial void OnSelectedBackupChanged(string? value)
     {
+#if WINDOWS
+        if (!string.IsNullOrEmpty(value) && _backgroundActivity is not null) UpdateServiceRun();
+#endif
         History.Clear();
         if (string.IsNullOrEmpty(value))
         {
@@ -1185,6 +1249,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         // pane swaps between LiveTail and LogText cleanly.
         OnPropertyChanged(nameof(IsShowingLive));
         OnPropertyChanged(nameof(DisplayLabel));
+        OnPropertyChanged(nameof(ShowsCombinedOutput));
         OnPropertyChanged(nameof(DisplayContext));
         OnPropertyChanged(nameof(RunStatusLabel));
         OnPropertyChanged(nameof(RunStatusIsOk));
@@ -1225,7 +1290,7 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         var logPath = value?.LogPath;
         if (value is null || string.IsNullOrEmpty(logPath))
         {
-            SetRunLines(new List<ConsoleLine>());
+            SetRunLines(value is null ? new List<ConsoleLine>() : WithoutLog(value));
             return;
         }
         if (!File.Exists(logPath))
@@ -1356,6 +1421,29 @@ public sealed partial class LogsViewModel : ViewModelBase, IDisposable
         ClearLiveLines();
         OnPropertyChanged(nameof(LiveTail));
         SyncDisplay();
+    }
+
+    /// <summary>A run that kept no log (checks before U233, runs stopped before
+    /// they started): what its record says, rather than an empty console.</summary>
+    internal static List<ConsoleLine> WithoutLog(RunRecord run)
+    {
+        var kind = run.Status switch
+        {
+            BackupRunStatus.Failed => ConsoleLineKind.Error,
+            BackupRunStatus.Warning or BackupRunStatus.Skipped => ConsoleLineKind.Warning,
+            _ => ConsoleLineKind.Summary,
+        };
+        var time = (run.EndedUtc ?? run.StartedUtc).ToLocalTime();
+        var lines = new List<ConsoleLine>
+        {
+            new($"{run.BackupName} · {RunPickerRow.From(run).Title}", ConsoleLineKind.Section, run.StartedUtc.ToLocalTime()),
+            new("[This run kept no log. What it recorded:]", ConsoleLineKind.Notice, time),
+        };
+        foreach (var line in (run.Summary ?? "").Split('\n').Select(l => l.TrimEnd()).Where(l => l.Length > 0))
+            lines.Add(new ConsoleLine(line, kind, time) { ListAsError = false });
+        foreach (var error in run.Errors.Where(e => !(run.Summary ?? "").Contains(e, StringComparison.Ordinal)))
+            lines.Add(new ConsoleLine(error, ConsoleLineKind.Error, time));
+        return lines;
     }
 
     private void SetRunLines(List<ConsoleLine> lines)

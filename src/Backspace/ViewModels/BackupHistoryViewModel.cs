@@ -48,7 +48,8 @@ public sealed partial class BackupHistoryViewModel : ObservableObject
                 Rows.Add(new(entry.RunId, _backup.Id, entry.When, entry.Status, entry.Scope, entry.Summary,
                     HasLog(_byId.GetValueOrDefault(entry.RunId))));
         else
-            foreach (var run in _runs.Where(r => r.BackupId == _backup.Id && (SelectedFilter == "All activity" || r.Kind == RunKind.Backup)).OrderByDescending(r => r.StartedUtc))
+            // A restore check run as a check is one row: its check (U232).
+            foreach (var run in LogsViewModel.WithoutFoldedRestoreRecords(_runs).Where(r => r.BackupId == _backup.Id && (SelectedFilter == "All activity" || r.Kind == RunKind.Backup)).OrderByDescending(r => r.StartedUtc))
                 Rows.Add(new(run.Id, _backup.Id, run.StartedUtc, run.Status,
                     run.Kind switch { RunKind.TestRestore => run.TriggeredAutomatically ? "Automatic restore check" : "Restore check", RunKind.Check => run.CheckKind is { } check ? BackupCheck.Name(check) : "Repository check", RunKind.Prune => "Cleanup", _ => run.Kind.ToString() }, run.Summary,
                     HasLog(run)) { Added = Added(run), CanShowChanges = run.Kind == RunKind.Backup && run.Status is BackupRunStatus.Success or BackupRunStatus.Warning });

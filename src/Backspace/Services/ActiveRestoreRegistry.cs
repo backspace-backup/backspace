@@ -156,10 +156,16 @@ public sealed class ActiveRestoreRegistry
         };
         control.Changed += session.ControlChanged;
     }
+    /// <summary>On the app's UI thread; at once where there is no app (the
+    /// background service's worker, U234): a post there waited for a UI loop
+    /// that never runs, so a restore check's progress stayed at "Preparing
+    /// the files to restore" while it restored thousands of files.</summary>
     private static void MarshalToUi(Action action)
     {
-        if (Dispatcher.UIThread.CheckAccess()) action(); else Dispatcher.UIThread.Post(action);
+        if (RunsWithoutUi() || Dispatcher.UIThread.CheckAccess()) action(); else Dispatcher.UIThread.Post(action);
     }
+
+    internal static Func<bool> RunsWithoutUi = () => Avalonia.Application.Current is null;
 }
 
 public sealed class ActiveRestoreSession : INotifyPropertyChanged

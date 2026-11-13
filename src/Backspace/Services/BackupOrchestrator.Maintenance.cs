@@ -201,6 +201,7 @@ public sealed partial class BackupOrchestrator
             CheckKind.FullDataRead => long.MaxValue,
             _ => null,
         };
+        view.CheckTitle = check.Title;
         return view;
     }
 
@@ -276,15 +277,28 @@ public sealed partial class BackupOrchestrator
         var stopsWhenMetered = (check?.Schedule is { OwnConditions: true } own ? own.UnmeteredOnly : backup.AbortOnMeteredNetwork)
             && backup.NeedsNetwork(_config.Current.Destinations);
         var watchdogTask = StartMeteredWatchdogIfEnabled(backup, linked, _ => meteredAborted = true, enabled: stopsWhenMetered);
+        MaintenanceRunLog? runLog = null;
 
         try
         {
             var distinctTargets = DistinctTargets(backup.Targets);
             if (onlyTargets is not null)
                 distinctTargets = distinctTargets.Where(t => onlyTargets.Any(o => SameTarget(o, t))).ToList();
+            // Its own log (U233): what it does, step by step, live and saved.
+            runLog = MaintenanceRunLog.Open(backup, check?.Title ?? "cleanup",
+                distinctTargets.Select(t => _config.Current.Destinations.FirstOrDefault(d => d.Id == t.DestinationId)?.Name ?? t.DestinationId).Distinct(), started);
+            var log = runLog;
+            var teeing = new System.Runtime.CompilerServices.StrongBox<bool>(false);
+            void Say(string line)
+            {
+                if (!ResticEngine.AlreadyAnnounced(line))
+                    try { _engine.RaiseLineWritten(line); } catch { /* a live view can't stop the run */ }
+                if (!teeing.Value) log.Write(line);
+            }
+            var progressLines = new MaintenanceRunLog.ProgressLines(Say);
             var waitingFor = new List<string>();
             if (check is { Kind: CheckKind.TestRestore })
-                await RunTestRestoreCheckAsync(backup, check, distinctTargets, aggregate, waitingFor, linked, () => meteredAborted).ConfigureAwait(false);
+                await RunTestRestoreCheckAsync(backup, check, distinctTargets, aggregate, waitingFor, linked, () => meteredAborted, Say, log, teeing).ConfigureAwait(false);
             else
             {
                 var engineBackup = check is null ? backup : EngineViewFor(backup, check);
@@ -316,6 +330,7 @@ public sealed partial class BackupOrchestrator
                         if (kind == RunKind.Check && await UnavailableForCheckAsync(dest, src, target.StorageName, linked.Token, backup, check) is { } unavailable)
                         {
                             _log.Information("{Check} of {Dest} waits for the destination: {Detail}", action, dest.Name, unavailable);
+                            Say($"[skip] {action} of «{dest.Name}» waits: {unavailable}");
                             AddOutcome(aggregate, src, dest.Name, target.StorageName, BackupRunStatus.Skipped, unavailable);
                             aggregate.Cells[^1].DestinationUnavailable = true;
                             waitingFor.Add(dest.Name);
@@ -329,9 +344,9 @@ public sealed partial class BackupOrchestrator
                             using var access = await AcquireRepositoryAsync(backup, aggregate, dest, target.StorageName,
                                 RepositoryAccess.Kind.Exclusive, linked.Token);
                             var cell = kind == RunKind.Prune
-                                ? await _engine.RunPruneOnlyAsync(engineBackup, src, dest, target.StorageName, linked.Token)
-                                : await _engine.RunCheckOnlyAsync(engineBackup, src, dest, target.StorageName, linked.Token,
-                                    progress: CheckStepReporter(backup.Id, dest.Name, distinctTargets.IndexOf(target), distinctTargets.Count));
+                                ? await _engine.RunPruneOnlyAsync(engineBackup, src, dest, target.StorageName, linked.Token, Say)
+                                : await _engine.RunCheckOnlyAsync(engineBackup, src, dest, target.StorageName, linked.Token, Say,
+                                    progress: CheckStepReporter(backup.Id, dest.Name, distinctTargets.IndexOf(target), distinctTargets.Count, progressLines));
                             var status = cell.Status;
                             var summary = cell.Summary;
                             // An absent terminal result cannot establish that the
@@ -343,18 +358,21 @@ public sealed partial class BackupOrchestrator
                             if (check is { Kind: CheckKind.FullDataRead })
                                 cell.Checks = cell.Checks.Select(c => c with { Depth = CheckDepth.AllData }).ToList();
                             AddOutcome(aggregate, src, dest.Name, target.StorageName, status, summary, cell);
+                            Say(ResultLine(action, kind, dest.Name, status, summary, (cell.EndedUtc ?? DateTime.UtcNow) - cell.StartedUtc));
                         }
                         catch (OperationCanceledException)
                         {
                             interrupted = true;
-                            AddOutcome(aggregate, src, dest.Name, target.StorageName, BackupRunStatus.Skipped,
-                                meteredAborted ? "Cancelled because the network became metered (mobile / tethered)." : "Cancelled before completion.");
+                            var why = meteredAborted ? "Cancelled because the network became metered (mobile / tethered)." : "Cancelled before completion.";
+                            AddOutcome(aggregate, src, dest.Name, target.StorageName, BackupRunStatus.Skipped, why);
+                            Say($"[skip] {action} on «{dest.Name}» was stopped: {why}");
                         }
                         catch (Exception ex)
                         {
                             _log.Warning(ex, "{Action} threw for backup {Backup}, source {Source}, dest {Dest}",
                                 action, backup.Name, src, dest.Name);
                             AddOutcome(aggregate, src, dest.Name, target.StorageName, BackupRunStatus.Failed, ex.Message);
+                            Say($"[error] {action} failed on «{dest.Name}»: {ex.Message}");
                         }
                     }
                 }
@@ -386,6 +404,12 @@ public sealed partial class BackupOrchestrator
                 ? CheckRunWording.CleanupSummary(aggregate, meteredAborted)
                 : CheckRunWording.Summary(check, aggregate, waitingFor, meteredAborted,
                     limitIgnored: check.Kind == CheckKind.DataSample && check.MaximumBytes != BackupCheck.OneGiB && !_engine.HonoursDataCheckLimit);
+            if (runLog.IsOpen)
+            {
+                aggregate.LogPath = runLog.Path;
+                foreach (var cell in aggregate.Cells.Where(c => string.IsNullOrEmpty(c.LogPath))) cell.LogPath = runLog.Path;
+                runLog.Outcome(aggregate);
+            }
 
             try { _logs.AppendRun(aggregate); }
             catch (Exception ex) { _log.Warning(ex, "Failed to persist {Action} run for {Backup}", action, backup.Name); }
@@ -393,6 +417,7 @@ public sealed partial class BackupOrchestrator
         }
         finally
         {
+            runLog?.Dispose();
             try { linked.Cancel(); } catch { }
             if (watchdogTask is not null)
             {
@@ -452,16 +477,38 @@ public sealed partial class BackupOrchestrator
 
     /// <summary>Reports a restic check's steps for the card (U198): its share
     /// done across the destinations this check runs on, one after another.</summary>
-    private Action<CheckStep, double> CheckStepReporter(string backupId, string destination, int index, int count)
+    /// <param name="lines">Its log gets a line when the step changes or at each further tenth (U233).</param>
+    private Action<CheckStep, double> CheckStepReporter(string backupId, string destination, int index, int count,
+        MaintenanceRunLog.ProgressLines? lines = null)
     {
         var where = count > 1 ? $"{destination} ({index + 1} of {count})" : destination;
-        return (step, percent) => _progress.ReportActivityStep(backupId, step.Text, where,
-            (Math.Max(0, index) * 100 + percent) / Math.Max(1, count));
+        return (step, percent) =>
+        {
+            var overall = (Math.Max(0, index) * 100 + percent) / Math.Max(1, count);
+            _progress.ReportActivityStep(backupId, step.Text, where, overall);
+            lines?.Report(step.Stage, step.Text, where, overall);
+        };
+    }
+
+    /// <summary>How a check or cleanup on one destination ended, for its log (U233).</summary>
+    internal static string ResultLine(string action, RunKind kind, string destination, BackupRunStatus status, string summary, TimeSpan took)
+    {
+        var first = (summary ?? "").Split('\n', 2)[0].Trim();
+        var after = MaintenanceRunLog.Took(took);
+        return status switch
+        {
+            BackupRunStatus.Success => kind == RunKind.Prune
+                ? $"[recap] {action} finished on «{destination}» in {after}."
+                : $"[recap] {action} passed on «{destination}» in {after}.",
+            BackupRunStatus.Warning => $"[skip] {action} on «{destination}» needs attention after {after}: {first}",
+            BackupRunStatus.Skipped => $"[skip] {action} on «{destination}» was skipped after {after}: {first}",
+            _ => $"[error] {action} failed on «{destination}» after {after}: {first}",
+        };
     }
 
     /// <summary>A sample test restore's progress, read once a second from its
     /// session, until <paramref name="ct"/> ends it (U198).</summary>
-    private async Task WatchTestRestoreAsync(string backupId, string where, CancellationToken ct)
+    private async Task WatchTestRestoreAsync(string backupId, string where, CancellationToken ct, MaintenanceRunLog.ProgressLines? lines = null)
     {
         try
         {
@@ -470,9 +517,10 @@ public sealed partial class BackupOrchestrator
                 if (ServiceLocator.ActiveRestores.RunningTestFor(backupId) is { } session)
                 {
                     var known = !session.IsProgressIndeterminate && session.TotalBytes > 0;
-                    _progress.ReportActivityStep(backupId,
-                        known ? $"Restoring and comparing files · {session.RestoredCount:N0} of {session.TotalFiles:N0} files" : "Preparing the files to restore",
-                        where, known ? session.PercentComplete * 100 : -1);
+                    var text = known ? $"Restoring and comparing files · {session.RestoredCount:N0} of {session.TotalFiles:N0} files" : "Preparing the files to restore";
+                    var percent = known ? session.PercentComplete * 100 : -1;
+                    _progress.ReportActivityStep(backupId, text, where, percent);
+                    lines?.Report(known ? "Restoring" : "Preparing", text, where, percent);
                 }
                 await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
             }
@@ -486,9 +534,11 @@ public sealed partial class BackupOrchestrator
     /// meanwhile, so backups and other checks there wait. A destination that
     /// is unavailable waits for the next backup there (U174).</summary>
     private async Task RunTestRestoreCheckAsync(Backup backup, BackupCheck check, IReadOnlyList<BackupTarget> targets,
-        RunRecord aggregate, List<string> waitingFor, CancellationTokenSource linked, Func<bool> metered)
+        RunRecord aggregate, List<string> waitingFor, CancellationTokenSource linked, Func<bool> metered,
+        Action<string> say, MaintenanceRunLog log, System.Runtime.CompilerServices.StrongBox<bool> teeing)
     {
         var source = backup.SourcePaths.FirstOrDefault() ?? "";
+        var started = DateTime.UtcNow;
         var reachable = new List<(BackupTarget Target, Destination Destination)>();
         foreach (var target in targets)
         {
@@ -501,6 +551,7 @@ public sealed partial class BackupOrchestrator
             }
             if (await UnavailableForCheckAsync(dest, source, target.StorageName, linked.Token, backup, check).ConfigureAwait(false) is { } unavailable)
             {
+                say($"[skip] {check.Title} of «{dest.Name}» waits: {unavailable}");
                 AddOutcome(aggregate, source, dest.Name, target.StorageName, BackupRunStatus.Skipped, unavailable);
                 aggregate.Cells[^1].DestinationUnavailable = true;
                 waitingFor.Add(dest.Name);
@@ -509,6 +560,13 @@ public sealed partial class BackupOrchestrator
             reachable.Add((target, dest));
         }
         if (reachable.Count == 0) return;
+        var where = string.Join(", ", reachable.Select(r => r.Destination.Name));
+        // Where it starts in the log (U233), named like the check.
+        say(LogSection.Line(backup.Name, check.Title, where));
+        var options = check.RestoreOptions();
+        say($"[backspace] Picks {(options.Full ? "every file" : options.SamplePercent.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "% of the files" + (options.MaximumSampleBytes > 0 ? $" (at most {BackupCheck.Size(options.MaximumSampleBytes)})" : ""))} of the latest backup at «{where}», restores them to a temporary folder and checks each one; your files are not touched.");
+        // What the restore itself writes goes to this log too, while it runs.
+        Action<string> tee = log.Write;
         var leases = new List<IDisposable>();
         try
         {
@@ -517,17 +575,32 @@ public sealed partial class BackupOrchestrator
                 leases.Add(await AcquireRepositoryAsync(backup, aggregate, dest, target.StorageName, RepositoryAccess.Kind.Exclusive, linked.Token).ConfigureAwait(false));
             var view = System.Text.Json.JsonSerializer.Deserialize<Backup>(System.Text.Json.JsonSerializer.Serialize(backup))!;
             view.Targets = reachable.Select(r => r.Target).ToList();
-            // Its progress, once a second, for the card (U198).
-            var where = reachable.Count == 1 ? reachable[0].Destination.Name : $"{reachable.Count} destinations";
+            // Its progress, once a second, for the card (U198), and in its log (U233).
+            var shortWhere = reachable.Count == 1 ? reachable[0].Destination.Name : $"{reachable.Count} destinations";
             using var watching = new CancellationTokenSource();
-            var watch = WatchTestRestoreAsync(backup.Id, where, watching.Token);
+            var watch = WatchTestRestoreAsync(backup.Id, shortWhere, watching.Token, new MaintenanceRunLog.ProgressLines(say));
             VerifyOutcome outcome;
+            teeing.Value = true;
+            _engine.LineWritten += tee;
             try { outcome = await ServiceLocator.TestRestores.RunScheduledAsync(view, check.RestoreOptions(), linked.Token, maintenanceLeaseHeld: true,
                 startedByOwner: ChecksStartedByOwner.Value).ConfigureAwait(false); }
-            finally { watching.Cancel(); await watch.ConfigureAwait(false); }
+            finally
+            {
+                _engine.LineWritten -= tee;
+                teeing.Value = false;
+                watching.Cancel(); await watch.ConfigureAwait(false);
+            }
             var status = outcome.OverallPass ? BackupRunStatus.Success : BackupRunStatus.Failed;
             foreach (var (target, dest) in reachable)
                 AddOutcome(aggregate, source, dest.Name, target.StorageName, status, outcome.Summary);
+            // Every file checked, shown with Verbose; the result after it, last (U233).
+            foreach (var file in outcome.Files)
+                log.Write(file.Status is FileVerifyStatus.SizeMismatch or FileVerifyStatus.BytesMismatch or FileVerifyStatus.RestoreFailed
+                    ? $"[error] {file.DestinationName} / {file.Path}: {file.Detail}"
+                    : $"{BackupLiveProgress.FilePrefix}{file.Status} · {file.DestinationName} / {file.Path} · {file.ActualBytes:N0} bytes");
+            say(ResultLine(check.Title, RunKind.Check, where, status, outcome.Summary, DateTime.UtcNow - started));
+            foreach (var line in outcome.Summary.Split('\n').Skip(1).Where(l => l.Trim().Length > 0))
+                say("[backspace] " + line.Trim());
             // The test restore's own record holds its result for the check
             // history (BackupCheckHistory); this record holds the plain
             // summary and which destinations it reached (U174).
@@ -535,15 +608,17 @@ public sealed partial class BackupOrchestrator
         }
         catch (OperationCanceledException)
         {
+            var why = metered() ? "Cancelled because the network became metered (mobile / tethered)." : "Cancelled before completion.";
             foreach (var (target, dest) in reachable.Where(r => !aggregate.Cells.Any(c => c.DestinationName == r.Destination.Name)))
-                AddOutcome(aggregate, source, dest.Name, target.StorageName, BackupRunStatus.Skipped,
-                    metered() ? "Cancelled because the network became metered (mobile / tethered)." : "Cancelled before completion.");
+                AddOutcome(aggregate, source, dest.Name, target.StorageName, BackupRunStatus.Skipped, why);
+            say($"[skip] {check.Title} was stopped: {why}");
         }
         catch (Exception ex)
         {
             _log.Warning(ex, "The sample test restore of {Backup} could not finish", backup.Name);
             foreach (var (target, dest) in reachable.Where(r => !aggregate.Cells.Any(c => c.DestinationName == r.Destination.Name)))
                 AddOutcome(aggregate, source, dest.Name, target.StorageName, BackupRunStatus.Failed, ex.Message);
+            say($"[error] {check.Title} could not finish: {ex.Message}");
         }
         finally { foreach (var lease in leases) lease.Dispose(); }
     }

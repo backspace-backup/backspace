@@ -574,6 +574,25 @@ backed up: only data the backup doesn't already hold is uploaded, compressed,
 as hovering the line recalls. Without the list (a first
 backup, or a list made for another snapshot), progress is shown as above.
 
+The **Run** picker lists a backup's runs, newest first. Each reads as what it
+was (Backup, Data check (1 GiB sample), Restore check, Cleanup), when ("Today
+14:38"), a coloured pill with how it ended and how long it took, and one line
+of detail; hover it for the whole summary. A run going on now has a blue dot
+and "Running". A restore check is listed once, as its check. A run of the
+background service, picked while it runs, shows that run's own output, and the
+header names it ("local_d · Restore check … (2 of 2)"). **Open live log** in a
+backup's Activity picks its running run, even while Activity & logs showed
+another backup.
+
+Each check and cleanup keeps a log: where it starts, its steps with their
+progress (a line at each step and each further tenth), what it met (a lock
+left by an operation that no longer runs is a warning: Backspace removes such
+locks, never one in use, and tries again), and how it ended, last. A restore
+check's log says what it picks and restores; the list of every file checked
+shows with **Verbose**, its result after it. Checks run before version 1.1.40
+kept no log: picking one shows what it recorded. restic's own lines are shown
+without their UTC time; the line's local time is in the **Timestamps** column.
+
 **Activity & logs** shows each run as phases. A backup opens with what it
 starts from: the previous backup to that destination (date and snapshot), the
 number of exclusion rules, and whether a shadow copy is used. Progress follows

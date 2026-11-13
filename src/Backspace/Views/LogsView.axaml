@@ -162,6 +162,51 @@
       <Setter Property="HorizontalContentAlignment" Value="Left"/>
       <Setter Property="FontWeight" Value="Normal"/>
     </Style>
+    <!-- The run picker (U232). -->
+    <Style Selector="ComboBox.run-picker">
+      <Setter Property="MinHeight" Value="44"/>
+    </Style>
+    <Style Selector="ComboBox.run-picker ComboBoxItem">
+      <Setter Property="Padding" Value="14,6"/>
+    </Style>
+    <Style Selector="Ellipse.run-dot">
+      <Setter Property="Width" Value="9"/>
+      <Setter Property="Height" Value="9"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Fill" Value="{DynamicResource BS.Brush.FgDim}"/>
+    </Style>
+    <Style Selector="Ellipse.run-dot.ok"><Setter Property="Fill" Value="{DynamicResource BS.Brush.Success}"/></Style>
+    <Style Selector="Ellipse.run-dot.warn"><Setter Property="Fill" Value="{DynamicResource BS.Brush.Warn}"/></Style>
+    <Style Selector="Ellipse.run-dot.fail"><Setter Property="Fill" Value="{DynamicResource BS.Brush.Danger}"/></Style>
+    <Style Selector="Ellipse.run-dot.running"><Setter Property="Fill" Value="{DynamicResource BS.Brush.Accent}"/></Style>
+    <Style Selector="TextBlock.run-when">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBlock.run-detail">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
+    </Style>
+    <Style Selector="Border.run-pill">
+      <Setter Property="CornerRadius" Value="9"/>
+      <Setter Property="Padding" Value="8,1"/>
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.RaisedChip}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Border.run-pill > TextBlock">
+      <Setter Property="FontSize" Value="11.5"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
+    </Style>
+    <Style Selector="Border.run-pill.ok"><Setter Property="Background" Value="{DynamicResource BS.Brush.SuccessLightBg}"/></Style>
+    <Style Selector="Border.run-pill.ok > TextBlock"><Setter Property="Foreground" Value="{DynamicResource BS.Brush.SuccessLightFg}"/></Style>
+    <Style Selector="Border.run-pill.warn"><Setter Property="Background" Value="{DynamicResource BS.Brush.WarnLightBg}"/></Style>
+    <Style Selector="Border.run-pill.warn > TextBlock"><Setter Property="Foreground" Value="{DynamicResource BS.Brush.WarnLightFg}"/></Style>
+    <Style Selector="Border.run-pill.fail"><Setter Property="Background" Value="{DynamicResource BS.Brush.DangerLightBg}"/></Style>
+    <Style Selector="Border.run-pill.fail > TextBlock"><Setter Property="Foreground" Value="{DynamicResource BS.Brush.DangerLightFg}"/></Style>
+    <Style Selector="Border.run-pill.running"><Setter Property="Background" Value="{DynamicResource BS.Brush.AccentTint}"/></Style>
+    <Style Selector="Border.run-pill.running > TextBlock"><Setter Property="Foreground" Value="{DynamicResource BS.Brush.AccentTintFg}"/></Style>
   </UserControl.Styles>
 
   <Grid Margin="32,4,32,32" RowDefinitions="Auto,Auto,*">
@@ -183,21 +228,46 @@
       </StackPanel>
       <StackPanel Grid.Column="2" Spacing="6">
         <TextBlock Classes="label-caps" Text="RUN"/>
-        <ComboBox x:Name="RunPicker" ItemsSource="{Binding History}"
+        <!-- The run picker (U232): each run as what it was, when, a
+             coloured outcome pill with its duration and one line of
+             detail; the closed picker shows the same on one line. -->
+        <ComboBox x:Name="RunPicker" Classes="run-picker" ItemsSource="{Binding History}"
                   SelectedItem="{Binding SelectedRun}"
                   HorizontalAlignment="Stretch"
+                  MaxDropDownHeight="560"
                   PlaceholderText="Pick a run">
+          <ComboBox.SelectionBoxItemTemplate>
+            <DataTemplate DataType="m:RunRecord">
+              <Grid x:DataType="vm:RunPickerRow" DataContext="{Binding ., Converter={x:Static vm:RunPickerRow.To}}"
+                    ColumnDefinitions="Auto,Auto,Auto,*" VerticalAlignment="Center">
+                <Ellipse Grid.Column="0" Classes="run-dot" Classes.ok="{Binding IsOk}" Classes.warn="{Binding IsWarn}"
+                         Classes.fail="{Binding IsFail}" Classes.running="{Binding IsRunning}" Margin="0,0,10,0"/>
+                <TextBlock Grid.Column="1" Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" Classes="run-when" Text="{Binding When}" Margin="10,0,0,0"/>
+                <TextBlock Grid.Column="3" Classes="run-when" Text="{Binding Outcome, StringFormat='· {0}'}" Margin="6,0,0,0"
+                           TextTrimming="CharacterEllipsis"/>
+              </Grid>
+            </DataTemplate>
+          </ComboBox.SelectionBoxItemTemplate>
           <ComboBox.ItemTemplate>
             <DataTemplate DataType="m:RunRecord">
-              <!-- Compose the row text from a converter rather than
-                   chained <Run> elements: the in-flight synthetic
-                   RunRecord has Status=Running AND Summary="Running…",
-                   which used to render as "12:34 · Running · Running…"
-                   with the same word duplicated. The converter folds
-                   that case (Summary mirrors Status) into a single
-                   "12:34 · Running…" line. -->
-              <TextBlock Text="{Binding ., Converter={x:Static vm:RunRecordRowText.To}}"
-                         TextTrimming="CharacterEllipsis"/>
+              <Grid x:DataType="vm:RunPickerRow" DataContext="{Binding ., Converter={x:Static vm:RunPickerRow.To}}"
+                    ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" Margin="0,5"
+                    ToolTip.Tip="{Binding Tooltip}">
+                <Ellipse Grid.RowSpan="2" Classes="run-dot" Classes.ok="{Binding IsOk}" Classes.warn="{Binding IsWarn}"
+                         Classes.fail="{Binding IsFail}" Classes.running="{Binding IsRunning}"
+                         VerticalAlignment="Top" Margin="2,6,12,0"/>
+                <TextBlock Grid.Column="1" Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="2" Classes="run-when" Text="{Binding When}" Margin="16,0,0,0"/>
+                <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*" Margin="0,4,0,0">
+                  <Border Classes="run-pill" Classes.ok="{Binding IsOk}" Classes.warn="{Binding IsWarn}"
+                          Classes.fail="{Binding IsFail}" Classes.running="{Binding IsRunning}">
+                    <TextBlock Text="{Binding Outcome}"/>
+                  </Border>
+                  <TextBlock Grid.Column="1" Classes="run-detail" Text="{Binding Detail}" IsVisible="{Binding HasDetail}"
+                             Margin="10,0,0,0" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                </Grid>
+              </Grid>
             </DataTemplate>
           </ComboBox.ItemTemplate>
         </ComboBox>
@@ -351,7 +421,7 @@
         <Border DockPanel.Dock="Top" Padding="14,10" Background="#161B22">
           <Border.IsVisible>
             <MultiBinding Converter="{x:Static vm:BoolAnd.To}">
-              <Binding Path="IsShowingLive"/>
+              <Binding Path="ShowsCombinedOutput"/>
               <Binding Path="!HasNoHistoryForSelected"/>
             </MultiBinding>
           </Border.IsVisible>

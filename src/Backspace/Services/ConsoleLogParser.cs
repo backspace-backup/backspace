@@ -56,7 +56,7 @@ internal sealed class ConsoleLogParser
         {
             _block = Block.Header;
             _sectionHasContent = false;
-            _source = _destination = null;
+            _source = _destination = _backup = null;
             return _lastSection = new ConsoleLine("backup", ConsoleLineKind.Section, time) { FromHeader = true };
         }
         if (text == OutcomeMarker)
@@ -106,6 +106,7 @@ internal sealed class ConsoleLogParser
         if (kind == ConsoleLineKind.Plain && !text.StartsWith('[') && _lastKind is ConsoleLineKind.Warning or ConsoleLineKind.Error)
             kind = _lastKind;
         _lastKind = kind;
+        text = ConsoleLineClassifier.WithoutRecordTime(text);
         // The first attempt's start (in UTC) adds nothing to the header above
         // it; a second attempt is a retry and shows, amber.
         return new ConsoleLine(text, kind, time) { VerboseOnly = text.StartsWith(FirstAttempt, StringComparison.Ordinal) };
@@ -117,7 +118,7 @@ internal sealed class ConsoleLogParser
     // several lines).
     private ConsoleLineKind _lastFieldKind = ConsoleLineKind.Meta;
 
-    private string? _source, _destination;
+    private string? _source, _destination, _backup;
     // "USB drive (E:) (LocalFolder)": the destination's kind, in brackets at the end.
     private static readonly System.Text.RegularExpressions.Regex DestinationKind =
         new(@"\s\([A-Za-z]+\)$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
@@ -131,7 +132,9 @@ internal sealed class ConsoleLogParser
         {
             if (_lastSection is { FromHeader: true } section)
             {
-                if (key == "backup" && value.Length > 0) section.Text = value + " · backup";
+                if (key == "backup" && value.Length > 0) { _backup = value; section.Text = value + " · backup"; }
+                // A check's or cleanup's log names it (U233).
+                else if (key == "operation" && value.Length > 0) section.Text = (_backup ?? "") + " · " + value;
                 else if (key == "source" && value.Length > 0) _source = value;
                 else if (key == "destination" && value.Length > 0) _destination = DestinationKind.Replace(value, "");
                 else if (key == "started (UTC)" && DateTime.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
