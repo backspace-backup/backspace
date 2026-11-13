@@ -49,6 +49,7 @@ public sealed class E50_ScheduledDataCheck(ITestOutputHelper output) : BackupE2E
         Assert.DoesNotContain(editor.Checks, c => c.Kind == CheckKind.DataSample);
         var window = ctx.Driver.Show(new BackupEditorWindow { DataContext = editor, Width = 1024, Height = 768 });
         window.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
+        window.FindControl<TabControl>("ScheduleSubTabs")!.SelectedIndex = 2; // Checks (U228)
         await ctx.Driver.PumpAsync(100);
         var add = window.FindControl<Button>("AddDataSample")!;
         add.BringIntoView();

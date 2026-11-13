@@ -83,6 +83,11 @@ public partial class BackupEditorWindow : Window
 
     private void OnCancel(object? sender, RoutedEventArgs e) => Close(null);
 
+    // The summary's lines open their tab (U228).
+    private void OnSummaryBackups(object? sender, RoutedEventArgs e) => ScheduleSubTabs.SelectedItem = ScheduleBackupsTab;
+    private void OnSummaryCleanup(object? sender, RoutedEventArgs e) => ScheduleSubTabs.SelectedItem = ScheduleCleanupTab;
+    private void OnSummaryChecks(object? sender, RoutedEventArgs e) => ScheduleSubTabs.SelectedItem = ScheduleChecksTab;
+
     // Left out's rule links (U177) select the rule on the Rules tab.
     private BackupEditorViewModel? _ruleSource;
 

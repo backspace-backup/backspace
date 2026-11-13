@@ -63,6 +63,7 @@ public sealed class S99_ChecksList : ScenarioBase
         ctx.Driver.Show(win);
         var vm = (BackupEditorViewModel)win.DataContext!;
         win.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
+        win.FindControl<TabControl>("ScheduleSubTabs")!.SelectedIndex = 2; // Checks (U228)
         await ctx.Driver.PumpAsync(150);
         Assert.Equal(new[] { CheckKind.DataSample, CheckKind.TestRestore }, vm.Checks.Select(c => c.Kind));
         var card = win.FindControl<Border>("ChecksCard")!;
@@ -121,6 +122,7 @@ public sealed class S99_ChecksList : ScenarioBase
             var dark = new BackupEditorWindow(ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id), isNew: false) { Width = 1100, Height = 900 };
             ctx.Driver.Show(dark);
             dark.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
+            dark.FindControl<TabControl>("ScheduleSubTabs")!.SelectedIndex = 2; // Checks (U228)
             await ctx.Driver.PumpAsync(150);
             await ShowChecks(ctx, dark, dark.FindControl<Border>("ChecksCard")!);
             ctx.Snapshot(dark, "checks dark", "The same Checks list in dark mode: entries, sentence and Add a check buttons stay readable.");

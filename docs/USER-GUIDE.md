@@ -167,7 +167,9 @@ The log ends the cleanup with what it removed ("[cleanup] 2 old backups removed
 freed" to its run when something was freed. With what each backup added, it
 shows why the storage doesn’t only grow.
 
-A backup has two conditions, in **Edit → Schedule → Conditions**. Each is a
+**Edit → Schedule** opens with a summary of the backup's timing, one line each for its backups, its cleanup and each check (click one to open its tab), above three tabs: **Backups** (how often, the time and the conditions), **Cleanup** and **Checks**.
+
+A backup has two conditions, in **Edit → Schedule → Backups → Conditions**. Each is a
 wait and a stop: a run waits until it is met, stops if it no longer is, and
 then runs again as soon as it is.
 

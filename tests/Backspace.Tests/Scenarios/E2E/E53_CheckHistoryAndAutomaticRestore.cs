@@ -71,6 +71,7 @@ public sealed class E53_CheckHistoryAndAutomaticRestore(ITestOutputHelper output
         Assert.DoesNotContain(editor.Checks, c => c.Kind == CheckKind.TestRestore);
         var settings = ctx.Driver.Show(new BackupEditorWindow { DataContext = editor, Width = 1024, Height = 768 });
         settings.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
+        settings.FindControl<TabControl>("ScheduleSubTabs")!.SelectedIndex = 2; // Checks (U228)
         await ctx.Driver.PumpAsync(100);
         // U179: each check is its own entry, added with "Add a check".
         var addRestore = settings.FindControl<Button>("AddTestRestore")!;

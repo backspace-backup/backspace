@@ -39,9 +39,27 @@ public sealed class S106_CheckFamilies : ScenarioBase
         ctx.Driver.Show(win);
         var vm = (BackupEditorViewModel)win.DataContext!;
         win.GetVisualDescendants().OfType<TabControl>().First().SelectedIndex = 1;
+        win.FindControl<TabControl>("ScheduleSubTabs")!.SelectedIndex = 2; // Checks (U228)
         await ctx.Driver.PumpAsync(200);
         var card = win.FindControl<Border>("ChecksCard")!;
         card.BringIntoView(); await ctx.Driver.PumpAsync(150);
+
+        // U228: the summary above the Backups, Cleanup and Checks tabs, one line each.
+        Assert.Equal(new[] { "Data check (1 GiB sample): monthly on the 1st at 21:00", "Restore check (1% of files, at most 1 GiB): monthly on the 1st at 21:00" }, vm.SummaryChecks);
+        Assert.Equal("After each backup", vm.SummaryCleanup);
+        Assert.StartsWith("Daily at ", vm.SummaryBackups);
+        Assert.Equal("Checks (2)", vm.ChecksTabHeader);
+        vm.SkipOnBattery = false; vm.AbortOnMeteredNetwork = true;
+        Assert.EndsWith(" · only on an unmetered connection", vm.SummaryBackups);
+        vm.SkipOnBattery = true;
+        Assert.EndsWith(" · only on AC power and an unmetered connection", vm.SummaryBackups);
+        var tabs = win.FindControl<TabControl>("ScheduleSubTabs")!;
+        win.FindControl<TabControl>("ScheduleSubTabs")!.SelectedIndex = 0;
+        var cleanupLink = win.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("summary-link") && (string?)b.Content == "Cleanup");
+        cleanupLink.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(1, tabs.SelectedIndex);
+        tabs.SelectedIndex = 2;
+        await ctx.Driver.PumpAsync(150);
 
         // The names: three families.
         Assert.Equal(new[] { "Data check (1 GiB sample)", "Restore check (1% of files, at most 1 GiB)" }, vm.Checks.Select(c => c.Title));

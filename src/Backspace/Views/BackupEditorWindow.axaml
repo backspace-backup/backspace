@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sys="using:System"
         xmlns:vm="using:Backspace.ViewModels"
         xmlns:m="using:Backspace.Models"
         xmlns:v="using:Backspace.Views"
@@ -42,6 +43,28 @@
     </Style>
     <Style Selector="RadioButton.check-choice:checked">
       <Setter Property="Foreground" Value="{DynamicResource BS.Brush.AccentTintFg}"/>
+    </Style>
+    <!-- The Schedule tab's summary (U228). -->
+    <Style Selector="Border.schedule-summary">
+      <Setter Property="Background" Value="{DynamicResource BS.Brush.AccentTint}"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="16,12"/>
+    </Style>
+    <Style Selector="Border.schedule-summary TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
+      <Setter Property="FontSize" Value="13.5"/>
+    </Style>
+    <Style Selector="Button.summary-link">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="MinHeight" Value="0"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{DynamicResource BS.Brush.AccentTintFg}"/>
+      <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+    <Style Selector="Button.summary-link:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="TextBlock.TextDecorations" Value="Underline"/>
     </Style>
     <Style Selector="Border.check-row">
       <Setter Property="Background" Value="{DynamicResource BS.Brush.BgSurface}"/>
@@ -611,232 +634,251 @@
 
       <!-- =========== TAB: Schedule =========== -->
       <TabItem Header="Schedule">
-        <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Spacing="14" Margin="0,10,0,24">
+        <!-- U228 (owner, 13 November 2026): three tabs, Backups, Cleanup and
+             Checks, under a short summary of all three that stays in view;
+             each line of it opens its tab. -->
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Name="ScheduleSummary" Classes="schedule-summary" Margin="0,10,0,4">
+            <Grid ColumnDefinitions="Auto,16,*" RowDefinitions="Auto,6,Auto,6,Auto">
+              <Button Grid.Row="0" Classes="summary-link" Content="Backups" Click="OnSummaryBackups"/>
+              <TextBlock Grid.Row="0" Grid.Column="2" Name="SummaryBackups" Text="{Binding SummaryBackups}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+              <Button Grid.Row="2" Classes="summary-link" Content="Cleanup" Click="OnSummaryCleanup"/>
+              <TextBlock Grid.Row="2" Grid.Column="2" Name="SummaryCleanup" Text="{Binding SummaryCleanup}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+              <Button Grid.Row="4" Classes="summary-link" Content="Checks" Click="OnSummaryChecks" VerticalAlignment="Top"/>
+              <ItemsControl Grid.Row="4" Grid.Column="2" Name="SummaryChecks" ItemsSource="{Binding SummaryChecks}" VerticalAlignment="Center">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="sys:String">
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,2"/>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Grid>
+          </Border>
+          <TabControl Classes="sub" Margin="0,4,0,0" Padding="0" Name="ScheduleSubTabs">
+          <TabItem Header="Backups" Name="ScheduleBackupsTab">
+            <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Spacing="14" Margin="0,10,0,24">
+                <Border Classes="surface">
+                  <StackPanel Spacing="16">
 
-            <Border Classes="surface">
-              <StackPanel Spacing="16">
+                    <!-- Master switch: when off, the backup is configured but
+                         never auto-runs. Lives at the top of the Schedule
+                         tab where users naturally look for "should this run
+                         automatically?" — earlier it was tucked into the
+                         Sources card on the Overview tab and got missed.
+                         Wrapped in master-toggle chrome to match the
+                         Encrypt-storage gateway control in the destination
+                         editor — same visual weight = same role. -->
+                    <Border Classes="master-toggle">
+                      <CheckBox IsChecked="{Binding Enabled}"
+                                Content="Run this backup automatically on the schedule below"
+                                FontWeight="SemiBold"
+                                Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                    </Border>
 
-                <!-- Master switch: when off, the backup is configured but
-                     never auto-runs. Lives at the top of the Schedule
-                     tab where users naturally look for "should this run
-                     automatically?" — earlier it was tucked into the
-                     Sources card on the Overview tab and got missed.
-                     Wrapped in master-toggle chrome to match the
-                     Encrypt-storage gateway control in the destination
-                     editor — same visual weight = same role. -->
-                <Border Classes="master-toggle">
-                  <CheckBox IsChecked="{Binding Enabled}"
-                            Content="Run this backup automatically on the schedule below"
-                            FontWeight="SemiBold"
-                            Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                    <Grid ColumnDefinitions="*,22,*"
+                          IsEnabled="{Binding Enabled}">
+                      <StackPanel Grid.Column="0" Spacing="6">
+                        <TextBlock Classes="label-caps" Text="FREQUENCY"/>
+                        <ComboBox ItemsSource="{Binding AvailableFrequencies}" SelectedItem="{Binding Frequency}"
+                                  HorizontalAlignment="Stretch"/>
+                      </StackPanel>
+                      <StackPanel Grid.Column="2" Spacing="6">
+                        <TextBlock Classes="label-caps" Text="TIME OF DAY"/>
+                        <TimePicker SelectedTime="{Binding TimeOfDay}" ClockIdentifier="24HourClock"/>
+                      </StackPanel>
+                    </Grid>
+
+                    <StackPanel Spacing="6"
+                                IsEnabled="{Binding Enabled}"
+                                IsVisible="{Binding Frequency, Converter={x:Static vm:Eq.To}, ConverterParameter=Hourly}">
+                      <TextBlock Classes="label-caps" Text="RUN EVERY N HOURS"/>
+                      <NumericUpDown Value="{Binding HourlyInterval}" Minimum="1" Maximum="168"/>
+                    </StackPanel>
+                  </StackPanel>
                 </Border>
 
-                <Grid ColumnDefinitions="*,22,*"
-                      IsEnabled="{Binding Enabled}">
-                  <StackPanel Grid.Column="0" Spacing="6">
-                    <TextBlock Classes="label-caps" Text="FREQUENCY"/>
-                    <ComboBox ItemsSource="{Binding AvailableFrequencies}" SelectedItem="{Binding Frequency}"
-                              HorizontalAlignment="Stretch"/>
+                <Border Classes="surface">
+                  <StackPanel Spacing="10">
+                    <TextBlock Classes="section-title" Text="Conditions" Margin="0"/>
+
+                    <!-- U226 (owner, 12 November 2026): two conditions, each a
+                         wait and a stop; no internet setting; missed runs always
+                         run as soon as possible. -->
+                    <CheckBox Name="OnlyOnAcPower" IsChecked="{Binding SkipOnBattery}" Content="Run only while on AC power"
+                              Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                    <CheckBox Name="OnlyUnmetered" IsChecked="{Binding AbortOnMeteredNetwork}" Content="Run only while on an unmetered connection"
+                              Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
+                    <TextBlock Name="ConditionsScope" Classes="helper" TextWrapping="Wrap"
+                               Text="A run waits until these are met, and stops if they no longer are; it then runs again as soon as they are. They apply to the backup, its cleanup and its checks (a check can have its own, under Checks). A destination on this computer (a folder or a drive) never waits for the network: only cloud and network destinations do, and one that can't be reached is tried again when the network changes. A missed run runs as soon as possible."/>
+
+                    <!-- ===== Grace period for skipped runs =====
+                         Always visible in Advanced mode so power users can
+                         configure / reset regardless of current run state.
+                         Easy mode also keeps these controls available
+                         before an absence and after the window expires. -->
+                    <Border Classes="rule" Margin="0,4"/>
+                    <TextBlock FontWeight="SemiBold"
+                               Foreground="{DynamicResource BS.Brush.FgPrimary}"
+                               Text="Quiet skipped-run alerts for…"/>
+                    <Grid ColumnDefinitions="Auto,10,Auto,10,Auto" VerticalAlignment="Center">
+                      <NumericUpDown Grid.Column="0"
+                                     Value="{Binding SkipNotificationGraceDays}"
+                                     Minimum="0" Maximum="365"
+                                     Width="110"/>
+                      <TextBlock Grid.Column="2" Classes="dim" VerticalAlignment="Center"
+                                 Text="days after a successful backup"/>
+                      <Button Grid.Column="4" Classes="ghost"
+                              Command="{Binding ResetGracePeriodCommand}"
+                              Content="Reset grace period"
+                              ToolTip.Tip="Click before a known absence (e.g. going away for 2 weeks) to push the grace window forward without faking a backup success."/>
+                    </Grid>
+                    <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
+                               Text="{Binding GraceReferenceLabel}"/>
+                    <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
+                               Text="During the grace window, Skipped runs don't trigger notifications. After it expires, Skipped runs can send warning notifications. Their status stays Skipped. Set to 0 to disable the grace window entirely."/>
                   </StackPanel>
-                  <StackPanel Grid.Column="2" Spacing="6">
-                    <TextBlock Classes="label-caps" Text="TIME OF DAY"/>
-                    <TimePicker SelectedTime="{Binding TimeOfDay}" ClockIdentifier="24HourClock"/>
+                </Border>
+
+                <Border Height="24" Background="Transparent"/>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+          <TabItem Header="Cleanup" Name="ScheduleCleanupTab">
+            <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Spacing="14" Margin="0,10,0,24">
+                <Border Classes="surface">
+                  <StackPanel Spacing="10">
+                    <TextBlock Classes="label-caps" Text="CLEANUP"/>
+                    <TextBlock Classes="helper" TextWrapping="Wrap"
+                               Text="Removes old copies your retention policy no longer keeps and frees the space they used. After each backup suits small backups; weekly is better once cleanup takes longer than the backup itself."/>
+                    <!-- NOT gated on Enabled — maintenance can run on its
+                         own schedule even when the user runs backups
+                         manually rather than on the auto-schedule. -->
+                    <Grid ColumnDefinitions="*,22,*">
+                      <StackPanel Grid.Column="0" Spacing="6">
+                        <TextBlock Classes="label-caps" Text="HOW OFTEN"/>
+                        <ComboBox Name="CleanupCadence" ItemsSource="{Binding AvailableMaintenanceCadences}"
+                                  SelectedItem="{Binding PruneCadence}"
+                                  HorizontalAlignment="Stretch">
+                          <ComboBox.ItemTemplate>
+                            <DataTemplate DataType="m:MaintenanceCadence">
+                              <TextBlock Text="{Binding ., Converter={x:Static vm:MaintenanceCadenceHumanizer.To}}"/>
+                            </DataTemplate>
+                          </ComboBox.ItemTemplate>
+                        </ComboBox>
+                      </StackPanel>
+                      <StackPanel Grid.Column="2" Spacing="6"
+                                  IsVisible="{Binding PruneShowsTimeOfDay}">
+                        <TextBlock Classes="label-caps" Text="TIME OF DAY"/>
+                        <TimePicker SelectedTime="{Binding PruneTimeOfDay}" ClockIdentifier="24HourClock"/>
+                      </StackPanel>
+                    </Grid>
                   </StackPanel>
-                </Grid>
+                </Border>
 
-                <StackPanel Spacing="6"
-                            IsEnabled="{Binding Enabled}"
-                            IsVisible="{Binding Frequency, Converter={x:Static vm:Eq.To}, ConverterParameter=Hourly}">
-                  <TextBlock Classes="label-caps" Text="RUN EVERY N HOURS"/>
-                  <NumericUpDown Value="{Binding HourlyInterval}" Minimum="1" Maximum="168"/>
-                </StackPanel>
+                <Border Height="24" Background="Transparent"/>
               </StackPanel>
-            </Border>
+            </ScrollViewer>
+          </TabItem>
+          <TabItem Header="{Binding ChecksTabHeader}" Name="ScheduleChecksTab">
+            <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Spacing="14" Margin="0,10,0,24">
+                <Border Classes="surface" Name="ChecksCard">
+                  <StackPanel Spacing="12">
+                    <TextBlock Classes="label-caps" Text="CHECKS"/>
+                    <TextBlock Classes="helper" TextWrapping="Wrap"
+                               Text="Each check below runs on its own schedule. Checks due at the same time run one after another, never together, and backups wait for them. Checks find problems; they do not repair a damaged backup."/>
+                    <TextBlock Classes="dim" IsVisible="{Binding !HasChecks}" TextWrapping="Wrap"
+                               Text="No checks. Nothing confirms that this backup can be restored until you add one."/>
 
-            <Border Classes="surface">
-              <StackPanel Spacing="10">
-                <TextBlock Classes="section-title" Text="Conditions" Margin="0"/>
-
-                <!-- U226 (owner, 12 November 2026): two conditions, each a
-                     wait and a stop; no internet setting; missed runs always
-                     run as soon as possible. -->
-                <CheckBox Name="OnlyOnAcPower" IsChecked="{Binding SkipOnBattery}" Content="Run only while on AC power"
-                          Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                <CheckBox Name="OnlyUnmetered" IsChecked="{Binding AbortOnMeteredNetwork}" Content="Run only while on an unmetered connection"
-                          Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                <TextBlock Name="ConditionsScope" Classes="helper" TextWrapping="Wrap"
-                           Text="A run waits until these are met, and stops if they no longer are; it then runs again as soon as they are. They apply to the backup, its cleanup and its checks (a check can have its own, under Checks). A destination on this computer (a folder or a drive) never waits for the network: only cloud and network destinations do, and one that can't be reached is tried again when the network changes. A missed run runs as soon as possible."/>
-
-                <!-- ===== Grace period for skipped runs =====
-                     Always visible in Advanced mode so power users can
-                     configure / reset regardless of current run state.
-                     Easy mode also keeps these controls available
-                     before an absence and after the window expires. -->
-                <Border Classes="rule" Margin="0,4"/>
-                <TextBlock FontWeight="SemiBold"
-                           Foreground="{DynamicResource BS.Brush.FgPrimary}"
-                           Text="Quiet skipped-run alerts for…"/>
-                <Grid ColumnDefinitions="Auto,10,Auto,10,Auto" VerticalAlignment="Center">
-                  <NumericUpDown Grid.Column="0"
-                                 Value="{Binding SkipNotificationGraceDays}"
-                                 Minimum="0" Maximum="365"
-                                 Width="110"/>
-                  <TextBlock Grid.Column="2" Classes="dim" VerticalAlignment="Center"
-                             Text="days after a successful backup"/>
-                  <Button Grid.Column="4" Classes="ghost"
-                          Command="{Binding ResetGracePeriodCommand}"
-                          Content="Reset grace period"
-                          ToolTip.Tip="Click before a known absence (e.g. going away for 2 weeks) to push the grace window forward without faking a backup success."/>
-                </Grid>
-                <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
-                           Text="{Binding GraceReferenceLabel}"/>
-                <TextBlock Classes="dim" FontSize="12" TextWrapping="Wrap"
-                           Text="During the grace window, Skipped runs don't trigger notifications. After it expires, Skipped runs can send warning notifications. Their status stays Skipped. Set to 0 to disable the grace window entirely."/>
-              </StackPanel>
-            </Border>
-
-            <!-- MAINTENANCE: cleanup, then the backup's checks (U179). Cleanup
-                 keeps one cadence; checks are a list, one entry per check,
-                 each with its own frequency, time and conditions. Entries
-                 due together run one after another. -->
-            <TextBlock Classes="section-title" Margin="0,4,0,0"
-                       Text="Maintenance"/>
-
-            <Border Classes="surface">
-              <StackPanel Spacing="10">
-                <TextBlock Classes="label-caps" Text="CLEANUP"/>
-                <TextBlock Classes="helper" TextWrapping="Wrap"
-                           Text="Removes old copies your retention policy no longer keeps and frees the space they used. After each backup suits small backups; weekly is better once cleanup takes longer than the backup itself."/>
-                <!-- NOT gated on Enabled — maintenance can run on its
-                     own schedule even when the user runs backups
-                     manually rather than on the auto-schedule. -->
-                <Grid ColumnDefinitions="*,22,*">
-                  <StackPanel Grid.Column="0" Spacing="6">
-                    <TextBlock Classes="label-caps" Text="HOW OFTEN"/>
-                    <ComboBox Name="CleanupCadence" ItemsSource="{Binding AvailableMaintenanceCadences}"
-                              SelectedItem="{Binding PruneCadence}"
-                              HorizontalAlignment="Stretch">
-                      <ComboBox.ItemTemplate>
-                        <DataTemplate DataType="m:MaintenanceCadence">
-                          <TextBlock Text="{Binding ., Converter={x:Static vm:MaintenanceCadenceHumanizer.To}}"/>
+                    <ItemsControl Name="CheckList" ItemsSource="{Binding Checks}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Spacing="10"/></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:CheckEntryViewModel">
+                          <Border Classes="check-row" Padding="14">
+                            <StackPanel Spacing="10">
+                              <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Spacing="2">
+                                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap"/>
+                                  <TextBlock Text="{Binding When}" Classes="dim" FontSize="12" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Classes="ghost" Content="Remove" VerticalAlignment="Top"
+                                        Command="{Binding RemoveCommand}"
+                                        AutomationProperties.Name="{Binding Title, StringFormat='Remove {0}'}"/>
+                              </Grid>
+                              <TextBlock Text="{Binding Explanation}" TextWrapping="Wrap" FontSize="13"
+                                         Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
+                              <WrapPanel>
+                                <StackPanel Spacing="6" Width="190" Margin="0,0,16,8">
+                                  <TextBlock Classes="label-caps" Text="HOW OFTEN"/>
+                                  <ComboBox ItemsSource="{x:Static vm:CheckEntryViewModel.Cadences}" SelectedItem="{Binding Cadence}"
+                                            HorizontalAlignment="Stretch">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate DataType="m:MaintenanceCadence">
+                                        <TextBlock Text="{Binding ., Converter={x:Static vm:MaintenanceCadenceHumanizer.To}}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </StackPanel>
+                                <StackPanel Spacing="6" Margin="0,0,16,8" IsVisible="{Binding ShowsTime}">
+                                  <TextBlock Classes="label-caps" Text="TIME OF DAY"/>
+                                  <TimePicker SelectedTime="{Binding TimeOfDay}" ClockIdentifier="24HourClock"/>
+                                </StackPanel>
+                                <StackPanel Spacing="6" Width="150" Margin="0,0,16,8" IsVisible="{Binding IsTestRestore}">
+                                  <TextBlock Classes="label-caps" Text="SHARE OF FILES (%)"/>
+                                  <NumericUpDown Value="{Binding SamplePercent}" Minimum="0.01" Maximum="100" Increment="1" FormatString="0.##"/>
+                                </StackPanel>
+                                <StackPanel Spacing="6" Width="150" Margin="0,0,16,8" IsVisible="{Binding !IsStructureOrFull}">
+                                  <TextBlock Classes="label-caps" Text="AT MOST (GiB)"/>
+                                  <NumericUpDown Value="{Binding MaximumGiB}" Minimum="0" Maximum="1048576" Increment="1" FormatString="0.##"/>
+                                </StackPanel>
+                              </WrapPanel>
+                              <TextBlock Text="{Binding LimitHelp}" Classes="helper" TextWrapping="Wrap" IsVisible="{Binding !IsStructureOrFull}"/>
+                              <CheckBox Name="AllDataChoice" IsChecked="{Binding AllData}" IsVisible="{Binding IsDataCheck}" IsEnabled="{Binding AllDataAvailable}"
+                                        Content="All data (instead of a sample)"
+                                        ToolTip.Tip="Downloads all the stored data and checks every piece. On a large cloud backup it can take many hours and download everything."
+                                        ToolTip.ShowOnDisabled="True"/>
+                              <CheckBox IsChecked="{Binding CompareOriginals}" IsVisible="{Binding IsTestRestore}">
+                                <TextBlock Text="Also compare with today's originals (a difference can't tell which copy changed)" TextWrapping="Wrap"/>
+                              </CheckBox>
+                              <!-- U226: a check follows its backup's conditions unless it has its own. -->
+                              <StackPanel Spacing="6" IsVisible="{Binding ShowsTime}">
+                                <CheckBox Name="FollowsBackupConditions" IsChecked="{Binding FollowsBackup}" Content="Same conditions as the backup"/>
+                                <WrapPanel IsVisible="{Binding OwnConditions}" Margin="28,0,0,0">
+                                  <CheckBox IsChecked="{Binding SkipOnBattery}" Content="Run only while on AC power" Margin="0,0,18,0"/>
+                                  <CheckBox IsChecked="{Binding UnmeteredOnly}" Content="Run only while on an unmetered connection"/>
+                                </WrapPanel>
+                              </StackPanel>
+                            </StackPanel>
+                          </Border>
                         </DataTemplate>
-                      </ComboBox.ItemTemplate>
-                    </ComboBox>
-                  </StackPanel>
-                  <StackPanel Grid.Column="2" Spacing="6"
-                              IsVisible="{Binding PruneShowsTimeOfDay}">
-                    <TextBlock Classes="label-caps" Text="TIME OF DAY"/>
-                    <TimePicker SelectedTime="{Binding PruneTimeOfDay}" ClockIdentifier="24HourClock"/>
-                  </StackPanel>
-                </Grid>
-              </StackPanel>
-            </Border>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
 
-            <Border Classes="surface" Name="ChecksCard">
-              <StackPanel Spacing="12">
-                <TextBlock Classes="label-caps" Text="CHECKS"/>
-                <TextBlock Classes="helper" TextWrapping="Wrap"
-                           Text="Each check below runs on its own schedule. Checks due at the same time run one after another, never together, and backups wait for them. Checks find problems; they do not repair a damaged backup."/>
-                <Border Background="{DynamicResource BS.Brush.AccentTint}" CornerRadius="8" Padding="12,10">
-                  <TextBlock Name="ChecksSentence" Text="{Binding ChecksSentence}" TextWrapping="Wrap"
-                             Foreground="{DynamicResource BS.Brush.AccentTintFg}"/>
+                    <TextBlock Classes="label-caps" Text="ADD A CHECK" Margin="0,4,0,0"/>
+                    <WrapPanel>
+                      <Button Name="AddStructureCheck" Classes="ghost" Content="+ Structure check" Margin="0,0,8,8"
+                              Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.Structure}"
+                              ToolTip.Tip="Is the backup complete? Checks its records and that every piece of data they point to is there. Quick; reads no file contents."/>
+                      <Button Name="AddDataSample" Classes="ghost" Content="+ Data check" Margin="0,0,8,8"
+                              Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.DataSample}"
+                              ToolTip.Tip="Is the stored data intact? Checks the structure, then downloads a sample of the stored data, or all of it, and checks every piece."/>
+                      <Button Name="AddTestRestore" Classes="ghost" Content="+ Restore check" Margin="0,0,8,8"
+                              Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.TestRestore}"
+                              ToolTip.Tip="Can your files come back? Restores some files from the latest backup into a temporary folder and checks them. Your original files are never changed."/>
+                    </WrapPanel>
+                  </StackPanel>
                 </Border>
-                <TextBlock Classes="dim" IsVisible="{Binding !HasChecks}" TextWrapping="Wrap"
-                           Text="No checks. Nothing confirms that this backup can be restored until you add one."/>
 
-                <ItemsControl Name="CheckList" ItemsSource="{Binding Checks}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><StackPanel Spacing="10"/></ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="vm:CheckEntryViewModel">
-                      <Border Classes="check-row" Padding="14">
-                        <StackPanel Spacing="10">
-                          <Grid ColumnDefinitions="*,Auto">
-                            <StackPanel Spacing="2">
-                              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap"/>
-                              <TextBlock Text="{Binding When}" Classes="dim" FontSize="12" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <Button Grid.Column="1" Classes="ghost" Content="Remove" VerticalAlignment="Top"
-                                    Command="{Binding RemoveCommand}"
-                                    AutomationProperties.Name="{Binding Title, StringFormat='Remove {0}'}"/>
-                          </Grid>
-                          <TextBlock Text="{Binding Explanation}" TextWrapping="Wrap" FontSize="13"
-                                     Foreground="{DynamicResource BS.Brush.FgSecondary}"/>
-                          <WrapPanel>
-                            <StackPanel Spacing="6" Width="190" Margin="0,0,16,8">
-                              <TextBlock Classes="label-caps" Text="HOW OFTEN"/>
-                              <ComboBox ItemsSource="{x:Static vm:CheckEntryViewModel.Cadences}" SelectedItem="{Binding Cadence}"
-                                        HorizontalAlignment="Stretch">
-                                <ComboBox.ItemTemplate>
-                                  <DataTemplate DataType="m:MaintenanceCadence">
-                                    <TextBlock Text="{Binding ., Converter={x:Static vm:MaintenanceCadenceHumanizer.To}}"/>
-                                  </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                              </ComboBox>
-                            </StackPanel>
-                            <StackPanel Spacing="6" Margin="0,0,16,8" IsVisible="{Binding ShowsTime}">
-                              <TextBlock Classes="label-caps" Text="TIME OF DAY"/>
-                              <TimePicker SelectedTime="{Binding TimeOfDay}" ClockIdentifier="24HourClock"/>
-                            </StackPanel>
-                            <StackPanel Spacing="6" Width="150" Margin="0,0,16,8" IsVisible="{Binding IsTestRestore}">
-                              <TextBlock Classes="label-caps" Text="SHARE OF FILES (%)"/>
-                              <NumericUpDown Value="{Binding SamplePercent}" Minimum="0.01" Maximum="100" Increment="1" FormatString="0.##"/>
-                            </StackPanel>
-                            <StackPanel Spacing="6" Width="150" Margin="0,0,16,8" IsVisible="{Binding !IsStructureOrFull}">
-                              <TextBlock Classes="label-caps" Text="AT MOST (GiB)"/>
-                              <NumericUpDown Value="{Binding MaximumGiB}" Minimum="0" Maximum="1048576" Increment="1" FormatString="0.##"/>
-                            </StackPanel>
-                          </WrapPanel>
-                          <TextBlock Text="{Binding LimitHelp}" Classes="helper" TextWrapping="Wrap" IsVisible="{Binding !IsStructureOrFull}"/>
-                          <CheckBox Name="AllDataChoice" IsChecked="{Binding AllData}" IsVisible="{Binding IsDataCheck}" IsEnabled="{Binding AllDataAvailable}"
-                                    Content="All data (instead of a sample)"
-                                    ToolTip.Tip="Downloads all the stored data and checks every piece. On a large cloud backup it can take many hours and download everything."
-                                    ToolTip.ShowOnDisabled="True"/>
-                          <CheckBox IsChecked="{Binding CompareOriginals}" IsVisible="{Binding IsTestRestore}">
-                            <TextBlock Text="Also compare with today's originals (a difference can't tell which copy changed)" TextWrapping="Wrap"/>
-                          </CheckBox>
-                          <!-- U226: a check follows its backup's conditions unless it has its own. -->
-                          <StackPanel Spacing="6" IsVisible="{Binding ShowsTime}">
-                            <CheckBox Name="FollowsBackupConditions" IsChecked="{Binding FollowsBackup}" Content="Same conditions as the backup"/>
-                            <WrapPanel IsVisible="{Binding OwnConditions}" Margin="28,0,0,0">
-                              <CheckBox IsChecked="{Binding SkipOnBattery}" Content="Run only while on AC power" Margin="0,0,18,0"/>
-                              <CheckBox IsChecked="{Binding UnmeteredOnly}" Content="Run only while on an unmetered connection"/>
-                            </WrapPanel>
-                          </StackPanel>
-                        </StackPanel>
-                      </Border>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <TextBlock Classes="label-caps" Text="ADD A CHECK" Margin="0,4,0,0"/>
-                <WrapPanel>
-                  <Button Name="AddStructureCheck" Classes="ghost" Content="+ Structure check" Margin="0,0,8,8"
-                          Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.Structure}"
-                          ToolTip.Tip="Is the backup complete? Checks its records and that every piece of data they point to is there. Quick; reads no file contents."/>
-                  <Button Name="AddDataSample" Classes="ghost" Content="+ Data check" Margin="0,0,8,8"
-                          Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.DataSample}"
-                          ToolTip.Tip="Is the stored data intact? Checks the structure, then downloads a sample of the stored data, or all of it, and checks every piece."/>
-                  <Button Name="AddTestRestore" Classes="ghost" Content="+ Restore check" Margin="0,0,8,8"
-                          Command="{Binding AddCheckCommand}" CommandParameter="{x:Static m:CheckKind.TestRestore}"
-                          ToolTip.Tip="Can your files come back? Restores some files from the latest backup into a temporary folder and checks them. Your original files are never changed."/>
-                </WrapPanel>
+                <Border Height="24" Background="Transparent"/>
               </StackPanel>
-            </Border>
-
-            <!-- Trailing sentinel: same pattern as the Backup tab —
-                 a 40px invisible spacer guarantees the ScrollViewer's
-                 measured extent reaches a step beyond the last
-                 card. Without this the bottom of CHECK POLICY was
-                 clipped on real Windows even when the user scrolled
-                 to the maximum, because the surface's measured
-                 extent stopped at the last card edge. -->
-            <Border Height="24" Background="Transparent"/>
-
-          </StackPanel>
-        </ScrollViewer>
+            </ScrollViewer>
+          </TabItem>
+          </TabControl>
+        </DockPanel>
       </TabItem>
 
       <!-- =========== TAB: Filters ===========

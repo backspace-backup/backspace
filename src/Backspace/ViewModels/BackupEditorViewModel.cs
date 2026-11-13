@@ -155,6 +155,60 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
 
 
 
+    // ---- The Schedule tab's summary (U228, owner, 13 November 2026: three
+    // tabs, Backups, Cleanup and Checks, under a readable summary of all
+    // three instead of one paragraph about cleanup and checks only). ----
+
+    /// <summary>"Daily at 20:00 · only on AC power and an unmetered connection".</summary>
+    public string SummaryBackups
+    {
+        get
+        {
+            if (!Enabled) return "Not automatic: runs when you start it";
+            var when = new BackupSchedule { Frequency = Frequency, TimeOfDay = TimeOfDay, HourlyInterval = HourlyInterval,
+                WeeklyDaysBitmask = Working.Schedule.WeeklyDaysBitmask }.DescribePeriod();
+            var only = (SkipOnBattery, AbortOnMeteredNetwork) switch
+            {
+                (true, true) => " · only on AC power and an unmetered connection",
+                (true, false) => " · only on AC power",
+                (false, true) => " · only on an unmetered connection",
+                _ => "",
+            };
+            return when + only;
+        }
+    }
+
+    /// <summary>"After each backup" or "Weekly at 03:00".</summary>
+    public string SummaryCleanup => PruneCadence == MaintenanceCadence.AfterEachBackup ? "After each backup"
+        : new BackupSchedule { Frequency = ToScheduleFrequency(PruneCadence), TimeOfDay = PruneTimeOfDay, WeeklyDaysBitmask = 1 }.DescribePeriod();
+
+    /// <summary>One line per check: "Data check (1 GiB sample): monthly on the 1st at 21:00".</summary>
+    public IReadOnlyList<string> SummaryChecks => Checks.Count == 0
+        ? new[] { "None: nothing confirms this backup can be restored" }
+        : Checks.Select(c => c.Title + ": " + LowerFirst(c.When)).ToList();
+
+    public string ChecksTabHeader => Checks.Count == 0 ? "Checks" : $"Checks ({Checks.Count})";
+
+    private static string LowerFirst(string text) => text.Length > 1 && char.IsUpper(text[0]) && !char.IsUpper(text[1])
+        ? char.ToLowerInvariant(text[0]) + text[1..] : text;
+
+    private static readonly HashSet<string> SummarySources = new(StringComparer.Ordinal)
+    {
+        nameof(Enabled), nameof(Frequency), nameof(TimeOfDay), nameof(HourlyInterval), nameof(SkipOnBattery),
+        nameof(AbortOnMeteredNetwork), nameof(PruneCadence), nameof(PruneTimeOfDay),
+    };
+
+    protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (e.PropertyName is { } name && SummarySources.Contains(name))
+        {
+            base.OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(SummaryBackups)));
+            base.OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(SummaryCleanup)));
+            base.OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(SummaryChecks)));
+        }
+    }
+
     [RelayCommand]
     private void AddCheck(CheckKind kind)
     {
@@ -174,6 +228,8 @@ public sealed partial class BackupEditorViewModel : ViewModelBase, IDisposable
     {
         OnPropertyChanged(nameof(HasChecks));
         OnPropertyChanged(nameof(ChecksSentence));
+        OnPropertyChanged(nameof(SummaryChecks));
+        OnPropertyChanged(nameof(ChecksTabHeader));
     }
 
     /// <summary>Maintenance cadences offered for cleanup.</summary>
