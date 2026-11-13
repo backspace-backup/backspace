@@ -969,6 +969,18 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if (!IsChecking) LastRunLabel = queued ? "Queued" : "Running…";
     }
 
+    /// <summary>A run that waited for its conditions and was stopped before
+    /// it started (U226): the card shows its last result again.</summary>
+    public void EndQueuedWait()
+    {
+        IsQueued = false;
+        QueuedReason = "";
+        RunningActivity = "";
+        IsRunning = false;
+        ApplyStoredRunState(Snapshot);
+        ApplyVerifyState(Snapshot);
+    }
+
     /// <summary>Why a queued run waits ("waiting for local_c (same destination)").</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LastRunDetail), nameof(CheckRunLabel))]

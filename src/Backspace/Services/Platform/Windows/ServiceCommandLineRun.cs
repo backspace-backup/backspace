@@ -40,7 +40,7 @@ internal static class ServiceCommandLineRun
     /// except when the service started nothing (a paused schedule or
     /// session): <paramref name="notStarted"/> then says why.</summary>
     internal static async Task<bool> TryRunFromDesktopAsync(string root, Backup backup, CancellationToken cancellation, Action<string>? notStarted = null,
-        Action<string>? queued = null)
+        Action<string>? queued = null, bool waiveConditions = false)
     {
         ServiceWorkerBinding binding;
         try
@@ -59,7 +59,7 @@ internal static class ServiceCommandLineRun
             throw new InvalidOperationException(refusal);
         var revision = Guid.NewGuid().ToString("N");
         await ServiceScheduledRun.RunApprovedAsync(root, binding, revision, backup.Id, "backup", cancellation,
-            status => { if (status.Contains("Nothing was started", StringComparison.Ordinal)) notStarted?.Invoke(status); }, queued).ConfigureAwait(false);
+            status => { if (status.Contains("Nothing was started", StringComparison.Ordinal)) notStarted?.Invoke(status); }, queued, waiveConditions: waiveConditions).ConfigureAwait(false);
         return true;
     }
 

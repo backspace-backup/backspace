@@ -28,6 +28,11 @@ public static class HeadlessApp
 {
     public static AppBuilder BuildAvaloniaApp()
     {
+        // A run started in a test never waits for this computer's power or
+        // connection (U226); tests that need them set their own.
+        Backspace.ViewModels.ManualRunConditions.OnBattery = () => false;
+        Backspace.ViewModels.ManualRunConditions.Metered = () => false;
+        Backspace.ViewModels.ManualRunConditions.Online = () => true;
         var builder = AppBuilder.Configure<App>()
             .UseHeadless(new AvaloniaHeadlessPlatformOptions
             {

@@ -185,6 +185,17 @@ then runs again as soon as it is.
 They apply to the backup, its cleanup and its checks. A check can have its
 own instead: untick **Same conditions as the backup** in its entry.
 
+A run you start yourself (**Run now**, **Verify**) while its conditions aren't
+met asks first: on battery, "«local_c» runs only on AC power". **Run when
+plugged in** (or when unmetered, or when connected) queues it: the card says
+Queued, its hover "waiting for AC power since 14:02", and it starts by itself
+as soon as the condition is met while Backspace is open; **Stop** ends the
+wait. **Run now anyway** runs it fully, cloud included, and nothing stops it
+if the computer is unplugged or the connection becomes metered. A backup
+with a drive and a cloud destination on a metered connection asks whether to
+back up the drive now and leave the cloud for its next backup, or everything
+now. When the conditions are met, nothing is asked.
+
 There is no setting for the internet. A backup with a destination on this
 computer and one in the cloud backs up the local one on schedule, even when
 the cloud can't be reached: offline for a week, the drive still gets each

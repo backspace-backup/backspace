@@ -18,7 +18,9 @@ internal static class DesktopBackupRun
     /// result arrives through the background activity instead.</summary>
     /// <param name="queued">Hears "Queued" reasons while the service can't
     /// start the run yet, then "" (U156).</param>
-    internal static async Task<RunRecord?> RunAsync(Backup backup, CancellationToken ct, Action<string>? queued = null)
+    /// <param name="waiveConditions">"Run now anyway" (U226): its conditions
+    /// neither hold it back nor stop it.</param>
+    internal static async Task<RunRecord?> RunAsync(Backup backup, CancellationToken ct, Action<string>? queued = null, bool waiveConditions = false)
     {
 #if WINDOWS
         if (OperatingSystem.IsWindows())
@@ -27,7 +29,7 @@ internal static class DesktopBackupRun
             {
                 string? notStarted = null;
                 if (await Platform.Windows.ServiceCommandLineRun.TryRunFromDesktopAsync(
-                        AppContext.BaseDirectory.TrimEnd('\\'), backup, ct, reason => notStarted = reason, queued).ConfigureAwait(false))
+                        AppContext.BaseDirectory.TrimEnd('\\'), backup, ct, reason => notStarted = reason, queued, waiveConditions).ConfigureAwait(false))
                     return notStarted is null ? null : new RunRecord
                     {
                         BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Backup,
@@ -49,6 +51,8 @@ internal static class DesktopBackupRun
             }
         }
 #endif
-        return await ServiceLocator.Orchestrator.RunBackupAsync(backup, ct).ConfigureAwait(false);
+        BackupOrchestrator.ConditionsWaived.Value = waiveConditions;
+        try { return await ServiceLocator.Orchestrator.RunBackupAsync(backup, ct).ConfigureAwait(false); }
+        finally { BackupOrchestrator.ConditionsWaived.Value = false; }
     }
 }

@@ -841,13 +841,15 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             return;
         }
         if (!await DriveConfirmation.ConfirmAsync(card.Snapshot, Owner())) return;
+        // Its conditions not met: ask (U226).
+        if (await ConditionsChoiceAsync(card, checks: null) is not { } waive) return;
         card.SetRunning();
         try
         {
             // Null: the background service ran it and the card follows its activity.
             // "Queued: …" while the background service can't start it yet (U156).
             if (await DesktopBackupRun.RunAsync(card.Snapshot, CancellationToken.None,
-                    reason => OnUiThread(() => ShowServiceQueued(card.Id, reason))) is { } record)
+                    reason => OnUiThread(() => ShowServiceQueued(card.Id, reason)), waive) is { } record)
                 card.Apply(record);
         }
         catch (Exception ex)
@@ -891,6 +893,8 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         // "Manually skipped · skipped in 1m 12s" instead of the
         // previous generic "Skipped in 1m 12s" / "drive unplugged or
         // network gone" line that was wrong for the manual case.
+        // A run waiting for its conditions (U226): the wait ends, nothing runs.
+        if (_conditionWaits.TryGetValue(card.Id, out var waiting)) { try { waiting.Cancel(); } catch (ObjectDisposedException) { } return; }
         // Checks started with Verify (U213).
         if (_verifications.TryGetValue(card.Id, out var verifying)) { try { verifying.Cancel(); } catch (ObjectDisposedException) { } return; }
         // A test restore the schedule started (U205: Stop is on the card now).
@@ -1013,12 +1017,15 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             await DestructiveConfirmWindow.ShowInfoAsync(owner, "Could not start the checks", "This backup started running while the window was open. Let it finish, then verify it.");
             return;
         }
+        // Their conditions not met: ask (U226).
+        if (await ConditionsChoiceAsync(card, checks) is not { } waive) return;
         var stop = new CancellationTokenSource();
         _verifications[backup.Id] = stop;
         _ = Task.Run(async () =>
         {
             try
             {
+                BackupOrchestrator.ConditionsWaived.Value = waive;
                 var record = await ServiceLocator.Orchestrator.RunChecksAsync(backup, checks, stop.Token, startedByOwner: true);
                 _log.Information("Verify of {Name}: {Status}", backup.Name, record.Status);
             }
@@ -1032,6 +1039,56 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         });
     }
 
+
+    /// <summary>Runs waiting for their conditions, by backup: Stop ends the wait (U226).</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _conditionWaits = new();
+
+    /// <summary>Asks what to do when a run you start isn't allowed by its
+    /// conditions now (U226): null for not now; false to run following its
+    /// conditions (after waiting for them, when asked to); true to run now
+    /// anyway, never stopped by them.</summary>
+    /// <param name="checks">The checks Verify runs; null for a backup.</param>
+    private async Task<bool?> ConditionsChoiceAsync(BackupCardViewModel card, IReadOnlyList<BackupCheck>? checks)
+    {
+        var backup = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == card.Id) ?? card.Snapshot;
+        var destinations = ServiceLocator.Config.Current.Destinations;
+        string? Unmet()
+        {
+            var now = ServiceLocator.Config.Current.Backups.FirstOrDefault(b => b.Id == card.Id) ?? backup;
+            return checks is null ? ManualRunConditions.Unmet(now, ServiceLocator.Config.Current.Destinations)
+                : ManualRunConditions.UnmetForChecks(now, checks, ServiceLocator.Config.Current.Destinations);
+        }
+        ManualRunConditions.Question question;
+        if (Unmet() is { } unmet) question = ManualRunConditions.Ask(backup.Name, unmet, checks is not null);
+        else if (checks is null && ManualRunConditions.WaitingNetworkDestinations(backup, destinations) is { Count: > 0 } waiting)
+            question = ManualRunConditions.AskPartial(backup.Name, waiting);
+        else return false;
+        switch (await ManualRunConditions.AskAsync(question, TestRestoreOwner?.Invoke() ?? Owner()))
+        {
+            case ManualRunConditions.Choice.RunAnyway: return true;
+            case ManualRunConditions.Choice.Run: return false;
+            case ManualRunConditions.Choice.WhenAllowed:
+                var wait = new CancellationTokenSource();
+                if (!_conditionWaits.TryAdd(card.Id, wait)) { wait.Dispose(); return null; }
+                try
+                {
+                    var since = DateTime.Now;
+                    card.SetRunning(operation: checks is null ? "backup" : "check");
+                    if (checks is not null) card.RunningActivity = checks.Count == 1 ? checks[0].Title : $"{checks.Count} checks";
+                    card.SetQueuedReason($"waiting for {ManualRunConditions.Awaited(Unmet() ?? "")} since {since:HH:mm}; it starts by itself");
+                    await ManualRunConditions.WaitAsync(Unmet, wait.Token);
+                    card.SetQueuedReason("");
+                    return false;
+                }
+                catch (OperationCanceledException)
+                {
+                    card.EndQueuedWait();
+                    return null;
+                }
+                finally { _conditionWaits.TryRemove(card.Id, out _); wait.Dispose(); }
+            default: return null;
+        }
+    }
 
     /// <summary>Checks started with Verify, by backup: Stop ends them (U213).</summary>
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _verifications = new();

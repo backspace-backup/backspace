@@ -470,6 +470,8 @@ internal sealed class SystemBackupService : ServiceBase
         start.Environment[ServiceApprovedWorker.CheckIdVariable] = checkId ?? "";
         // Only the network destinations that waited (U226).
         start.Environment[ScheduledRuns.OnlyTargetsVariable] = onlyTargets is null ? "" : string.Join("|", onlyTargets);
+        // "Run now anyway" (U226): the owner's run, not stopped by its conditions.
+        start.Environment[ServiceApprovedWorker.WaiveConditionsVariable] = request is { Command: "start-cli", WaiveConditions: true } ? "1" : "0";
         // The run's identity is the worker's revision: its reason file is named after it.
         foreach (var argument in new[] { request.Command == "start-cli" ? "--service-worker-cli" : "--service-worker-owned",
             run.RunId, request.BackupId!, request.Operation! })

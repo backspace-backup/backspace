@@ -80,6 +80,37 @@ public sealed class OrchestratorNetworkDestinationsTests
         Assert.True(BackupOrchestrator.OnlyNetworkWaits(record));
     }
 
+    /// <summary>U226 (owner: "manual runs should never be stopped if user has
+    /// specifically confirmed at the start he wanted to bypass the conditions"):
+    /// "Run now anyway" backs up the cloud on a metered connection, with no
+    /// watch on the connection; the same run without it leaves the cloud waiting.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Run_now_anyway_backs_up_the_cloud_on_a_metered_connection_and_nothing_stops_it(bool waived)
+    {
+        using var workspace = new TempWorkspace();
+        var drive = new Destination { Name = "Drive", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("drive") };
+        var cloud = new Destination { Name = "Cloud", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"\\?\" + workspace.Sub("cloud") };
+        var backup = new Backup { Name = "Mixed", UseVss = false, VssDisabledAcknowledged = true, SourcePaths = { workspace.Sub("source") },
+            WaitForUnmeteredNetwork = true, AbortOnMeteredNetwork = true,
+            Targets = { new() { DestinationId = drive.Id }, new() { DestinationId = cloud.Id } } };
+        var (orchestrator, _, _, watchdogs) = Setup(workspace, backup, drive, cloud);
+        orchestrator.MeteredOverride = () => true;
+        orchestrator.NetworkAvailableOverride = () => true;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        BackupOrchestrator.ConditionsWaived.Value = waived;
+        RunRecord record;
+        try { record = await orchestrator.RunBackupAsync(backup, deadline.Token); }
+        finally { BackupOrchestrator.ConditionsWaived.Value = false; }
+        var cloudCell = Assert.Single(record.Cells, c => c.DestinationName == "Cloud");
+        Assert.True(cloudCell.Status != BackupRunStatus.Failed, cloudCell.Summary + " | " + cloudCell.LastError);
+        Assert.Equal(waived ? BackupRunStatus.Success : BackupRunStatus.Skipped, cloudCell.Status);
+        Assert.Equal(waived ? null : "unmetered", cloudCell.WaitingFor);
+        Assert.Equal(waived ? BackupRunStatus.Success : BackupRunStatus.Warning, record.Status);
+        if (waived) Assert.Equal(0, watchdogs[0]);
+    }
+
     [Fact]
     public async Task Offline_a_check_checks_the_local_destination_and_the_cloud_waits_for_the_next_backup_there()
     {

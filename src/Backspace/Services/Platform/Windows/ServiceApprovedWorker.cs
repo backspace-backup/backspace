@@ -39,6 +39,8 @@ internal static class ServiceApprovedWorker
     /// schedule: never for the owner's command (Run now, command line).</summary>
     internal static bool StartedBySchedule(bool ownerCommand, string? variable) => !ownerCommand && variable == "1";
 
+    internal const string WaiveConditionsVariable = "BACKSPACE_WAIVE_CONDITIONS";
+
     internal static async Task<int> RunOwnedAsync(string revision, string backupId, string operation, bool ownerCommand = false)
     {
         var binding = ServiceWorkerBinding.Load(ServiceInstallationSecurity.CanonicalLocalPath(AppContext.BaseDirectory.TrimEnd('\\')));
@@ -118,6 +120,8 @@ internal static class ServiceApprovedWorker
             // A scheduled run of the network destinations that waited (U226).
             if (Environment.GetEnvironmentVariable(ScheduledRuns.OnlyTargetsVariable) is { Length: > 0 } only && run.Kind == RunKind.Backup)
                 backup = ScheduledRuns.ForTargets(backup, only.Split('|', StringSplitOptions.RemoveEmptyEntries));
+            // "Run now anyway" (U226), for the owner's own run only.
+            BackupOrchestrator.ConditionsWaived.Value = ownerCommand && Environment.GetEnvironmentVariable(WaiveConditionsVariable) == "1";
             await using var activity = activityOutput is not null
                 ? new ServiceWorkerActivity(activityOutput, backupId, ServiceLocator.Progress, ServiceLocator.Orchestrator, ServiceLocator.Engine) : null;
             var result = run.Kind switch

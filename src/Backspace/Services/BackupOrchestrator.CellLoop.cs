@@ -195,7 +195,7 @@ public sealed partial class BackupOrchestrator
                     // an unmetered connection". A scheduled backup runs it
                     // again once that changes; the other destinations go on.
                     var needsNetwork = Backup.DestinationNeedsNetwork(dest);
-                    if (needsNetwork && (!NetworkAvailableNow() || backup.WaitForUnmeteredNetwork && (meteredDuringRun || MeteredNow())))
+                    if (needsNetwork && (!NetworkAvailableNow() || backup.WaitForUnmeteredNetwork && !ConditionsWaived.Value && (meteredDuringRun || MeteredNow())))
                     {
                         var offline = !NetworkAvailableNow();
                         var why = offline ? "Waits for a network connection" : "Waits for an unmetered connection";
@@ -411,7 +411,7 @@ public sealed partial class BackupOrchestrator
                     // for a connection that becomes metered (U226).
                     using var cellStop = needsNetwork && mixed ? CancellationTokenSource.CreateLinkedTokenSource(linked.Token) : null;
                     Volatile.Write(ref networkCell, cellStop);
-                    if (cellStop is not null && meteredDuringRun && backup.WaitForUnmeteredNetwork) cellStop.Cancel();
+                    if (cellStop is not null && meteredDuringRun && backup.WaitForUnmeteredNetwork && !ConditionsWaived.Value) cellStop.Cancel();
                     try
                     {
                         cellOutcome = await RunCellWithRetryAsync(backup, sourcePath, dest, target, cellStop?.Token ?? linked.Token, lineHandler);
@@ -1038,7 +1038,7 @@ public sealed partial class BackupOrchestrator
         CancellationToken lifetime = default,
         bool? enabled = null)
     {
-        if (!(enabled ?? backup.AbortOnMeteredNetwork)) return null;
+        if (!(enabled ?? backup.AbortOnMeteredNetwork) || ConditionsWaived.Value) return null;
         var watchdog = MeteredWatchdogFactory();
         watchdog.MeteredDetected += reason =>
         {

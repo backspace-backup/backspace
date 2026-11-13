@@ -21,12 +21,12 @@ internal static class ServiceScheduledRun
 
     internal static async Task<int> RunApprovedAsync(string installation, ServiceWorkerBinding binding,
         string revision, string backupId, string operation, CancellationToken cancellation, Action<string>? status = null,
-        Action<string>? queued = null, bool commandLine = false)
+        Action<string>? queued = null, bool commandLine = false, bool waiveConditions = false)
     {
         // The service runs the settings as saved (U100); the revision is unused.
         revision = Guid.NewGuid().ToString("N");
         var run = SystemServiceRuns.Authorize(installation, backupId, operation, ownerCommand: true);
-        var request = new ServiceHostRequest(1, "start-cli", revision, backupId, operation);
+        var request = new ServiceHostRequest(1, "start-cli", revision, backupId, operation, WaiveConditions: waiveConditions);
         ServiceHostRequest.Parse(JsonSerializer.SerializeToUtf8Bytes(request, ServiceRunAuthorization.Json));
         var schedule = operation switch
         {
