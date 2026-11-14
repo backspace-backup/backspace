@@ -518,6 +518,7 @@ public sealed partial class BackupOrchestrator
         // Time spent queued behind other backups is not working time (U173).
         if (info is not null && ReferenceEquals(info.Record, final)) final.QueuedFor = info.QueuedFor;
         final.Summary = BuildSummary(final, orchestratorReason, backup, _config.Current);
+        final.StoppedByYou = final.Status == BackupRunStatus.Skipped && orchestratorReason == RunRecord.StoppedByYouReason;
         // Checks after each backup run as their own entries once the backup
         // has ended (RunChecksAfterBackupAsync, U179).
 

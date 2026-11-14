@@ -71,3 +71,42 @@ public sealed class BackupCardClockLabelTests
         Assert.Equal("Running…", card.LastRunLabel);
     }
 }
+
+public sealed class BackupCardStoppedByYouTests
+{
+    /// <summary>U242 (owner, 13-14 November 2026): a run you stop yourself is
+    /// not a warning. The card says "Stopped by you · time" in neutral, the last
+    /// completed run under it, and the backup's status stays that run's.</summary>
+    [AvaloniaFact]
+    public void A_run_you_stopped_is_neutral_and_keeps_the_last_completed_status()
+    {
+        var now = DateTime.UtcNow;
+        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, LastRunStartUtc = now.AddHours(-2), LastRunEndUtc = now.AddHours(-2).AddMinutes(10), LastRunSummary = "Backup result: STATUS_SUCCESS." };
+        using var card = new BackupCardViewModel(backup, false, false);
+        card.Apply(new RunRecord { BackupId = backup.Id, StartedUtc = now.AddMinutes(-5), EndedUtc = now.AddMinutes(-1),
+            Status = BackupRunStatus.Skipped, StoppedByYou = true, Summary = "Stopped by you after 4m" });
+        Assert.Equal("idle", card.StatusClass);
+        Assert.StartsWith("Stopped by you · ", card.LastRunLabel);
+        Assert.StartsWith("Last completed: 1h ago", card.LastCompletedLabel); // ended 1 h 50 min ago
+        Assert.Equal(BackupRunStatus.Success, card.DisplayedRunStatus); // what the overall status and tray read
+
+        // The next completed run replaces it.
+        card.Apply(new RunRecord { BackupId = backup.Id, StartedUtc = now, EndedUtc = now.AddSeconds(30),
+            Status = BackupRunStatus.Success, Summary = "Backup result: STATUS_SUCCESS." });
+        Assert.Equal("ok", card.StatusClass);
+        Assert.Equal("", card.LastCompletedLabel);
+    }
+
+    [AvaloniaFact]
+    public void A_run_stopped_by_backspace_itself_is_still_a_skipped_run()
+    {
+        var now = DateTime.UtcNow;
+        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, LastRunStartUtc = now.AddHours(-2), LastRunEndUtc = now.AddHours(-2).AddMinutes(10), LastRunSummary = "Backup result: STATUS_SUCCESS." };
+        using var card = new BackupCardViewModel(backup, false, false);
+        card.Apply(new RunRecord { BackupId = backup.Id, StartedUtc = now.AddMinutes(-5), EndedUtc = now.AddMinutes(-1),
+            Status = BackupRunStatus.Skipped, Summary = "Network became metered (mobile / tethered); backup paused per backup setting. after 4m" });
+        Assert.Equal("skipped", card.StatusClass);
+        Assert.Equal(BackupRunStatus.Skipped, card.DisplayedRunStatus);
+        Assert.Equal("", card.LastCompletedLabel);
+    }
+}

@@ -329,7 +329,7 @@ public partial class App : Application
         foreach (var backup in backups)
         {
             RunRecord? latest;
-            try { latest = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).FirstOrDefault(r => r.Status != BackupRunStatus.Running); }
+            try { latest = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).FirstOrDefault(r => r.Status != BackupRunStatus.Running && !r.StoppedByYou); }
             catch (Exception ex) { AppLogger.For<App>().Debug(ex, "History unavailable for the tray status"); continue; }
             if (latest is null || backup.LastRunStartUtc is { } known && known >= latest.StartedUtc) continue;
             backup.LastRunStartUtc = latest.StartedUtc;

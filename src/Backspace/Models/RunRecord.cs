@@ -62,6 +62,15 @@ public sealed class RunRecord
 
     public BackupRunStatus Status { get; set; }
 
+    /// <summary>You pressed Stop (U242, owner 14 November 2026: stopping a
+    /// run yourself "shouldn't cause the status to be a warning if nothing
+    /// is overdue"). Such a run is not an outcome: the backup's status stays
+    /// that of its last completed run, and nothing notifies about it.</summary>
+    public bool StoppedByYou { get; set; }
+
+    /// <summary>The reason a Stop you pressed gives the run.</summary>
+    public const string StoppedByYouReason = "Stopped by you";
+
     /// <summary>Short human-readable summary ("1,234 new, 56 MB uploaded in 2m 11s").</summary>
     public string Summary { get; set; } = "";
 
@@ -146,6 +155,15 @@ public sealed class CellOutcome
     public string StorageName { get; set; } = "default";
 
     public BackupRunStatus Status { get; set; }
+
+    /// <summary>You pressed Stop (U242, owner 14 November 2026: stopping a
+    /// run yourself "shouldn't cause the status to be a warning if nothing
+    /// is overdue"). Such a run is not an outcome: the backup's status stays
+    /// that of its last completed run, and nothing notifies about it.</summary>
+    public bool StoppedByYou { get; set; }
+
+    /// <summary>The reason a Stop you pressed gives the run.</summary>
+    public const string StoppedByYouReason = "Stopped by you";
 
     /// <summary>Set when this destination's part waits for the network
     /// (U226): "unmetered" (the connection is metered), "connection" (no

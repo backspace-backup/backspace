@@ -141,6 +141,10 @@
                            Classes.warn="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
                            Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"/>
               </Grid>
+              <!-- Under "Stopped by you": the last completed run (U242). -->
+              <TextBlock Text="{Binding LastCompletedLabel}" Classes="meta-label" Margin="24,0,0,0"
+                         IsVisible="{Binding LastCompletedLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                         TextTrimming="CharacterEllipsis"/>
               <WrapPanel>
                 <Button Classes="row-action-warn" IsVisible="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>

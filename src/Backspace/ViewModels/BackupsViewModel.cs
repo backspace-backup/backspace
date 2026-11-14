@@ -1034,7 +1034,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         if (_verifications.TryGetValue(card.Id, out var verifying)) { try { verifying.Cancel(); } catch (ObjectDisposedException) { } return; }
         // A test restore the schedule started (U205: Stop is on the card now).
         if (ServiceLocator.ActiveRestores.RunningTestFor(card.Id) is { } testRestore && !ServiceLocator.Orchestrator.IsRunning(card.Id)) { testRestore.Cancel(); return; }
-        ServiceLocator.Orchestrator.CancelRun(card.Id, "Manually skipped");
+        ServiceLocator.Orchestrator.CancelRun(card.Id, RunRecord.StoppedByYouReason);
         // Hard-cancel safety net (user-reported 2026-04-29: a run that
         // failed silently in init left the card stuck on "Running…" with
         // Stop doing nothing for 7+ minutes). The cooperative cancel

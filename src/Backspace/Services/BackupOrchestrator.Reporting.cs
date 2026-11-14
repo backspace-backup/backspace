@@ -41,6 +41,8 @@ public sealed partial class BackupOrchestrator
         // of human notification caps and slow email delivery.
         await SendHealthcheckTerminalAsync(backup, record);
         var now = DateTime.UtcNow;
+        // You stopped it yourself: nothing to tell you (U242).
+        if (record.StoppedByYou) return;
         if (record.Status == BackupRunStatus.Skipped && backup.IsWithinSkipGrace(now)) return;
         // Backed up, its network destinations waiting for the network (U226):
         // as quiet as a skipped run. The card says so, and Healthchecks.io
@@ -249,6 +251,9 @@ public sealed partial class BackupOrchestrator
         {
             var b = cfg.Backups.FirstOrDefault(x => x.Id == backup.Id);
             if (b is null) return;
+            // A run you stopped is not an outcome: the last completed run
+            // keeps standing for the backup's status (U242).
+            if (record.StoppedByYou) return;
             b.LastRunStartUtc = record.StartedUtc;
             b.LastRunEndUtc = record.EndedUtc;
             b.LastRunStatus = record.Status;

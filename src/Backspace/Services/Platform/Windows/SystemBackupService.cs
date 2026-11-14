@@ -390,7 +390,8 @@ internal sealed class SystemBackupService : ServiceBase
             {
                 cancelled = ActiveRun(request.RunId);
                 if (cancelled is null) return Reply("not-running");
-                cancelled.Worker!.StandardInput.WriteLine("cancel"); cancelled.Worker.StandardInput.Flush();
+                // Only someone pressing Stop sends this request (U242).
+                cancelled.Worker!.StandardInput.WriteLine("stop-by-you"); cancelled.Worker.StandardInput.Flush();
                 cancelled.State = "stopping";
                 Touched();
                 reply = Reply(null, cancelled);

@@ -856,10 +856,15 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     private void ApplyStoredRunState(Backup saved)
     {
         if (IsRunning && !IsChecking) return;
-        var latest = _checkRuns.Where(r => r.BackupId == saved.Id && r.Kind == RunKind.Backup
+        var ended = _checkRuns.Where(r => r.BackupId == saved.Id && r.Kind == RunKind.Backup
             && r.EndedUtc is not null && r.EndedUtc >= r.StartedUtc
             && r.Status is BackupRunStatus.Success or BackupRunStatus.Warning or BackupRunStatus.Failed or BackupRunStatus.Skipped)
-            .OrderByDescending(r => r.StartedUtc).ThenByDescending(r => r.EndedUtc).FirstOrDefault();
+            .OrderByDescending(r => r.StartedUtc).ThenByDescending(r => r.EndedUtc).ToList();
+        // A run you stopped is not an outcome (U242): the status is the last
+        // completed run's; the card says it was stopped, in neutral words.
+        var latest = ended.FirstOrDefault(r => !r.StoppedByYou);
+        var stopped = ended.FirstOrDefault() is { StoppedByYou: true } last
+            && (latest is null || last.StartedUtc >= latest.StartedUtc) ? last : null;
         var useHistory = latest is not null && latest.StartedUtc >= (saved.LastRunStartUtc ?? DateTime.MinValue)
             && latest.EndedUtc >= (saved.LastRunEndUtc ?? DateTime.MinValue);
         var status = useHistory ? latest!.Status : saved.LastRunStatus;
@@ -870,13 +875,15 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         _displayedRunStoredSomething = end is not null && (status is BackupRunStatus.Success or BackupRunStatus.Warning
             || useHistory && latest!.Cells.Any(c => c.Status is BackupRunStatus.Success or BackupRunStatus.Warning))
             || RestorableRuns.Any(saved, _checkRuns);
-        StatusClass = status switch
+        StatusClass = stopped is not null ? "idle" : status switch
         {
             BackupRunStatus.Success => "ok", BackupRunStatus.Warning => "warn", BackupRunStatus.Failed => "fail",
             BackupRunStatus.Skipped => "skipped", BackupRunStatus.Running => "running", _ => "idle",
         };
-        StatusLabel = status == BackupRunStatus.Success ? "OK" : status == BackupRunStatus.NeverRun ? "Idle" : status.ToString();
+        StatusLabel = stopped is not null ? RunRecord.StoppedByYouReason
+            : status == BackupRunStatus.Success ? "OK" : status == BackupRunStatus.NeverRun ? "Idle" : status.ToString();
         _lastRun = end is DateTime when ? (NormaliseSuccessSummary(summary, status), when, status) : null;
+        _stoppedByYouAt = stopped?.EndedUtc;
         LastRunLabel = _lastRunAgeLabel = LastRunText();
         DisplayedRunEndUtc = end;
         DisplayedRunStatus = status;
@@ -891,11 +898,27 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// hover (U160, 7 November 2026).</summary>
     private string LastRunText()
     {
-        if (_lastRun is not { } last) { _lastRunHover = null; return "Never run"; }
-        var (label, hover) = LastRunLine.For(last.Summary, last.Status, last.When);
-        _lastRunHover = hover;
-        return label;
+        string completed;
+        if (_lastRun is not { } last) { _lastRunHover = null; completed = "Never run"; }
+        else
+        {
+            var (label, hover) = LastRunLine.For(last.Summary, last.Status, last.When);
+            _lastRunHover = hover;
+            completed = label;
+        }
+        if (_stoppedByYouAt is not { } stoppedAt) { LastCompletedLabel = ""; return completed; }
+        // U242: "Stopped by you · 01:15", the last completed run under it.
+        LastCompletedLabel = _lastRun is null ? "No backup completed yet"
+            : "Last completed: " + (completed.StartsWith("Just now", StringComparison.Ordinal) ? "just now" + completed["Just now".Length..] : completed);
+        _lastRunHover = null;
+        var local = stoppedAt.ToLocalTime();
+        return RunRecord.StoppedByYouReason + " · " + (local.Date == DateTime.Now.Date ? local.ToString("HH:mm") : local.ToString("d MMM HH:mm"));
     }
+
+    private DateTime? _stoppedByYouAt;
+
+    /// <summary>Under "Stopped by you": the last completed run (U242).</summary>
+    [ObservableProperty] private string _lastCompletedLabel = "";
 
     /// <summary>Redoes the labels that read the clock, every minute (U136,
     /// 4 November 2026): the card said "1h ago" for a backup finished three
@@ -934,6 +957,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     public void SetRunning(DateTime? startedUtc = null, string operation = "backup")
     {
         RunningOperation = operation;
+        LastCompletedLabel = "";
         RunStartedUtc = startedUtc
             ?? (ServiceLocator.Orchestrator.TryGetRunningInfo(Id, out var started) ? started : (DateTime?)null)
             ?? (IsRunning ? RunStartedUtc : null)

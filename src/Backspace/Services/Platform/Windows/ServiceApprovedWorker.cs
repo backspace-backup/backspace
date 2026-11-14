@@ -56,8 +56,10 @@ internal static class ServiceApprovedWorker
             {
                 // "interrupt": the service is stopping and resumes the backup
                 // later, so it is recorded as interrupted, not stopped (U131).
-                if (await Console.In.ReadLineAsync().ConfigureAwait(false) == "interrupt")
-                    try { ServiceLocator.Orchestrator.CancelRun(backupId, "Interrupted"); }
+                // "stop-by-you": someone pressed Stop (U242).
+                var command = await Console.In.ReadLineAsync().ConfigureAwait(false);
+                if (command is "interrupt" or "stop-by-you")
+                    try { ServiceLocator.Orchestrator.CancelRun(backupId, command == "interrupt" ? "Interrupted" : RunRecord.StoppedByYouReason); }
                     catch (Exception) { /* Not running yet: stopping is enough. */ }
                 stop.Cancel();
             }
