@@ -55,6 +55,26 @@ public class BackupProgressServiceTests
     }
 
     [Fact]
+    public void Before_restics_first_progress_the_card_says_what_it_waits_for()
+    {
+        // U252: a run sat at a silent 0% for three minutes while Windows took
+        // the shadow copy. The engine's preparing line is shown until restic's
+        // own progress replaces it.
+        var backup = new Backspace.Models.Backup { UseVss = true };
+        var line = ResticEngine.PreparingLine(backup, "C:\\");
+        var svc = new BackupProgressService();
+        svc.ReportCellStarted("b1", "C:\\", "Dropbox");
+        svc.ReportLine("b1", "C:\\", "Dropbox", "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive.");
+        Assert.Equal("Starting → Dropbox…", svc.Snapshot("b1")!.Sources["C:\\"].Cells["Dropbox"].Detail);
+        svc.ReportLine("b1", "C:\\", "Dropbox", line);
+        Assert.Equal("Taking a shadow copy of C: and reading the backup's index (can take a few minutes)…",
+            svc.Snapshot("b1")!.Sources["C:\\"].Cells["Dropbox"].Detail);
+        Assert.Equal("[preparing] Reading the backup's index…", ResticEngine.PreparingLine(new Backspace.Models.Backup { UseVss = false }, "D:\\"));
+        svc.ReportLine("b1", "C:\\", "Dropbox", "[progress] 0.4% · Backing up · 2,338 of ~534,749 files checked (~172 GB)");
+        Assert.DoesNotContain("shadow copy", svc.Snapshot("b1")!.Sources["C:\\"].Cells["Dropbox"].Detail);
+    }
+
+    [Fact]
     public void ReportCellEnded_ClampsTo100OnSuccess()
     {
         var svc = new BackupProgressService();

@@ -65,6 +65,9 @@ public sealed partial class ResticEngine
             ? await VssSnapshotGate.AcquireAsync(backup.Name, reason =>
                 { if (reason.Length > 0) RepositoryAccess.Waiting(reason); else RepositoryAccess.NotWaiting(); }, ct).ConfigureAwait(false)
             : null;
+        // Restic says nothing until it has the shadow copy and the backup's
+        // index, which can take minutes: say so instead of a silent 0% (U252).
+        Announce(PreparingLine(backup, sourcePath), lineSink);
         liveProgress.Reading = () => snapshotTurn?.Dispose();
         liveProgress.HeldBack = () => snapshotTurn?.Dispose();
         var (terminalStatus, details, summary) = await RunDirectBackupAsync(restic, repoId, repository, backup, sourcePath, planId,

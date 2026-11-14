@@ -603,6 +603,7 @@ public sealed class BackupProgressService
     private static string? TryParseHumanDetail(string line)
     {
         if (BackupLiveProgress.Detail(line) is { } live) return live;
+        if (line.StartsWith(PreparingTag, StringComparison.Ordinal)) return line[PreparingTag.Length..];
         if (line.Contains("Uploaded chunk", StringComparison.OrdinalIgnoreCase))
             return "Uploading chunks…";
         if (line.Contains("Listing all chunks", StringComparison.OrdinalIgnoreCase))
@@ -624,8 +625,11 @@ public sealed class BackupProgressService
     /// is ordinal-ignoreCase for hot-path predictability; the keywords
     /// are ordered by descending hit frequency on a normal run.
     /// </summary>
+    private const string PreparingTag = "[preparing] ";
+
     private static bool LineCarriesMilestone(string line) =>
-        line.Contains("Uploaded chunk", StringComparison.OrdinalIgnoreCase)
+        line.StartsWith(PreparingTag, StringComparison.Ordinal)
+        || line.Contains("Uploaded chunk", StringComparison.OrdinalIgnoreCase)
         || line.Contains("Indexing", StringComparison.OrdinalIgnoreCase)
         || line.Contains("Listing all chunks", StringComparison.OrdinalIgnoreCase)
         || (line.Contains("Backup for ", StringComparison.OrdinalIgnoreCase)
