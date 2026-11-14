@@ -87,8 +87,8 @@
         <DockPanel LastChildFill="True">
 
           <!--
-            Masthead. Logo (per-accent ICO swapped by code-behind on a
-            160 ms timer for the syncing animation) + wordmark. The
+            Masthead. Logo (per-accent ICO set by code-behind; it stays
+            still while syncing, like the taskbar icon) + wordmark. The
             Manrope wordmark matches the large page headings; native
             text remains on every navigation label. A thin rule below
             separates the identity from the compact navigation group.
@@ -121,12 +121,10 @@
                          IsChecked="{Binding SelectedNav, Converter={x:Static v:NavConverters.IsSelected}, ConverterParameter={x:Static vm:NavItem.Backups}, Mode=TwoWay}">
               <StackPanel Orientation="Horizontal" Spacing="12">
                 <PathIcon Data="{StaticResource Icon.Backup}" Width="16" Height="16"/>
-                <!-- Something runs (U239): the accent sweeps through the word, and the card's
-                     turning icon follows it (1 px lower to sit on the text's middle); what runs on hover. -->
-                <TextBlock Name="BackupsLabel" Text="Backups" VerticalAlignment="Center" v:TextShimmer.IsActive="{Binding BackupsActive}"/>
-                <PathIcon Name="BackupsActivity" Classes="status-icon running" Width="13" Height="13" VerticalAlignment="Center" Margin="0,1,0,0"
-                          IsVisible="{Binding BackupsActive}" v:RunningPulse.IsActive="{Binding BackupsActive}"
-                          ToolTip.Tip="{Binding BackupsActivityTip}"/>
+                <!-- Something runs (U239): the accent sweeps through the word; what runs on hover.
+                     No turning icon beside it (owner, 14 November 2026). -->
+                <TextBlock Name="BackupsLabel" Text="Backups" VerticalAlignment="Center" v:TextShimmer.IsActive="{Binding BackupsActive}"
+                           ToolTip.Tip="{Binding BackupsActivityTip}"/>
               </StackPanel>
             </RadioButton>
             <RadioButton Classes="nav" GroupName="nav"

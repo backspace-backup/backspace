@@ -57,17 +57,6 @@ public partial class MainWindow : Window
             await vm.Backups.AllowAdministratorAccessCommand.ExecuteAsync(null);
     }
 
-    /// <summary>
-    /// How many rotated frames exist per accent for the syncing animation.
-    /// Must match the -SyncingFrameCount passed to tools/build-icon.ps1.
-    /// </summary>
-    private const int SyncingFrameCount = 4;
-
-    /// <summary>Frame period. Dropbox uses ~150-200ms; 160ms reads as "steady".</summary>
-    private static readonly TimeSpan FrameInterval = TimeSpan.FromMilliseconds(160);
-
-    private DispatcherTimer? _syncTimer;
-    private int _syncFrame;
 
     // Cached event handler refs so OnClosed can unsubscribe by the same
     // delegate identity that subscribed. Inline lambdas would compile
@@ -145,7 +134,7 @@ public partial class MainWindow : Window
         try { ServiceLocator.UpdateCheck.Begin(); } catch { /* never block startup */ }
 
         // Taskbar / alt-tab icon + sidebar logo: both driven by the chosen
-        // accent, both animated together when AppStatus goes Syncing.
+        // accent; both stay still while syncing.
         ApplyAccentIcon();
         _onConfigChanged = (_, __) => Dispatcher.UIThread.Post(ApplyAccentIcon);
         ServiceLocator.Config.Changed += _onConfigChanged;
@@ -239,63 +228,22 @@ public partial class MainWindow : Window
 
     // ---- icon state machine ---------------------------------------------
 
-    private void OnActivityChanged(AppActivity activity)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            // A window hidden to the tray has no visible title-bar icon
-            // to animate — don't burn a 160ms timer per hidden window
-            // for the whole duration of every backup/restore/verify.
-            // (The tray icon's own state is handled by App, not here.)
-            if (!IsVisible)
-            {
-                StopSyncingIconAnimation();
-                return;
-            }
-            if (activity == AppActivity.Syncing)
-                StartSyncingIconAnimation();
-            else
-            {
-                StopSyncingIconAnimation();
-                ApplyAccentIcon();
-            }
-        });
-    }
+    // The window and taskbar icon stay still while syncing (owner, 14 November
+    // 2026: the turning taskbar icon "looks like crap", and "don't animate the
+    // Backspace logo of the top left"). The tray shows the activity.
+    private void OnActivityChanged(AppActivity activity) => Dispatcher.UIThread.Post(ApplyAccentIcon);
 
-    private void StartSyncingIconAnimation()
-    {
-        if (_syncTimer is not null) return;
-        _syncFrame = 0;
-        _syncTimer = new DispatcherTimer { Interval = FrameInterval };
-        _syncTimer.Tick += (_, __) =>
-        {
-            _syncFrame = (_syncFrame + 1) % SyncingFrameCount;
-            SetIconFromAccent(isSyncing: true, frameIndex: _syncFrame);
-        };
-        _syncTimer.Start();
-        SetIconFromAccent(isSyncing: true, frameIndex: 0);
-    }
-
-    private void StopSyncingIconAnimation()
-    {
-        _syncTimer?.Stop();
-        _syncTimer = null;
-    }
-
-    private void ApplyAccentIcon() => SetIconFromAccent(isSyncing: false, frameIndex: 0);
+    private void ApplyAccentIcon() => SetIconFromAccent();
 
     // Open-on-demand is cheap (embedded resource read) and matches how
     // Avalonia itself resolves an <Window Icon="avares://..."> attribute —
     // which is the proven pattern, so accent swaps stay reliable.
     // Decoded results are cached per resource name (see _iconCache /
-    // _bitmapCache) so the syncing animation doesn't reallocate every
-    // tick.
-    private void SetIconFromAccent(bool isSyncing, int frameIndex)
+    // _bitmapCache), so an accent change back and forth doesn't reallocate.
+    private void SetIconFromAccent()
     {
         var accent = ServiceLocator.Config.Current.Preferences.Accent;
-        var resName = isSyncing
-            ? $"Backspace-{accent}-Syncing-{frameIndex}.ico"
-            : $"Backspace-{accent}.ico";
+        var resName = $"Backspace-{accent}.ico";
         var uri = new Uri($"avares://Backspace/Assets/{resName}");
 
         // Window icon: cached. Setting Icon to the SAME WindowIcon
@@ -317,9 +265,7 @@ public partial class MainWindow : Window
             AppLogger.For<MainWindow>().Warning(ex, "Icon load failed for {Res}", resName);
         }
 
-        // Sidebar Image: same caching strategy. Without this, every
-        // animation tick allocated a fresh Bitmap whose GDI surface
-        // bled through the same exhaustion path as Window.Icon.
+        // Sidebar Image: same caching strategy.
         if (SidebarLogo is not null)
         {
             try
@@ -626,7 +572,6 @@ public partial class MainWindow : Window
         // Break the closed view's bindings to the retained model. Reopening
         // builds a new visual tree, with fresh view event subscriptions.
         DataContext = null;
-        StopSyncingIconAnimation();
         // Unsubscribe by the cached delegate refs so the same identity
         // that subscribed is the one detached. Without the cached refs
         // a fresh `(_, __) => …` lambda would compile to a different

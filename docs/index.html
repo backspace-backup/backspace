@@ -12,6 +12,10 @@
 <meta name="theme-color" content="#0061FF">
 <link rel="icon" type="image/png" href="favicon.png">
 <style>
+/* The app's fonts (DESIGN.md): Manrope for headings and the wordmark, the
+   native sans for text. Manrope is served from this site (SIL OFL, fonts/). */
+@font-face { font-family: "Manrope"; src: url("fonts/Manrope-Bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Manrope"; src: url("fonts/Manrope-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: swap; }
 :root {
     --bg:           #FBF8F2;
     --bg-surface:   #FFFFFF;
@@ -32,7 +36,7 @@
 html, body {
     margin: 0;
     padding: 0;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     color: var(--fg);
     background: var(--bg);
     line-height: 1.55;
@@ -61,8 +65,8 @@ a:hover { text-decoration: underline; }
     border-bottom: 1px solid var(--border);
 }
 .hero h1 {
-    font-family: 'Fraunces', Georgia, serif;
-    font-weight: 600;
+    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 700;
     font-size: clamp(40px, 6vw, 64px);
     line-height: 1.05;
     letter-spacing: -0.02em;
@@ -77,16 +81,12 @@ a:hover { text-decoration: underline; }
 .hero-logo {
     width: 88px;
     height: 88px;
-    border-radius: 22px;
-    background: var(--accent);
-    color: #FFF;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    display: inline-block;
     margin-bottom: 8px;
+    border-radius: 16px;
     box-shadow: 0 12px 32px -8px rgba(0, 97, 255, 0.4);
 }
-.hero-logo svg { width: 56px; height: 56px; }
+.hero-logo svg { width: 88px; height: 88px; display: block; }
 
 .cta-row {
     display: flex;
@@ -182,8 +182,8 @@ section {
 }
 section + section { border-top: 1px solid var(--border); }
 section h2 {
-    font-family: 'Fraunces', Georgia, serif;
-    font-weight: 600;
+    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 700;
     font-size: 34px;
     letter-spacing: -0.015em;
     margin: 0 0 10px;
@@ -253,8 +253,8 @@ section .lede {
     border-radius: 999px;
     background: var(--accent);
     color: #FFF;
-    font-family: 'Fraunces', Georgia, serif;
-    font-weight: 600;
+    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 700;
     font-size: 28px;
     flex-shrink: 0;
 }
@@ -263,8 +263,8 @@ section .lede {
     color: var(--accent);
 }
 .step-body h3 {
-    font-family: 'Fraunces', Georgia, serif;
-    font-weight: 600;
+    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 700;
     font-size: 24px;
     letter-spacing: -0.01em;
     margin: 6px 0 8px;
@@ -387,8 +387,8 @@ section .lede {
 
 /* Section sub-heading inside the tutorial (e.g. "Set up your first backup") */
 .tutorial-h {
-    font-family: 'Fraunces', Georgia, serif;
-    font-weight: 600;
+    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 700;
     font-size: 26px;
     letter-spacing: -0.01em;
     margin: 8px 0 0;
@@ -456,8 +456,8 @@ header.hero { scroll-margin-top: 80px; }
     align-items: center;
     gap: 10px;
     color: var(--fg);
-    font-family: 'Fraunces', Georgia, serif;
-    font-weight: 600;
+    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 700;
     font-size: 17px;
     letter-spacing: -0.005em;
 }
@@ -465,16 +465,11 @@ header.hero { scroll-margin-top: 80px; }
 .topnav-brand .brand-icon {
     width: 28px;
     height: 28px;
-    border-radius: 7px;
-    background: var(--accent);
-    color: #FFF;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     flex-shrink: 0;
+    border-radius: 5px;
     box-shadow: 0 3px 10px -2px rgba(0, 97, 255, 0.4);
 }
-.topnav-brand .brand-icon svg { width: 17px; height: 17px; }
+.topnav-brand .brand-icon svg { width: 28px; height: 28px; display: block; }
 .topnav-links {
     display: flex;
     gap: 6px;
@@ -512,18 +507,13 @@ header.hero { scroll-margin-top: 80px; }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="bs-logo" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="184" fill="#0061FF"/><g fill="#FBFAF6"><circle cx="512" cy="410" r="184"/><circle cx="317" cy="491" r="133"/><circle cx="696" cy="451" r="154"/><circle cx="809" cy="564" r="102"/><circle cx="225" cy="594" r="102"/><rect x="174" y="533" width="676" height="184" rx="92"/></g><path d="M379 512 481 614 666 430" stroke="#0061FF" stroke-width="77" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol></svg>
 
 <!-- ─── Persistent top nav ────────────────────────────────────────── -->
 <nav class="topnav" aria-label="Primary">
     <div class="topnav-inner">
         <a class="topnav-brand" href="#top">
-            <span class="brand-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M7 18A4.5 4.5 0 0 1 7 9a5.5 5.5 0 0 1 10.4-1.5A4.5 4.5 0 0 1 17 18Z"/>
-                    <path d="M12 11v6"/>
-                    <path d="M9 14l3 3 3-3"/>
-                </svg>
-            </span>
+            <span class="brand-icon"><svg viewBox="0 0 1024 1024" aria-hidden="true"><use href="#bs-logo"/></svg></span>
             <span>Backspace</span>
         </a>
         <div class="topnav-links">
@@ -538,14 +528,7 @@ header.hero { scroll-margin-top: 80px; }
 <!-- ─── Hero ─────────────────────────────────────────────────────── -->
 <header class="hero" id="top">
     <div class="container">
-        <div class="hero-logo" aria-hidden="true">
-            <!-- Cloud-with-arrow-in glyph, matching the in-app logo -->
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M7 18A4.5 4.5 0 0 1 7 9a5.5 5.5 0 0 1 10.4-1.5A4.5 4.5 0 0 1 17 18Z"/>
-                <path d="M12 11v6"/>
-                <path d="M9 14l3 3 3-3"/>
-            </svg>
-        </div>
+        <div class="hero-logo"><!-- The app's logo (assets/brand/backspace.svg) --><svg viewBox="0 0 1024 1024" aria-hidden="true"><use href="#bs-logo"/></svg></div>
         <h1>Restic backups<br>made friendly.</h1>
         <p class="tagline">
             A desktop GUI for <a href="https://restic.net">Restic</a>.
@@ -572,11 +555,10 @@ header.hero { scroll-margin-top: 80px; }
         <p class="other-downloads">
             <span class="download-note" hidden></span>
             Also for
-            <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace.exe">Windows</a> ·
-            <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace-macos-arm64.zip">Mac (Apple silicon)</a> ·
+            <span class="other-builds"><a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace-macos-arm64.zip">Mac (Apple silicon)</a> ·
             <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace-macos-x64.zip">Mac (Intel)</a> ·
             <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace-linux-x64.tar.gz">Linux (x64)</a> ·
-            <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace-linux-arm64.tar.gz">Linux (ARM)</a>
+            <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace-linux-arm64.tar.gz">Linux (ARM)</a></span>
         </p>
 
         <div class="pill-row">
@@ -954,17 +936,17 @@ header.hero { scroll-margin-top: 80px; }
 <script>
 // Offers the download for the visitor's system (U245). Without script, or on
 // a system we can't tell, the Windows download stays and every other build is
-// listed below it.
+// listed below it; "Also for" never repeats the build offered above it.
 (function () {
     var base = "https://github.com/backspace-backup/backspace/releases/latest/download/";
     var builds = {
-        win:   { file: "Backspace.exe", label: "Download for Windows" },
-        macArm:{ file: "Backspace-macos-arm64.zip", label: "Download for Mac (beta)",
+        win:   { file: "Backspace.exe", label: "Download for Windows", name: "Windows" },
+        macArm:{ file: "Backspace-macos-arm64.zip", label: "Download for Mac (beta)", name: "Mac (Apple silicon)",
                  note: "Not yet notarized by Apple: the first time, right-click Backspace and choose Open." },
-        macX64:{ file: "Backspace-macos-x64.zip", label: "Download for Intel Mac (beta)",
+        macX64:{ file: "Backspace-macos-x64.zip", label: "Download for Intel Mac (beta)", name: "Mac (Intel)",
                  note: "Not yet notarized by Apple: the first time, right-click Backspace and choose Open." },
-        linux: { file: "Backspace-linux-x64.tar.gz", label: "Download for Linux (beta)" },
-        linuxArm: { file: "Backspace-linux-arm64.tar.gz", label: "Download for Linux ARM (beta)" }
+        linux: { file: "Backspace-linux-x64.tar.gz", label: "Download for Linux (beta)", name: "Linux (x64)" },
+        linuxArm: { file: "Backspace-linux-arm64.tar.gz", label: "Download for Linux ARM (beta)", name: "Linux (ARM)" }
     };
     function apply(key) {
         var b = builds[key]; if (!b) return;
@@ -973,6 +955,17 @@ header.hero { scroll-margin-top: 80px; }
         if (label) label.textContent = b.label;
         var note = document.querySelector(".download-note");
         if (note && b.note) { note.textContent = b.note; note.hidden = false; }
+        // "Also for" lists every other build, not the one offered above it.
+        var others = document.querySelector(".other-builds");
+        if (others) {
+            others.textContent = "";
+            Object.keys(builds).filter(function (k) { return k !== key; }).forEach(function (k, i) {
+                if (i > 0) others.appendChild(document.createTextNode(" · "));
+                var a = document.createElement("a");
+                a.href = base + builds[k].file; a.textContent = builds[k].name;
+                others.appendChild(a);
+            });
+        }
     }
     var ua = navigator.userAgent || "";
     var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";

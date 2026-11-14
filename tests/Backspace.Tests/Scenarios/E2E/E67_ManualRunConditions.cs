@@ -68,20 +68,33 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             // U239: the sidebar says something waits on the Backups page.
             Assert.True(mainVm.BackupsActive);
             Assert.Equal("local_c · queued", mainVm.BackupsActivityTip);
-            Assert.True(main.FindControl<Avalonia.Controls.PathIcon>("BackupsActivity")!.IsEffectivelyVisible);
+            // No turning icon beside it (owner, 14 November 2026); the hover tells what runs.
+            Assert.Null(main.FindControl<Avalonia.Controls.PathIcon>("BackupsActivity"));
+            Assert.Equal("local_c · queued", Avalonia.Controls.ToolTip.GetTip(main.FindControl<Avalonia.Controls.TextBlock>("BackupsLabel")!));
             // U239 (owner: "the accent color moving through the text"): "Backups" carries a
             // moving gradient while something runs; held mid-word for the picture.
             var label = main.FindControl<Avalonia.Controls.TextBlock>("BackupsLabel")!;
             Assert.IsType<Avalonia.Media.LinearGradientBrush>(label.Foreground);
+            // While something syncs, the logo at the top left keeps the still picture
+            // (owner, 14 November 2026: "don't animate the Backspace logo"), and so does the taskbar icon.
+            var logo = main.FindControl<Avalonia.Controls.Image>("SidebarLogo")!;
+            var stillLogo = logo.Source;
+            var stillIcon = main.Icon;
+            using (Backspace.Services.AppStatus.BeginSyncing())
+            {
+                await ctx.Driver.PumpAsync(600);
+                Assert.Same(stillLogo, logo.Source);
+                Assert.Same(stillIcon, main.Icon);
+            }
             Backspace.Views.TextShimmer.HeldAt = 0.5;
             await ctx.Driver.PumpAsync(150);
             ctx.Snapshot(main, "sidebar backups shimmer selected",
-                "Sidebar while local_c waits, Backups being the open page (its text already in the accent colour): a band of the ordinary text colour sweeps through \"Backups\" (held mid-word for the picture); the turning icon after it, 1 px lower than before.");
+                "Sidebar while local_c waits, Backups being the open page (its text already in the accent colour): a band of the ordinary text colour sweeps through \"Backups\" (held mid-word for the picture), no turning icon beside it; the logo at the top left stays still.");
             mainVm.SelectedNav = NavItem.Destinations;
             await ctx.Driver.PumpAsync(300);
             Assert.IsType<Avalonia.Media.LinearGradientBrush>(label.Foreground);
             ctx.Snapshot(main, "sidebar backups shimmer",
-                "Sidebar while local_c waits, on another page: the accent colour sweeping through \"Backups\" (held mid-word for the picture), the turning icon after it.");
+                "Sidebar while local_c waits, on another page: the accent colour sweeping through \"Backups\" (held mid-word for the picture), no turning icon beside it.");
             mainVm.SelectedNav = NavItem.Backups;
             await ctx.Driver.PumpAsync(300);
             Backspace.Views.TextShimmer.HeldAt = null;

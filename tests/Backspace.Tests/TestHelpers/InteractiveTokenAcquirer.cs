@@ -68,7 +68,8 @@ internal static class InteractiveTokenAcquirer
     public static async Task<CloudCredentialsLoader.Credential> AcquireAsync(
         CloudCredentialsLoader.Provider provider,
         ITestOutputHelper log,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        OAuthFlowCoordinator? flow = null)
     {
         if (!CanAcquireInteractively)
             throw new InvalidOperationException(
@@ -101,7 +102,7 @@ internal static class InteractiveTokenAcquirer
         };
         foreach (var line in banner) { Console.WriteLine(line); log.WriteLine(line); }
 
-        var result = await ServiceLocator.OAuthFlow.RunAsync(oauthProvider, ct).ConfigureAwait(false);
+        var result = await (flow ?? ServiceLocator.OAuthFlow).RunAsync(oauthProvider, ct).ConfigureAwait(false);
         if (!result.Succeeded)
             throw new InvalidOperationException(
                 $"OAuth flow for {provider} didn't complete: {result.Message}");

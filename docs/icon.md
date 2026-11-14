@@ -15,15 +15,11 @@ assets/brand/
 
 src/Backspace/Assets/
   ├── Backspace.ico                        ← default embedded icon (Ocean)
-  ├── Backspace-<Accent>.ico               ← idle: cloud + check, per accent
-  └── Backspace-<Accent>-Syncing-<N>.ico   ← syncing: rotated arrows, frame N
+  └── Backspace-<Accent>.ico               ← cloud + check, per accent
 ```
 
-Accents: `Ocean`, `Emerald`, `Plum`, `Graphite`, `Terracotta`. Syncing
-frames: `0..3` (see `SyncingFrameCount` in `MainWindow.axaml.cs`), each
-frame rotated by `360° / SyncingFrameCount` around the tile center. That
-gives **5 × (1 idle + 4 syncing) = 25 ICOs** committed to the repo, ~6 KB
-each.
+Accents: `Ocean`, `Emerald`, `Plum`, `Graphite`, `Terracotta`: 5 ICOs
+committed to the repo, ~6 KB each.
 
 When the user changes the accent in Settings, `MainWindow` reloads the
 matching ICO so the **taskbar, alt-tab, and window icon all re-color
@@ -31,29 +27,13 @@ with the accent**. The sidebar logo (inline in `MainWindow.axaml`)
 tracks the accent directly via `DynamicResource BS.Brush.Accent`, so
 it re-colors without reloading.
 
-## Idle vs syncing
+## While syncing
 
-`Services/AppStatus.cs` exposes a ref-counted `BeginSyncing()` lease.
-`BackupOrchestrator.RunBackupAsync` and `RestoreEngine.RunAsync` both
-take a lease for the duration of their work. When the lease count goes
-`0 → 1`, the shell:
-
-- swaps the window / taskbar icon to `Backspace-<Accent>-Syncing-0.ico`
-- starts a `DispatcherTimer` at `FrameInterval` (160 ms — slow enough to read, fast enough to feel alive)
-  that cycles `Syncing-0 → Syncing-1 → Syncing-2 → Syncing-3 → Syncing-0 …`
-- shows the inline `SidebarSyncOverlay` in the sidebar logo and rotates
-  it in lockstep with the taskbar frame index (same angle steps), so
-  taskbar and sidebar move as one animation
-- hides the idle check overlay (`SidebarIdleOverlay`)
-
-When the last lease disposes (count `→ 0`), the idle overlay comes back
-and `ApplyAccentIcon()` restores the static cloud-check icon. Nesting
-is safe: if a backup and a restore are running in parallel, the icon
-stays in the syncing state until **both** finish.
-
-Pre-baking rotated frames instead of live-rendering keeps CPU/GPU usage
-near zero during long backups — swapping a `WindowIcon` is cheap;
-re-rasterizing 16..256 px PNGs every 160 ms is not.
+The window, taskbar and sidebar icons stay still while a backup or restore
+runs (owner, 14 November 2026: the turning taskbar icon "looks like crap",
+and "don't animate the Backspace logo of the top left"). The tray icon
+and the running cards show the activity. The earlier rotated
+`Syncing-<N>` frames were removed.
 
 ## How to regenerate the icon
 
@@ -64,15 +44,12 @@ re-rasterizing 16..256 px PNGs every 160 ms is not.
 # Arbitrary color for experimentation
 .\tools\build-icon.ps1 -Accent "#059669"
 
-# Canonical build: all 5 idle ICOs + 5×SyncingFrameCount syncing ICOs
-# + the default Ocean ICO. 25 files total.
+# Canonical build: all 5 accent ICOs + the default Ocean ICO.
 .\tools\build-icon.ps1 -All
 ```
 
 Run the `-All` variant whenever the design or the accent palette
-changes. If you change `SyncingFrameCount`, update the matching
-constant in `src/Backspace/Views/MainWindow.axaml.cs` — the PS
-script and the C# frame loader must agree on how many frames exist.
+changes. The script may still write syncing frames: don't commit them.
 
 ## How to change the design
 

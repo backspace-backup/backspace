@@ -124,6 +124,10 @@ revision `6f81ebecdf65e4463b798cc07b16a4f8d5216917` in
 [aaronbell/manrope](https://github.com/aaronbell/manrope/tree/6f81ebecdf65e4463b798cc07b16a4f8d5216917),
 as recorded by [Google Fonts](https://github.com/google/fonts/blob/main/ofl/manrope/upstream_info.md).
 
+The website (`docs/index.html`, `docs/privacy.html`) uses the same faces:
+Manrope, served from `docs/fonts/`, for headings and the wordmark, and the
+native sans for text. Its logo is the app's (`assets/brand/backspace.svg`).
+
 ## Shape language
 
 - **Corners**: 14px on backup cards, 12px on status bands and notices, 8px on buttons, fully round on pills. Never sharp 0.
@@ -167,9 +171,11 @@ Calm and purposeful. No bounce, no spring, no scale-on-hover.
 
 - View transitions: short fade + 4px translate-up on the incoming view.
 - Hover states: ~150ms ease-out on color and background. Never on size.
-- Backup in progress: a slow horizontal progress bar + an animated
-  syncing icon on the taskbar (4 pre-rendered frames cycling at ~160ms,
-  brisk cadence — fast enough to feel alive, slow enough to read).
+- Something in progress: a slow horizontal progress bar; the card's status
+  icon turns (one turn every 1.5 s); a band of the accent sweeps through
+  "Backups" in the sidebar every 3 s (two turns, so they keep in step).
+  Moves follow the window's drawn frames at even intervals (`FrameLoop`).
+  The logo, window and taskbar icons stay still.
 - Success: a soft check-fade-in. No bounce.
 - Failure: the row border tints `Danger` and holds. No shake, no flash.
   A plain-English "here's what happened" line below.
