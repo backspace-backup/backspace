@@ -30,13 +30,19 @@
     --border-strong:#D4CCBC;
     --ok:           #2D7A3B;
     --ok-tint:      #E7F4EA;
+    --font-head:    "Manrope", "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-body:    "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    /* One reading column: text and pictures share its left edge. */
+    --measure:      66ch;
+    --column:       880px;
 }
 
 * { box-sizing: border-box; }
 html, body {
     margin: 0;
     padding: 0;
-    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-body);
+    font-size: 16px;
     color: var(--fg);
     background: var(--bg);
     line-height: 1.55;
@@ -47,7 +53,7 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 .container {
-    max-width: 1140px;
+    max-width: 1040px;
     margin: 0 auto;
     padding: 0 24px;
 }
@@ -65,7 +71,7 @@ a:hover { text-decoration: underline; }
     border-bottom: 1px solid var(--border);
 }
 .hero h1 {
-    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-head);
     font-weight: 700;
     font-size: clamp(40px, 6vw, 64px);
     line-height: 1.05;
@@ -178,20 +184,22 @@ a:hover { text-decoration: underline; }
 
 /* ─── Sections ────────────────────────────────────────────────────── */
 section {
-    padding: 72px 0;
+    padding: 88px 0;
 }
 section + section { border-top: 1px solid var(--border); }
 section h2 {
-    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-head);
     font-weight: 700;
-    font-size: 34px;
-    letter-spacing: -0.015em;
-    margin: 0 0 10px;
+    font-size: 36px;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    margin: 0 0 12px;
 }
 section .lede {
     color: var(--fg-secondary);
-    font-size: 17px;
-    max-width: 660px;
+    font-size: 18px;
+    line-height: 1.6;
+    max-width: var(--measure);
     margin: 0 0 40px;
 }
 
@@ -235,27 +243,28 @@ section .lede {
 .steps {
     display: flex;
     flex-direction: column;
-    gap: 60px;
-    margin-top: 24px;
+    gap: 64px;
+    margin-top: 32px;
 }
 .step {
     display: grid;
-    grid-template-columns: 60px 1fr;
-    gap: 24px;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 20px;
     align-items: start;
 }
 .step-num {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 56px;
-    height: 56px;
+    width: 36px;
+    height: 36px;
+    margin-top: 2px;
     border-radius: 999px;
     background: var(--accent);
     color: #FFF;
-    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-head);
     font-weight: 700;
-    font-size: 28px;
+    font-size: 17px;
     flex-shrink: 0;
 }
 .step-num.muted {
@@ -263,25 +272,27 @@ section .lede {
     color: var(--accent);
 }
 .step-body h3 {
-    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-head);
     font-weight: 700;
-    font-size: 24px;
+    font-size: 22px;
+    line-height: 1.3;
     letter-spacing: -0.01em;
-    margin: 6px 0 8px;
+    margin: 0 0 8px;
 }
 .step-body p {
     color: var(--fg-secondary);
     font-size: 16px;
-    line-height: 1.6;
-    margin: 0 0 18px;
-    max-width: 720px;
+    line-height: 1.65;
+    margin: 0 0 20px;
+    max-width: var(--measure);
 }
-.step-body p + p { margin-top: -6px; }
+.step-body p + p { margin-top: -8px; }
 .step-body img {
     display: block;
-    width: 80%;
+    width: 100%;
+    max-width: var(--column);
     height: auto;
-    margin: 0 auto;
+    margin: 4px 0 0;
     border: 1px solid var(--border);
     border-radius: 12px;
     box-shadow: 0 8px 24px -12px rgba(30, 27, 22, 0.18);
@@ -292,10 +303,11 @@ section .lede {
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 22px 26px 24px;
-    margin: 18px 0 0;
+    padding: 24px 28px 28px;
+    margin: 20px 0 0;
+    max-width: var(--column);
 }
-.branch + .branch { margin-top: 18px; }
+.branch + .branch { margin-top: 20px; }
 .branch h4 {
     font-size: 17px;
     font-weight: 600;
@@ -318,14 +330,15 @@ section .lede {
 .branch p {
     color: var(--fg-secondary);
     font-size: 15px;
-    line-height: 1.55;
-    margin: 0 0 16px;
+    line-height: 1.6;
+    margin: 0 0 20px;
+    max-width: var(--measure);
 }
 .branch img {
     display: block;
-    width: 80%;
+    width: 100%;
     height: auto;
-    margin: 0 auto;
+    margin: 0;
     border: 1px solid var(--border);
     border-radius: 8px;
 }
@@ -335,14 +348,10 @@ section .lede {
     grid-template-columns: 1fr;
 }
 .milestone .step-body { padding: 0; }
-.milestone .step-body h3 {
-    font-size: 22px;
-    color: var(--accent);
-}
+.milestone .step-body h3 { font-size: 22px; }
 
 @media (max-width: 760px) {
     .step { grid-template-columns: 1fr; gap: 12px; }
-    .step-num { width: 48px; height: 48px; font-size: 22px; }
     .step-body h3 { font-size: 20px; }
 }
 
@@ -357,6 +366,7 @@ section .lede {
     .advanced-grid { grid-template-columns: 1fr; }
 }
 .adv {
+    margin: 0;
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -387,13 +397,15 @@ section .lede {
 
 /* Section sub-heading inside the tutorial (e.g. "Set up your first backup") */
 .tutorial-h {
-    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-head);
     font-weight: 700;
     font-size: 26px;
-    letter-spacing: -0.01em;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
     margin: 8px 0 0;
 }
-.tutorial-h.second { margin-top: 80px; }
+.tutorial-h.second { margin-top: 96px; padding-top: 48px; border-top: 1px solid var(--border); }
+.tutorial-h + .lede { margin: 10px 0 0; font-size: 17px; }
 
 /* The "Get started" intro callout — make the philosophy land */
 .tldr {
@@ -402,7 +414,8 @@ section .lede {
     border-left: 3px solid var(--accent);
     border-radius: 10px;
     padding: 20px 24px;
-    margin: 0 0 36px;
+    margin: 0 0 48px;
+    max-width: var(--column);
     font-size: 17px;
     line-height: 1.55;
     color: var(--fg);
@@ -456,7 +469,7 @@ header.hero { scroll-margin-top: 80px; }
     align-items: center;
     gap: 10px;
     color: var(--fg);
-    font-family: 'Manrope', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-head);
     font-weight: 700;
     font-size: 17px;
     letter-spacing: -0.005em;
@@ -711,11 +724,10 @@ header.hero { scroll-margin-top: 80px; }
                 <div class="step-body">
                     <h3>Pick a backup and a moment in time</h3>
                     <p>
-                        Click <em>Restore files</em> on any backup, or go to
-                        the Restore tab. Choose which backup, then which
-                        revision — yesterday's, last week's, a year ago.
+                        Click <em>Restore files</em> on the backup, then pick
+                        the date to restore from: yesterday's, last week's,
+                        a year ago.
                     </p>
-                    <img src="screenshots/04-restore-pick.png" alt="Restore wizard — pick a backup">
                 </div>
             </article>
 
@@ -737,59 +749,27 @@ header.hero { scroll-margin-top: 80px; }
             <article class="step">
                 <span class="step-num">3</span>
                 <div class="step-body">
-                    <h3>Choose where they land. Click Restore.</h3>
+                    <h3>Choose where they go. Click Restore.</h3>
                     <p>
-                        Default is back to where the files originally came
-                        from. Or pick a different folder if you'd rather not
-                        overwrite anything. Parallel downloads with per-file
-                        retry — one slow file doesn't block the rest. Done.
+                        Back to the original folder where they came from, or
+                        to another folder if you'd rather not overwrite
+                        anything. Files download in parallel and each one is
+                        retried on its own, so one slow file doesn't hold up
+                        the rest.
                     </p>
                 </div>
             </article>
 
         </div>
 
-        <h3 class="tutorial-h second">Or just peek — no restore needed</h3>
-
+        <h3 class="tutorial-h second">Or just look, without restoring</h3>
         <p class="lede">
-            Sometimes you only need to <em>look</em> at an old snapshot, not
-            pull it down. Every backup card has two shortcuts for that.
+            Click <em>Mount</em> on a backup and its snapshots appear as an
+            ordinary read-only folder in Windows Explorer. Open files with your
+            usual apps, compare them with your working copy, or drag single
+            files out. Nothing in the backup can be changed. Mount needs the
+            free WinFsp driver; Backspace offers to install it the first time.
         </p>
-
-        <div class="steps">
-
-            <article class="step">
-                <span class="step-num">A</span>
-                <div class="step-body">
-                    <h3>Browse a snapshot inline</h3>
-                    <p>
-                        Click <em>Browse snapshot</em> on any backup. Walk
-                        the folder tree, filter by filename, see file sizes
-                        and timestamps — no wizard, no download. Use it to
-                        confirm "is the file I'm thinking of actually in
-                        this backup?" before committing to a restore.
-                    </p>
-                </div>
-            </article>
-
-            <article class="step">
-                <span class="step-num">B</span>
-                <div class="step-body">
-                    <h3>Mount a snapshot as a read-only drive</h3>
-                    <p>
-                        Click <em>Mount</em> and the snapshot appears as a
-                        regular folder in Windows Explorer. Open files with
-                        your usual apps, diff against your working copy,
-                        drag-and-drop individual files out — anything you'd
-                        do with a normal folder. The mount is read-only so
-                        you can't accidentally corrupt the snapshot. Unmount
-                        from the same button (or just close the app and the
-                        mount cleans up).
-                    </p>
-                </div>
-            </article>
-
-        </div>
     </div>
 </section>
 
@@ -888,8 +868,8 @@ header.hero { scroll-margin-top: 80px; }
             </div>
             <div class="feature">
                 <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M3 3h7v7H3z"/><path d="M14 3h7v7h-7z"/><path d="M14 14h7v7h-7z"/><path d="M3 14h7v7H3z"/></svg></div>
-                <h3>Browse &amp; mount snapshots</h3>
-                <p>Browse any snapshot inline — walk the tree, eyeball file sizes, search by name without launching the restore wizard. Or <em>mount</em> the snapshot as a read-only Windows Explorer drive: its folders list instantly and a file downloads only when you open it. Open files in their usual apps, diff against your working copy, drag out the one file you wanted. Both surface from the per-backup card.</p>
+                <h3>Mount snapshots</h3>
+                <p><em>Mount</em> a backup as a read-only folder in Windows Explorer: its folders list instantly and a file downloads only when you open it. Open files in their usual apps, compare them with your working copy, drag out the one file you wanted. Needs the free WinFsp driver.</p>
             </div>
         </div>
     </div>
@@ -903,8 +883,10 @@ header.hero { scroll-margin-top: 80px; }
             Backspace is the friendly face. The bytes move through
             <a href="https://restic.net">Restic</a> — the proven, BSD-2
             open-source engine — which Backspace runs itself, with its own
-            schedule and run history. Everything's bundled; you don't
-            install anything separately.
+            schedule and run history. Restic and rclone come with it. On
+            Windows it needs Microsoft's .NET runtime, which Backspace offers
+            to install if it is missing; Mount also needs the free WinFsp
+            driver.
         </p>
         <p class="lede">
             Cloud destinations go through <a href="https://rclone.org">rclone</a>

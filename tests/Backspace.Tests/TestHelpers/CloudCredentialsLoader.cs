@@ -254,7 +254,10 @@ public static class CloudCredentialsLoader
             Id = $"e2e-{provider}-{Guid.NewGuid():N}".ToLowerInvariant(),
             Name = name,
             Kind = template?.Kind ?? kind,
-            CloudAppFolderOnly = template?.CloudAppFolderOnly ?? false,
+            // A token from secrets.env was minted by Backspace's own sign-in
+            // (InteractiveTokenAcquirer), limited to its app folder; OneDrive's
+            // drive is looked up on first use (EnsureDriveIdentityAsync).
+            CloudAppFolderOnly = template?.CloudAppFolderOnly ?? Backspace.Services.OAuth.CloudFolderAccess.AppliesTo(kind),
             OneDriveDriveId = template?.OneDriveDriveId,
             OneDriveDriveType = template?.OneDriveDriveType,
             OneDriveAppFolderId = template?.OneDriveAppFolderId,
