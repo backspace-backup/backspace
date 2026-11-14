@@ -121,9 +121,10 @@
                          IsChecked="{Binding SelectedNav, Converter={x:Static v:NavConverters.IsSelected}, ConverterParameter={x:Static vm:NavItem.Backups}, Mode=TwoWay}">
               <StackPanel Orientation="Horizontal" Spacing="12">
                 <PathIcon Data="{StaticResource Icon.Backup}" Width="16" Height="16"/>
-                <TextBlock Text="Backups" VerticalAlignment="Center"/>
-                <!-- Something runs (U239): the card's turning icon, what runs on hover. -->
-                <PathIcon Name="BackupsActivity" Classes="status-icon running" Width="13" Height="13" VerticalAlignment="Center"
+                <!-- Something runs (U239): the accent sweeps through the word, and the card's
+                     turning icon follows it (1 px lower to sit on the text's middle); what runs on hover. -->
+                <TextBlock Name="BackupsLabel" Text="Backups" VerticalAlignment="Center" v:TextShimmer.IsActive="{Binding BackupsActive}"/>
+                <PathIcon Name="BackupsActivity" Classes="status-icon running" Width="13" Height="13" VerticalAlignment="Center" Margin="0,1,0,0"
                           IsVisible="{Binding BackupsActive}" v:RunningPulse.IsActive="{Binding BackupsActive}"
                           ToolTip.Tip="{Binding BackupsActivityTip}"/>
               </StackPanel>

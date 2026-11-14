@@ -69,6 +69,22 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             Assert.True(mainVm.BackupsActive);
             Assert.Equal("local_c · queued", mainVm.BackupsActivityTip);
             Assert.True(main.FindControl<Avalonia.Controls.PathIcon>("BackupsActivity")!.IsEffectivelyVisible);
+            // U239 (owner: "the accent color moving through the text"): "Backups" carries a
+            // moving gradient while something runs; held mid-word for the picture.
+            var label = main.FindControl<Avalonia.Controls.TextBlock>("BackupsLabel")!;
+            Assert.IsType<Avalonia.Media.LinearGradientBrush>(label.Foreground);
+            Backspace.Views.TextShimmer.HeldAt = 0.5;
+            await ctx.Driver.PumpAsync(150);
+            ctx.Snapshot(main, "sidebar backups shimmer selected",
+                "Sidebar while local_c waits, Backups being the open page (its text already in the accent colour): a band of the ordinary text colour sweeps through \"Backups\" (held mid-word for the picture); the turning icon after it, 1 px lower than before.");
+            mainVm.SelectedNav = NavItem.Destinations;
+            await ctx.Driver.PumpAsync(300);
+            Assert.IsType<Avalonia.Media.LinearGradientBrush>(label.Foreground);
+            ctx.Snapshot(main, "sidebar backups shimmer",
+                "Sidebar while local_c waits, on another page: the accent colour sweeping through \"Backups\" (held mid-word for the picture), the turning icon after it.");
+            mainVm.SelectedNav = NavItem.Backups;
+            await ctx.Driver.PumpAsync(300);
+            Backspace.Views.TextShimmer.HeldAt = null;
             ctx.Snapshot(main, "queued until plugged in",
                 "local_c's card after Run now on battery and \"Run when plugged in\": Queued, its hover says \"waiting for AC power since HH:mm; it starts by itself\". Nothing has run.");
 
@@ -81,6 +97,8 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
             Assert.Empty(QueuedManualRuns.Load());
             await ctx.Driver.PumpAsync(200);
             Assert.False(mainVm.BackupsActive);
+            // Quiet again: the word is back to its own plain colour.
+            Assert.IsNotType<Avalonia.Media.LinearGradientBrush>(main.FindControl<Avalonia.Controls.TextBlock>("BackupsLabel")!.Foreground);
 
             // On battery again: asked, queued, then Stop: nothing runs.
             onBattery = true;

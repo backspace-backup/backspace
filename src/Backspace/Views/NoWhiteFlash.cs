@@ -39,6 +39,9 @@ internal static class NoWhiteFlash
             if (shown) return;
             shown = true;
             Set(hwnd, false);
+            // U241: the taskbar button of a window revealed this way could come
+            // up without its icon. Hand Windows the icon again once visible.
+            if (window.Icon is { } icon) { window.Icon = null; window.Icon = icon; }
         }
         window.Opened += (_, _) =>
         {
