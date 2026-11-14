@@ -198,7 +198,11 @@ public sealed class ServiceActivityWaitTests
             var ok = ServiceHostRequest.Parse(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
                 new ServiceHostRequest(1, command, Revision: "42"), ServiceRunAuthorization.Json));
             Assert.Equal("42", ok.Revision);
+            // U246: a desktop that has heard nothing yet ("-1") is answered, never refused.
+            Assert.Equal("-1", ServiceHostRequest.Parse(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                new ServiceHostRequest(1, command, Revision: "-1"), ServiceRunAuthorization.Json)).Revision);
             foreach (var bad in new[] { new ServiceHostRequest(1, command, Revision: "x1"), new ServiceHostRequest(1, command),
+                         new ServiceHostRequest(1, command, Revision: "-"), new ServiceHostRequest(1, command, Revision: "1-2"),
                          new ServiceHostRequest(1, command, Revision: "1", BackupId: "b") })
                 Assert.ThrowsAny<Exception>(() => ServiceHostRequest.Parse(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(bad, ServiceRunAuthorization.Json)));
         }

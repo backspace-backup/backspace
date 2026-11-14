@@ -348,7 +348,8 @@ internal sealed class SystemBackupService : ServiceBase
             or InvalidDataException or IOException or UnauthorizedAccessException or Win32Exception or InvalidOperationException
             or NotSupportedException)
         {
-            AppLogger.For<SystemBackupService>().Information("Refused a request: {Reason}", ex.Message);
+            // Only Backspace talks to this pipe: a refusal is a bug to see (U246).
+            AppLogger.For<SystemBackupService>().Warning("Refused a request: {Reason}", ex.Message);
             return Reply("request-rejected");
         }
     }
@@ -481,7 +482,7 @@ internal sealed class SystemBackupService : ServiceBase
         try
         {
             var parsed = ServiceHostRequest.Parse(request);
-            return parsed.Command is "activity-wait" or "state-wait" && long.TryParse(parsed.Revision, System.Globalization.NumberStyles.None,
+            return parsed.Command is "activity-wait" or "state-wait" && long.TryParse(parsed.Revision, System.Globalization.NumberStyles.AllowLeadingSign,
                 System.Globalization.CultureInfo.InvariantCulture, out var known) ? (known, parsed.Command == "state-wait") : null;
         }
         catch (Exception) { return null; }
