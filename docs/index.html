@@ -767,8 +767,9 @@ header.hero { scroll-margin-top: 80px; }
             Click <em>Mount</em> on a backup and its snapshots appear as an
             ordinary read-only folder in Windows Explorer. Open files with your
             usual apps, compare them with your working copy, or drag single
-            files out. Nothing in the backup can be changed. Mount needs the
-            free WinFsp driver; Backspace offers to install it the first time.
+            files out. Nothing in the backup can be changed. The first time, Backspace
+            installs the free WinFsp driver it needs (Windows asks for your
+            approval).
         </p>
     </div>
 </section>
@@ -869,7 +870,7 @@ header.hero { scroll-margin-top: 80px; }
             <div class="feature">
                 <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M3 3h7v7H3z"/><path d="M14 3h7v7h-7z"/><path d="M14 14h7v7h-7z"/><path d="M3 14h7v7H3z"/></svg></div>
                 <h3>Mount snapshots</h3>
-                <p><em>Mount</em> a backup as a read-only folder in Windows Explorer: its folders list instantly and a file downloads only when you open it. Open files in their usual apps, compare them with your working copy, drag out the one file you wanted. Needs the free WinFsp driver.</p>
+                <p><em>Mount</em> a backup as a read-only folder in Windows Explorer: its folders list instantly and a file downloads only when you open it. Open files in their usual apps, compare them with your working copy, drag out the one file you wanted. Backspace installs the WinFsp driver it needs the first time.</p>
             </div>
         </div>
     </div>
@@ -883,10 +884,11 @@ header.hero { scroll-margin-top: 80px; }
             Backspace is the friendly face. The bytes move through
             <a href="https://restic.net">Restic</a> — the proven, BSD-2
             open-source engine — which Backspace runs itself, with its own
-            schedule and run history. Restic and rclone come with it. On
-            Windows it needs Microsoft's .NET runtime, which Backspace offers
-            to install if it is missing; Mount also needs the free WinFsp
-            driver.
+            schedule and run history. Restic and rclone come with it, and
+            there is nothing to install by hand: if Microsoft's .NET runtime
+            is missing, Backspace downloads and installs it for you (Windows
+            asks for your approval once). Mount uses the free WinFsp driver,
+            which Backspace installs the same way the first time you mount.
         </p>
         <p class="lede">
             Cloud destinations go through <a href="https://rclone.org">rclone</a>
