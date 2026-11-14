@@ -59,23 +59,22 @@ jobs:
           out="$("$exe" --version 2>&1 || true)"
           echo "$out"
           echo "$out" | grep -F "${{ inputs.version }}"
-          # Opened like a user would: the window starts, the settings folder
-          # appears beside the program (beside Backspace.app on macOS), and
-          # restic and rclone are downloaded and checked on first start.
+          # Opened like a user would: the window starts and stays up, and the
+          # settings folder appears beside the program (beside Backspace.app
+          # on macOS, never inside it). restic and rclone are downloaded at
+          # the first backup; EngineInstallationTests downloads and checks them.
           case "${{ matrix.rid }}" in
             linux-*) sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq xvfb >/dev/null; (xvfb-run -a "$exe" > "$dir/run.log" 2>&1 &) ;;
             osx-*)   open "$dir/Backspace.app" ;;
           esac
-          for i in $(seq 1 60); do
-            engines="$(find "$HOME/.local/share" "$HOME/Library/Application Support" -path '*Backspace/bin/*' \( -name restic -o -name rclone \) -type f 2>/dev/null | head -2 || true)"
-            [ "$(echo "$engines" | grep -c .)" = 2 ] && break; sleep 2
-          done
-          echo "Engines: $engines"
+          sleep 25
           ls -la "$dir"
-          pkill -f Backspace || true
-          [ "$(echo "$engines" | grep -c .)" = 2 ] || { cat "$dir/run.log" 2>/dev/null; echo "restic and rclone were not downloaded"; exit 1; }
-          for e in $engines; do "$e" version; done
-          test -d "$dir/Backspace.config"
+          running=0; pgrep -f "$exe" >/dev/null && running=1
+          pkill -f "$exe" || true
+          cat "$dir/run.log" 2>/dev/null | tail -20 || true
+          [ "$running" = 1 ] || { echo "Backspace did not stay open"; exit 1; }
+          test -d "$dir/Backspace.config" || { echo "No settings folder beside the app"; exit 1; }
+          test ! -e "$dir/Backspace.app/Contents/MacOS/Backspace.config"
       - uses: actions/upload-artifact@v4
         with:
           name: package-${{ matrix.rid }}
