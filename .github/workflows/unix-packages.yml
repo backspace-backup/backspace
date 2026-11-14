@@ -67,7 +67,7 @@ jobs:
             osx-*)   open "$dir/Backspace.app" ;;
           esac
           for i in $(seq 1 60); do
-            engines="$(find "$HOME" -path '*Backspace/bin/*' \( -name restic -o -name rclone \) -type f 2>/dev/null | head -2)"
+            engines="$(find "$HOME/.local/share" "$HOME/Library/Application Support" -path '*Backspace/bin/*' \( -name restic -o -name rclone \) -type f 2>/dev/null | head -2)"
             [ "$(echo "$engines" | grep -c .)" = 2 ] && break; sleep 2
           done
           echo "Engines: $engines"
