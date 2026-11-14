@@ -47,11 +47,16 @@ public sealed class ServiceActivityWaitTests
         {
             monitor.StartPolling();
             await Task.Delay(3000);
-            // Three seconds hidden and idle: the first answer, then one request
-            // left open; nothing read, nothing repeated.
-            Assert.Equal(0, reads);
+            // Three seconds hidden and idle: one read (nothing heard yet), then
+            // waits from what it holds; nothing repeated. U246: the first wait
+            // used to send -1, which the service refuses, so the window never
+            // saw the service's runs: every wait now names a real sequence
+            // the service accepts.
+            Assert.Equal(1, reads);
             Assert.Equal(2, waits.Count);
             Assert.All(waits, w => Assert.True(w.StateOnly));
+            Assert.All(waits, w => ServiceHostRequest.Parse(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                new ServiceHostRequest(1, "state-wait", Revision: w.Known.ToString(System.Globalization.CultureInfo.InvariantCulture)), ServiceRunAuthorization.Json)));
             Assert.Equal(1, monitor.Current?.Sequence);
 
             // A run's progress alone doesn't reach a hidden app (the service
@@ -65,7 +70,7 @@ public sealed class ServiceActivityWaitTests
             var before = waits.Count;
             BackgroundServiceActivity.WindowShown = true;
             await Task.Delay(2500);
-            Assert.Equal(0, reads);
+            Assert.Equal(1, reads);
             Assert.Equal(before + 1, waits.Count);
             Assert.False(waits.ToArray()[^1].StateOnly);
             answers.Add(Running(3, state: 2));
@@ -100,8 +105,9 @@ public sealed class ServiceActivityWaitTests
         {
             monitor.StartPolling();
             await Task.Delay(650);
-            // Silent past the watchdog: asked once, then waiting again.
-            Assert.Equal(1, reads);
+            // The first read (nothing heard yet), then silent past the
+            // watchdog: asked once, then waiting again.
+            Assert.Equal(2, reads);
             Assert.NotNull(monitor.LastWatchdogUtc);
             // A run whose progress moved is fine; one that didn't is said to be unconfirmed.
             if (stillMoving) Assert.Null(monitor.Error);
@@ -133,7 +139,7 @@ public sealed class ServiceActivityWaitTests
         {
             monitor.StartPolling();
             await Task.Delay(1200);
-            Assert.Equal(0, reads);
+            Assert.Equal(1, reads); // the first look, nothing since
             Assert.Equal(2, waits);
             Assert.Null(monitor.LastWatchdogUtc);
         }

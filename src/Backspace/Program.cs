@@ -155,8 +155,8 @@ internal static class Program
             }
             if (OperatingSystem.IsWindows() && initialMode is not (RunMode.Version or RunMode.Help or RunMode.UsageError))
             {
-                if (WindowsUpdateRuntime.RecoverInterruptedBeforeStartup(AppContext.BaseDirectory, args)) return 0;
-                updateRuntimeLease = WindowsUpdateRuntime.AcquireShared(AppContext.BaseDirectory, TimeSpan.FromSeconds(30));
+                if (WindowsUpdateRuntime.RecoverInterruptedBeforeStartup(WindowsUpdateRuntime.Root, args)) return 0;
+                updateRuntimeLease = WindowsUpdateRuntime.AcquireShared(WindowsUpdateRuntime.Root, TimeSpan.FromSeconds(30));
             }
             // WinFSP DLL resolver: WinFSP's installer doesn't add
             // its bin folder to PATH, so the first reference to a

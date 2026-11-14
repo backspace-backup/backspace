@@ -49,7 +49,8 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
     private bool _disposed;
     private bool _loading;
     private DateTime _lastAttempt;
-    public bool Supported => OperatingSystem.IsWindows();
+    /// <summary>Windows, and since U245 Linux and macOS.</summary>
+    public bool Supported => OperatingSystem.IsWindows() || OperatingSystem.IsLinux() || OperatingSystem.IsMacOS();
     public string CurrentVersionText => "Backspace " + WindowsUpdatePackage.CurrentVersion;
     public string[] Frequencies { get; } = { "Daily", "Weekly", "Monthly", "Never" };
     public bool InstallAvailable { get; }
@@ -117,7 +118,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
         try
         {
             var latest = DateTime.MinValue;
-            foreach (var parent in new[] { WindowsUpdateRuntime.UpdatesFolder(AppContext.BaseDirectory) })
+            foreach (var parent in new[] { WindowsUpdateRuntime.UpdatesFolder(WindowsUpdateRuntime.Root) })
             {
                 var result = Path.Combine(parent, "result.json");
                 if (!File.Exists(result) || new FileInfo(result).Length > 16384) continue;
@@ -218,7 +219,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
         _operation = new CancellationTokenSource();
         try
         {
-            var exe = Environment.ProcessPath!;
+            var exe = WindowsUpdateRuntime.ProgramPath!;
             if (_prepared is null || _prepared.Version != release.Version.ToString())
             {
                 if (_prepared is { State: "Prepared" } prior) WindowsUpdatePackage.SafeRemoveWork(prior.Root, prior.Work);

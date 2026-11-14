@@ -80,8 +80,12 @@ internal sealed class BackgroundServiceActivity : IDisposable
         var before = Current;
         try
         {
-            var next = waitForChange && _wait is not null
-                ? await _wait((stateOnly ? Current?.StateSequence : Current?.Sequence) ?? -1, stateOnly, token).ConfigureAwait(false)
+            // Nothing heard yet (just started, or the service was unreachable):
+            // read the activity first. Waiting needs a sequence to differ from;
+            // the "-1" sent before was refused by the service, so the window
+            // never saw a service run nor could stop it (1.1.41-1.1.42, U246).
+            var next = waitForChange && _wait is not null && Current is { } heard
+                ? await _wait(stateOnly ? heard.StateSequence : heard.Sequence, stateOnly, token).ConfigureAwait(false)
                 : await _read(token).ConfigureAwait(false);
             // A restarted service retains the interrupted host run ID but may
             // not know its display metadata. Preserve only this same run's

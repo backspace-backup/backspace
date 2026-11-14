@@ -13,6 +13,23 @@ namespace Backspace.Services;
 internal static class WindowsUpdateRuntime
 {
     internal static WindowsUpdatePackage.Plan? Pending { get; set; }
+
+    /// <summary>The folder holding the program and Backspace.config: beside
+    /// Backspace.app on macOS (U245), the program's own folder elsewhere.</summary>
+    internal static string Root => OperatingSystem.IsMacOS() ? AppPaths.ExeDirectory : AppContext.BaseDirectory;
+
+    /// <summary>What an update replaces: Backspace.exe, the Linux program, or
+    /// Backspace.app on macOS.</summary>
+    internal static string? ProgramPath
+    {
+        get
+        {
+            var exe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe) || !OperatingSystem.IsMacOS()) return exe;
+            var bundle = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(exe)));
+            return bundle is not null && bundle.EndsWith(".app", StringComparison.Ordinal) ? bundle : null;
+        }
+    }
     /// <summary>Where updates are prepared, with their record and recovery
     /// launcher: inside Backspace.config, never beside the app (U218, owner,
     /// 12 November 2026: "No clutter, even temporarily").</summary>
@@ -40,7 +57,8 @@ internal static class WindowsUpdateRuntime
 
     internal static bool CanInstall(out string reason)
     {
-        if (!OperatingSystem.IsWindows() || System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture != System.Runtime.InteropServices.Architecture.X64)
+        if (!OperatingSystem.IsWindows()) return CanInstallUnix(out reason);
+        if (System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture != System.Runtime.InteropServices.Architecture.X64)
         { reason = "Automatic installation is available for the Windows x64 release. Other builds can use the release page."; return false; }
         if (!string.IsNullOrEmpty(typeof(WindowsUpdateRuntime).Assembly.Location))
         { reason = "This is a development build. Download the portable Windows release to use automatic installation."; return false; }
@@ -58,6 +76,39 @@ internal static class WindowsUpdateRuntime
             reason = ""; return true;
         }
         catch { reason = "Backspace cannot write to its folder. Move the portable app to a writable folder or update it manually."; return false; }
+    }
+
+    /// <summary>Linux and macOS (U245): a published build (not a development
+    /// one), run from a folder this account may change.</summary>
+    private static bool CanInstallUnix(out string reason)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+        { reason = "Automatic installation isn't available on this system. Use the release page."; return false; }
+        if (!string.IsNullOrEmpty(typeof(WindowsUpdateRuntime).Assembly.Location))
+        { reason = "This is a development build. Download a release to use automatic installation."; return false; }
+        if (ProgramPath is not { } program || !(File.Exists(program) || Directory.Exists(program)))
+        { reason = "The running application could not be located. Use the manual download instead."; return false; }
+        if (AppPaths.IsTranslocated(program))
+        { reason = "Move Backspace out of Downloads with Finder (to Applications or any folder) to update it from here."; return false; }
+        var root = Path.GetDirectoryName(program.TrimEnd('/'))!;
+        try
+        {
+            WindowsUpdatePackage.RejectReparse(root); WindowsUpdatePackage.RejectReparse(program);
+            if (Writable(root) == false) throw new IOException();
+            reason = ""; return true;
+        }
+        catch { reason = "Backspace cannot write to its folder. Move it to a folder you can change, or update it manually."; return false; }
+    }
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "access", SetLastError = true)]
+    private static extern int UnixAccess(string path, int mode);
+
+    /// <summary>Asks the system whether this account may add and remove files
+    /// in <paramref name="folder"/>, writing nothing; null when it can't say.</summary>
+    private static bool? Writable(string folder)
+    {
+        try { return UnixAccess(folder, 2 /* W_OK */ | 1 /* X_OK */) == 0; }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { return null; }
     }
 
     [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
@@ -94,7 +145,8 @@ internal static class WindowsUpdateRuntime
 #endif
             using var gate = TryExclusive(plan.Root);
             if (gate is null) throw new IOException("Another Backspace process is still using this app. The update was not installed. Try again after its backup finishes.");
-            WriteRecoveryLauncher(plan);
+            // Windows' recovery launcher; on Linux and macOS a failed start rolls back below.
+            if (OperatingSystem.IsWindows()) WriteRecoveryLauncher(plan);
             WindowsUpdatePackage.Install(plan, _ => { });
             PruneOlderCompletedUpdates(plan);
             installed = true;
@@ -132,6 +184,17 @@ internal static class WindowsUpdateRuntime
 
     internal static void Launch(string exe, string[]? args = null, bool separateFromRecoveryConsole = false)
     {
+        if (OperatingSystem.IsMacOS() && Directory.Exists(exe))
+        {
+            // Backspace.app opens through macOS, like a double-click (U245).
+            var open = new ProcessStartInfo("open") { UseShellExecute = false };
+            open.ArgumentList.Add("-n"); open.ArgumentList.Add(exe);
+            if (args is { Length: > 0 }) { open.ArgumentList.Add("--args"); foreach (var arg in args) open.ArgumentList.Add(arg); }
+            using var opened = Process.Start(open) ?? throw new IOException("macOS did not open Backspace.");
+            opened.WaitForExit(30_000);
+            if (opened.HasExited && opened.ExitCode != 0) throw new IOException("macOS could not open the updated Backspace.");
+            return;
+        }
         // The recovery launcher captures its child's output. Start the
         // restored GUI through the shell so it cannot inherit those pipes
         // and keep the launcher waiting until the user closes the app.

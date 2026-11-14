@@ -28,7 +28,19 @@ internal static class WindowsUpdatePackage
     private const long MaxDownload = 2L * 1024 * 1024 * 1024;
     private const long MaxExpanded = 4L * 1024 * 1024 * 1024;
     internal sealed record Release(Version Version, string Tag, string Url, string Notes,
-        string AssetUrl, string Digest, long Size, bool Executable = false, string? ApiAssetUrl = null);
+        string AssetUrl, string Digest, long Size, bool Executable = false, string? ApiAssetUrl = null, string? UnixPackage = null);
+
+    /// <summary>The Linux or macOS package for this computer (U245), or null
+    /// on Windows, whose releases offer Backspace.exe.</summary>
+    internal static string? UnixPackageName() => UnixPackageName(
+        OperatingSystem.IsWindows() ? null : OperatingSystem.IsMacOS() ? "macos" : "linux",
+        System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64);
+    internal static string? UnixPackageName(string? system, bool arm) => system switch
+    {
+        "linux" => "Backspace-linux-" + (arm ? "arm64" : "x64") + ".tar.gz",
+        "macos" => "Backspace-macos-" + (arm ? "arm64" : "x64") + ".zip",
+        _ => null,
+    };
     internal sealed record FileEntry(string Name, long Size, string Sha256);
     internal sealed class Plan
     {
@@ -44,7 +56,9 @@ internal static class WindowsUpdatePackage
     internal static Version CurrentVersion => Normalize(typeof(WindowsUpdatePackage).Assembly.GetName().Version ?? new Version(0, 0));
     internal static Version Normalize(Version v) => new(v.Major, Math.Max(0, v.Minor), Math.Max(0, v.Build));
 
-    internal static Release? ParseRelease(string json, Version current)
+    internal static Release? ParseRelease(string json, Version current) => ParseRelease(json, current, UnixPackageName());
+
+    internal static Release? ParseRelease(string json, Version current, string? unixPackage)
     {
         using var doc = JsonDocument.Parse(json);
         var r = doc.RootElement;
@@ -56,9 +70,12 @@ internal static class WindowsUpdatePackage
         var url = r.GetProperty("html_url").GetString() ?? "";
         if (!IsReleaseUrl(url)) throw new InvalidDataException("The release link is not from the Backspace repository.");
         var assets = r.GetProperty("assets").EnumerateArray().ToArray();
-        var assetName = assets.Any(a => a.GetProperty("name").GetString() == ExecutableAssetName) ? ExecutableAssetName : AssetName;
+        var assetName = unixPackage
+            ?? (assets.Any(a => a.GetProperty("name").GetString() == ExecutableAssetName) ? ExecutableAssetName : AssetName);
         var matches = assets.Where(a => a.GetProperty("name").GetString() == assetName).ToArray();
-        if (matches.Length != 1) throw new InvalidDataException("This release does not contain one compatible Windows update. Open the release page to update manually.");
+        if (matches.Length != 1) throw new InvalidDataException(unixPackage is null
+            ? "This release does not contain one compatible Windows update. Open the release page to update manually."
+            : "This release has no " + assetName + " for this computer. Open the release page to update manually.");
         var asset = matches[0];
         var assetUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
         var expectedPath = "/backspace-backup/backspace/releases/download/" + tag + "/" + assetName;
@@ -80,7 +97,7 @@ internal static class WindowsUpdatePackage
             && api.Host == "api.github.com" && api.UserInfo.Length == 0 && api.Port == 443 && api.Query.Length == 0
             && Regex.IsMatch(api.AbsolutePath, @"^/repos/backspace-backup/backspace/releases/assets/[0-9]+$")))
             apiUrl = null;
-        return new Release(Normalize(version), tag, url, notes, assetUrl, digest[7..], size, assetName == ExecutableAssetName, apiUrl);
+        return new Release(Normalize(version), tag, url, notes, assetUrl, digest[7..], size, assetName == ExecutableAssetName, apiUrl, unixPackage);
     }
 
     internal static bool IsReleaseUrl(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri)
@@ -93,6 +110,11 @@ internal static class WindowsUpdatePackage
             || name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)
             || name is "Backspace.deps.json" or "Backspace.runtimeconfig.json");
+
+    /// <summary>The name of the running program on Linux, or its .app on macOS:
+    /// one plain name, no folder.</summary>
+    internal static bool IsUnixProgram(string name) => Regex.IsMatch(name, @"^[A-Za-z0-9_. ()-]+$") && name is not "." and not ".."
+        && !name.StartsWith('.') && (!OperatingSystem.IsMacOS() || name.EndsWith(".app", StringComparison.Ordinal));
 
     internal static string CreateWorkDirectory(string root)
     {
@@ -114,7 +136,7 @@ internal static class WindowsUpdatePackage
         if (available < checked(release.Size * 5 + 256L * 1024 * 1024))
             throw new IOException("There is not enough free space to download and safely replace this update. Free some space and try again.");
         var work = CreateWorkDirectory(root);
-        var archive = Path.Combine(work, release.Executable ? "download.exe" : "download.zip");
+        var archive = Path.Combine(work, release.Executable ? "download.exe" : release.UnixPackage?.EndsWith(".tar.gz", StringComparison.Ordinal) == true ? "download.tar.gz" : "download.zip");
         try
         {
             using var response = await GetAssetAsync(http, release, ct).ConfigureAwait(false);
@@ -135,7 +157,9 @@ internal static class WindowsUpdatePackage
             }
             if (!Hash(archive).Equals(release.Digest, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("The downloaded update failed its checksum check. Your installed version has not changed.");
-            var plan = release.Executable
+            var plan = release.UnixPackage is not null
+                ? StageUnix(archive, root, work, Path.GetFileName(exe.TrimEnd('/')), release.Version.ToString(), ct)
+                : release.Executable
                 ? Stage(archive, root, work, Path.GetFileName(exe), release.Version.ToString())
                 : Extract(archive, root, work, Path.GetFileName(exe), release.Version.ToString(), ct);
             ValidateApplicationVersion(plan, release.Version);
@@ -180,6 +204,7 @@ internal static class WindowsUpdatePackage
 
     internal static void ValidateApplicationVersion(Plan plan, Version expected)
     {
+        if (!OperatingSystem.IsWindows()) { ValidateUnixVersion(plan, expected); return; }
         // The Win32 version API needs the extended prefix beyond MAX_PATH.
         var versionPath = Path.GetFullPath(Path.Combine(plan.Work, "incoming", plan.ExeName));
         if (OperatingSystem.IsWindows() && !versionPath.StartsWith(@"\\?\", StringComparison.Ordinal))
@@ -205,6 +230,107 @@ internal static class WindowsUpdatePackage
         SavePlan(plan);
         return plan;
     }
+
+    /// <summary>The program inside a Linux or macOS package (U245): the
+    /// Backspace program from the .tar.gz, or Backspace.app from the .zip,
+    /// staged under the name the user gave the running copy. Nothing else in
+    /// the package is accepted.</summary>
+    internal static Plan StageUnix(string package, string root, string work, string itemName, string version, CancellationToken ct)
+    {
+        var plan = new Plan { Root = Path.GetFullPath(root), Work = Path.GetFullPath(work), ExeName = itemName, Version = version };
+        ValidateLocation(plan);
+        var incoming = Path.Combine(work, "incoming"); Directory.CreateDirectory(incoming);
+        var target = Path.Combine(incoming, itemName);
+        if (package.EndsWith(".tar.gz", StringComparison.Ordinal))
+        {
+            using (var gz = new GZipStream(File.OpenRead(package), CompressionMode.Decompress))
+            using (var tar = new System.Formats.Tar.TarReader(gz))
+            {
+                var found = false;
+                for (System.Formats.Tar.TarEntry? entry; (entry = tar.GetNextEntry()) is not null;)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (entry.Name is not ("Backspace" or "./Backspace") || found
+                        || entry.EntryType is not (System.Formats.Tar.TarEntryType.RegularFile or System.Formats.Tar.TarEntryType.V7RegularFile)
+                        || entry.Length is <= 0 or > MaxExpanded)
+                        throw new InvalidDataException("The update contains an unexpected item: " + entry.Name);
+                    entry.ExtractToFile(target, overwrite: false);
+                    found = true;
+                }
+                if (!found) throw new InvalidDataException("The update does not contain Backspace.");
+            }
+            using (var elf = File.OpenRead(target))
+                if (elf.ReadByte() != 0x7F || elf.ReadByte() != 'E' || elf.ReadByte() != 'L' || elf.ReadByte() != 'F')
+                    throw new InvalidDataException("The update is not a Linux program.");
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(target, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                    | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+        else
+        {
+            using (var zip = ZipFile.OpenRead(package))
+            {
+                if (zip.Entries.Count is 0 or > 64) throw new InvalidDataException("The update archive has an unexpected number of files.");
+                long expanded = 0;
+                Directory.CreateDirectory(target);
+                foreach (var entry in zip.Entries)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var name = entry.FullName.Replace('\\', '/');
+                    if (!name.StartsWith("Backspace.app/", StringComparison.Ordinal) || name.Split('/').Any(p => p is ".." or ".")
+                        || ((entry.ExternalAttributes >> 16) & 0xF000) == 0xA000)
+                        throw new InvalidDataException("The update contains an unsafe or unexpected path: " + entry.FullName);
+                    expanded = checked(expanded + entry.Length);
+                    if (expanded > MaxExpanded) throw new InvalidDataException("The extracted update exceeds the size limit.");
+                    var path = Path.Combine(target, name["Backspace.app/".Length..]);
+                    if (name.EndsWith('/')) { Directory.CreateDirectory(path); continue; }
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                    entry.ExtractToFile(path, overwrite: false);
+                }
+            }
+            var program = Path.Combine(target, "Contents", "MacOS", "Backspace");
+            if (!File.Exists(program) || !File.Exists(Path.Combine(target, "Contents", "Info.plist")))
+                throw new InvalidDataException("The update does not contain Backspace.app.");
+            using (var macho = File.OpenRead(program))
+            {
+                var magic = new byte[4];
+                macho.ReadExactly(magic);
+                if (!(magic.SequenceEqual(new byte[] { 0xCF, 0xFA, 0xED, 0xFE }) || magic.SequenceEqual(new byte[] { 0xCA, 0xFE, 0xBA, 0xBE })))
+                    throw new InvalidDataException("The update is not a Mac program.");
+            }
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(program, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                    | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+        plan.Files.Add(new FileEntry(itemName, ItemSize(target), ItemHash(target)));
+        SavePlan(plan);
+        return plan;
+    }
+
+    /// <summary>Asks the downloaded program its version, as Backspace --version
+    /// prints it: Linux and macOS programs carry no Windows version record.</summary>
+    internal static void ValidateUnixVersion(Plan plan, Version expected)
+    {
+        var item = Path.Combine(plan.Work, "incoming", plan.ExeName);
+        var program = Directory.Exists(item) ? Path.Combine(item, "Contents", "MacOS", "Backspace") : item;
+        var start = new ProcessStartInfo(program, "--version") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
+            WorkingDirectory = Path.Combine(plan.Work, "incoming") };
+        start.Environment["BACKSPACE_NO_UPDATE_CHECK"] = "1";
+        using var process = Process.Start(start) ?? throw new InvalidDataException("The downloaded program could not be started to check its version.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        _ = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(60_000)) { try { process.Kill(); } catch { } throw new InvalidDataException("The downloaded program did not report its version."); }
+        var match = Regex.Match(output.GetAwaiter().GetResult(), @"Backspace (\d+\.\d+\.\d+)");
+        if (!match.Success || !Version.TryParse(match.Groups[1].Value, out var built) || Normalize(built) != expected)
+            throw new InvalidDataException("The application version inside the download does not match the release. Your installed version has not changed.");
+    }
+
+    /// <summary>A program file, or Backspace.app on macOS (a folder): its
+    /// fingerprint is that of the program inside.</summary>
+    internal static string ItemHash(string path) => Directory.Exists(path) ? Hash(Path.Combine(path, "Contents", "MacOS", "Backspace")) : Hash(path);
+    internal static long ItemSize(string path) => Directory.Exists(path) ? new FileInfo(Path.Combine(path, "Contents", "MacOS", "Backspace")).Length : new FileInfo(path).Length;
+    private static bool ItemExists(string path) => File.Exists(path) || Directory.Exists(path);
+    private static void MoveItem(string from, string to) { if (Directory.Exists(from)) Directory.Move(from, to); else File.Move(from, to); }
 
     internal static Plan Extract(string archive, string root, string work, string exeName, string version, CancellationToken ct, bool serviceUpdate = false)
     {
@@ -261,14 +387,14 @@ internal static class WindowsUpdatePackage
         {
             var incoming = Path.Combine(plan.Work, "incoming", f.Name);
             RejectReparse(incoming);
-            if (new FileInfo(incoming).Length != f.Size || !Hash(incoming).Equals(f.Sha256, StringComparison.OrdinalIgnoreCase))
+            if (ItemSize(incoming) != f.Size || !ItemHash(incoming).Equals(f.Sha256, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("A prepared update file changed before installation.");
             var target = Path.Combine(plan.Root, f.Name);
-            if (Directory.Exists(target)) throw new IOException("A folder occupies an update filename: " + f.Name);
-            if (File.Exists(target)) RejectReparse(target);
+            if (Directory.Exists(target) != Directory.Exists(incoming)) throw new IOException("A folder occupies an update filename: " + f.Name);
+            if (ItemExists(target)) RejectReparse(target);
         }
         var previous = Path.Combine(plan.Work, "previous"); Directory.CreateDirectory(previous);
-        plan.PreviouslyPresent = plan.Files.Where(f => File.Exists(Path.Combine(plan.Root, f.Name))).Select(f => f.Name).ToList();
+        plan.PreviouslyPresent = plan.Files.Where(f => ItemExists(Path.Combine(plan.Root, f.Name))).Select(f => f.Name).ToList();
         plan.State = "Installing"; SavePlan(plan);
         try
         {
@@ -279,9 +405,9 @@ internal static class WindowsUpdatePackage
                 // Dropbox or a virus scanner reading a program file (it often
                 // hashes a new Backspace.exe) is waited out, as long as it
                 // takes, instead of rolling the update back (U135).
-                if (File.Exists(target)) FileAccessRetry.Run(() => File.Move(target, Path.Combine(previous, f.Name)), target);
+                if (ItemExists(target)) FileAccessRetry.Run(() => MoveItem(target, Path.Combine(previous, f.Name)), target);
                 afterMove?.Invoke(++moved);
-                FileAccessRetry.Run(() => File.Move(Path.Combine(plan.Work, "incoming", f.Name), target), target);
+                FileAccessRetry.Run(() => MoveItem(Path.Combine(plan.Work, "incoming", f.Name), target), target);
                 afterMove?.Invoke(++moved);
             }
             // Launcher exceptions roll the entire bundle back, including files
@@ -305,13 +431,13 @@ internal static class WindowsUpdatePackage
         {
             var target = Path.Combine(plan.Root, f.Name);
             var previous = Path.Combine(plan.Work, "previous", f.Name);
-            if (File.Exists(previous)) RejectReparse(previous);
-            if (File.Exists(target) && (File.Exists(previous)
+            if (ItemExists(previous)) RejectReparse(previous);
+            if (ItemExists(target) && (ItemExists(previous)
                 || (!plan.PreviouslyPresent.Contains(f.Name, StringComparer.OrdinalIgnoreCase)
-                    && !File.Exists(Path.Combine(plan.Work, "incoming", f.Name)))))
+                    && !ItemExists(Path.Combine(plan.Work, "incoming", f.Name)))))
             {
                 RejectReparse(target);
-                if (!Hash(target).Equals(f.Sha256, StringComparison.OrdinalIgnoreCase))
+                if (!ItemHash(target).Equals(f.Sha256, StringComparison.OrdinalIgnoreCase))
                     throw new IOException("Application files changed after this update. Automatic rollback was stopped; the previous files are preserved in " + plan.Work);
             }
         }
@@ -320,13 +446,13 @@ internal static class WindowsUpdatePackage
             var previous = Path.Combine(plan.Work, "previous", f.Name);
             var target = Path.Combine(plan.Root, f.Name);
             var incoming = Path.Combine(plan.Work, "incoming", f.Name);
-            if (File.Exists(previous))
+            if (ItemExists(previous))
             {
-                if (File.Exists(target)) FileAccessRetry.Run(() => File.Move(target, incoming), target);
-                FileAccessRetry.Run(() => File.Move(previous, target), target);
+                if (ItemExists(target)) FileAccessRetry.Run(() => MoveItem(target, incoming), target);
+                FileAccessRetry.Run(() => MoveItem(previous, target), target);
             }
             else if (!plan.PreviouslyPresent.Contains(f.Name, StringComparer.OrdinalIgnoreCase)
-                     && !File.Exists(incoming) && File.Exists(target)) FileAccessRetry.Run(() => File.Move(target, incoming), target);
+                     && !ItemExists(incoming) && ItemExists(target)) FileAccessRetry.Run(() => MoveItem(target, incoming), target);
         }
         plan.State = "RolledBack"; SavePlan(plan);
     }
@@ -368,9 +494,9 @@ internal static class WindowsUpdatePackage
             ? Path.Combine(root, AppPaths.AppFolderName, "windows-service", "control", "updates")
             : WindowsUpdateRuntime.UpdatesFolder(root);
         if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(plan.Work)), parent, StringComparison.OrdinalIgnoreCase)
-            || !Guid.TryParseExact(Path.GetFileName(plan.Work), "N", out _) || !IsProgramFile(plan.ExeName)
-            || !plan.ExeName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            || plan.Files.Any(f => !IsProgramFile(f.Name))
+            || !Guid.TryParseExact(Path.GetFileName(plan.Work), "N", out _)
+            || !(OperatingSystem.IsWindows() ? IsProgramFile(plan.ExeName) && plan.ExeName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) : IsUnixProgram(plan.ExeName))
+            || plan.Files.Any(f => !(OperatingSystem.IsWindows() ? IsProgramFile(f.Name) : IsUnixProgram(f.Name)))
             || plan.Files.Select(f => f.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plan.Files.Count)
             throw new InvalidDataException("The update location or file list is invalid.");
         RejectReparse(root); RejectReparse(parent); RejectReparse(plan.Work);
