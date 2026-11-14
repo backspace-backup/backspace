@@ -52,6 +52,7 @@ public sealed partial class ResticEngine
         RepositoryAccess.SetupDone();
         var started = DateTime.UtcNow;
         var previousUnfinished = MaintenanceRecords.PreviousBackupUnfinished(planId, ct);
+        Announce("[preparing] Looking for the previous backup…", lineSink);
         var previous = await ChooseParentAsync(restic, repoId, repository, planId, sourcePath, previousUnfinished, ct, lineSink).ConfigureAwait(false);
         foreach (var setup in SetupLines(backup, sourcePath, destination, previous)) Announce(setup, lineSink);
         // What this backup will read, compared with the last one's listing (U144).
