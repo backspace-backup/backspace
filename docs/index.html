@@ -127,6 +127,16 @@ a:hover { text-decoration: underline; }
     text-decoration: none;
 }
 
+.other-downloads {
+    margin: 14px auto 0;
+    max-width: 640px;
+    font-size: 13px;
+    color: var(--fg-secondary);
+    text-align: center;
+    line-height: 1.6;
+}
+.other-downloads .download-note { display: block; margin-bottom: 4px; }
+
 .pill-row {
     display: flex;
     gap: 8px;
@@ -521,7 +531,7 @@ header.hero { scroll-margin-top: 80px; }
             <a href="#advanced">Advanced</a>
             <a href="#features">Features</a>
         </div>
-        <a class="btn btn-primary topnav-cta" href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace.exe">Download</a>
+        <a class="btn btn-primary topnav-cta" data-download href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace.exe">Download</a>
     </div>
 </nav>
 
@@ -543,13 +553,13 @@ header.hero { scroll-margin-top: 80px; }
             One <code>.exe</code>, one config folder, zero shell scripting.
         </p>
         <div class="cta-row">
-            <a class="btn btn-primary" href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace.exe">
+            <a class="btn btn-primary" data-download data-download-label href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace.exe">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7,10 12,15 17,10"/>
                     <line x1="12" y1="15" x2="12" y2="3"/>
                 </svg>
-                Download for Windows
+                <span class="download-label">Download for Windows</span>
             </a>
             <a class="btn btn-secondary" href="https://github.com/backspace-backup/backspace">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -558,6 +568,16 @@ header.hero { scroll-margin-top: 80px; }
                 View on GitHub
             </a>
         </div>
+
+        <p class="other-downloads">
+            <span class="download-note" hidden></span>
+            Also for
+            <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace.exe">Windows</a> ·
+            <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace-macos-arm64.zip">Mac (Apple silicon)</a> ·
+            <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace-macos-x64.zip">Mac (Intel)</a> ·
+            <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace-linux-x64.tar.gz">Linux (x64)</a> ·
+            <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace-linux-arm64.tar.gz">Linux (ARM)</a>
+        </p>
 
         <div class="pill-row">
             <span class="pill">Windows 11</span>
@@ -931,5 +951,43 @@ header.hero { scroll-margin-top: 80px; }
     </div>
 </footer>
 
+<script>
+// Offers the download for the visitor's system (U245). Without script, or on
+// a system we can't tell, the Windows download stays and every other build is
+// listed below it.
+(function () {
+    var base = "https://github.com/backspace-backup/backspace/releases/latest/download/";
+    var builds = {
+        win:   { file: "Backspace.exe", label: "Download for Windows" },
+        macArm:{ file: "Backspace-macos-arm64.zip", label: "Download for Mac (beta)",
+                 note: "Not yet notarized by Apple: the first time, right-click Backspace and choose Open." },
+        macX64:{ file: "Backspace-macos-x64.zip", label: "Download for Intel Mac (beta)",
+                 note: "Not yet notarized by Apple: the first time, right-click Backspace and choose Open." },
+        linux: { file: "Backspace-linux-x64.tar.gz", label: "Download for Linux (beta)" },
+        linuxArm: { file: "Backspace-linux-arm64.tar.gz", label: "Download for Linux ARM (beta)" }
+    };
+    function apply(key) {
+        var b = builds[key]; if (!b) return;
+        document.querySelectorAll("[data-download]").forEach(function (a) { a.href = base + b.file; });
+        var label = document.querySelector("[data-download-label] .download-label");
+        if (label) label.textContent = b.label;
+        var note = document.querySelector(".download-note");
+        if (note && b.note) { note.textContent = b.note; note.hidden = false; }
+    }
+    var ua = navigator.userAgent || "";
+    var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+    var key = null;
+    if (/Win/i.test(platform) || /Windows/i.test(ua)) key = "win";
+    else if (/iPhone|iPad|Android/i.test(ua)) key = null;
+    else if (/Mac/i.test(platform) || /Mac OS X/i.test(ua)) key = "macArm";
+    else if (/Linux|X11/i.test(platform) || /Linux/i.test(ua)) key = /aarch64|arm64/i.test(ua + platform) ? "linuxArm" : "linux";
+    if (key === "macArm" && navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        // Chrome and Edge say which processor; Safari doesn't, and most Macs sold since 2020 are Apple silicon.
+        navigator.userAgentData.getHighEntropyValues(["architecture"]).then(function (v) {
+            apply(v.architecture === "x86" ? "macX64" : "macArm");
+        }, function () { apply("macArm"); });
+    } else if (key) apply(key);
+})();
+</script>
 </body>
 </html>
