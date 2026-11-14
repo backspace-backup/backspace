@@ -40,6 +40,20 @@ internal static class Program
     {
 #if WINDOWS
         Services.Platform.Windows.CliConsole.AttachIfStartedFromConsole(args);
+#else
+        if (OperatingSystem.IsMacOS() && AppPaths.IsTranslocated(AppPaths.ExeDirectory))
+        {
+            const string message = "Move Backspace to your Applications folder (or any folder) with Finder, then open it again. "
+                + "macOS runs an app opened straight from Downloads from a read-only copy, where Backspace can't keep its settings beside it.";
+            Console.Error.WriteLine(message);
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("osascript",
+                    ["-e", "display alert \"Move Backspace first\" message \"" + message + "\""]) { UseShellExecute = false })?.WaitForExit();
+            }
+            catch (Exception) { }
+            return 3;
+        }
 #endif
         if (IsBackgroundStart(args))
         {

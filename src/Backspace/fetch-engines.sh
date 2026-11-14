@@ -23,7 +23,9 @@ case "$(uname -s)" in
     ;;
 esac
 
-case "$(uname -m)" in
+# ENGINE_ARCH (amd64 or arm64) builds for another processor than this one,
+# e.g. a release for Intel Macs made on an Apple Silicon machine (U245).
+case "${ENGINE_ARCH:-$(uname -m)}" in
   x86_64|amd64)
     ARCH_RESTIC="amd64"
     ARCH_RCLONE="amd64"

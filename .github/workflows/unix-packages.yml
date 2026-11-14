@@ -1,0 +1,66 @@
+name: Linux and macOS packages
+
+# The Linux and macOS downloads of each release (U245), built by
+# scripts/package-unix.sh. Called by the release workflow; can also be run
+# alone to check the packages without publishing anything.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version embedded in the program, e.g. 1.1.42'
+        type: string
+        default: '0.0.1'
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { rid: linux-x64,   os: ubuntu-latest, run: true }
+          - { rid: linux-arm64, os: ubuntu-latest, run: false }
+          - { rid: osx-arm64,   os: macos-latest,  run: true }
+          - { rid: osx-x64,     os: macos-latest,  run: false }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Tools the engine download needs
+        if: runner.os == 'Linux'
+        run: command -v jq || (sudo apt-get update && sudo apt-get install -y jq)
+      - name: Build the package
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/package-unix.sh "${{ matrix.rid }}" "${{ inputs.version }}" packages
+      - name: The program starts and reports its version
+        if: ${{ matrix.run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="$(mktemp -d)"
+          case "${{ matrix.rid }}" in
+            linux-*) tar -C "$dir" -xzf packages/Backspace-*.tar.gz; exe="$dir/Backspace" ;;
+            osx-*)   ditto -x -k packages/Backspace-*.zip "$dir"; exe="$dir/Backspace.app/Contents/MacOS/Backspace"; codesign --verify --deep --strict "$dir/Backspace.app" ;;
+          esac
+          out="$("$exe" --version 2>&1 || true)"
+          echo "$out"
+          echo "$out" | grep -F "${{ inputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.rid }}
+          path: packages/
+          if-no-files-found: error

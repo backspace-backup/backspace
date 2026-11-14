@@ -120,6 +120,11 @@
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.1" />
   </ItemGroup>
 
+  <!-- Linux and macOS: restic publishes its engine there as .bz2 (U245). -->
+  <ItemGroup Condition="'$(IsWindowsBuild)' != 'true'">
+    <PackageReference Include="SharpZipLib" Version="1.4.2" />
+  </ItemGroup>
+
   <!-- Windows-only packages: COM Task Scheduler, DPAPI, SystemSounds. -->
   <ItemGroup Condition="'$(IsWindowsBuild)' == 'true'">
     <PackageReference Include="TaskScheduler" Version="2.12.1" />

@@ -190,6 +190,51 @@ public sealed class EngineInstallationTests
             EngineInstallation.Origin(new EngineInstallation.Manifest("1.1.0", new Dictionary<string, string>(), true), "restic.exe"));
     }
 
+    /// <summary>U245: Linux and macOS releases fetch restic's official .bz2
+    /// and rclone's official archive for the computer's system and processor;
+    /// Backspace's own restic build stays Windows only.</summary>
+    [Fact]
+    public void Linux_and_macOS_engines_come_from_their_projects_for_the_system_and_processor()
+    {
+        var manifest = new EngineInstallation.Manifest("1.2.0", new Dictionary<string, string>(), true,
+            new Dictionary<string, string> { ["restic"] = "v0.19.1", ["resticBackspace"] = "v0.19.1-backspace.5", ["rclone"] = "v1.74.1" });
+        Assert.Equal(("https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2", (string?)null),
+            EngineInstallation.Origin(manifest, "restic", ("linux", "linux", "amd64")));
+        Assert.Equal(("https://downloads.rclone.org/v1.74.1/rclone-v1.74.1-linux-amd64.zip", "rclone-v1.74.1-linux-amd64/rclone"),
+            EngineInstallation.Origin(manifest, "rclone", ("linux", "linux", "amd64")));
+        Assert.Equal(("https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_darwin_arm64.bz2", (string?)null),
+            EngineInstallation.Origin(manifest, "restic", ("darwin", "osx", "arm64")));
+        Assert.Equal(("https://downloads.rclone.org/v1.74.1/rclone-v1.74.1-osx-arm64.zip", "rclone-v1.74.1-osx-arm64/rclone"),
+            EngineInstallation.Origin(manifest, "rclone", ("darwin", "osx", "arm64")));
+    }
+
+    /// <summary>U245, end to end on Linux and macOS: what a published build
+    /// downloads for this computer is, byte for byte, the engine it was built
+    /// with (the SHA-256 built into it).</summary>
+    [Fact]
+    public async Task On_Linux_and_macOS_the_downloaded_engines_are_the_ones_built_in()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Linux and macOS only: Windows' download is tested above.");
+        var manifest = Assert.IsType<EngineInstallation.Manifest>(EngineInstallation.Current);
+        var dir = Directory.CreateTempSubdirectory("bs-unix-engines-").FullName;
+        try
+        {
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            foreach (var name in new[] { "restic", "rclone" })
+            {
+                var (url, entry) = EngineInstallation.Origin(manifest, name);
+                var download = Path.Combine(dir, name + ".download");
+                await File.WriteAllBytesAsync(download, await http.GetByteArrayAsync(url, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+                var result = Path.Combine(dir, name);
+                if (entry is null) EngineInstallation.Decompress(download, result);
+                else EngineInstallation.TakeFromArchive(download, entry, result);
+                Assert.Equal(manifest.Files[name].ToLowerInvariant(),
+                    Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(result, TestContext.Current.CancellationToken))).ToLowerInvariant());
+            }
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
     [Fact]
     public void Only_the_engine_file_is_taken_from_its_archive()
     {

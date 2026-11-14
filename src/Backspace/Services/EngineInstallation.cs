@@ -111,7 +111,18 @@ internal static class EngineInstallation
     /// download (U102, 3 November 2026: Backspace's release offers Backspace.exe
     /// alone), with the file to take from that archive. BACKSPACE_ENGINE_SOURCE
     /// (a folder or base URL of plain engine files) replaces it for checks.</summary>
-    internal static (string Url, string? Entry) Origin(Manifest manifest, string name)
+    internal static (string Url, string? Entry) Origin(Manifest manifest, string name) => Origin(manifest, name, UnixHost);
+
+    /// <summary>This Linux or macOS computer as restic and rclone name it in
+    /// their downloads: (restic's system, rclone's system, processor).</summary>
+    internal static (string Restic, string Rclone, string Arch) UnixHost =>
+        (OperatingSystem.IsMacOS() ? "darwin" : "linux", OperatingSystem.IsMacOS() ? "osx" : "linux",
+         System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "amd64");
+
+    /// <summary>On Linux and macOS (U245): restic's official build of the
+    /// pinned version, published compressed alone (.bz2), and rclone's
+    /// official archive. Backspace's own restic build is Windows only.</summary>
+    internal static (string Url, string? Entry) Origin(Manifest manifest, string name, (string Restic, string Rclone, string Arch) unix)
     {
         if (Environment.GetEnvironmentVariable("BACKSPACE_ENGINE_SOURCE") is { Length: > 0 } source)
             return (source.Contains("://", StringComparison.Ordinal) ? source.TrimEnd('/') + "/" + name : Path.Combine(source, name), null);
@@ -126,6 +137,10 @@ internal static class EngineInstallation
                 => ($"https://github.com/restic/restic/releases/download/{v}/restic_{v[1..]}_windows_amd64.zip", $"restic_{v[1..]}_windows_amd64.exe"),
             "rclone.exe" when Pinned("rclone") is { } v
                 => ($"https://downloads.rclone.org/{v}/rclone-{v}-windows-amd64.zip", $"rclone-{v}-windows-amd64/rclone.exe"),
+            "restic" when Pinned("restic") is { } v
+                => ($"https://github.com/restic/restic/releases/download/{v}/restic_{v[1..]}_{unix.Restic}_{unix.Arch}.bz2", null),
+            "rclone" when Pinned("rclone") is { } v
+                => ($"https://downloads.rclone.org/{v}/rclone-{v}-{unix.Rclone}-{unix.Arch}.zip", $"rclone-{v}-{unix.Rclone}-{unix.Arch}/rclone"),
             // Builds before 1.1.1 published the engines with the release.
             _ => ($"https://github.com/backspace-backup/backspace/releases/download/v{manifest.Version}/{name}", null),
         };
@@ -135,7 +150,9 @@ internal static class EngineInstallation
     {
         var (source, entry) = Origin(manifest, name);
         var temporary = target + "." + Guid.NewGuid().ToString("N") + ".download";
-        var archive = entry is null ? null : temporary + ".zip";
+        // restic publishes its Linux and macOS builds as one compressed file.
+        var compressed = entry is null && source.EndsWith(".bz2", StringComparison.OrdinalIgnoreCase);
+        var archive = entry is not null ? temporary + ".zip" : compressed ? temporary + ".bz2" : null;
         try
         {
             try
@@ -156,7 +173,8 @@ internal static class EngineInstallation
                     }
                     output.Flush(flushToDisk: true);
                 }
-                if (archive is not null) TakeFromArchive(archive, entry!, temporary);
+                if (compressed) Decompress(archive!, temporary);
+                else if (archive is not null) TakeFromArchive(archive, entry!, temporary);
             }
             catch (InvalidDataException ex)
             {
@@ -183,6 +201,30 @@ internal static class EngineInstallation
             foreach (var leftover in new[] { temporary, archive })
                 try { if (leftover is not null && File.Exists(leftover)) File.Delete(leftover); } catch (IOException) { }
         }
+    }
+
+    /// <summary>Unpacks restic's .bz2 download, refusing more than 1 GiB.</summary>
+    internal static void Decompress(string bz2, string destination)
+    {
+#if WINDOWS
+        throw new InvalidDataException("compressed engines are only published for Linux and macOS.");
+#else
+        using var input = new ICSharpCode.SharpZipLib.BZip2.BZip2InputStream(File.OpenRead(bz2));
+        using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        var buffer = new byte[81920];
+        long total = 0;
+        try
+        {
+            for (int read; (read = input.Read(buffer, 0, buffer.Length)) > 0;)
+            {
+                if ((total += read) > 1024L * 1024 * 1024) throw new InvalidDataException("it unpacks to more than 1 GiB.");
+                output.Write(buffer, 0, read);
+            }
+        }
+        catch (ICSharpCode.SharpZipLib.SharpZipBaseException ex) { throw new InvalidDataException("it is damaged: " + ex.Message, ex); }
+        if (total == 0) throw new InvalidDataException("it is empty.");
+        output.Flush(flushToDisk: true);
+#endif
     }
 
     /// <summary>Copies one named file out of a downloaded archive; nothing else

@@ -44,7 +44,7 @@ public static class AppPaths
             if (!string.IsNullOrEmpty(procPath))
             {
                 var dir = Path.GetDirectoryName(procPath);
-                if (!string.IsNullOrEmpty(dir)) return dir;
+                if (!string.IsNullOrEmpty(dir)) return OutsideAppBundle(dir);
             }
             // Fallback (design-time): the entry assembly location.
             var asmLoc = Assembly.GetEntryAssembly()?.Location;
@@ -56,6 +56,23 @@ public static class AppPaths
             return AppContext.BaseDirectory;
         }
     }
+
+    /// <summary>On macOS the program runs inside Backspace.app/Contents/MacOS:
+    /// the portable folder sits beside Backspace.app, where the user put it,
+    /// never inside the bundle (U245).</summary>
+    internal static string OutsideAppBundle(string directory)
+    {
+        var bundle = Path.GetDirectoryName(Path.GetDirectoryName(directory.TrimEnd('/')));
+        return Path.GetFileName(directory.TrimEnd('/')) == "MacOS" && Path.GetFileName(Path.GetDirectoryName(directory.TrimEnd('/'))) == "Contents"
+            && bundle is not null && bundle.EndsWith(".app", StringComparison.OrdinalIgnoreCase)
+            ? Path.GetDirectoryName(bundle) ?? directory : directory;
+    }
+
+    /// <summary>macOS runs an app opened straight from a download from a
+    /// hidden read-only copy ("App Translocation"), where nothing can be kept
+    /// beside it. Moving it with Finder (to Applications or any folder) ends that.</summary>
+    internal static bool IsTranslocated(string directory) =>
+        directory.Contains("/AppTranslocation/", StringComparison.Ordinal);
 
     /// <summary>
     /// Overridable at process start via the BACKSPACE_CONFIG_ROOT environment
