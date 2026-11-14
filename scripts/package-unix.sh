@@ -33,6 +33,8 @@ dotnet publish "$root/src/Backspace" -c Release -f net10.0 -r "$rid" \
   --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
   -p:EnableCompressionInSingleFile=true -p:Version="$version" -o "$work/publish"
 
+# The engines the build fetched are hashed into the program, not shipped.
+rm -f "$work/publish/restic" "$work/publish/rclone"
 extra="$(ls "$work/publish" | grep -v -x -e Backspace -e '.*\.pdb' || true)"
 if [ -n "$extra" ]; then echo "The published app must be one program; found also: $extra" >&2; exit 1; fi
 chmod 755 "$work/publish/Backspace"
