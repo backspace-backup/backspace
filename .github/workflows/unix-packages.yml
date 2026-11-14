@@ -63,7 +63,7 @@ jobs:
           # appears beside the program (beside Backspace.app on macOS), and
           # restic and rclone are downloaded and checked on first start.
           case "${{ matrix.rid }}" in
-            linux-*) sudo apt-get install -y xvfb >/dev/null; (xvfb-run -a "$exe" > "$dir/run.log" 2>&1 &) ;;
+            linux-*) sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq xvfb >/dev/null; (xvfb-run -a "$exe" > "$dir/run.log" 2>&1 &) ;;
             osx-*)   open "$dir/Backspace.app" ;;
           esac
           for i in $(seq 1 60); do
