@@ -52,7 +52,10 @@ public sealed partial class ResticEngine
         RepositoryAccess.SetupDone();
         var started = DateTime.UtcNow;
         var previousUnfinished = MaintenanceRecords.PreviousBackupUnfinished(planId, ct);
-        Announce("[preparing] Looking for the previous backup…", lineSink);
+        // Until restic reports, the first 2% of the bar and the card say what
+        // happens and for how long (U252).
+        using var preparation = new BackupPreparation(planId, line => Announce(line, lineSink), MaintenanceRecords.PreparationSeconds(planId, ct));
+        preparation.Step("Looking for the previous backup");
         var previous = await ChooseParentAsync(restic, repoId, repository, planId, sourcePath, previousUnfinished, ct, lineSink).ConfigureAwait(false);
         foreach (var setup in SetupLines(backup, sourcePath, destination, previous)) Announce(setup, lineSink);
         // What this backup will read, compared with the last one's listing (U144).
@@ -66,9 +69,8 @@ public sealed partial class ResticEngine
             ? await VssSnapshotGate.AcquireAsync(backup.Name, reason =>
                 { if (reason.Length > 0) RepositoryAccess.Waiting(reason); else RepositoryAccess.NotWaiting(); }, ct).ConfigureAwait(false)
             : null;
-        // Restic says nothing until it has the shadow copy and the backup's
-        // index, which can take minutes: say so instead of a silent 0% (U252).
-        Announce(PreparingLine(backup, sourcePath), lineSink);
+        preparation.Step(PreparingText(backup, sourcePath));
+        liveProgress.Preparation = preparation;
         liveProgress.Reading = () => snapshotTurn?.Dispose();
         liveProgress.HeldBack = () => snapshotTurn?.Dispose();
         var (terminalStatus, details, summary) = await RunDirectBackupAsync(restic, repoId, repository, backup, sourcePath, planId,
@@ -204,7 +206,9 @@ public sealed partial class ResticEngine
                 {
                     var sample = BackupLiveProgress.FromResticStatus(line.Json);
                     if (sample != lastSample) { lastSample = sample; Interlocked.Exchange(ref movedAt, DateTime.UtcNow.Ticks); }
-                    if (liveProgress.NextStatus(sample, DateTime.UtcNow) is { } progressLine) Announce(progressLine, lineSink);
+                    liveProgress.Preparation?.Finished();
+                    if (liveProgress.NextStatus(sample, DateTime.UtcNow) is { } progressLine)
+                        Announce(liveProgress.Preparation is null ? progressLine : BackupPreparation.Rescale(progressLine), lineSink);
                 }
                 else if (line.MessageType == "summary") summary = BackupLiveProgress.FromResticSummary(line.Json);
             }, onStarted: pid =>

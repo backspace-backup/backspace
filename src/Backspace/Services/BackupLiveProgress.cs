@@ -24,6 +24,10 @@ namespace Backspace.Services;
 internal sealed class BackupLiveProgress
 {
     internal const string Prefix = "[progress] ";
+
+    /// <summary>The backup's start before restic reports (U252); restic's
+    /// first status ends it.</summary>
+    internal BackupPreparation? Preparation { get; set; }
     internal static TimeSpan Interval = TimeSpan.FromSeconds(5);
 
     /// <summary>How long restic's totals must stay unchanged before they

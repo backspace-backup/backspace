@@ -1,3 +1,4 @@
+using System;
 using Backspace.Services;
 using Xunit;
 
@@ -55,25 +56,48 @@ public class BackupProgressServiceTests
     }
 
     [Fact]
-    public void Before_restics_first_progress_the_card_says_what_it_waits_for()
+    public void Before_restics_first_progress_the_bar_moves_and_the_card_says_what_it_waits_for()
     {
-        // U252: a run sat at a silent 0% for three minutes while Windows took
-        // the shadow copy. The engine's preparing line is shown until restic's
-        // own progress replaces it.
-        var backup = new Backspace.Models.Backup { UseVss = true };
-        var line = ResticEngine.PreparingLine(backup, "C:\\");
+        // U252: a run sat at a silent 0% for three minutes. The first 2% of the
+        // bar fills over the time the last backup needed; the card says what
+        // happens, how long so far and how long it usually takes; restic's own
+        // progress fills the rest.
+        var now = new DateTime(2026, 11, 14, 12, 0, 0, DateTimeKind.Utc);
+        var announced = new System.Collections.Generic.List<string>();
+        using var prep = new BackupPreparation("plan", announced.Add, lastSeconds: 40, now: () => now);
         var svc = new BackupProgressService();
         svc.ReportCellStarted("b1", "C:\\", "Dropbox");
-        svc.ReportLine("b1", "C:\\", "Dropbox", "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive.");
-        Assert.Equal("Starting → Dropbox…", svc.Snapshot("b1")!.Sources["C:\\"].Cells["Dropbox"].Detail);
-        svc.ReportLine("b1", "C:\\", "Dropbox", line);
+        BackupProgressService.CellProgress Detail() => svc.Snapshot("b1")!.Sources["C:\\"].Cells["Dropbox"];
+
+        prep.Step("Looking for the previous backup");
+        svc.ReportLine("b1", "C:\\", "Dropbox", announced[^1]);
+        Assert.Equal("Looking for the previous backup · 0 s (usually about 40 s)", Detail().Detail);
+        Assert.Equal(0, Detail().PercentComplete, 1);
+
+        now = now.AddSeconds(20);
+        prep.Step(ResticEngine.PreparingText(new Backspace.Models.Backup { UseVss = true }, "C:\\"));
+        svc.ReportLine("b1", "C:\\", "Dropbox", announced[^1]);
         Assert.Equal(System.OperatingSystem.IsWindows()
-                ? "Reading the backup's index, then taking a shadow copy of C: (can take a few minutes)…"
-                : "Reading the backup's index…", // no shadow copies off Windows
-            svc.Snapshot("b1")!.Sources["C:\\"].Cells["Dropbox"].Detail);
-        Assert.Equal("[preparing] Reading the backup's index…", ResticEngine.PreparingLine(new Backspace.Models.Backup { UseVss = false }, "D:\\"));
-        svc.ReportLine("b1", "C:\\", "Dropbox", "[progress] 0.4% · Backing up · 2,338 of ~534,749 files checked (~172 GB)");
-        Assert.DoesNotContain("shadow copy", svc.Snapshot("b1")!.Sources["C:\\"].Cells["Dropbox"].Detail);
+                ? "Reading the backup's index, then taking a shadow copy of C: · 20 s (usually about 40 s)"
+                : "Reading the backup's index · 20 s (usually about 40 s)", // no shadow copies off Windows
+            Detail().Detail);
+        Assert.Equal(0.9, Detail().PercentComplete, 1); // half the usual time: 45% of the 2%
+
+        // Longer than usual: still moving, never reaching 2%.
+        now = now.AddSeconds(160);
+        Assert.StartsWith("[progress] 1.9", prep.Line());
+        Assert.Contains("3 min 00 s (usually about 40 s)", prep.Line());
+
+        // Restic reports 0.4%: the bar continues from 2%, and the waiting text is gone.
+        svc.ReportLine("b1", "C:\\", "Dropbox", BackupPreparation.Rescale("[progress] 0.4% · Backing up · 2,338 of ~534,749 files checked (~172 GB)"));
+        Assert.Equal(2.4, Detail().PercentComplete, 1);
+        Assert.StartsWith("Backing up", Detail().Detail);
+        Assert.Equal("[progress] 100.0% · Done", BackupPreparation.Rescale("[progress] 100.0% · Done"));
+
+        // Never measured: no "usually", the default pace.
+        using var first = new BackupPreparation("other", _ => { }, lastSeconds: null, now: () => now);
+        first.Step("Reading the backup's index");
+        Assert.DoesNotContain("usually", first.Line());
     }
 
     [Fact]

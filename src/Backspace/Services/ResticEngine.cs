@@ -218,10 +218,10 @@ public sealed partial class ResticEngine : IBackupEngine
     /// owner 14 November 2026: a run "seems stuck at 0%" for three minutes
     /// reading the backup's index from the cloud, then 15 s for the shadow
     /// copy). The card shows it until then.</summary>
-    internal static string PreparingLine(Backup backup, string sourcePath) =>
+    internal static string PreparingText(Backup backup, string sourcePath) =>
         Services.Platform.PlatformInfo.IsWindows && backup.UseVss
-            ? $"[preparing] Reading the backup's index, then taking a shadow copy of {Path.GetPathRoot(sourcePath)?.TrimEnd('\\') ?? sourcePath} (can take a few minutes)…"
-            : "[preparing] Reading the backup's index…";
+            ? $"Reading the backup's index, then taking a shadow copy of {Path.GetPathRoot(sourcePath)?.TrimEnd('\\') ?? sourcePath}"
+            : "Reading the backup's index";
 
     // One restic task per repository in this process: a backup waiting for
     // its turn is not running, and its card says so (U156).

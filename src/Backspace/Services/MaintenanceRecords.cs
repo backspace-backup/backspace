@@ -73,6 +73,15 @@ internal static class MaintenanceRecords
             .Where(p => p?.LastBackupFinishedUtc is not null && ResticEngine.IsValidSnapshotId(p.LastSnapshotId))
             .MaxBy(p => p!.LastBackupFinishedUtc)?.LastSnapshotId;
 
+    /// <summary>How long this plan's last backup prepared before restic's
+    /// first progress, or null when never measured.</summary>
+    internal static double? PreparationSeconds(string planId, CancellationToken ct = default)
+        => ReadAll(ct).Select(f => f.Plans.TryGetValue(planId, out var p) ? p.LastPreparationSeconds : null)
+            .FirstOrDefault(s => s is > 0);
+
+    internal static void PreparationMeasured(string planId, double seconds, CancellationToken ct = default)
+        => Update(file => Plan(file, planId).LastPreparationSeconds = Math.Round(seconds, 1), ct);
+
     internal static void BackupStarted(string planId, DateTime utc, CancellationToken ct = default)
         => Update(file => Plan(file, planId).LastBackupStartedUtc = utc, ct);
 
@@ -178,6 +187,9 @@ internal static class MaintenanceRecords
         [JsonPropertyName("lastBackupStartedUtc")] public DateTime? LastBackupStartedUtc { get; set; }
         [JsonPropertyName("lastBackupFinishedUtc")] public DateTime? LastBackupFinishedUtc { get; set; }
         [JsonPropertyName("lastSnapshotId")] public string? LastSnapshotId { get; set; }
+        /// <summary>How long the last backup took before restic's first
+        /// progress (U252): what the next one shows as "usually".</summary>
+        [JsonPropertyName("lastPreparationSeconds")] public double? LastPreparationSeconds { get; set; }
         [JsonExtensionData] public Dictionary<string, JsonElement>? Other { get; set; }
     }
 }
