@@ -161,6 +161,13 @@ jobs:
             tests/Backspace.Tests/artifacts/screenshots/
           if-no-files-found: error
 
+  unix-packages:
+    name: Linux and macOS packages
+    if: ${{ inputs.publish }}
+    uses: ./.github/workflows/unix-packages.yml
+    with:
+      version: ${{ inputs.tag }}
+
   rehearse-gate:
     name: Rehearse the final checklist gate without publishing
     if: ${{ !inputs.publish }}
@@ -188,7 +195,7 @@ jobs:
   publish:
     name: Publish the checked candidate
     if: ${{ inputs.publish }}
-    needs: windows-release-checks
+    needs: [windows-release-checks, unix-packages]
     runs-on: ubuntu-latest
     environment:
       name: release
@@ -207,6 +214,11 @@ jobs:
         with:
           name: release-evidence-${{ github.sha }}
           path: reviewed-evidence
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: packages
       - name: Recheck the preserved checklist against the current main template
         env:
           RELEASE_SHA: ${{ github.sha }}
@@ -230,5 +242,8 @@ jobs:
           gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$RELEASE_SHA"
           prerelease_args=()
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease_args=(--prerelease); fi
+          # U245: the Linux and macOS packages beside Backspace.exe.
+          packages=( "$PWD"/packages/Backspace-linux-x64.tar.gz "$PWD"/packages/Backspace-linux-arm64.tar.gz "$PWD"/packages/Backspace-macos-arm64.zip "$PWD"/packages/Backspace-macos-x64.zip )
+          for p in "${packages[@]}"; do test -s "$p"; done
           cd reviewed-evidence/release-evidence
-          gh release create "$RELEASE_TAG" Backspace.exe --verify-tag --title "Backspace $RELEASE_TAG" --generate-notes "${prerelease_args[@]}"
+          gh release create "$RELEASE_TAG" Backspace.exe "${packages[@]}" --verify-tag --title "Backspace $RELEASE_TAG" --generate-notes "${prerelease_args[@]}"

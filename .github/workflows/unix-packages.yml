@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version embedded in the program, e.g. 1.1.42'
+        description: 'Version embedded in the program, e.g. 1.1.42 (a leading v is dropped)'
         type: string
         default: '0.0.1'
   workflow_call:
@@ -45,7 +45,9 @@ jobs:
       - name: Build the package
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: bash scripts/package-unix.sh "${{ matrix.rid }}" "${{ inputs.version }}" packages
+        run: |
+          v="${{ inputs.version }}"
+          bash scripts/package-unix.sh "${{ matrix.rid }}" "${v#v}" packages
       - name: The program starts and reports its version
         if: ${{ matrix.run }}
         shell: bash
@@ -58,7 +60,8 @@ jobs:
           esac
           out="$("$exe" --version 2>&1 || true)"
           echo "$out"
-          echo "$out" | grep -F "${{ inputs.version }}"
+          v="${{ inputs.version }}"
+          echo "$out" | grep -F "Backspace ${v#v}"
           # Opened like a user would: the window starts and stays up, and the
           # settings folder appears beside the program (beside Backspace.app
           # on macOS, never inside it). restic and rclone are downloaded at

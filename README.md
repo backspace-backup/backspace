@@ -21,7 +21,7 @@
 <p align="center">
   <a href="https://github.com/backspace-backup/backspace/releases/latest/download/Backspace.exe"><strong>Download for Windows</strong></a>
   &nbsp;·&nbsp;
-  <a href="#building-from-source">Linux &amp; macOS (beta)</a>
+  <a href="https://github.com/backspace-backup/backspace/releases/latest">Linux &amp; macOS (beta)</a>
   &nbsp;·&nbsp;
   <a href="https://backspace-backup.github.io">Website</a>
   &nbsp;·&nbsp;
@@ -187,7 +187,7 @@ virtual machine, have been run on earlier builds.
 |---|---|
 | **Windows 11** | Supported and tested |
 | **Windows 10** | Not tested yet |
-| **Linux, macOS** | Beta. The full automated test suite passes on both, and we're looking for early testers: [build it](#building-from-source), try your own backups and restores, and [open an issue](https://github.com/backspace-backup/backspace/issues) with what works and what doesn't |
+| **Linux, macOS** | Beta. The full automated test suite passes on both, and we're looking for early testers: [download it](https://github.com/backspace-backup/backspace/releases/latest) (Linux x64 or ARM, Mac with Apple silicon or Intel; on a Mac, the first time, right-click Backspace and choose Open), try your own backups and restores, and [open an issue](https://github.com/backspace-backup/backspace/issues) with what works and what doesn't |
 | **OneDrive for Business** | Not supported yet |
 | **Network shares** | Without administrator access, backed up while you are signed in, without Windows snapshots. With it, backed up in the background like other destinations, using the share's user name and password saved with the destination (required then) |
 
