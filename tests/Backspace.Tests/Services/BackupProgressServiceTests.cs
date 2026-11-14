@@ -67,7 +67,9 @@ public class BackupProgressServiceTests
         svc.ReportLine("b1", "C:\\", "Dropbox", "[setup] Shadow copy on: open and locked files are read from a snapshot of the drive.");
         Assert.Equal("Starting → Dropbox…", svc.Snapshot("b1")!.Sources["C:\\"].Cells["Dropbox"].Detail);
         svc.ReportLine("b1", "C:\\", "Dropbox", line);
-        Assert.Equal("Reading the backup's index, then taking a shadow copy of C: (can take a few minutes)…",
+        Assert.Equal(System.OperatingSystem.IsWindows()
+                ? "Reading the backup's index, then taking a shadow copy of C: (can take a few minutes)…"
+                : "Reading the backup's index…", // no shadow copies off Windows
             svc.Snapshot("b1")!.Sources["C:\\"].Cells["Dropbox"].Detail);
         Assert.Equal("[preparing] Reading the backup's index…", ResticEngine.PreparingLine(new Backspace.Models.Backup { UseVss = false }, "D:\\"));
         svc.ReportLine("b1", "C:\\", "Dropbox", "[progress] 0.4% · Backing up · 2,338 of ~534,749 files checked (~172 GB)");

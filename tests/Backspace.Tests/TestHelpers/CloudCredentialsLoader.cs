@@ -261,11 +261,38 @@ public static class CloudCredentialsLoader
             OneDriveDriveId = template?.OneDriveDriveId,
             OneDriveDriveType = template?.OneDriveDriveType,
             OneDriveAppFolderId = template?.OneDriveAppFolderId,
-            PathOrSubpath = cred.Folder,
-            OAuthTokenRef = secrets.PutNew($"e2e-{provider}", cred.TokenJson),
+            // Each test destination gets its own subfolder: every one has its own
+            // random password, so two tests sharing a folder would find each
+            // other's repository (E07 then E10 on the Linux and macOS runs).
+            PathOrSubpath = template is null ? cred.Folder.TrimEnd('/') + "/" + Guid.NewGuid().ToString("N")[..12] : cred.Folder,
+            OAuthTokenRef = secrets.PutNew($"e2e-{provider}", template is null && provider == Provider.OneDrive ? FreshOneDriveToken(cred.TokenJson) : cred.TokenJson),
             Encrypted = true,
             StoragePasswordRef = secrets.PutNew($"e2e-{provider}-pw", $"e2e-{Guid.NewGuid():N}"),
         };
+    }
+
+    /// <summary>A OneDrive token from secrets.env has a short-lived access
+    /// token; Backspace looks up the drive with it before rclone ever
+    /// refreshes it (a destination made in the app has the drive already).
+    /// Renew it first, as rclone would, so a token saved hours ago works.</summary>
+    private static string FreshOneDriveToken(string tokenJson)
+    {
+        using var saved = System.Text.Json.JsonDocument.Parse(tokenJson);
+        if (!saved.RootElement.TryGetProperty("refresh_token", out var refresh) || refresh.GetString() is not { Length: > 0 } refreshToken)
+            return tokenJson;
+        using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        using var response = http.PostAsync("https://login.microsoftonline.com/common/oauth2/v2.0/token",
+            new System.Net.Http.FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["client_id"] = Backspace.Services.OAuth.OAuthAppRegistry.OneDriveClientId,
+                ["grant_type"] = "refresh_token",
+                ["refresh_token"] = refreshToken,
+                ["scope"] = "Files.ReadWrite.AppFolder offline_access",
+            })).GetAwaiter().GetResult();
+        if (!response.IsSuccessStatusCode) return tokenJson; // the test then reports the sign-in problem
+        using var renewed = System.Text.Json.JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        return new Backspace.Services.OAuth.OneDriveOAuthProvider(DestinationKind.OneDrivePersonal,
+            Backspace.Services.OAuth.OAuthAppRegistry.OneDriveClientId).FormatTokenForRclone(renewed.RootElement);
     }
 
     private static (string TokenKey, string FolderKey) KeysFor(Provider provider) => provider switch
