@@ -297,6 +297,9 @@ internal static class Program
         // handle. Re-throw if cancellation/shutdown was the cause.
         try
         {
+            // Watches the window's thread once it runs (U247): a stall is logged
+            // with a thread snapshot, to see what held it.
+            Avalonia.Threading.Dispatcher.UIThread.Post(UiStallWatchdog.Start);
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
         catch (OperationCanceledException) { /* clean shutdown */ }
