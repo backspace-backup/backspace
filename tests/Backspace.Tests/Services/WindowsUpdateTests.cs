@@ -18,14 +18,20 @@ namespace Backspace.Tests.Services;
 
 public sealed class WindowsUpdateTests
 {
+    /// <summary>These tests are about the Windows package: read as Windows reads it, on every system (U245).</summary>
+    private static WindowsUpdatePackage.Release? ParseWindows(string json, Version current) => WindowsUpdatePackage.ParseRelease(json, current, null);
+
+    /// <summary>A release as GitHub lists it: the Windows package, and on Linux
+    /// or macOS also that system's package (U245), so the update screen finds one.</summary>
     internal static string ReleaseJson(string digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", string tag = "v99.0.0",
         bool prerelease = false, string? assetUrl = null, long size = 20) => JsonSerializer.Serialize(new
     {
         tag_name = tag, draft = false, prerelease,
         html_url = "https://github.com/backspace-backup/backspace/releases/tag/" + tag,
         body = "A clearer interface and safer updates.",
-        assets = new[] { new { name = WindowsUpdatePackage.AssetName, size, digest,
-            browser_download_url = assetUrl ?? "https://github.com/backspace-backup/backspace/releases/download/" + tag + "/" + WindowsUpdatePackage.AssetName } }
+        assets = new[] { WindowsUpdatePackage.AssetName, WindowsUpdatePackage.UnixPackageName() }.OfType<string>().Select(name => new { name, size, digest,
+            browser_download_url = name == WindowsUpdatePackage.AssetName && assetUrl is not null ? assetUrl
+                : "https://github.com/backspace-backup/backspace/releases/download/" + tag + "/" + name }).ToArray()
     });
 
     /// <summary>U102 (3 November 2026): releases offer Backspace.exe alone; the
@@ -41,10 +47,10 @@ public sealed class WindowsUpdateTests
             assets = new[] { new { name = "Backspace.exe", size = 20L, digest = "sha256:" + new string('b', 64),
                 browser_download_url = "https://github.com/backspace-backup/backspace/releases/download/" + tag + "/Backspace.exe" } },
         });
-        var release = WindowsUpdatePackage.ParseRelease(json, new Version(1, 0))!;
+        var release = ParseWindows(json, new Version(1, 0))!;
         Assert.True(release.Executable);
         Assert.EndsWith("/Backspace.exe", release.AssetUrl);
-        Assert.False(WindowsUpdatePackage.ParseRelease(ReleaseJson(), new Version(1, 0))!.Executable);
+        Assert.False(ParseWindows(ReleaseJson(), new Version(1, 0))!.Executable);
 
         using var ws = new TempWorkspace();
         var root = ws.Sub("portable");
@@ -62,12 +68,12 @@ public sealed class WindowsUpdateTests
     [Fact]
     public void Release_requires_a_new_stable_version_and_preserves_notes()
     {
-        var release = WindowsUpdatePackage.ParseRelease(ReleaseJson(), new Version(1, 0, 0, 0));
+        var release = ParseWindows(ReleaseJson(), new Version(1, 0, 0, 0));
         Assert.Equal(new Version(99, 0, 0), release!.Version);
         Assert.Contains("safer updates", release.Notes);
-        Assert.Null(WindowsUpdatePackage.ParseRelease(ReleaseJson(tag: "v1.0.0"), new Version(1, 0, 0, 0)));
-        Assert.Null(WindowsUpdatePackage.ParseRelease(ReleaseJson(prerelease: true), new Version(1, 0)));
-        Assert.Null(WindowsUpdatePackage.ParseRelease(ReleaseJson(tag: "v99.0.0-rc1"), new Version(1, 0)));
+        Assert.Null(ParseWindows(ReleaseJson(tag: "v1.0.0"), new Version(1, 0, 0, 0)));
+        Assert.Null(ParseWindows(ReleaseJson(prerelease: true), new Version(1, 0)));
+        Assert.Null(ParseWindows(ReleaseJson(tag: "v99.0.0-rc1"), new Version(1, 0)));
     }
 
     [Theory]
@@ -75,7 +81,7 @@ public sealed class WindowsUpdateTests
     [InlineData("sha256:abc")]
     [InlineData("sha512:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
     public void Missing_or_malformed_checksum_prevents_automatic_install(string digest) =>
-        Assert.Throws<InvalidDataException>(() => WindowsUpdatePackage.ParseRelease(ReleaseJson(digest), new Version(1, 0)));
+        Assert.Throws<InvalidDataException>(() => ParseWindows(ReleaseJson(digest), new Version(1, 0)));
 
     [Theory]
     [InlineData("http://github.com/backspace-backup/backspace/releases/download/v99.0.0/Backspace-windows-x64.zip")]
@@ -83,7 +89,7 @@ public sealed class WindowsUpdateTests
     [InlineData("https://github.com/backspace-backup/backspace/releases/download/v98.0.0/Backspace-windows-x64.zip")]
     [InlineData("https://github.com/backspace-backup/backspace/releases/download/v99.0.0/Backspace-windows-x64.zip?redirect=elsewhere")]
     public void Downloads_must_belong_to_the_exact_official_release(string url) =>
-        Assert.Throws<InvalidDataException>(() => WindowsUpdatePackage.ParseRelease(ReleaseJson(assetUrl: url), new Version(1, 0)));
+        Assert.Throws<InvalidDataException>(() => ParseWindows(ReleaseJson(assetUrl: url), new Version(1, 0)));
 
     [Theory]
     [InlineData("../Backspace.exe")]
@@ -252,7 +258,7 @@ public sealed class WindowsUpdateTests
         foreach (var size in new[] { 20L, 3L })
         {
             using var http = new HttpClient(new ReplyHandler("bad"));
-            var release = WindowsUpdatePackage.ParseRelease(ReleaseJson(size: size), new Version(1, 0))!;
+            var release = ParseWindows(ReleaseJson(size: size), new Version(1, 0))!;
             await Assert.ThrowsAsync<InvalidDataException>(() => WindowsUpdatePackage.DownloadAsync(http, release, exe, null, default));
             Assert.Equal("old application", File.ReadAllText(exe));
             Assert.Empty(Directory.GetDirectories(WindowsUpdateRuntime.UpdatesFolder(root)));
@@ -477,7 +483,7 @@ public sealed class WindowsUpdateTests
     public async System.Threading.Tasks.Task A_server_error_on_github_com_falls_back_to_the_API_asset()
     {
         var api = "https://api.github.com/repos/backspace-backup/backspace/releases/assets/123";
-        var release = WindowsUpdatePackage.ParseRelease(WithApiUrl(ReleaseJson(), api), new Version(1, 0))!;
+        var release = ParseWindows(WithApiUrl(ReleaseJson(), api), new Version(1, 0))!;
         Assert.Equal(api, release.ApiAssetUrl);
 
         var gateway = new DownloadHandler(System.Net.HttpStatusCode.GatewayTimeout);
@@ -489,7 +495,7 @@ public sealed class WindowsUpdateTests
         await Assert.ThrowsAsync<System.Net.Http.HttpRequestException>(() => WindowsUpdatePackage.GetAssetAsync(new System.Net.Http.HttpClient(missing), release, TestContext.Current.CancellationToken));
         Assert.Single(missing.Requests);
 
-        Assert.Null(WindowsUpdatePackage.ParseRelease(WithApiUrl(ReleaseJson(), "https://api.github.com/repos/someone/else/releases/assets/1"), new Version(1, 0))!.ApiAssetUrl);
-        Assert.Null(WindowsUpdatePackage.ParseRelease(ReleaseJson(), new Version(1, 0))!.ApiAssetUrl);
+        Assert.Null(ParseWindows(WithApiUrl(ReleaseJson(), "https://api.github.com/repos/someone/else/releases/assets/1"), new Version(1, 0))!.ApiAssetUrl);
+        Assert.Null(ParseWindows(ReleaseJson(), new Version(1, 0))!.ApiAssetUrl);
     }
 }

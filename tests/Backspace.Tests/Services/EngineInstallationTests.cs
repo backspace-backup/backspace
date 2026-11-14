@@ -215,7 +215,17 @@ public sealed class EngineInstallationTests
     public async Task On_Linux_and_macOS_the_downloaded_engines_are_the_ones_built_in()
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "Linux and macOS only: Windows' download is tested above.");
-        var manifest = Assert.IsType<EngineInstallation.Manifest>(EngineInstallation.Current);
+        // The engines this checkout's build fetched (src/Backspace/Assets) at the
+        // versions pinned in engine-versions.json: what a release built here embeds.
+        var src = new DirectoryInfo(AppContext.BaseDirectory);
+        while (src is not null && !File.Exists(Path.Combine(src.FullName, "src", "Backspace", "engine-versions.json"))) src = src.Parent;
+        Assert.NotNull(src);
+        var backspace = Path.Combine(src!.FullName, "src", "Backspace");
+        var pins = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(Path.Combine(backspace, "engine-versions.json")))!;
+        var files = new Dictionary<string, string>();
+        foreach (var name in new[] { "restic", "rclone" })
+            files[name] = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(backspace, "Assets", name))));
+        var manifest = new EngineInstallation.Manifest("0.0.0", files, true, pins);
         var dir = Directory.CreateTempSubdirectory("bs-unix-engines-").FullName;
         try
         {

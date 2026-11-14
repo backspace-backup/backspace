@@ -495,8 +495,8 @@ internal static class WindowsUpdatePackage
             : WindowsUpdateRuntime.UpdatesFolder(root);
         if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(plan.Work)), parent, StringComparison.OrdinalIgnoreCase)
             || !Guid.TryParseExact(Path.GetFileName(plan.Work), "N", out _)
-            || !(OperatingSystem.IsWindows() ? IsProgramFile(plan.ExeName) && plan.ExeName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) : IsUnixProgram(plan.ExeName))
-            || plan.Files.Any(f => !(OperatingSystem.IsWindows() ? IsProgramFile(f.Name) : IsUnixProgram(f.Name)))
+            || !(IsProgramFile(plan.ExeName) && plan.ExeName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !OperatingSystem.IsWindows() && IsUnixProgram(plan.ExeName))
+            || plan.Files.Any(f => !(IsProgramFile(f.Name) || !OperatingSystem.IsWindows() && IsUnixProgram(f.Name)))
             || plan.Files.Select(f => f.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plan.Files.Count)
             throw new InvalidDataException("The update location or file list is invalid.");
         RejectReparse(root); RejectReparse(parent); RejectReparse(plan.Work);
