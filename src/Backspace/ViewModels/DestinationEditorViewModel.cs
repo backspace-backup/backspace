@@ -154,7 +154,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     public string StoragePasswordWatermark =>
         StoragePasswordIsLocked
             ? "••••••••••••••"
-            : "Leave blank to auto-generate on save (we'll show it to you once)";
+            : "Leave blank to generate one on save";
 
     /// <summary>True when this destination already has an encrypted
     /// storage password on file. restic doesn't expose a clean way

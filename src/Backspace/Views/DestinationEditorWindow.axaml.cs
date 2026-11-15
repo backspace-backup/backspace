@@ -64,19 +64,37 @@ public partial class DestinationEditorWindow : Window
 
     private void OnCancel(object? sender, RoutedEventArgs e) => Close(null);
 
+    /// <summary>Generate (U250): a strong password, saved and typed back,
+    /// fills the storage password.</summary>
+    private async void OnGenerateStoragePassword(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (await GeneratedPasswordWindow.AskAsync(this) is { } generated) _vm.StoragePasswordInput = generated;
+        }
+        catch (Exception ex) { Backspace.Services.AppLogger.For<DestinationEditorWindow>().Error(ex, "Generate threw"); }
+    }
+
     private async void OnSave(object? sender, RoutedEventArgs e)
     {
         // async void exception trap.
         try
         {
+            // A blank storage password is generated here, shown and typed
+            // back before anything is saved (U250): closing that window
+            // saves nothing.
+            if (_vm.Encrypted && _vm.StoragePasswordEditable && string.IsNullOrEmpty(_vm.StoragePasswordInput))
+            {
+                if (await GeneratedPasswordWindow.AskAsync(this) is not { } generated) return;
+                _vm.StoragePasswordInput = generated;
+            }
             var result = await _vm.SaveAsync();
             if (result is null) return;
 
+            // Not expected any more (the password is chosen above); kept so
+            // a password the editor made itself is still shown.
             if (!string.IsNullOrEmpty(_vm.GeneratedStoragePassword))
-            {
-                var dlg = new GeneratedPasswordWindow(_vm.GeneratedStoragePassword!);
-                await dlg.ShowDialog(this);
-            }
+                await new GeneratedPasswordWindow(_vm.GeneratedStoragePassword!).ShowDialog<bool>(this);
             UnsavedChangesWindow.MarkSaved(this);
             Close(result);
         }

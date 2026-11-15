@@ -81,6 +81,7 @@ public partial class VaultPasswordWindow : Window
         CancelButton.Content = cancel;
         PasswordLabel.Text = mode is VaultPromptMode.Change or VaultPromptMode.StartOver ? "NEW PASSWORD" : "PASSWORD";
         ConfirmPanel.IsVisible = Confirms;
+        GenerateButton.IsVisible = Confirms;
         NoPasswordText.Text = NoPasswordWarning;
     }
 
@@ -100,6 +101,20 @@ public partial class VaultPasswordWindow : Window
     {
         if (_busy) return;
         Close(false);
+    }
+
+    /// <summary>Generate (U250): a strong password, saved and typed back,
+    /// fills both boxes.</summary>
+    private async void OnGenerate(object? sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        try
+        {
+            if (await GeneratedPasswordWindow.AskAsync(this,
+                    "If you lose this password, a copy of the Backspace folder on another computer can't open your saved passwords.") is not { } generated) return;
+            PasswordBox.Text = ConfirmBox.Text = generated;
+        }
+        catch (Exception ex) { AppLogger.For<VaultPasswordWindow>().Error(ex, "Generate threw"); }
     }
 
     private async void OnConfirm(object? sender, RoutedEventArgs e)

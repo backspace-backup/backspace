@@ -114,6 +114,19 @@ public partial class ChangeStoragePasswordWindow : Window
         Close(false);
     }
 
+    /// <summary>Generate (U250): a strong password, saved and typed back,
+    /// fills both boxes.</summary>
+    private async void OnGenerate(object? sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        try
+        {
+            if (await GeneratedPasswordWindow.AskAsync(this) is not { } generated) return;
+            NewPasswordBox.Text = ConfirmPasswordBox.Text = generated;
+        }
+        catch (Exception ex) { Backspace.Services.AppLogger.For<ChangeStoragePasswordWindow>().Error(ex, "Generate threw"); }
+    }
+
     private void RequestCancellation()
     {
         try { _busyCts?.Cancel(); } catch { }
