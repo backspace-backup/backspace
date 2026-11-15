@@ -415,7 +415,7 @@ internal sealed class BackupLiveProgress
             $"Backup complete: {Count(s.TotalFilesProcessed)} files ({Bytes(s.TotalBytesProcessed)}) checked",
             $"{Count(s.FilesNew)} new, {Count(s.FilesChanged)} changed, {Count(s.FilesUnmodified)} unchanged",
             $"{Bytes(s.DataAdded)} added to the storage",
-            duration.TotalHours >= 1 ? $"took {(int)duration.TotalHours}h {duration.Minutes:00}m" : $"took {duration.Minutes}m {duration.Seconds:00}s")
+            "took " + HumanFormat.Duration(duration))
             // The snapshot it made, like Duplicacy's revision number (U115).
             + (s.SnapshotId is { Length: >= 8 } snapshot ? $" · snapshot {snapshot[..8]}" : "");
     }

@@ -446,21 +446,22 @@
                 <TextBox Grid.Column="0"
                          Text="{Binding StoragePasswordInput}" PasswordChar="•"
                          PlaceholderText="{Binding StoragePasswordWatermark}"
-                         IsEnabled="{Binding StoragePasswordEditable}"/>
+                         IsEnabled="{Binding StoragePasswordEditable}">
+                  <TextBox.InnerRightContent>
+                    <!-- U250: generate a strong password, shown, then typed back. An icon
+                         button in the field, where password managers and browsers put it. -->
+                    <Button Classes="field-action" x:Name="GenerateStoragePasswordButton" Click="OnGenerateStoragePassword"
+                          IsVisible="{Binding StoragePasswordEditable}"
+                            AutomationProperties.Name="Generate a strong password"
+                            ToolTip.Tip="Generate a strong password: Backspace shows it for you to save, then asks you to type it back">
+                      <PathIcon Data="{StaticResource Icon.Key}"/>
+                    </Button>
+                  </TextBox.InnerRightContent>
+                </TextBox>
                 <Button Grid.Column="2" Classes="ghost" Content="Change password…"
                         Click="OnChangeStoragePassword"
                         IsVisible="{Binding StoragePasswordIsLocked}"
                         ToolTip.Tip="Re-encrypt the storage's master key with a new password (instant; only touches the small config file at the storage root)"/>
-                <!-- U250: a strong password, shown, then typed back. -->
-                <Button Grid.Column="2" Classes="ghost" x:Name="GenerateStoragePasswordButton"
-                        Click="OnGenerateStoragePassword"
-                        IsVisible="{Binding StoragePasswordEditable}"
-                        ToolTip.Tip="Backspace makes a strong password, shows it for you to save, then asks you to type it back">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <PathIcon Data="{StaticResource Icon.Sparkle}" Width="13" Height="13"/>
-                    <TextBlock Text="Generate" VerticalAlignment="Center"/>
-                  </StackPanel>
-                </Button>
               </Grid>
               <!-- Helper text changes based on whether the field is
                    locked: locked → explain how to rotate via Change
@@ -471,7 +472,7 @@
                          Text="A password is already set. Use Change password… to replace it. Backspace updates the password protecting the encryption key without rewriting your backed-up files."/>
               <TextBlock Classes="helper"
                          IsVisible="{Binding !StoragePasswordIsLocked}"
-                         Text="At least 8 characters. Losing this password means losing access to this backup, so store it safely (e.g. your password manager). Or use Generate, or leave it blank: Backspace makes a strong one, shows it to you, and asks you to type it back from where you saved it."/>
+                         Text="At least 8 characters. Losing this password means losing access to this backup, so store it safely (e.g. your password manager). Or use the key in the field, or leave it blank: Backspace makes a strong one, shows it to you, and asks you to type it back from where you saved it."/>
             </StackPanel>
           </StackPanel>
         </Border>

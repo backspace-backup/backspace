@@ -200,7 +200,7 @@ Calm and purposeful. No bounce, no spring, no scale-on-hover.
   unimportant (29 October 2026, U028). A notice is one line where it fits:
   headline, short detail, one action. Headline and detail are runs of one
   text line so they share a baseline (U038). A short phrase such as
-  "Last activity: 21h ago" is never split: it stays beside the headline or
+  "Last activity: 21 h ago" is never split: it stays beside the headline or
   moves whole to a second line. Headlines are status labels, so they take
   no full stop; the detail keeps full stops only between sentences.
 - **Failed**: `Danger` dot + "Here's what happened" line. No red flash,

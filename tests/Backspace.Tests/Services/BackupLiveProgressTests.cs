@@ -255,7 +255,7 @@ public sealed class BackupLiveProgressTests
     public void The_size_a_finished_backup_read_is_taken_from_its_recap()
     {
         Assert.Equal(195L << 30, BackupLiveProgress.CheckedBytes(
-            "[recap] Backup complete: 717,930 files (195 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 388 MB added to the storage · took 14m 04s"));
+            "[recap] Backup complete: 717,930 files (195 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 388 MB added to the storage · took 14 min 04 s"));
         Assert.Equal((long)(5.5 * (1L << 30)), Checked("5.5 GB"));
         Assert.Equal(812, Checked("812 B"));
         Assert.Null(BackupLiveProgress.CheckedBytes("[progress] 10.0% · Backing up · 5.0 GB of 50 GB"));
@@ -289,7 +289,7 @@ public sealed class BackupLiveProgressTests
             message_type = "summary", files_new = 891, files_changed = 12236, files_unmodified = 704803, data_added = 387529000,
             total_files_processed = 717930, total_bytes_processed = 194637000000, total_duration = 844.2, snapshot_id = "abc",
         }))!;
-        Assert.Equal("[recap] Backup complete: 717,930 files (181 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 370 MB added to the storage · took 14m 04s",
+        Assert.Equal("[recap] Backup complete: 717,930 files (181 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 370 MB added to the storage · took 14 min 04 s",
             BackupLiveProgress.RecapOf(finished));
         // A failed or stopped run has no summary message, so no recap.
         Assert.Null(BackupLiveProgress.FromResticSummary(JsonDocument.Parse("[]").RootElement.Clone()));
@@ -371,7 +371,7 @@ public sealed class BackupLiveProgressTests
             total_files_processed = 6, total_bytes_processed = 5000, total_duration = 61.0,
             snapshot_id = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
         }))!;
-        Assert.EndsWith(" · took 1m 01s · snapshot 1a2b3c4d", BackupLiveProgress.RecapOf(finished));
+        Assert.EndsWith(" · took 1 min 01 s · snapshot 1a2b3c4d", BackupLiveProgress.RecapOf(finished));
     }
 
     [Fact]

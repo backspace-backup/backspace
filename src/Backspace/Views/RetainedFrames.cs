@@ -106,7 +106,9 @@ internal static class RetainedFrames
             stats.Tick += (_, _) =>
             {
                 var (frames, full, pixels) = TakeStats();
-                Log.Information("Frames: {Frames} ({Full} full), {Pixels:N0} pixels sent, kept frame {Active}", frames, full, pixels, IsActive(top));
+                var (moves, mean, max, late, every) = FrameLoop.TakeMoveStats(top);
+                Log.Information("Frames: {Frames} ({Full} full), {Pixels:N0} pixels sent, kept frame {Active}; moves {Moves} every {Every} frames, gap mean {Mean:F1} ms max {Max:F1} ms, {Late} late",
+                    frames, full, pixels, IsActive(top), moves, every, mean, max, late);
             };
             stats.Start();
         }

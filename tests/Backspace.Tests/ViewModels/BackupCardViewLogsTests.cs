@@ -67,12 +67,12 @@ public class BackupCardViewLogsTests
     [Fact]
     public void OldPersistedSummary_BareInDuration_RewritesToCompletedAtRender()
     {
-        // The user reported: "I am still seeing LAST in 4s — 7d ago
+        // The user reported: "I am still seeing LAST in 4s — 7 d ago
         // (no Completed)". The persisted history.json was written by
         // an older build that emitted bare "in 4s"; my orchestrator
         // change only affects new runs. Pin that the BackupCard
         // catches old records up at render time so they read as
-        // "Completed in 4s · 7d ago" too.
+        // "Completed in 4s · 7 d ago" too.
         ResetConfig();
         var b = new Backup
         {
@@ -83,7 +83,7 @@ public class BackupCardViewLogsTests
         };
         using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
         // U160: the card says when and what was uploaded; the duration is on hover.
-        Assert.Equal("7d ago · nothing new to upload", card.LastRunLabel);
+        Assert.Equal("7 d ago · nothing new to upload", card.LastRunLabel);
         Assert.Contains("took 4s", card.LastRunDetail);
     }
 
@@ -101,7 +101,7 @@ public class BackupCardViewLogsTests
             LastRunEndUtc = DateTime.UtcNow.AddMinutes(-5),
         };
         using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
-        Assert.Equal("5m ago · nothing new to upload", card.LastRunLabel);
+        Assert.Equal("5 min ago · nothing new to upload", card.LastRunLabel);
         Assert.Contains("took 3s", card.LastRunDetail);
         Assert.DoesNotContain("Completed", card.LastRunDetail);
     }
@@ -177,7 +177,7 @@ public class BackupCardViewLogsTests
             LastRunEndUtc = DateTime.UtcNow.AddMinutes(-1),
         };
         using var card = new BackupCardViewModel(b, showActions: true, showProgress: false);
-        Assert.Equal("1m ago · 1.2 GB uploaded", card.LastRunLabel);
+        Assert.Equal("1 min ago · 1.2 GB uploaded", card.LastRunLabel);
         Assert.Contains("took 5s", card.LastRunDetail);
         Assert.Contains("1.2 GB of new data uploaded", card.LastRunDetail);
     }

@@ -60,19 +60,19 @@ public sealed class RunDetailsTests
             BytesUploaded = 465_621_263, FilesNew = 115, FilesModified = 6, QueuedFor = TimeSpan.FromSeconds(51 * 60 + 46),
         };
         var summary = BackupOrchestrator.BuildSummary(r);
-        Assert.Contains("in 10m 02s", summary);
-        Assert.Contains("waited 51m 46s", summary);
-        Assert.DoesNotContain("1h 01m", summary);
+        Assert.Contains("in 10 min 02 s", summary);
+        Assert.Contains("waited 51 min 46 s", summary);
+        Assert.DoesNotContain("1 h 01 min", summary);
 
         var (label, hover) = LastRunLine.For(summary, BackupRunStatus.Success, r.EndedUtc!.Value, r.EndedUtc.Value.AddMinutes(5));
         Assert.DoesNotContain("waited", label);
-        Assert.Contains("took 10m 02s", hover);
-        Assert.Contains("waited 51m 46s for its turn", hover);
+        Assert.Contains("took 10 min 02 s", hover);
+        Assert.Contains("waited 51 min 46 s for its turn", hover);
 
         // Not queued: no mention, and the duration is the whole run.
         r.QueuedFor = TimeSpan.Zero;
         var plain = BackupOrchestrator.BuildSummary(r);
-        Assert.Contains("in 1h 01m", plain);
+        Assert.Contains("in 1 h 01 min", plain);
         Assert.DoesNotContain("waited", plain);
         Assert.DoesNotContain("waited", LastRunLine.For(plain, BackupRunStatus.Success, r.EndedUtc.Value, r.EndedUtc.Value).Hover);
     }

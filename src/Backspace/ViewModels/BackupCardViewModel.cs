@@ -102,7 +102,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     [ObservableProperty] private DateTime? _displayedRunEndUtc;
 
     [ObservableProperty] private string _name = "";
-    [ObservableProperty] private string _statusClass = "idle";
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(RunIconClass))] private string _statusClass = "idle";
     [ObservableProperty] private string _statusLabel = "Idle";
     [ObservableProperty] private string _lastRunLabel = "Never run";
     [ObservableProperty] private string _nextRunLabel = "";
@@ -875,15 +875,21 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         _displayedRunStoredSomething = end is not null && (status is BackupRunStatus.Success or BackupRunStatus.Warning
             || useHistory && latest!.Cells.Any(c => c.Status is BackupRunStatus.Success or BackupRunStatus.Warning))
             || RestorableRuns.Any(saved, _checkRuns);
-        StatusClass = stopped is not null ? "idle" : status switch
+        // A run you stopped says nothing about the backup's health (owner, 15
+        // November 2026: "we can still show the cell in green"): the tile
+        // keeps the last completed run's colour; only the first line's icon
+        // says it was stopped.
+        _stoppedByYouAt = stopped?.EndedUtc;
+        StatusClass = status switch
         {
             BackupRunStatus.Success => "ok", BackupRunStatus.Warning => "warn", BackupRunStatus.Failed => "fail",
             BackupRunStatus.Skipped => "skipped", BackupRunStatus.Running => "running", _ => "idle",
         };
+        LastCompletedClass = stopped is null ? "" : StatusClass;
+        OnPropertyChanged(nameof(RunIconClass));
         StatusLabel = stopped is not null ? RunRecord.StoppedByYouReason
             : status == BackupRunStatus.Success ? "OK" : status == BackupRunStatus.NeverRun ? "Idle" : status.ToString();
         _lastRun = end is DateTime when ? (NormaliseSuccessSummary(summary, status), when, status) : null;
-        _stoppedByYouAt = stopped?.EndedUtc;
         LastRunLabel = _lastRunAgeLabel = LastRunText();
         DisplayedRunEndUtc = end;
         DisplayedRunStatus = status;
@@ -907,12 +913,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             completed = label;
         }
         if (_stoppedByYouAt is not { } stoppedAt) { LastCompletedLabel = ""; return completed; }
-        // U242: "Stopped by you · 01:15", the last completed run under it.
-        LastCompletedLabel = _lastRun is null ? "No backup completed yet"
-            : "Last completed: " + (completed.StartsWith("Just now", StringComparison.Ordinal) ? "just now" + completed["Just now".Length..] : completed);
+        // U242: "Stopped by you · 3 min ago", the last completed run under it
+        // with its own icon ("3 h ago · 27.4 MB uploaded").
+        LastCompletedLabel = _lastRun is null ? "No backup completed yet" : completed;
         _lastRunHover = null;
-        var local = stoppedAt.ToLocalTime();
-        return RunRecord.StoppedByYouReason + " · " + (local.Date == DateTime.Now.Date ? local.ToString("HH:mm") : local.ToString("d MMM HH:mm"));
+        return RunRecord.StoppedByYouReason + " · " + HumanFormat.Ago(stoppedAt);
     }
 
     private DateTime? _stoppedByYouAt;
@@ -922,6 +927,14 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     /// <summary>Under "… stopped by you" in Checks: the last completed check (U242).</summary>
     [ObservableProperty] private string _checkCompletedLabel = "";
+    /// <summary>The icon of that line: the completed check's tone.</summary>
+    [ObservableProperty] private string _checkCompletedClass = "";
+    /// <summary>The health line's icon: the tone, or "stopped" for a check you stopped (U242).</summary>
+    [ObservableProperty] private string _verifyIconClass = "never";
+    /// <summary>The last backup line's icon: the status, or "stopped" for a run you stopped (U242).</summary>
+    public string RunIconClass => _stoppedByYouAt is not null && StatusClass != "running" ? "stopped" : StatusClass;
+    /// <summary>The icon of the last completed run's line under "Stopped by you".</summary>
+    [ObservableProperty] private string _lastCompletedClass = "";
 
     /// <summary>Redoes the labels that read the clock, every minute (U136,
     /// 4 November 2026): the card said "1h ago" for a backup finished three
@@ -947,12 +960,14 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         // Known warnings can be shown immediately, but success must wait.
         if (!_checkHistoryLoaded && state.Tone is "ok" or "never")
         {
-            VerifyLabel = "Reading check history…"; VerifyClass = "loading";
+            VerifyLabel = "Reading check history…"; VerifyClass = "loading"; VerifyIconClass = "loading"; CheckCompletedClass = "";
             CheckScopeLabel = ""; CheckCompletedLabel = ""; VerifyDetails = "Checking the saved results before showing the backup's health.";
             return;
         }
         VerifyLabel = state.Label; VerifyClass = state.Tone;
-        CheckScopeLabel = state.Scope; VerifyDetails = state.Details; CheckCompletedLabel = state.Completed;
+        VerifyIconClass = state.StoppedByYou ? "stopped" : state.Tone;
+        CheckScopeLabel = state.Scope; VerifyDetails = state.Details;
+        CheckCompletedLabel = state.Completed; CheckCompletedClass = state.CompletedTone;
     }
 
     /// <param name="startedUtc">When the run started, if known (the

@@ -7,7 +7,7 @@ namespace Backspace.Services;
 
 /// <summary>
 /// The backup card's "Last backup" line (U160, 7 November 2026). A finished
-/// backup reads "15m ago · 27.4 MB uploaded"; the counts and duration that the
+/// backup reads "15 min ago · 27.4 MB uploaded"; the counts and duration that the
 /// run summary carries ("27.42 MB uploaded · 150 new / 195 mod / 0 rem · in
 /// 1m 29s") are shown on hover, in words, and in Activity. A failed or skipped
 /// run keeps its reason on the card: that is what the person has to act on.
@@ -48,7 +48,7 @@ public static partial class LastRunLine
         if (size is null && !counts.Success && took is null)
             return ($"{ago} · {summary}", $"{summary} · finished " + endedUtc.ToLocalTime().ToString("ddd d MMM, HH:mm", CultureInfo.CurrentCulture));
 
-        var label = ago + " · " + (size is null ? "nothing new to upload" : size + " uploaded");
+        var label = ago + " · " + Change(size, counts);
         if (problems is not null) label += " · " + problems;
 
         var hover = new System.Collections.Generic.List<string>
@@ -65,12 +65,30 @@ public static partial class LastRunLine
         return (label, string.Join(" · ", hover));
     }
 
-    private static string Ago(DateTime utc, DateTime now)
+    /// <summary>What the run changed, in the card's few words. A few hundred
+    /// bytes is only the backup's own bookkeeping, not your files (owner, 15
+    /// November 2026: "293 B uploaded: it is ridiculous to show such a low
+    /// amount"), so under 1 MB the card counts files instead: "no changes",
+    /// "3 files changed". The amount stays on hover.</summary>
+    private static string Change(string? size, Match counts)
     {
-        var d = now - utc;
-        if (d < TimeSpan.FromMinutes(1)) return "Just now";
-        if (d < TimeSpan.FromHours(1)) return $"{(int)d.TotalMinutes}m ago";
-        if (d < TimeSpan.FromDays(1)) return $"{(int)d.TotalHours}h ago";
-        return $"{(int)d.TotalDays}d ago";
+        var files = counts.Success
+            ? int.Parse(counts.Groups["new"].Value) + int.Parse(counts.Groups["mod"].Value) + int.Parse(counts.Groups["rem"].Value)
+            : (int?)null;
+        if (files == 0) return "no changes";
+        if (size is null) return "nothing new to upload";
+        if (BytesOf(size) is { } bytes && bytes < 1024 * 1024 && files is { } n)
+            return n == 1 ? "1 file changed" : $"{n:N0} files changed";
+        return size + " uploaded";
     }
+
+    private static double? BytesOf(string size)
+    {
+        var parts = size.Split(' ');
+        if (parts.Length != 2 || !double.TryParse(parts[0].Replace(",", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) return null;
+        return parts[1] switch { "B" => v, "KB" => v * 1024, "MB" => v * 1024 * 1024, "GB" => v * 1024 * 1024 * 1024, "TB" => v * 1024d * 1024 * 1024 * 1024, _ => null };
+    }
+
+    // Capitalised: it starts the line.
+    private static string Ago(DateTime utc, DateTime now) => HumanFormat.Ago(utc, now) is var ago && ago == "just now" ? "Just now" : ago;
 }

@@ -151,9 +151,11 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         Assert.Equal("ok", vm.Backups.HealthClass);
         var stoppedCard = vm.Backups.Cards.Single(c => c.Id == backup.Id);
         Assert.StartsWith("Restore check stopped by you · ", stoppedCard.VerifyLabel);
-        Assert.Equal("never", stoppedCard.VerifyClass);
-        Assert.StartsWith("Last completed: restore check", stoppedCard.CheckCompletedLabel);
-        ctx.Snapshot(main, "cancelled-check-warning-survives-refresh", "After returning to Backups and refreshing the cards, the card still says the restore check was stopped by you, in neutral grey, with the last completed one under it (U242).");
+        Assert.Equal("ok", stoppedCard.VerifyClass);
+        Assert.Equal("stopped", stoppedCard.VerifyIconClass);
+        Assert.StartsWith("Restore check", stoppedCard.CheckCompletedLabel);
+        Assert.Contains("passed", stoppedCard.CheckCompletedLabel);
+        ctx.Snapshot(main, "cancelled-check-warning-survives-refresh", "After returning to Backups and refreshing the cards, the card still says the restore check was stopped by you, with the stop sign, the tile still green, and the last completed check under it with its check mark (U242).");
         var restart = new TestRestoreService(ServiceLocator.Config, ServiceLocator.Verifier);
         await restart.ResumeInterruptedAsync(); ctx.Driver.Pump();
         Assert.False(restart.IsRunning(backup.Id));

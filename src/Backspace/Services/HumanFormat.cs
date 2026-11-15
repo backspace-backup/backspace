@@ -26,29 +26,33 @@ public static class HumanFormat
     }
 
     /// <summary>Format a duration as the most natural pair of units
-    /// (seconds; minutes+seconds; hours+minutes; days+hours).</summary>
+    /// (seconds; minutes+seconds; hours+minutes; days+hours), with a space
+    /// before each unit as everywhere else: "45 s", "4 min 05 s", "1 h 05 min".</summary>
     public static string Duration(TimeSpan d)
     {
-        if (d.TotalSeconds < 60) return $"{d.TotalSeconds:0}s";
-        if (d.TotalMinutes < 60) return $"{(int)d.TotalMinutes}m {d.Seconds:00}s";
-        if (d.TotalHours   < 24) return $"{(int)d.TotalHours}h {d.Minutes:00}m";
-        return $"{(int)d.TotalDays}d {d.Hours:00}h";
+        if (d.TotalSeconds < 60) return $"{d.TotalSeconds:0} s";
+        if (d.TotalMinutes < 60) return $"{(int)d.TotalMinutes} min {d.Seconds:00} s";
+        if (d.TotalHours   < 24) return $"{(int)d.TotalHours} h {d.Minutes:00} min";
+        return $"{(int)d.TotalDays} d {d.Hours:00} h";
     }
 
     /// <summary>
-    /// "just now" / "5m ago" / "3h ago" / "12d ago" — coarse-grained
-    /// relative formatter for "when did this last happen" labels on
-    /// cards, tiles, and grace-period helper text. Previously
-    /// duplicated as a private static in BackupCardViewModel,
-    /// BackupsViewModel, and OnboardingViewModel — three identical
-    /// thresholds + format strings — until code-review flagged it.
+    /// "just now" / "5 min ago" / "3 h ago" / "12 d ago": how long ago
+    /// something happened, for every card, tile and helper text. The units
+    /// are written as in durations ("1 h 12 min"), with a space (SI style;
+    /// owner, 15 November 2026: "why does it show 2d ago and 3h ago but for
+    /// the duration it shows with the space"). The one place this wording
+    /// lives.
     /// </summary>
-    public static string Ago(DateTime utc)
+    public static string Ago(DateTime utc) => Ago(utc, DateTime.UtcNow);
+
+    /// <inheritdoc cref="Ago(DateTime)"/>
+    public static string Ago(DateTime utc, DateTime nowUtc)
     {
-        var d = DateTime.UtcNow - utc;
+        var d = nowUtc - utc;
         if (d < TimeSpan.FromMinutes(1)) return "just now";
-        if (d < TimeSpan.FromHours(1))   return $"{(int)d.TotalMinutes}m ago";
-        if (d < TimeSpan.FromDays(1))    return $"{(int)d.TotalHours}h ago";
-        return $"{(int)d.TotalDays}d ago";
+        if (d < TimeSpan.FromHours(1))   return $"{(int)d.TotalMinutes} min ago";
+        if (d < TimeSpan.FromDays(1))    return $"{(int)d.TotalHours} h ago";
+        return $"{(int)d.TotalDays} d ago";
     }
 }

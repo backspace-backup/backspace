@@ -12,12 +12,16 @@ public sealed record BackupCheckEntry(string RunId, DateTime When, BackupRunStat
 }
 
 /// <param name="Kinds">One line per check of the backup, with its latest
-/// result: "Structure check + data sample · passed 2d ago" (U179).</param>
+/// result: "Structure check + data sample · passed 2 d ago" (U179).</param>
 public sealed record BackupCheckState(string Label, string Tone, string Scope, string Details)
 {
     public IReadOnlyList<string> Kinds { get; init; } = [];
     /// <summary>Under a check you stopped: the last completed one (U242).</summary>
     public string Completed { get; init; } = "";
+    /// <summary>The tone of <see cref="Completed"/>, for its icon.</summary>
+    public string CompletedTone { get; init; } = "";
+    /// <summary>The newest check was stopped by you: its line shows the stop icon.</summary>
+    public bool StoppedByYou { get; init; }
 }
 
 /// <summary>Uses saved observations, never infers old check depth from current settings.</summary>
@@ -105,12 +109,7 @@ public static class BackupCheckHistory
         return entries.OrderByDescending(e => e.When).ToList();
     }
 
-    private static string Ago(DateTime nowUtc, DateTime when)
-    {
-        var age = nowUtc - when;
-        return age.TotalMinutes < 1 ? "just now" : age.TotalHours < 1 ? $"{(int)age.TotalMinutes}m ago"
-            : age.TotalDays < 1 ? $"{(int)age.TotalHours}h ago" : $"{(int)age.TotalDays}d ago";
-    }
+    private static string Ago(DateTime nowUtc, DateTime when) => HumanFormat.Ago(when, nowUtc);
 
     /// <summary>When this check was last due and has not run since, or null:
     /// a scheduled check past its next time after its latest result, or one
@@ -124,7 +123,7 @@ public static class BackupCheckHistory
             && backup.LastRunStatus is BackupRunStatus.Success or BackupRunStatus.Warning;
     }
 
-    /// <summary>This check's latest result in a few words ("passed 2d ago",
+    /// <summary>This check's latest result in a few words ("passed 2 d ago",
     /// "not run yet"), for the Verify window (U213).</summary>
     public static string LatestOf(Backup backup, BackupCheck check, IReadOnlyList<BackupCheckEntry> entries, DateTime nowUtc)
     {
@@ -195,9 +194,13 @@ public static class BackupCheckHistory
     }
 
     /// <summary>The newest check was stopped by you (U242): the card says so
-    /// in neutral words, with the last completed check under it. A failing,
-    /// incomplete or overdue check keeps its warning.</summary>
-    public static BackupCheckState WithStopByYou(BackupCheckState state, string backupId, IEnumerable<RunRecord> runs)
+    /// on a first line with the stop icon ("Restore check stopped by you · 3 min
+    /// ago"), and the last completed check on a second line with its own icon
+    /// ("Restore check passed · 2 d ago"). Stopping a check says nothing about
+    /// the backup's health, so the tile keeps the completed check's colour
+    /// (owner, 15 November 2026: "we can still show the cell in green"). A
+    /// failing, incomplete or overdue check keeps its warning.</summary>
+    public static BackupCheckState WithStopByYou(BackupCheckState state, string backupId, IEnumerable<RunRecord> runs, DateTime? nowUtc = null)
     {
         if (state.Tone is not ("ok" or "never")) return state;
         var newest = runs.Where(r => r.BackupId == backupId && r.EndedUtc is not null && r.Kind is RunKind.Check or RunKind.TestRestore)
@@ -205,11 +208,13 @@ public static class BackupCheckHistory
         if (newest is not { StoppedByYou: true }) return state;
         var name = newest.Kind == RunKind.TestRestore || newest.CheckKind == CheckKind.TestRestore ? "Restore check"
             : newest.CheckKind is { } kind ? BackupCheck.Name(kind) : "Check";
-        var local = newest.EndedUtc!.Value.ToLocalTime();
-        var when = local.Date == DateTime.Now.Date ? local.ToString("HH:mm") : local.ToString("d MMM HH:mm");
-        var completed = state.Tone == "ok" ? "Last completed: " + char.ToLowerInvariant(state.Label[0]) + state.Label[1..] : "No check completed yet";
-        return state with { Label = $"{name} stopped by you · {when}", Tone = "never", Completed = completed,
-            Details = newest.Summary + "\n\n" + completed + (state.Tone == "ok" ? "\n" + state.Details : "") };
+        var completed = state.Tone == "ok" ? state.Label : "No check completed yet";
+        return state with
+        {
+            Label = $"{name} stopped by you · {HumanFormat.Ago(newest.EndedUtc!.Value, nowUtc ?? DateTime.UtcNow)}",
+            Completed = completed, CompletedTone = state.Tone, StoppedByYou = true,
+            Details = newest.Summary + "\n\nLast completed: " + completed + (state.Tone == "ok" ? "\n" + state.Details : ""),
+        };
     }
 
     /// <summary>A recorded check by the name the Checks list uses (U179).</summary>

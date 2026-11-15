@@ -466,6 +466,41 @@
 
   <!-- Secondary actions are filled neutral tones, not outlines: seven grey
        rectangles per card read as a form (U034, 29 October 2026). -->
+  <!-- An icon button inside a text field, at its right end (U250, owner 15
+       November 2026: "respect standard patterns"): as password managers
+       and browsers place "generate" and "show" in the field itself. Quiet
+       until pointed at; the tooltip names it. -->
+  <Style Selector="Button.field-action">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="CornerRadius" Value="6"/>
+    <Setter Property="Padding" Value="4"/>
+    <!-- The field keeps its usual height: the button may overlap its padding. -->
+    <Setter Property="Margin" Value="0,-6,6,-6"/>
+    <Setter Property="MinHeight" Value="0"/>
+    <Setter Property="MinWidth" Value="0"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="Cursor" Value="Hand"/>
+  </Style>
+  <Style Selector="Button.field-action /template/ ContentPresenter#RootContentPresenter">
+    <Setter Property="Background" Value="Transparent"/>
+  </Style>
+  <Style Selector="Button.field-action:pointerover /template/ ContentPresenter#RootContentPresenter, Button.field-action:pressed /template/ ContentPresenter#RootContentPresenter">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
+  </Style>
+  <Style Selector="Button.field-action:pointerover /template/ Border#RootBorder">
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.ButtonTonalHover}"/>
+  </Style>
+  <Style Selector="Button.field-action:pressed /template/ Border#RootBorder">
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.ButtonTonalPressed}"/>
+  </Style>
+  <Style Selector="Button.field-action PathIcon">
+    <Setter Property="Width" Value="16"/>
+    <Setter Property="Height" Value="16"/>
+  </Style>
+
   <Style Selector="Button.ghost">
     <Setter Property="Background" Value="{DynamicResource BS.Brush.ButtonTonal}"/>
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
@@ -1159,6 +1194,11 @@
   <Style Selector="PathIcon.status-icon.skipped">
     <Setter Property="Data" Value="{DynamicResource Icon.Skipped}"/>
     <Setter Property="Foreground" Value="{DynamicResource BS.Brush.Warn}"/>
+  </Style>
+  <!-- A run or check you stopped (U242): the stop sign, in the tile's colour. -->
+  <Style Selector="PathIcon.status-icon.stopped">
+    <Setter Property="Data" Value="{DynamicResource Icon.Stopped}"/>
+    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgDim}"/>
   </Style>
   <Style Selector="PathIcon.status-icon.running">
     <Setter Property="Data" Value="{DynamicResource Icon.Running}"/>

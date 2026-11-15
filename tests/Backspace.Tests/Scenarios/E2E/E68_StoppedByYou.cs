@@ -67,16 +67,19 @@ public sealed class E68_StoppedByYou(ITestOutputHelper output) : BackupE2EBase(o
         Assert.StartsWith("Stopped by you", history[0].Summary);
         Assert.False(history[1].StoppedByYou);
 
-        // Neutral on the card, the completed run under it.
-        Assert.Equal("idle", card.StatusClass);
-        Assert.StartsWith("Stopped by you · ", card.LastRunLabel);
-        Assert.StartsWith("Last completed: ", card.LastCompletedLabel);
+        // Green on the card (U242, 15 November 2026): the stop icon on the
+        // first line, the completed run under it with its check mark.
+        Assert.Equal("ok", card.StatusClass);
+        Assert.Equal("stopped", card.RunIconClass);
+        Assert.Equal("Stopped by you · just now", card.LastRunLabel);
+        Assert.StartsWith("Just now · ", card.LastCompletedLabel);
+        Assert.Equal("ok", card.LastCompletedClass);
         // Not a warning anywhere: the status read by the overall line and the tray.
         Assert.Equal(BackupRunStatus.Success, card.DisplayedRunStatus);
         Assert.Equal(BackupRunStatus.Success, ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id).LastRunStatus);
         Assert.Equal("ok", vm.HealthClass);
         Assert.DoesNotContain("skipped", vm.HealthHeadline, StringComparison.OrdinalIgnoreCase);
         ctx.Snapshot(host, "stopped by you",
-            "The card after pressing Stop on a running backup: \"Stopped by you · HH:mm\" in neutral grey, \"Last completed: …\" under it; the line at the top stays healthy (no warning).");
+            "The card after pressing Stop on a running backup. Last backup stays green: the stop sign with \"Stopped by you · just now\", and under it the check mark with the completed run (\"Just now · … uploaded\"). The line at the top stays healthy (no warning).");
     }
 }

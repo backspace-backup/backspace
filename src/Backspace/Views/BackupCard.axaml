@@ -119,12 +119,13 @@
               <TextBlock Text="Last backup" Classes="band-label"/>
               <Grid ColumnDefinitions="16,8,*">
                 <PathIcon Classes="status-icon" VerticalAlignment="Center" ToolTip.Tip="{Binding StatusLabel}"
-                        Classes.ok="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
-                        Classes.warn="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
-                        Classes.fail="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
-                        Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"
-                        Classes.running="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=running}"
-                        Classes.idle="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"
+                        Classes.ok="{Binding RunIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
+                        Classes.warn="{Binding RunIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                        Classes.fail="{Binding RunIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                        Classes.skipped="{Binding RunIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"
+                        Classes.running="{Binding RunIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=running}"
+                        Classes.idle="{Binding RunIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"
+                        Classes.stopped="{Binding RunIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stopped}"
                         v:RunningPulse.IsActive="{Binding ShowsRunInLastBackup}"/>
                 <!-- While a backup runs, the icon turns in steps instead of a
                      progress bar here: the percentage is already on the
@@ -141,10 +142,21 @@
                            Classes.warn="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
                            Classes.skipped="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"/>
               </Grid>
-              <!-- Under "Stopped by you": the last completed run (U242). -->
-              <TextBlock Text="{Binding LastCompletedLabel}" Classes="meta-label" Margin="24,0,0,0"
-                         IsVisible="{Binding LastCompletedLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                         TextWrapping="Wrap"/>
+              <!-- Under "Stopped by you": the last completed run, with its own
+                   icon (U242). -->
+              <Grid ColumnDefinitions="16,8,*" Name="LastCompletedRun"
+                    IsVisible="{Binding LastCompletedLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <PathIcon Classes="status-icon" VerticalAlignment="Center"
+                          Classes.ok="{Binding LastCompletedClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
+                          Classes.warn="{Binding LastCompletedClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
+                          Classes.fail="{Binding LastCompletedClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                          Classes.skipped="{Binding LastCompletedClass, Converter={x:Static vm:Eq.To}, ConverterParameter=skipped}"
+                          Classes.running="{Binding LastCompletedClass, Converter={x:Static vm:Eq.To}, ConverterParameter=running}"
+                          Classes.idle="{Binding LastCompletedClass, Converter={x:Static vm:Eq.To}, ConverterParameter=idle}"
+                          Classes.stopped="{Binding LastCompletedClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stopped}"/>
+                <TextBlock Grid.Column="2" Text="{Binding LastCompletedLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold"
+                           TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
+              </Grid>
               <WrapPanel>
                 <Button Classes="row-action-warn" IsVisible="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
@@ -172,25 +184,31 @@
             </Grid>
             <Grid ColumnDefinitions="16,8,*" IsVisible="{Binding !ShowsHealthActivity}">
               <PathIcon Classes="status-icon" VerticalAlignment="Center"
-                      Classes.ok="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
-                      Classes.fail="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
-                      Classes.stale="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stale}"
-                      Classes.never="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=never}"/>
+                      Classes.ok="{Binding VerifyIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
+                      Classes.fail="{Binding VerifyIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
+                      Classes.stale="{Binding VerifyIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stale}"
+                      Classes.never="{Binding VerifyIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=never}"
+                      Classes.stopped="{Binding VerifyIconClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stopped}"/>
               <TextBlock Grid.Column="2" Text="{Binding VerifyLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold"
                          TextWrapping="Wrap" FontStyle="Normal" ToolTip.Tip="{Binding VerifyDetails}"
                          Classes.fail="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=fail}"
                          Classes.stale="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stale}"
                          Classes.never="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=never}"/>
             </Grid>
-            <!-- Under "… stopped by you": the last completed check (U242). -->
-            <TextBlock Text="{Binding CheckCompletedLabel}" Classes="meta-label" Margin="24,0,0,0" TextWrapping="Wrap">
-              <TextBlock.IsVisible>
+            <!-- Under "… stopped by you": the last completed check, with its
+                 own icon (U242). -->
+            <Grid ColumnDefinitions="16,8,*" Name="LastCompletedCheck">
+              <Grid.IsVisible>
                 <MultiBinding Converter="{x:Static BoolConverters.And}">
                   <Binding Path="!ShowsHealthActivity"/>
                   <Binding Path="CheckCompletedLabel" Converter="{x:Static StringConverters.IsNotNullOrEmpty}"/>
                 </MultiBinding>
-              </TextBlock.IsVisible>
-            </TextBlock>
+              </Grid.IsVisible>
+              <PathIcon Classes="status-icon" VerticalAlignment="Center"
+                        Classes.ok="{Binding CheckCompletedClass, Converter={x:Static vm:Eq.To}, ConverterParameter=ok}"
+                        Classes.never="{Binding CheckCompletedClass, Converter={x:Static vm:Eq.To}, ConverterParameter=never}"/>
+              <TextBlock Grid.Column="2" Text="{Binding CheckCompletedLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            </Grid>
 
             </StackPanel>
           </Border>

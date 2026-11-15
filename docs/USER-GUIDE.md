@@ -541,8 +541,12 @@ that couldn't be unticked; Backspace moved its rules into the Essentials
 group of each saved backup when it first started, leaving out the same files.
 
 After a backup, its card's **Last backup** says when and how much was
-uploaded, for example **15m ago · 27.4 MB uploaded** (with the number of
-warnings, if any; a failed or skipped backup says why). Hovering it shows when
+uploaded, for example **15 min ago · 27.4 MB uploaded** (with the number of
+warnings, if any; a failed or skipped backup says why). Under 1 MB it counts
+files instead, for example **3 h ago · no changes** or **2 files changed**.
+A backup or check you stop yourself does not change the colour: the line says
+**Stopped by you · 3 min ago** with a stop sign, and the last completed one
+is under it with its own mark. Hovering it shows when
 it finished, how long it took, and how many files were new, changed and
 deleted; **Activity** lists them too. While a backup or a check runs, the
 card's **Activity** starts with it ("Running") and **Open live log**, which
@@ -806,7 +810,7 @@ sentence and no settings.
 ### Verify
 
 Choose **Verify** on a backup card. Its window lists the backup's own checks,
-ticked, each with its latest result ("Passed 2d ago"), then the other kinds
+ticked, each with its latest result ("Passed 2 d ago"), then the other kinds
 to run once without adding them to the backup. **Run** runs the ticked ones
 one after another; they show under Backup health like scheduled checks, and
 **Stop** ends them. A restore check run once comes last and runs like the
@@ -841,7 +845,7 @@ Checks due at the same time run one after another, never together, cheapest
 first, and backups wait for them on that destination. Each check's run in
 **Activity** says what happened in plain words, such as "Data check (1 GiB
 sample) passed in 7 min 50 s". The card's **Backup health** line names the
-latest result by the same names ("Data check passed · 4m ago"; a failure
+latest result by the same names ("Data check passed · 4 min ago"; a failure
 stays shown until that check passes again), and its hover lists each check's
 latest result. While a check runs, **Backup health** says so with a turning
 icon and the check's name, such as "Data check (1 of 2) · 7 min". Its bar and current

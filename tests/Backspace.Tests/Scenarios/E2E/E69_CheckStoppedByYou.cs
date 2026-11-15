@@ -66,12 +66,16 @@ public sealed class E69_CheckStoppedByYou(ITestOutputHelper output) : BackupE2EB
         Assert.StartsWith("Stopped by you", stopped.Summary);
 
         Assert.True(ctx.Driver.WaitFor(() => card.VerifyLabel.Contains("stopped by you"), 10_000), "Checks: " + card.VerifyLabel);
-        Assert.StartsWith("Data check (all data) stopped by you · ", card.VerifyLabel);
-        Assert.Equal("never", card.VerifyClass);
-        Assert.StartsWith("Last completed: structure check passed", card.CheckCompletedLabel);
+        // Green (U242, 15 November 2026): the stop sign on the first line, the
+        // completed check with its check mark under it.
+        Assert.Equal("Data check (all data) stopped by you · just now", card.VerifyLabel);
+        Assert.Equal("ok", card.VerifyClass);
+        Assert.Equal("stopped", card.VerifyIconClass);
+        Assert.StartsWith("Structure check passed · ", card.CheckCompletedLabel);
+        Assert.Equal("ok", card.CheckCompletedClass);
         Assert.Equal("ok", vm.HealthClass);
         Assert.Equal(BackupRunStatus.Success, card.DisplayedRunStatus);
         ctx.Snapshot(host, "check stopped by you",
-            "The card after pressing Stop on a running data check: Checks says \"Data check (all data) stopped by you · HH:mm\" in neutral grey with \"Last completed: structure check passed\" under it; the line at the top stays healthy.");
+            "The card after pressing Stop on a running data check. Backup health stays green: the stop sign with \"Data check (all data) stopped by you · just now\", and under it the check mark with \"Structure check passed · just now\". The line at the top stays healthy.");
     }
 }

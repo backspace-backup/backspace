@@ -148,6 +148,7 @@ public partial class MainWindow : Window
         {
 #if WINDOWS
             RetainedFrames.EnsureSoon(this);
+            DisplayClock.Install(this);
 #endif
             ConsumePendingRestorePath();
             // Drain any forwarded args that arrived BEFORE we hooked

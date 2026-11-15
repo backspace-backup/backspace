@@ -24,7 +24,7 @@ public sealed class BackupCheckHistoryTests
     {
         var b = Backup(); var entries = BackupCheckHistory.Entries(b, new[] { Check(b, CheckDepth.RepositoryStructure, BackupRunStatus.Success) });
         var state = BackupCheckHistory.State(b, entries, Now);
-        Assert.Equal("ok", state.Tone); Assert.Contains("1m ago", state.Label);
+        Assert.Equal("ok", state.Tone); Assert.Contains("1 min ago", state.Label);
         Assert.Contains("stored data not read", state.Scope); Assert.Null(b.LastVerifyUtc);
     }
     [Fact] public void New_structure_success_cannot_hide_old_restore_or_saved_data_failure()
@@ -151,13 +151,27 @@ public sealed class CheckStoppedByYouTests
     private static BackupCheckState Shown(Backup b, params RunRecord[] runs)
         => BackupCheckHistory.WithStopByYou(BackupCheckHistory.State(b, BackupCheckHistory.Entries(b, runs), Now), b.Id, runs);
 
-    [Fact] public void A_check_you_stopped_is_neutral_with_the_last_completed_check_under_it()
+    /// <summary>U242 (owner, 15 November 2026): the tile stays green; the first
+    /// line has the stop icon, the completed check is under it with its own.</summary>
+    [Fact] public void A_check_you_stopped_keeps_the_health_with_the_last_completed_check_under_it()
     {
         var b = Backup();
         var state = Shown(b, Passed(b, 30), Stopped(b, byYou: true));
-        Assert.Equal("never", state.Tone);
+        Assert.Equal("ok", state.Tone);
+        Assert.True(state.StoppedByYou);
         Assert.StartsWith("Data check stopped by you · ", state.Label);
-        Assert.Equal("Last completed: structure check passed · 30m ago", state.Completed);
+        Assert.EndsWith(" ago", state.Label);
+        Assert.Equal("Structure check passed · 30 min ago", state.Completed);
+        Assert.Equal("ok", state.CompletedTone);
+    }
+
+    [Fact] public void A_check_you_stopped_before_any_completed_says_so()
+    {
+        var b = Backup();
+        var state = Shown(b, Stopped(b, byYou: true));
+        Assert.True(state.StoppedByYou);
+        Assert.Equal("No check completed yet", state.Completed);
+        Assert.NotEqual("ok", state.Tone);
     }
 
     [Fact] public void A_check_Backspace_stopped_still_reads_incomplete()
@@ -167,6 +181,7 @@ public sealed class CheckStoppedByYouTests
         Assert.Equal("stale", state.Tone);
         Assert.Contains("incomplete", state.Label);
         Assert.Equal("", state.Completed);
+        Assert.False(state.StoppedByYou);
     }
 
     [Fact] public void A_failing_check_keeps_its_failure_after_a_check_you_stopped()

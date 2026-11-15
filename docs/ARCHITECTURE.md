@@ -1278,6 +1278,24 @@ not used yet.
 `BACKSPACE_FULL_FRAMES=1` turns the kept frame off and
 `BACKSPACE_MOTION_GAP_MS` sets the motion spacing, for measurements.
 
+Avalonia times processor frames with a sleeping thread
+(`SleepLoopRenderTimer`, 60 a second) that ignores the screen's refresh, so
+frames reached the screen at uneven moments (on a 165 Hz screen, 6 to 40 ms
+apart and sometimes 90 ms) and motion stuttered. `DisplayClock` paces that
+timer by the screen: a thread waits for each refresh of the screen showing
+the main window (`D3DKMTWaitForVerticalBlankEvent`; on a fast screen every
+second or third refresh, about 60 frames a second) and wakes the timer's
+thread; the timer itself is slowed to 24 frames a second, which only shows
+if refreshes stop coming. A locked or sleeping screen refuses the wait, so it
+falls back to the desktop's composition (`DwmFlush`) and retries every 2 s.
+Avalonia does not let an application supply its timer (`IRenderTimer` is not
+implementable outside Avalonia), so it is reached through reflection and left
+alone if anything differs; `BACKSPACE_SLEEP_FRAMES=1` keeps Avalonia's timing.
+`FrameLoop` chooses the motion spacing again on every frame, so motion that
+started before the kept frame was in place speeds up once it is (1.1.51 kept
+8 moves a second for the whole run). `BACKSPACE_FRAME_STATS=1` logs, every 2
+s, frames, pixels sent, moves, and their mean and longest gap.
+
 The test harness uses the matching Avalonia 12 headless packages
 and xUnit v3. DataGrid has its own package release, 12.1.2.
 

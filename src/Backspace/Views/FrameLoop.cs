@@ -39,6 +39,7 @@ internal static class FrameLoop
         public double GapSum;
         public int Gaps;
         public int Every = 1;
+        public double? LastMove;
     }
 
     private static readonly List<(Func<TopLevel, bool> Wanted, Action<TopLevel> Step)> Movers = new();
@@ -62,6 +63,12 @@ internal static class FrameLoop
     private static bool KeepsFrame(TopLevel top) => false;
 #endif
 
+    /// <summary>How many frames apart the moves are, for a wanted gap and the screen's frame interval.</summary>
+    internal static int EveryFor(double wantedGapMs, double frameMs) => Math.Max(1, (int)Math.Round(wantedGapMs / frameMs));
+
+    /// <summary>For tests: how many frames apart the window's moves are now.</summary>
+    internal static int? EveryOf(TopLevel top) => Chains.TryGetValue(top, out var c) ? c.Every : null;
+
     private static void Frame(TopLevel top, TimeSpan now)
     {
         if (!Chains.TryGetValue(top, out var chain)) return;
@@ -73,19 +80,47 @@ internal static class FrameLoop
         foreach (var mover in Movers) if (mover.Wanted(top)) { any = true; break; }
         if (!any) { Chains.Remove(top); return; }
 
-        // Learn the screen's frame interval from the first frames, then keep
-        // the same spacing for as long as this window moves.
+        // Learn the screen's frame interval from the first frames. The spacing
+        // is chosen again on every frame: the window may start keeping its
+        // frame after the motion began (a backup already running when the
+        // window opens), and 1.1.51 then kept the slow spacing for the whole run.
         if (chain.Gaps < Measured && chain.Last is { } last)
         {
             var gap = (now - last).TotalMilliseconds;
             if (gap is > 1 and < 100) { chain.GapSum += gap; chain.Gaps++; }
-            if (chain.Gaps == Measured)
-                chain.Every = Math.Max(1, (int)Math.Round((GapMs ?? (KeepsFrame(top) ? SmoothGapMs : TargetGapMs)) / (chain.GapSum / chain.Gaps)));
         }
         chain.Last = now;
+        if (chain.Gaps == Measured)
+        {
+            var every = EveryFor(GapMs ?? (KeepsFrame(top) ? SmoothGapMs : TargetGapMs), chain.GapSum / chain.Gaps);
+            if (every != chain.Every) { chain.Frames = 0; chain.Every = every; }
+        }
 
         if (chain.Frames++ % chain.Every == 0)
+        {
             foreach (var mover in Movers) if (mover.Wanted(top)) mover.Step(top);
+            var at = MoveClock.Elapsed.TotalMilliseconds;
+            if (chain.LastMove is { } previous)
+            {
+                var gap = at - previous;
+                _moves++; _gapSum += gap; _gapMax = Math.Max(_gapMax, gap);
+                if (gap > 1.5 * chain.Every * (chain.GapSum / Math.Max(1, chain.Gaps))) _late++;
+            }
+            chain.LastMove = at;
+        }
         top.RequestAnimationFrame(next => Frame(top, next));
+    }
+
+    private static readonly System.Diagnostics.Stopwatch MoveClock = System.Diagnostics.Stopwatch.StartNew();
+    private static long _moves, _late;
+    private static double _gapSum, _gapMax;
+
+    /// <summary>For measurements: moves since the last call, their mean and
+    /// longest gap, and how many came at least half a gap late.</summary>
+    internal static (long Moves, double MeanGapMs, double MaxGapMs, long Late, int Every) TakeMoveStats(TopLevel top)
+    {
+        var r = (_moves, _moves == 0 ? 0 : _gapSum / _moves, _gapMax, _late, EveryOf(top) ?? 0);
+        _moves = 0; _late = 0; _gapSum = 0; _gapMax = 0;
+        return r;
     }
 }

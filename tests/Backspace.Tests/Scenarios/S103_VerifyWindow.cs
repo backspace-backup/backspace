@@ -59,7 +59,7 @@ public sealed class S103_VerifyWindow : ScenarioBase
         var model = new VerifyViewModel(backup, entries, now);
         Assert.Equal(new[] { "Data check (1 GiB sample)", "Restore check (1% of files, at most 1 GiB)" }, model.Own.Select(c => c.Title));
         Assert.All(model.Own, c => Assert.True(c.IsSelected));
-        Assert.Equal("Passed 2d ago", model.Own[0].Detail);
+        Assert.Equal("Passed 2 d ago", model.Own[0].Detail);
         Assert.Equal("Not run yet", model.Own[1].Detail);
         Assert.Equal(new[] { "Structure check", "Restore check", "Data check (all data)" }, model.Other.Select(c => c.Title));
         Assert.Equal("Run 2 checks", model.RunLabel);
@@ -71,7 +71,7 @@ public sealed class S103_VerifyWindow : ScenarioBase
             await ctx.Driver.PumpAsync(150);
             Assert.Equal("Verify “local_d”", window.FindControl<TextBlock>("Heading")!.Text);
             ctx.Snapshot(window, $"verify window {theme}",
-                $"{theme}: \"Verify “local_d”\": the backup's two checks ticked (\"Passed 2d ago\", \"Not run yet\"), then Structure check, Restore check and Data check (all data) to run once; \"Run 2 checks\".");
+                $"{theme}: \"Verify “local_d”\": the backup's two checks ticked (\"Passed 2 d ago\", \"Not run yet\"), then Structure check, Restore check and Data check (all data) to run once; \"Run 2 checks\".");
             window.Close();
         }
 

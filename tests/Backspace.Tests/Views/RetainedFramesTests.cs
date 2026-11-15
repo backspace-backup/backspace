@@ -49,6 +49,21 @@ public sealed class RetainedFramesTests
         Assert.NotNull(Find(skia, "Avalonia.Skia.FramebufferRenderTarget").GetField("_renderTarget", Any));
     }
 
+    /// <summary>DisplayClock paces Avalonia's frame timer by the screen
+    /// (U239): the same kind of guard for what it reaches.</summary>
+    [Fact]
+    public void The_frame_timer_still_has_what_the_display_clock_paces()
+    {
+        Assert.NotNull(Find(Base, "Avalonia.Rendering.Composition.CompositingRenderer").GetField("_compositor", Any));
+        Assert.NotNull(Find(Base, "Avalonia.Rendering.Composition.Compositor").GetProperty("Loop", Any));
+        var loop = Find(Base, "Avalonia.Rendering.DefaultRenderLoop");
+        Assert.NotNull(loop.GetField("_timer", Any));
+        var timer = typeof(Avalonia.Rendering.SleepLoopRenderTimer);
+        Assert.Equal(typeof(System.Threading.AutoResetEvent), timer.GetField("_wakeEvent", Any)?.FieldType);
+        Assert.Equal(typeof(bool), timer.GetField("_stopped", Any)?.FieldType);
+        Assert.Equal(typeof(int), timer.GetProperty("DesiredFps", Any)?.PropertyType);
+    }
+
     [Fact]
     public void The_dirty_rectangle_has_its_four_edges()
     {
