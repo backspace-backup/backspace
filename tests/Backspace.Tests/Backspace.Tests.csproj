@@ -102,6 +102,7 @@
        shadow copies, Windows file APIs) and do not build there. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <Compile Remove="Models/BackupChecksTests.cs" />
+    <Compile Remove="E2E/InstalledServiceTests.cs" />
     <Compile Remove="Scenarios/E2E/E04_SnapshotMountWindows.cs" />
     <Compile Remove="Scenarios/E2E/E43_CloudSourceChangeDetection.cs" />
     <Compile Remove="Scenarios/E2E/E58_DropboxScaleBenchmark.cs" />

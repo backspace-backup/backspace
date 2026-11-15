@@ -54,9 +54,11 @@ internal sealed class BackgroundServiceActivity : IDisposable
     internal static void Poke() { try { Poked?.Invoke(); } catch { /* a listener can't stop the app */ } }
     private static event Action? Poked;
 
-    internal static BackgroundServiceActivity? ForDesktop()
+    /// <param name="root">The portable copy; this one by default. The
+    /// installed-service test (U246) follows a copy it set up.</param>
+    internal static BackgroundServiceActivity? ForDesktop(string? root = null)
     {
-        var root = AppContext.BaseDirectory.TrimEnd('\\');
+        root ??= AppContext.BaseDirectory.TrimEnd('\\');
         if (!ServicePortableLayout.IsPortableConfig(root, AppPaths.ConfigRoot)) return null;
         var monitor = new BackgroundServiceActivity(async token =>
         {

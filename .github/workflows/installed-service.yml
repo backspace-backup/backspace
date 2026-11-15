@@ -1,0 +1,67 @@
+name: Installed background service
+
+# U246 A: installs the real background service for a portable copy of the
+# Windows release candidate on a disposable GitHub machine, then runs, follows
+# and stops a backup in it with the window's own code, and removes it. Called
+# by the release workflow before every release; can also be started by hand.
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  installed-service:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Fetch the bundled engines
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File src/Backspace/fetch-engines.ps1 -ResticOutPath src/Backspace/Assets/restic.exe -RcloneOutPath src/Backspace/Assets/rclone.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build a portable copy of the release candidate
+        shell: pwsh
+        run: |
+          $copy = Join-Path $env:RUNNER_TEMP 'service-copy'
+          dotnet publish src/Backspace -c Release -f net10.0-windows -r win-x64 --self-contained false -m:1 -o $copy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force (Join-Path $copy 'Backspace.config') | Out-Null
+          "BACKSPACE_INSTALLED_SERVICE_ROOT=$copy" | Add-Content $env:GITHUB_ENV
+          "BACKSPACE_CONFIG_ROOT=$(Join-Path $copy 'Backspace.config')" | Add-Content $env:GITHUB_ENV
+      - name: Install the service, run, follow and stop a backup in it, remove it
+        shell: pwsh
+        run: |
+          dotnet test tests/Backspace.Tests -c Release -f net10.0-windows -m:1 -p:SkipEngineDownload=true --filter "FullyQualifiedName~InstalledServiceTests" --logger "trx;LogFileName=installed-service.trx" --logger "console;verbosity=detailed" --results-directory service-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [xml]$result = [System.IO.File]::ReadAllText((Join-Path $PWD 'service-evidence/installed-service.trx'), [System.Text.UTF8Encoding]::new($false))
+          $counts = $result.TestRun.ResultSummary.Counters
+          if ([int]$counts.passed -ne 1 -or [int]$counts.total -ne 1) { throw 'The installed-service test must run and pass; a skipped run is not sufficient.' }
+      - name: Make sure no service is left behind
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Service -Name 'Backspace-*' -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "Removing leftover $($_.Name)"
+            Stop-Service $_.Name -Force -ErrorAction SilentlyContinue
+            sc.exe delete $_.Name | Out-Host
+          }
+      - name: Save the copy's logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installed-service-${{ github.sha }}
+          path: |
+            service-evidence/
+            ${{ runner.temp }}/service-copy/Backspace.config/logs/
+            ${{ runner.temp }}/service-copy/Backspace.config/service/
+          if-no-files-found: warn
