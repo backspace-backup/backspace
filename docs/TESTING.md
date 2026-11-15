@@ -348,6 +348,8 @@ journals still require full validation and must not mutate unrelated files.
 
 `E2E_WindowsUpdateBundle` requires `BACKSPACE_UPDATE_CANDIDATE` to point to a published framework-dependent Windows folder. It verifies that real bundle through a file-backed HTTP response, replaces a disposable installation, launches its native executable with `--version`, then rolls back and compares every original file. This verifies packaging, file replacement and native CLI launch, not a running GUI upgrade or live GitHub download. The release workflow runs it against its candidate. Prerelease candidates instead must be rejected by the stable installer without changing installed files.
 
+`InstalledServiceTests` (U246 A) installs the real background service. It runs only on a disposable Windows machine as administrator, with `BACKSPACE_INSTALLED_SERVICE_ROOT` naming a portable copy (Backspace.exe beside an empty Backspace.config, which is also `BACKSPACE_CONFIG_ROOT`). It sets the service up through the window's setup code, runs a 2 GB backup in it as Run now does, follows its progress as an open window does, stops it as the card's Stop does, and checks that the run is recorded as stopped by you. It then runs the backup again to completion and removes the service. The `installed-service.yml` workflow does this for every release candidate, and publishing waits for it. It does not cover a backup that needs saved passwords, a shadow copy, or a signed-in desktop.
+
 The same class runs the generated recovery launcher with a real release
 executable while the installation is in use. Recovery must wait for that
 child, report its failure exit code and leave the installed executable and

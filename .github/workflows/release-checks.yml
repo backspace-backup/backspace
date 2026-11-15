@@ -168,10 +168,16 @@ jobs:
     with:
       version: ${{ inputs.tag }}
 
+  # U246 A: the real background service installed for the candidate, a
+  # backup run, followed and stopped in it with the window's code, removed.
+  installed-service:
+    name: Installed background service
+    uses: ./.github/workflows/installed-service.yml
+
   rehearse-gate:
     name: Rehearse the final checklist gate without publishing
     if: ${{ !inputs.publish }}
-    needs: windows-release-checks
+    needs: [windows-release-checks, installed-service]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -195,7 +201,7 @@ jobs:
   publish:
     name: Publish the checked candidate
     if: ${{ inputs.publish }}
-    needs: [windows-release-checks, unix-packages]
+    needs: [windows-release-checks, unix-packages, installed-service]
     runs-on: ubuntu-latest
     environment:
       name: release
