@@ -920,6 +920,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// <summary>Under "Stopped by you": the last completed run (U242).</summary>
     [ObservableProperty] private string _lastCompletedLabel = "";
 
+    /// <summary>Under "… stopped by you" in Checks: the last completed check (U242).</summary>
+    [ObservableProperty] private string _checkCompletedLabel = "";
+
     /// <summary>Redoes the labels that read the clock, every minute (U136,
     /// 4 November 2026): the card said "1h ago" for a backup finished three
     /// hours before, while its health line, already redone, said "3h ago";
@@ -939,16 +942,17 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         // A check that waits for its drive says so calmly (U174).
         if (ServiceLocator.Config?.Current is { } config)
             state = CheckOverdue.Shown(state, Snapshot, CheckOverdue.For(Snapshot, _checkRuns, config.Destinations));
+        state = BackupCheckHistory.WithStopByYou(state, Snapshot.Id, _checkRuns);
         // A fresh card has not yet ruled out a newer failure in saved history.
         // Known warnings can be shown immediately, but success must wait.
         if (!_checkHistoryLoaded && state.Tone is "ok" or "never")
         {
             VerifyLabel = "Reading check history…"; VerifyClass = "loading";
-            CheckScopeLabel = ""; VerifyDetails = "Checking the saved results before showing the backup's health.";
+            CheckScopeLabel = ""; CheckCompletedLabel = ""; VerifyDetails = "Checking the saved results before showing the backup's health.";
             return;
         }
         VerifyLabel = state.Label; VerifyClass = state.Tone;
-        CheckScopeLabel = state.Scope; VerifyDetails = state.Details;
+        CheckScopeLabel = state.Scope; VerifyDetails = state.Details; CheckCompletedLabel = state.Completed;
     }
 
     /// <param name="startedUtc">When the run started, if known (the

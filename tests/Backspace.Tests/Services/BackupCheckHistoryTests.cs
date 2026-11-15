@@ -128,3 +128,72 @@ public sealed class BackupCheckHistoryTests
         Assert.Equal("fail", BackupCheckHistory.State(b, BackupCheckHistory.Entries(b, logs.LoadTimelineByBackupId(b.Id)), Now).Tone);
     }
 }
+
+/// <summary>U242 (owner, 15 November 2026: "complete everything so it works
+/// consistently"): a check you stop is not a result.</summary>
+public sealed class CheckStoppedByYouTests
+{
+    private static readonly DateTime Now = DateTime.UtcNow;
+    private static Backup Backup() => new() { Id = "stopped", Enabled = false, Targets = { new() { DestinationId = "a" } },
+        Checks = { new BackupCheck { Kind = CheckKind.Structure } } };
+    private static RunRecord Passed(Backup b, int minutes) => new()
+    {
+        BackupId = b.Id, Kind = RunKind.Check, CheckKind = CheckKind.Structure, StartedUtc = Now.AddMinutes(-minutes - 1),
+        EndedUtc = Now.AddMinutes(-minutes), Status = BackupRunStatus.Success,
+        Checks = { new() { Depth = CheckDepth.RepositoryStructure, Status = BackupRunStatus.Success, EndedUtc = Now.AddMinutes(-minutes), TargetKey = "a/default", Summary = "No errors" } },
+    };
+    private static RunRecord Stopped(Backup b, bool byYou, BackupRunStatus status = BackupRunStatus.Skipped) => new()
+    {
+        BackupId = b.Id, Kind = RunKind.Check, CheckKind = CheckKind.DataSample, StartedUtc = Now.AddMinutes(-2), EndedUtc = Now.AddMinutes(-1),
+        Status = status, StoppedByYou = byYou, Summary = byYou ? "Stopped by you · Data check did not finish. Earlier results are kept." : "Data check: cancelled before completion.",
+        Cells = { new() { DestinationName = "a", Status = status, Summary = "Cancelled before completion." } },
+    };
+    private static BackupCheckState Shown(Backup b, params RunRecord[] runs)
+        => BackupCheckHistory.WithStopByYou(BackupCheckHistory.State(b, BackupCheckHistory.Entries(b, runs), Now), b.Id, runs);
+
+    [Fact] public void A_check_you_stopped_is_neutral_with_the_last_completed_check_under_it()
+    {
+        var b = Backup();
+        var state = Shown(b, Passed(b, 30), Stopped(b, byYou: true));
+        Assert.Equal("never", state.Tone);
+        Assert.StartsWith("Data check stopped by you · ", state.Label);
+        Assert.Equal("Last completed: structure check passed · 30m ago", state.Completed);
+    }
+
+    [Fact] public void A_check_Backspace_stopped_still_reads_incomplete()
+    {
+        var b = Backup();
+        var state = Shown(b, Passed(b, 30), Stopped(b, byYou: false));
+        Assert.Equal("stale", state.Tone);
+        Assert.Contains("incomplete", state.Label);
+        Assert.Equal("", state.Completed);
+    }
+
+    [Fact] public void A_failing_check_keeps_its_failure_after_a_check_you_stopped()
+    {
+        var b = Backup();
+        var failed = Passed(b, 30);
+        failed.Status = BackupRunStatus.Failed; failed.Checks[0] = failed.Checks[0] with { Status = BackupRunStatus.Failed };
+        var state = Shown(b, failed, Stopped(b, byYou: true));
+        Assert.Equal("fail", state.Tone);
+        Assert.DoesNotContain("stopped by you", state.Label);
+    }
+
+    [Fact] public void A_completed_check_after_the_stop_is_shown_as_usual()
+    {
+        var b = Backup();
+        var stopped = Stopped(b, byYou: true);
+        stopped.StartedUtc = Now.AddMinutes(-50); stopped.EndedUtc = Now.AddMinutes(-40);
+        var state = Shown(b, stopped, Passed(b, 5));
+        Assert.Equal("ok", state.Tone);
+        Assert.StartsWith("Structure check passed", state.Label);
+    }
+
+    [Fact] public void A_stop_counts_only_for_a_run_going_on_when_you_pressed_it()
+    {
+        StopsByYou.Mark("earlier-stop");
+        Assert.True(StopsByYou.Marks("earlier-stop", DateTime.UtcNow.AddSeconds(-5)));
+        Assert.False(StopsByYou.Marks("earlier-stop", DateTime.UtcNow.AddSeconds(5)));
+        Assert.False(StopsByYou.Marks("never-stopped", DateTime.UtcNow.AddSeconds(-5)));
+    }
+}

@@ -144,7 +144,7 @@
               <!-- Under "Stopped by you": the last completed run (U242). -->
               <TextBlock Text="{Binding LastCompletedLabel}" Classes="meta-label" Margin="24,0,0,0"
                          IsVisible="{Binding LastCompletedLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                         TextTrimming="CharacterEllipsis"/>
+                         TextWrapping="Wrap"/>
               <WrapPanel>
                 <Button Classes="row-action-warn" IsVisible="{Binding StatusClass, Converter={x:Static vm:Eq.To}, ConverterParameter=warn}"
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
@@ -182,6 +182,15 @@
                          Classes.stale="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=stale}"
                          Classes.never="{Binding VerifyClass, Converter={x:Static vm:Eq.To}, ConverterParameter=never}"/>
             </Grid>
+            <!-- Under "… stopped by you": the last completed check (U242). -->
+            <TextBlock Text="{Binding CheckCompletedLabel}" Classes="meta-label" Margin="24,0,0,0" TextWrapping="Wrap">
+              <TextBlock.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                  <Binding Path="!ShowsHealthActivity"/>
+                  <Binding Path="CheckCompletedLabel" Converter="{x:Static StringConverters.IsNotNullOrEmpty}"/>
+                </MultiBinding>
+              </TextBlock.IsVisible>
+            </TextBlock>
 
             </StackPanel>
           </Border>

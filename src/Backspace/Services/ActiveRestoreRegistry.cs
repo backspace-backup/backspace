@@ -244,6 +244,14 @@ public sealed class ActiveRestoreSession : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
         Changed?.Invoke();
     }
+    /// <summary>Cancel pressed by you: a restore check stopped this way is
+    /// not a result (U242).</summary>
+    public void CancelByYou()
+    {
+        if (!CanCancel) return;
+        StopsByYou.Mark(BackupId);
+        Cancel();
+    }
     public void Cancel()
     {
         if (!CanCancel) return;

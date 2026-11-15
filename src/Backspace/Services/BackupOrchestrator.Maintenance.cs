@@ -70,6 +70,7 @@ public sealed partial class BackupOrchestrator
     public async Task<RunRecord> RunCheckAsync(Backup backup, BackupCheck check, CancellationToken ct, IReadOnlyCollection<BackupTarget>? onlyTargets = null)
     {
         var queue = _checkQueues.GetOrAdd(backup.Id, _ => new SemaphoreSlim(1, 1));
+        var asked = DateTime.UtcNow;
         if (queue.CurrentCount == 0)
             _log.Information("{Check} of {Backup} waits for the check before it", check.Title, backup.Name);
         try { await queue.WaitAsync(ct).ConfigureAwait(false); }
@@ -78,9 +79,10 @@ public sealed partial class BackupOrchestrator
             var skipped = new RunRecord
             {
                 BackupId = backup.Id, BackupName = backup.Name, Kind = RunKind.Check, CheckId = check.Id, CheckKind = check.Kind,
-                StartedUtc = DateTime.UtcNow, EndedUtc = DateTime.UtcNow, Status = BackupRunStatus.Skipped,
+                StartedUtc = asked, EndedUtc = DateTime.UtcNow, Status = BackupRunStatus.Skipped,
                 Summary = $"{check.Title} was cancelled before it could start.",
             };
+            MarkIfStoppedByYou(skipped, check.Title);
             try { _logs.AppendRun(skipped); } catch (Exception ex) { _log.Warning(ex, "Failed to persist a cancelled check for {Backup}", backup.Name); }
             return skipped;
         }
@@ -414,6 +416,7 @@ public sealed partial class BackupOrchestrator
                 runLog.Outcome(aggregate);
             }
 
+            MarkIfStoppedByYou(aggregate, action);
             try { _logs.AppendRun(aggregate); }
             catch (Exception ex) { _log.Warning(ex, "Failed to persist {Action} run for {Backup}", action, backup.Name); }
             return aggregate;
@@ -435,10 +438,22 @@ public sealed partial class BackupOrchestrator
             aggregate.EndedUtc = DateTime.UtcNow;
             aggregate.Status = status;
             aggregate.Summary = summary;
+            MarkIfStoppedByYou(aggregate, action);
             try { _logs.AppendRun(aggregate); }
             catch (Exception ex) { _log.Warning(ex, "Failed to persist {Action} run for {Backup}", action, backup.Name); }
             return aggregate;
         }
+    }
+
+    /// <summary>A check or cleanup you stopped yourself (U242): not a
+    /// result. A run with a failure keeps it; Backspace's own stops (quitting,
+    /// a metered connection) are not marked.</summary>
+    private static void MarkIfStoppedByYou(RunRecord record, string action)
+    {
+        if (record.Status is BackupRunStatus.Success or BackupRunStatus.Failed
+            || !StopsByYou.Marks(record.BackupId, record.StartedUtc)) return;
+        record.StoppedByYou = true;
+        record.Summary = $"{RunRecord.StoppedByYouReason} · {action} did not finish. Earlier results are kept.";
     }
 
     /// <summary>A run the owner started with "Run now anyway" (U226, owner:

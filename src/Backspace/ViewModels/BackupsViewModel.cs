@@ -1031,9 +1031,9 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         // A run waiting for its conditions (U226): the wait ends, nothing runs.
         if (_conditionWaits.TryGetValue(card.Id, out var waiting)) { try { waiting.Stop.Cancel(); } catch (ObjectDisposedException) { } return; }
         // Checks started with Verify (U213).
-        if (_verifications.TryGetValue(card.Id, out var verifying)) { try { verifying.Cancel(); } catch (ObjectDisposedException) { } return; }
+        if (_verifications.TryGetValue(card.Id, out var verifying)) { StopsByYou.Mark(card.Id); try { verifying.Cancel(); } catch (ObjectDisposedException) { } return; }
         // A test restore the schedule started (U205: Stop is on the card now).
-        if (ServiceLocator.ActiveRestores.RunningTestFor(card.Id) is { } testRestore && !ServiceLocator.Orchestrator.IsRunning(card.Id)) { testRestore.Cancel(); return; }
+        if (ServiceLocator.ActiveRestores.RunningTestFor(card.Id) is { } testRestore && !ServiceLocator.Orchestrator.IsRunning(card.Id)) { testRestore.CancelByYou(); return; }
         ServiceLocator.Orchestrator.CancelRun(card.Id, RunRecord.StoppedByYouReason);
         // Hard-cancel safety net (user-reported 2026-04-29: a run that
         // failed silently in init left the card stuck on "Running…" with
@@ -1158,7 +1158,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>Checks you started, their conditions decided (U226).</summary>
-    private void StartChecks(BackupCardViewModel card, Backup backup, IReadOnlyList<BackupCheck> checks, ManualRunConditions.Decision decision)
+    internal void StartChecks(BackupCardViewModel card, Backup backup, IReadOnlyList<BackupCheck> checks, ManualRunConditions.Decision decision)
     {
         var stop = new CancellationTokenSource();
         _verifications[backup.Id] = stop;

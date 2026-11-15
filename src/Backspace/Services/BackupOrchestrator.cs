@@ -368,6 +368,8 @@ public sealed partial class BackupOrchestrator
     /// </summary>
     public void CancelRun(string backupId, string? reason = null)
     {
+        // A check or cleanup you stop is not a result either (U242).
+        if (reason == RunRecord.StoppedByYouReason) StopsByYou.Mark(backupId);
         if (_runningRuns.TryGetValue(backupId, out var info))
         {
             // First-writer-wins for the reason so a user-clicked Stop

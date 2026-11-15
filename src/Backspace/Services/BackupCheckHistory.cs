@@ -16,6 +16,8 @@ public sealed record BackupCheckEntry(string RunId, DateTime When, BackupRunStat
 public sealed record BackupCheckState(string Label, string Tone, string Scope, string Details)
 {
     public IReadOnlyList<string> Kinds { get; init; } = [];
+    /// <summary>Under a check you stopped: the last completed one (U242).</summary>
+    public string Completed { get; init; } = "";
 }
 
 /// <summary>Uses saved observations, never infers old check depth from current settings.</summary>
@@ -54,7 +56,8 @@ public static class BackupCheckHistory
     public static List<BackupCheckEntry> Entries(Backup backup, IEnumerable<RunRecord> history)
     {
         var entries = new List<BackupCheckEntry>();
-        foreach (var run in history.Where(r => r.BackupId == backup.Id && r.EndedUtc is not null))
+        // A check you stopped is not a result (U242).
+        foreach (var run in history.Where(r => r.BackupId == backup.Id && r.EndedUtc is not null && !r.StoppedByYou))
         {
             if (run.Checks.Count > 0)
             {
@@ -189,6 +192,24 @@ public static class BackupCheckHistory
                     Hover(latest.Summary + $"\nThe {BackupCheck.Name(overdue.Kind).ToLowerInvariant()} is due. Another kind of check does not replace it.", kinds)) { Kinds = kinds };
         }
         return new($"{DepthName(latest.Depth)} passed · {ago}", "ok", latest.Scope, Hover(latest.Scope + "\n" + latest.Summary, kinds)) { Kinds = kinds };
+    }
+
+    /// <summary>The newest check was stopped by you (U242): the card says so
+    /// in neutral words, with the last completed check under it. A failing,
+    /// incomplete or overdue check keeps its warning.</summary>
+    public static BackupCheckState WithStopByYou(BackupCheckState state, string backupId, IEnumerable<RunRecord> runs)
+    {
+        if (state.Tone is not ("ok" or "never")) return state;
+        var newest = runs.Where(r => r.BackupId == backupId && r.EndedUtc is not null && r.Kind is RunKind.Check or RunKind.TestRestore)
+            .OrderByDescending(r => r.EndedUtc).FirstOrDefault();
+        if (newest is not { StoppedByYou: true }) return state;
+        var name = newest.Kind == RunKind.TestRestore || newest.CheckKind == CheckKind.TestRestore ? "Restore check"
+            : newest.CheckKind is { } kind ? BackupCheck.Name(kind) : "Check";
+        var local = newest.EndedUtc!.Value.ToLocalTime();
+        var when = local.Date == DateTime.Now.Date ? local.ToString("HH:mm") : local.ToString("d MMM HH:mm");
+        var completed = state.Tone == "ok" ? "Last completed: " + char.ToLowerInvariant(state.Label[0]) + state.Label[1..] : "No check completed yet";
+        return state with { Label = $"{name} stopped by you · {when}", Tone = "never", Completed = completed,
+            Details = newest.Summary + "\n\n" + completed + (state.Tone == "ok" ? "\n" + state.Details : "") };
     }
 
     /// <summary>A recorded check by the name the Checks list uses (U179).</summary>

@@ -143,13 +143,17 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         var afterCancel = ServiceLocator.Config.Current.Backups.Single(b => b.Id == backup.Id);
         Assert.True(afterCancel.LastVerifyPass);
         Assert.Equal(completedVerification, afterCancel.LastVerifyUtc);
-        Assert.Equal("warn", vm.Backups.HealthClass); // The incomplete latest check needs attention; earlier proof remains saved.
-        ctx.Snapshot(main, "stopped-test-is-not-success", "The card's Stop button stopped a live full test restore. The result says it is incomplete, not Done, and the saved record prevents automatic resumption.");
+        // Stopped by you: not a result, not a warning (U242); earlier proof remains saved.
+        Assert.Equal("ok", vm.Backups.HealthClass);
+        ctx.Snapshot(main, "stopped-test-is-not-success", "The card's Stop button stopped a live full test restore. The card says it was stopped by you, not Done, with the last completed check under it; the saved record prevents automatic resumption.");
         vm.SelectedNav = NavItem.Backups;
         vm.Backups.Refresh(); ctx.Driver.Pump(); main.UpdateLayout();
-        Assert.Equal("warn", vm.Backups.HealthClass);
-        Assert.Contains("incomplete", vm.Backups.Cards.Single(c => c.Id == backup.Id).VerifyLabel, StringComparison.OrdinalIgnoreCase);
-        ctx.Snapshot(main, "cancelled-check-warning-survives-refresh", "After returning to Backups and refreshing the cards, the cancelled check still needs attention. The previous successful Test restore does not produce an all-clear.");
+        Assert.Equal("ok", vm.Backups.HealthClass);
+        var stoppedCard = vm.Backups.Cards.Single(c => c.Id == backup.Id);
+        Assert.StartsWith("Restore check stopped by you · ", stoppedCard.VerifyLabel);
+        Assert.Equal("never", stoppedCard.VerifyClass);
+        Assert.StartsWith("Last completed: restore check", stoppedCard.CheckCompletedLabel);
+        ctx.Snapshot(main, "cancelled-check-warning-survives-refresh", "After returning to Backups and refreshing the cards, the card still says the restore check was stopped by you, in neutral grey, with the last completed one under it (U242).");
         var restart = new TestRestoreService(ServiceLocator.Config, ServiceLocator.Verifier);
         await restart.ResumeInterruptedAsync(); ctx.Driver.Pump();
         Assert.False(restart.IsRunning(backup.Id));

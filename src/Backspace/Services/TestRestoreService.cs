@@ -45,6 +45,9 @@ public sealed class TestRestoreService
         var session = Launch(backup, journal, resumed: false, ct, maintenanceLeaseHeld);
         await session.Completion.ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
+        // Stopped on its own (its card's Stop, Activity's Cancel): the check
+        // was stopped, it did not fail (U242).
+        if (session.Status == RestoreTerminalStatus.Cancelled) throw new OperationCanceledException();
         return session.VerificationOutcome ?? throw new IOException(session.VerificationError ?? "The automatic restore check did not complete.");
     }
 
@@ -156,7 +159,7 @@ public sealed class TestRestoreService
                 terminal = saveFailure is null ? RestoreTerminalStatus.Cancelled : RestoreTerminalStatus.Error;
                 terminalError = saveFailure;
                 PersistInterruptedAttempt(context, BackupRunStatus.Skipped,
-                    "Restore check stopped before it finished. Earlier results were kept.");
+                    "Restore check stopped before it finished. Earlier results were kept.", stoppedByYou: StopsByYou.Marks(context.Journal.BackupId, context.Journal.StartedUtc));
             }
         }
         catch (Exception ex)
@@ -178,12 +181,14 @@ public sealed class TestRestoreService
         }
     }
 
-    private static void PersistInterruptedAttempt(TestRestoreContext context, BackupRunStatus status, string summary) =>
-        PersistInterruptedAttempt(context.Journal, status, summary);
+    private static void PersistInterruptedAttempt(TestRestoreContext context, BackupRunStatus status, string summary, bool stoppedByYou = false) =>
+        PersistInterruptedAttempt(context.Journal, status, summary, stoppedByYou);
 
     /// <summary>The attempt's record in the backup's Activity.</summary>
-    private static void PersistInterruptedAttempt(TestRestoreJournal journal, BackupRunStatus status, string summary)
+    /// <param name="stoppedByYou">You pressed Stop or Cancel (U242): not a result.</param>
+    private static void PersistInterruptedAttempt(TestRestoreJournal journal, BackupRunStatus status, string summary, bool stoppedByYou = false)
     {
+        if (stoppedByYou) summary = RunRecord.StoppedByYouReason + " · the restore check did not finish. Earlier results are kept.";
         try
         {
             var record = ServiceLocator.Logs.LoadHistoryByBackupId(journal.BackupId).FirstOrDefault(r => r.Id == journal.Id)
@@ -193,6 +198,7 @@ public sealed class TestRestoreService
             record.Status = status;
             record.Summary = summary;
             record.TriggeredAutomatically = journal.Scheduled && !journal.StartedByOwner;
+            record.StoppedByYou = stoppedByYou;
             record.Checks = new() { new BackupCheckResult
             {
                 Depth = journal.Options.Full ? CheckDepth.RestoreAllFiles : CheckDepth.RestoreSample,
