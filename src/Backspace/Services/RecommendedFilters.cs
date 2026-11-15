@@ -518,6 +518,56 @@ public static class RecommendedFilters
     /// </summary>
     public static IReadOnlyList<CloudSyncFolder> DetectCloudSyncFolders()
     {
+        // Looked up again at most every few minutes (U247): a drive that
+        // doesn't answer (an SFTP mount of a phone out of reach, a sleeping
+        // network drive) took 40 s per look, and the backup editor looks on
+        // the window's thread. The app looks once in the background at start.
+        // An older answer is used at once and refreshed in the background.
+        lock (CloudGate)
+        {
+            if (_cloudFolders is { } known)
+            {
+                if (DateTime.UtcNow - _cloudFoldersAt >= CloudFoldersFor && !_refreshing)
+                {
+                    _refreshing = true;
+                    System.Threading.Tasks.Task.Run(() =>
+                    {
+                        try { Remember(DetectCloudSyncFoldersNow()); }
+                        finally { lock (CloudGate) _refreshing = false; }
+                    });
+                }
+                return known;
+            }
+        }
+        var detected = DetectCloudSyncFoldersNow();
+        Remember(detected);
+        return detected;
+    }
+
+    private static void Remember(IReadOnlyList<CloudSyncFolder> folders)
+    {
+        lock (CloudGate) { _cloudFolders = folders; _cloudFoldersAt = DateTime.UtcNow; }
+    }
+
+    private static bool _refreshing;
+
+    private static readonly object CloudGate = new();
+    private static IReadOnlyList<CloudSyncFolder>? _cloudFolders;
+    private static DateTime _cloudFoldersAt;
+    private static readonly TimeSpan CloudFoldersFor = TimeSpan.FromMinutes(5);
+
+    /// <summary>How long a drive may take to say whether it holds Google
+    /// Drive's "My Drive"; one that takes longer is left out.</summary>
+    internal static TimeSpan DriveAnswerTime = TimeSpan.FromSeconds(2);
+
+    /// <summary>Forgets the last look (tests).</summary>
+    internal static void ForgetCloudSyncFolders() { lock (CloudGate) _cloudFolders = null; }
+
+    /// <summary>Set by tests: the drives to look at, instead of the computer's.</summary>
+    internal static Func<IEnumerable<string>>? DriveRootsOverride;
+
+    private static IReadOnlyList<CloudSyncFolder> DetectCloudSyncFoldersNow()
+    {
         var found = new List<CloudSyncFolder>();
         try { found.AddRange(DetectDropbox()); } catch { /* best-effort */ }
         try { found.AddRange(DetectOneDrive()); } catch { /* best-effort */ }
@@ -572,6 +622,11 @@ public static class RecommendedFilters
             yield return new CloudSyncFolder(CloudSyncProvider.OneDrive, "OneDrive for Business", commercial!);
     }
 
+    /// <summary>The mounted letter contains "My Drive" and (optionally)
+    /// "Shared drives" at its root. Replaced by tests.</summary>
+    internal static Func<string, bool> HoldsMyDrive = root =>
+        new DriveInfo(root).IsReady && Directory.Exists(Path.Combine(root, "My Drive"));
+
     private static IEnumerable<CloudSyncFolder> DetectGoogleDrive()
     {
         // "Drive for desktop" 2.x mounts a virtual letter (often G:),
@@ -579,16 +634,15 @@ public static class RecommendedFilters
         // HKCU\Software\Google\DriveFS, but the value name varies
         // across versions. Scanning all top-level drives for the
         // sentinel folder name is more reliable.
-        foreach (var drive in DriveInfo.GetDrives())
-        {
-            if (!drive.IsReady) continue;
-            // The mounted letter contains "My Drive" and (optionally)
-            // "Shared drives" at its root.
-            var myDrive = Path.Combine(drive.RootDirectory.FullName, "My Drive");
-            if (Directory.Exists(myDrive))
+        // Every drive is asked at once; one that doesn't answer within
+        // DriveAnswerTime is left out (U247). Its thread ends on its own.
+        var roots = (DriveRootsOverride?.Invoke() ?? DriveInfo.GetDrives().Select(d => d.Name)).ToArray();
+        var looks = roots.Select(root => System.Threading.Tasks.Task.Run(() => HoldsMyDrive(root))).ToArray();
+        try { System.Threading.Tasks.Task.WaitAll(looks, DriveAnswerTime); } catch (AggregateException) { }
+        for (var i = 0; i < roots.Length; i++)
+            if (looks[i].IsCompletedSuccessfully && looks[i].Result)
                 yield return new CloudSyncFolder(CloudSyncProvider.GoogleDrive,
-                    $"Google Drive ({drive.Name.TrimEnd('\\')})", myDrive);
-        }
+                    $"Google Drive ({roots[i].TrimEnd('\\')})", Path.Combine(roots[i], "My Drive"));
 
         // Legacy "Backup and Sync" client uses %USERPROFILE%\Google Drive
         var legacy = Path.Combine(

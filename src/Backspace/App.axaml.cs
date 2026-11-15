@@ -394,6 +394,9 @@ public partial class App : Application
             {
                 await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
                 FilterTranslator.WarmUpRecommended();
+                // Cloud folders are looked up here, off the window's thread:
+                // the editor warmed up below then reads the answer (U247).
+                RecommendedFilters.DetectCloudSyncFolders();
                 foreach (var backup in ServiceLocator.Config.Current.Backups)
                     _ = FilterTranslator.CompileRules(backup.FiltersText);
                 Dispatcher.UIThread.Post(() =>
