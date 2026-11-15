@@ -292,8 +292,12 @@ internal static class RetainedFrames
                 foreach (var area in areas)
                 {
                     PixelsSent += (long)area.Width * area.Height;
+                    // The source row is counted from the bottom of the
+                    // bitmap, even for this top-down one: counted from the
+                    // top, a rectangle near the top showed rows from near
+                    // the bottom of the window.
                     SetDIBitsToDevice(dc, area.X, area.Y, (uint)area.Width, (uint)area.Height,
-                        area.X, area.Y, 0, (uint)size.Height, bits, ref header, 0);
+                        area.X, size.Height - area.Bottom, 0, (uint)size.Height, bits, ref header, 0);
                 }
             }
             finally { ReleaseDC(_hwnd, dc); }

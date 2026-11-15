@@ -1269,9 +1269,12 @@ Avalonia upgrade renames one of them. Measured on 15 November 2026 (2088x1342
 window, a backup running, three runs each): motion on every frame took about
 95% of a core with Avalonia's surface and 28% with the kept frame; about 30
 moves a second with the kept frame 17%, against 14% for 8 moves a second with
-Avalonia's surface and 8% without motion. Avalonia's region clipping
-(`UseRegionDirtyRectClipping`) is not used: drawing straight into a kept frame
-with it left the turning icon and the sidebar label blank (15 November 2026).
+Avalonia's surface and 8% without motion. The changed rectangle is copied
+with `SetDIBitsToDevice`, whose source row is counted from the bottom of the
+bitmap even for a top-down one (1.1.50 counted it from the top and showed
+rows from the wrong place; fixed in 1.1.51). Avalonia's region clipping
+(`UseRegionDirtyRectClipping`, several small rectangles instead of one) is
+not used yet.
 `BACKSPACE_FULL_FRAMES=1` turns the kept frame off and
 `BACKSPACE_MOTION_GAP_MS` sets the motion spacing, for measurements.
 
