@@ -68,6 +68,9 @@ public sealed class InstalledServiceTests(ITestOutputHelper output)
         // Settings > Administrator access, with Windows' approval replaced by
         // running the copy's own setup command as administrator.
         var setup = new WindowsBackgroundBackupSetup(root, config, elevatedForTest: args => RunCopy(root, args));
+        // The window finds the service's pipe names beside its own Backspace.exe;
+        // this test process runs from elsewhere.
+        BackupServicePipe.NamesDirectoryOverride = SystemService.DataDirectoryFor(root);
         try
         {
             await setup.ApplyAsync();
@@ -110,6 +113,7 @@ public sealed class InstalledServiceTests(ITestOutputHelper output)
             // Settings > Administrator access off: the service is removed.
             if (SystemService.ForCopy(root) is not null) await setup.RemoveAsync();
             Assert.Null(SystemService.ForCopy(root));
+            BackupServicePipe.NamesDirectoryOverride = null;
             output.WriteLine("Service removed");
         }
     }
