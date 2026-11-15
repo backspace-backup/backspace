@@ -81,12 +81,14 @@ public sealed class InstalledServiceTests(ITestOutputHelper output)
                 "The window does not see the service as set up.");
             output.WriteLine($"Installed {system.ServiceName} for {root}");
 
+            // An open window follows every change of the service's activity.
+            BackgroundServiceActivity.WindowShown = true;
             var monitor = BackgroundServiceActivity.ForDesktop(root);
             Assert.NotNull(monitor);
 
             // Run now: the window hands the backup to the service.
             var run = Task.Run(() => ServiceCommandLineRun.TryRunFromDesktopAsync(root, backup, deadline.Token));
-            var progress = await WaitForAsync(monitor!, backup.Id, s => s.State == "running" && s.Progress is { Percent: > 0 }, TimeSpan.FromMinutes(5), deadline.Token);
+            var progress = await WaitForAsync(monitor!, backup.Id, s => s.State == "running" && s.Progress is { Percent: > 0 and < 60 }, TimeSpan.FromMinutes(5), deadline.Token);
             output.WriteLine($"Progress seen: {progress.Progress!.Percent:F1}% ({progress.Progress.Activity})");
 
             // Stop on the card.
@@ -126,7 +128,7 @@ public sealed class InstalledServiceTests(ITestOutputHelper output)
         ServiceActivity.Snapshot? last = null;
         while (DateTime.UtcNow < until)
         {
-            await monitor.RefreshAsync(token);
+            // The window's own follower (PollAsync) keeps Current up to date.
             last = ServiceActivity.ForBackup(monitor.Current, backupId);
             if (last is not null && last.BackupId == backupId && done(last)) return last;
             await Task.Delay(250, token);
