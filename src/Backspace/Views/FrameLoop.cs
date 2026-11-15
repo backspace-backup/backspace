@@ -10,20 +10,25 @@ namespace Backspace.Views;
 /// draws, so each move lands on a frame, at even intervals; the earlier
 /// timers fired between frames at uneven moments, which made motion jerky.
 ///
-/// Backspace draws on the processor (U109), and that way any change redraws
-/// the whole window: moving on every frame cost a whole processor core
-/// (measured 14 November 2026: 108% against 8% without motion, in a
-/// 2088x1342 window). So it moves on every Nth frame, chosen once per window
-/// so the moves come about 8 times a second, evenly spaced, until the owner
-/// decides between drawing on the graphics card (smooth at a few percent of
-/// a core, about 150 MB more memory) and this. Every mover steps on the same
-/// frames, so the window is redrawn once for all of them. It stops by itself
-/// on the first frame with nothing left to move.
+/// Backspace draws on the processor (U109). With Avalonia's own Windows
+/// surface any change redraws and resends the whole window: moving on every
+/// frame cost a whole processor core (measured 14 November 2026: 108%
+/// against 8% without motion, in a 2088x1342 window). With the window's kept
+/// frame (RetainedFrames, 15 November 2026) only the changed rectangle is
+/// redrawn and sent, so it moves about 30 times a second; without it (another
+/// platform, or Avalonia changed) about 8 times. It moves on every Nth frame,
+/// chosen once per window so the moves are evenly spaced. Every mover steps
+/// on the same frames, so the window is redrawn once for all of them. It
+/// stops by itself on the first frame with nothing left to move.
 /// </summary>
 internal static class FrameLoop
 {
-    /// <summary>About 8 moves a second.</summary>
+    /// <summary>About 8 moves a second, when each redraws the whole window.</summary>
     internal const double TargetGapMs = 125;
+    /// <summary>About 30 moves a second, when the window keeps its frame.</summary>
+    internal const double SmoothGapMs = 33;
+    /// <summary>For measurements: BACKSPACE_MOTION_GAP_MS overrides it.</summary>
+    private static readonly double? GapMs = double.TryParse(Environment.GetEnvironmentVariable("BACKSPACE_MOTION_GAP_MS"), out var g) ? g : null;
     /// <summary>Frames measured before choosing how many to skip.</summary>
     private const int Measured = 12;
 
@@ -51,9 +56,19 @@ internal static class FrameLoop
         top.RequestAnimationFrame(now => Frame(top, now));
     }
 
+#if WINDOWS
+    private static bool KeepsFrame(TopLevel top) => RetainedFrames.IsActive(top);
+#else
+    private static bool KeepsFrame(TopLevel top) => false;
+#endif
+
     private static void Frame(TopLevel top, TimeSpan now)
     {
         if (!Chains.TryGetValue(top, out var chain)) return;
+#if WINDOWS
+        // A window whose render target was recreated gets its kept frame back.
+        RetainedFrames.Ensure(top);
+#endif
         var any = false;
         foreach (var mover in Movers) if (mover.Wanted(top)) { any = true; break; }
         if (!any) { Chains.Remove(top); return; }
@@ -65,7 +80,7 @@ internal static class FrameLoop
             var gap = (now - last).TotalMilliseconds;
             if (gap is > 1 and < 100) { chain.GapSum += gap; chain.Gaps++; }
             if (chain.Gaps == Measured)
-                chain.Every = Math.Max(1, (int)Math.Round(TargetGapMs / (chain.GapSum / chain.Gaps)));
+                chain.Every = Math.Max(1, (int)Math.Round((GapMs ?? (KeepsFrame(top) ? SmoothGapMs : TargetGapMs)) / (chain.GapSum / chain.Gaps)));
         }
         chain.Last = now;
 

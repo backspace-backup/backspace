@@ -174,7 +174,9 @@ Calm and purposeful. No bounce, no spring, no scale-on-hover.
 - Something in progress: a slow horizontal progress bar; the card's status
   icon turns (one turn every 1.5 s); a band of the accent sweeps through
   "Backups" in the sidebar every 3 s (two turns, so they keep in step).
-  Moves follow the window's drawn frames at even intervals (`FrameLoop`).
+  Moves follow the window's drawn frames at even intervals (`FrameLoop`):
+  about 30 a second where the window keeps its frame (`RetainedFrames`, on
+  Windows), otherwise about 8, since each would redraw the whole window.
   The logo, window and taskbar icons stay still.
 - Success: a soft check-fade-in. No bounce.
 - Failure: the row border tints `Danger` and holds. No shake, no flash.
@@ -183,8 +185,8 @@ Calm and purposeful. No bounce, no spring, no scale-on-hover.
 ## Status semantics
 
 - **OK / healthy**: small `Success` dot, no other ornament.
-- **Running right now**: a subtle animated indicator (taskbar icon
-  cycles, in-app overall progress strip visible).
+- **Running right now**: a subtle animated indicator (the card's status
+  icon turns, in-app overall progress strip visible).
 - **Skipped** (e.g. external drive not mounted): orange tint, like a
   warning, so the band background and its icon agree (29 October 2026, U035).
 - **Warning** (something off, not fatal): `Warn` dot + one sentence

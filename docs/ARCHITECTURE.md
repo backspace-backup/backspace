@@ -1254,7 +1254,28 @@ against 175-187 MB rendered on the processor, at under 1% CPU. Avalonia 12.1.3 c
 pause its compositor render loop when there is nothing to draw; Avalonia 11 kept
 ticking while idle. Native window-host measurements recorded lower idle CPU after
 the upgrade. They use an isolated configuration and do not guarantee zero CPU on
-every system. The test harness uses the matching Avalonia 12 headless packages
+every system.
+
+Avalonia's Windows processor surface tells the compositor it does not keep the
+previous frame, so any change, however small, redraws the whole window into a
+layer and copies all of it to the window: smooth motion cost a whole core.
+`RetainedFrames` gives the main window its own bitmap, kept between frames
+and declared as kept (Avalonia supports this; no platform uses it yet). The
+compositor then draws only the changed rectangle, and only that rectangle is
+copied to the window. It is installed through reflection once the window's
+render target exists, checks every piece it uses, and leaves Avalonia's
+surface in place if anything differs; `RetainedFramesTests` fails when an
+Avalonia upgrade renames one of them. Measured on 15 November 2026 (2088x1342
+window, a backup running, three runs each): motion on every frame took about
+95% of a core with Avalonia's surface and 28% with the kept frame; about 30
+moves a second with the kept frame 17%, against 14% for 8 moves a second with
+Avalonia's surface and 8% without motion. Avalonia's region clipping
+(`UseRegionDirtyRectClipping`) is not used: drawing straight into a kept frame
+with it left the turning icon and the sidebar label blank (15 November 2026).
+`BACKSPACE_FULL_FRAMES=1` turns the kept frame off and
+`BACKSPACE_MOTION_GAP_MS` sets the motion spacing, for measurements.
+
+The test harness uses the matching Avalonia 12 headless packages
 and xUnit v3. DataGrid has its own package release, 12.1.2.
 
 Closing to the tray destroys the native main window and releases its visual

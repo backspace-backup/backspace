@@ -146,6 +146,9 @@ public partial class MainWindow : Window
         // to the Restore tab on first paint so they land where they expect.
         Opened += (_, _) =>
         {
+#if WINDOWS
+            RetainedFrames.EnsureSoon(this);
+#endif
             ConsumePendingRestorePath();
             // Drain any forwarded args that arrived BEFORE we hooked
             // the SecondInstanceForwarded event below. A second

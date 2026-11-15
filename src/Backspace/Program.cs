@@ -407,8 +407,9 @@ internal static class Program
     /// Rendering is done on the processor (U109, 4 November 2026). The GPU
     /// path (ANGLE over Direct3D 11) held about 140 MB more memory for a
     /// mostly still window: 300 MB against 143 MB in the same idle window,
-    /// measured with the release build. Backspace redraws only what changes,
-    /// a few times a second at most, so the processor cost is negligible.</summary>
+    /// measured with the release build. The main window keeps its frame
+    /// (RetainedFrames, U239), so only what changes is redrawn and sent to
+    /// Windows.</summary>
     public static AppBuilder ConfigureDesktopPlatform(AppBuilder builder)
     {
 #if WINDOWS
