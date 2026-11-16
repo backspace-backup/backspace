@@ -54,6 +54,8 @@ internal static class TestSetup
         // Screenshots compare with baselines, so the running card's
         // stepped motion holds still unless a test steps it itself.
         Backspace.Views.RunningPulse.Paused = true;
+        // The sweep through "Backups" too, so screenshots don't depend on the clock.
+        Backspace.Views.TextShimmer.HeldAt = 0.5;
 
         // No live GitHub release checks mid-suite: every MainWindow
         // construction otherwise fires a real HTTPS GET (and possibly

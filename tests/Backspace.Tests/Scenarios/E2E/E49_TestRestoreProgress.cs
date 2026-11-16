@@ -94,7 +94,7 @@ public sealed class E49_TestRestoreProgress : BackupE2EBase
         async Task Intermediate(ActiveRestoreSession session)
         {
             while (session.IsRunning && (session.BytesRestored == 0 || session.BytesRestored >= session.TotalBytes))
-            { await Task.Delay(50, deadline.Token); ctx.Driver.Pump(); }
+            { await Task.Delay(10, deadline.Token); ctx.Driver.Pump(); } // fast disks finish in a few steps
             Assert.True(session.IsRunning, $"Ended after {(DateTime.UtcNow - session.StartedUtc).TotalSeconds:0.0} s, {session.BytesRestored:N0} of {session.TotalBytes:N0} bytes seen: "
                 + (session.ErrorMessage ?? session.Detail));
             Assert.InRange(session.PercentComplete, 0.00001, 0.99999);

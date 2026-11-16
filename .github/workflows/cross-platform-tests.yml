@@ -111,4 +111,6 @@ jobs:
           path: |
             test-results
             tests/Backspace.Tests/artifacts/scenarios
+            tests/Backspace.Tests/artifacts/screenshots
+            tests/Backspace.Tests/artifacts/diffs
           retention-days: 14

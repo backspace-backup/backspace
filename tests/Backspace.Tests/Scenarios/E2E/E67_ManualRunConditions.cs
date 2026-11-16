@@ -97,7 +97,7 @@ public sealed class E67_ManualRunConditions(ITestOutputHelper output) : BackupE2
                 "Sidebar while local_c waits, on another page: the accent colour sweeping through \"Backups\" (held mid-word for the picture), no turning icon beside it.");
             mainVm.SelectedNav = NavItem.Backups;
             await ctx.Driver.PumpAsync(300);
-            Backspace.Views.TextShimmer.HeldAt = null;
+            Backspace.Views.TextShimmer.HeldAt = 0.5; // held, as for every test (TestSetup)
             ctx.Snapshot(main, "queued until plugged in",
                 "local_c's card after Run now on battery and \"Run when plugged in\": Queued, its hover says \"waiting for AC power since HH:mm; it starts by itself\". Nothing has run.");
 
