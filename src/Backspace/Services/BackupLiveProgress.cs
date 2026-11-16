@@ -209,8 +209,20 @@ internal sealed class BackupLiveProgress
         }
         long expected = 0;
         try { expected = _expectedBytes(); } catch (Exception) { }
-        if (PlanLine(sample, counting || ownTotals, nowUtc, sent, rate) is { } planned) return planned;
-        return Format(sample, counting, expected, sent, rate, left, ownTotals);
+        if (PlanLine(sample, counting || ownTotals, nowUtc, sent, rate) is { } planned) return Finishing(planned);
+        return Finishing(Format(sample, counting, expected, sent, rate, left, ownTotals));
+    }
+
+    /// <summary>Everything is read but restic still sends the last data and
+    /// saves the snapshot: on a slow upload that can take long, and the card
+    /// sat at "100% · Backing up" with Stop for an hour (owner, 16 November
+    /// 2026). Until the run ends it says 99.9% and "Finishing".</summary>
+    internal static string Finishing(string line)
+    {
+        const string done = Prefix + "100.0% · Backing up";
+        return line.StartsWith(done, StringComparison.Ordinal)
+            ? Prefix + "99.9% · Finishing: sending the last data" + line[done.Length..]
+            : line;
     }
 
     /// <summary>The line once the changes are known (U144): the percentage and

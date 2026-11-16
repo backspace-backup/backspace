@@ -237,9 +237,10 @@ public sealed class BackupLiveProgressTests
         for (var i = 1; i <= 6; i++) line = live.NextStatus(Operation(0, 5_000_000_000 + i * 50_000_000L, 0, 2_000 + i, 0), t.AddSeconds(5 * i)) ?? line;
         Assert.Contains("about ", line);
         Assert.Contains(" left", line);
-        // More read than listed (files grew meanwhile): never past 100%.
+        // More read than listed (files grew meanwhile): never past 100%, and
+        // while restic still runs, "Finishing" (owner, 16 November 2026).
         var over = live.NextStatus(Operation(0, 60_000_000_000, 0, 25_000, 0), t.AddMinutes(10))!;
-        Assert.StartsWith("[progress] 100.0% · Backing up · 25,000 of ~25,000 files checked (56 of ~56 GB)", over);
+        Assert.StartsWith("[progress] 99.9% · Finishing: sending the last data · 25,000 of ~25,000 files checked (56 of ~56 GB)", over);
     }
 
     [Fact]
