@@ -697,7 +697,7 @@ background service, WinFsp, Credential Manager, Task Scheduler, shadow copies)
 are listed between the "windows-only tests" markers of
 `Backspace.Tests.csproj` and left out there. The "Cross-platform tests"
 workflow (`cross-platform-tests.yml`) runs the suite on GitHub's
-`ubuntu-latest` and `macos-latest` runners, on demand and every Monday, and
+`windows-latest`, `ubuntu-latest` and `macos-latest` runners after every push to main, on demand and every Monday (U246; a release never waits for it), and
 keeps the results and scenario screenshots as artifacts. Screenshots are
 compared with their references on Windows only: the references are Windows
 renders.

@@ -1,7 +1,10 @@
 name: Cross-platform tests
 
-# The whole test suite on Linux and macOS (U235), to say truthfully in the
-# README how well Backspace works there. Windows-only tests (the background
+# The whole test suite on Windows, Linux and macOS after every push to main
+# (U246, owner 16 November 2026: "always run all the tests on the GitHub VMs
+# for all platforms"), never delaying a release; first on Linux and macOS
+# only (U235), to say truthfully in the README how well Backspace works there.
+# On Linux and macOS, Windows-only tests (the background
 # service, WinFsp mounting, Credential Manager, Task Scheduler, shadow copies)
 # are left out of that build; the test project lists them. Cloud tests read
 # their tokens from the repository's encrypted secrets (U244), written to the
@@ -9,6 +12,8 @@ name: Cross-platform tests
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
   schedule:
     - cron: '0 6 * * 1'
 
@@ -24,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
 
@@ -82,7 +87,8 @@ jobs:
         run: |
           f=$(find test-results -name results.trx | head -1)
           if [ -z "$f" ]; then echo "No results." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
-          python3 - "$f" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          py=python3; command -v python3 >/dev/null || py=python
+          $py - "$f" >> "$GITHUB_STEP_SUMMARY" <<'PY'
           import sys, xml.etree.ElementTree as ET
           ns = {'t': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
           root = ET.parse(sys.argv[1]).getroot()

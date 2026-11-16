@@ -32,6 +32,10 @@ internal static class NoWhiteFlash
     private static void Cloak(Window window)
     {
         if (!Seen.TryAdd(window, new object()) || window.TryGetPlatformHandle()?.Handle is not { } hwnd || hwnd == IntPtr.Zero) return;
+        // U254 (owner, 16 November 2026: "ensure the icon is baked in so it'll
+        // never be late"): the window's class carries Backspace's icon before
+        // Windows shows it, so the taskbar button never needs to ask the window.
+        BakeIcon(hwnd);
         if (!Set(hwnd, true)) return;
         var shown = false;
         void Show()
@@ -39,17 +43,11 @@ internal static class NoWhiteFlash
             if (shown) return;
             shown = true;
             Set(hwnd, false);
-            // U241, U254: the taskbar button could come up with the generic
-            // icon, seen after updates (1.1.40, 1.1.52), when the first start of
-            // the new version keeps the window busy as Windows asks for its icon.
-            // Setting Avalonia's Icon again did not help (the same icon handle is
-            // not sent again). Windows takes a new handle of the same icon at
-            // once (tried on the owner's window, 15 November 2026), so the icon
-            // is handed over again as copies: now, and twice more once the start
-            // has settled.
+            // U241, U254: the taskbar button of a window shown hidden (cloaked)
+            // could keep the generic icon (after updates: 1.1.40, 1.1.52,
+            // 1.1.53 for half a second). Windows redraws it with a new handle
+            // of the same icon (tried on the owner's window, 15 November 2026).
             RefreshTaskbarIcon(hwnd);
-            Avalonia.Threading.DispatcherTimer.RunOnce(() => RefreshTaskbarIcon(hwnd), TimeSpan.FromSeconds(3));
-            Avalonia.Threading.DispatcherTimer.RunOnce(() => RefreshTaskbarIcon(hwnd), TimeSpan.FromSeconds(20));
         }
         window.Opened += (_, _) =>
         {
@@ -62,6 +60,31 @@ internal static class NoWhiteFlash
     }
 
     private const uint WmGetIcon = 0x7F, WmSetIcon = 0x80;
+    private const int GclpHIcon = -14, GclpHIconSm = -34;
+    private static IntPtr _bigIcon, _smallIcon;
+
+    /// <summary>Gives the window, and its window class, Backspace's icon from
+    /// Backspace.exe itself, before Windows shows the window: the taskbar
+    /// reads a class icon without asking the window, so a window still busy
+    /// starting up (or shown hidden) never shows the generic icon. The
+    /// window's own icon (the accent colour) still replaces it as usual.</summary>
+    internal static void BakeIcon(IntPtr hwnd)
+    {
+        try
+        {
+            if (_bigIcon == IntPtr.Zero && Environment.ProcessPath is { } exe)
+                ExtractIconEx(exe, 0, out _bigIcon, out _smallIcon, 1);
+            if (_bigIcon == IntPtr.Zero) return;
+            SetClassLongPtr(hwnd, GclpHIcon, _bigIcon);
+            SetClassLongPtr(hwnd, GclpHIconSm, _smallIcon != IntPtr.Zero ? _smallIcon : _bigIcon);
+            if (SendMessage(hwnd, WmGetIcon, (IntPtr)1, IntPtr.Zero) == IntPtr.Zero) SendMessage(hwnd, WmSetIcon, (IntPtr)1, _bigIcon);
+            if (SendMessage(hwnd, WmGetIcon, IntPtr.Zero, IntPtr.Zero) == IntPtr.Zero && _smallIcon != IntPtr.Zero) SendMessage(hwnd, WmSetIcon, IntPtr.Zero, _smallIcon);
+        }
+        catch (Exception) { /* the icon is cosmetic */ }
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern uint ExtractIconEx(string file, int index, out IntPtr large, out IntPtr small, uint count);
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtrW")] private static extern IntPtr SetClassLongPtr(IntPtr hwnd, int index, IntPtr value);
 
     /// <summary>Sends the window's own icons again, as new handles, so the
     /// taskbar redraws its button with them. The earlier copies are freed.</summary>
