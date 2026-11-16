@@ -295,7 +295,7 @@ public class IconAndBadgeAlignmentTests
     }
 
     /// <summary>
-    /// A narrow notice never splits "Last activity: 21 h ago" (U038 follow-up,
+    /// A narrow notice never splits "Last activity: 21h ago" (U038 follow-up,
     /// 30 October 2026): the phrase stays beside the headline when it fits and
     /// otherwise moves whole to a second line set close under the first. The
     /// headline is a status label, so it has no full stop.
@@ -324,7 +324,7 @@ public class IconAndBadgeAlignmentTests
         try
         {
             Assert.Equal("1 backup was skipped on its last run", vm.HealthHeadline);
-            Assert.StartsWith("Last activity: 21 h ago", vm.HealthDetail);
+            Assert.StartsWith("Last activity: 21h ago", vm.HealthDetail);
             var notice = view.FindControl<Border>("HealthNotice")!;
             var text = notice.GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Inlines?.OfType<Run>().Any(r => r.Text == vm.HealthHeadline) == true);
@@ -333,7 +333,7 @@ public class IconAndBadgeAlignmentTests
             Assert.True(phrase > 0, full);
             var lines = text.TextLayout.TextLines;
             int LineOf(int index) => lines.ToList().FindIndex(l => index >= l.FirstTextSourceIndex && index < l.FirstTextSourceIndex + l.Length);
-            var end = phrase + "Last activity: 21 h ago".Length - 1;
+            var end = phrase + "Last activity: 21h ago".Length - 1;
             _out.WriteLine($"width {width}: text {text.Bounds.Width:0} px, {lines.Count} line(s); phrase on line {LineOf(phrase)}..{LineOf(end)}");
             Assert.Equal(expectedLines, lines.Count);
             Assert.Equal(LineOf(phrase), LineOf(end));

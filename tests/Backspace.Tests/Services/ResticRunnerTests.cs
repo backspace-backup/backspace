@@ -115,7 +115,7 @@ public sealed class ResticRunnerTests(ITestOutputHelper output)
         // The summary and status shapes give the recap and progress figures.
         var summary = BackupLiveProgress.FromResticSummary(System.Text.Json.JsonDocument.Parse(
             """{"message_type":"summary","files_new":3,"files_changed":1,"files_unmodified":5,"data_added":2048,"total_files_processed":9,"total_bytes_processed":4096,"total_duration":75,"snapshot_id":"b4f6658012345678"}""").RootElement)!;
-        Assert.Equal("[recap] Backup complete: 9 files (4.0 KB) checked · 3 new, 1 changed, 5 unchanged · 2.0 KB added to the storage · took 1 min 15 s · snapshot b4f66580",
+        Assert.Equal("[recap] Backup complete: 9 files (4.0 KB) checked · 3 new, 1 changed, 5 unchanged · 2.0 KB added to the storage · took 1m 15s · snapshot b4f66580",
             BackupLiveProgress.RecapOf(summary));
         Assert.Equal((3, 1, 2048L), BackupLiveProgress.StatsOf(summary));
         var sample = BackupLiveProgress.FromResticStatus(System.Text.Json.JsonDocument.Parse(

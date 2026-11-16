@@ -1284,7 +1284,7 @@ frames reached the screen at uneven moments (on a 165 Hz screen, 6 to 40 ms
 apart and sometimes 90 ms) and motion stuttered. `DisplayClock` paces that
 timer by the screen: a thread waits for each refresh of the screen showing
 the main window (`D3DKMTWaitForVerticalBlankEvent`; on a fast screen every
-second or third refresh, about 60 frames a second) and wakes the timer's
+second refresh, every fourth on 240 Hz: 60 to 110 frames a second) and wakes the timer's
 thread; the timer itself is slowed to 24 frames a second, which only shows
 if refreshes stop coming. A locked or sleeping screen refuses the wait, so it
 falls back to the desktop's composition (`DwmFlush`) and retries every 2 s.
@@ -1293,7 +1293,12 @@ implementable outside Avalonia), so it is reached through reflection and left
 alone if anything differs; `BACKSPACE_SLEEP_FRAMES=1` keeps Avalonia's timing.
 `FrameLoop` chooses the motion spacing again on every frame, so motion that
 started before the kept frame was in place speeds up once it is (1.1.51 kept
-8 moves a second for the whole run). `BACKSPACE_FRAME_STATS=1` logs, every 2
+8 moves a second for the whole run). With the kept frame it moves on every
+frame: moving on every second frame let Avalonia pause between moves and
+restart late, so moves landed 60 to 250 ms apart (8 a second instead of 40).
+On every frame, paced by the display clock, they land 12 ms apart (82 a
+second on a 165 Hz screen) for about 22% of one core, against 7-13% without
+motion (15 November 2026). `BACKSPACE_FRAME_STATS=1` logs, every 2
 s, frames, pixels sent, moves, and their mean and longest gap.
 
 The test harness uses the matching Avalonia 12 headless packages

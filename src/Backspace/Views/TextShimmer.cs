@@ -33,7 +33,9 @@ public static class TextShimmer
     internal static readonly TimeSpan Sweep = TimeSpan.FromMilliseconds(2850);
     internal static readonly TimeSpan Rest = TimeSpan.FromMilliseconds(150);
     /// <summary>The band's width, as a share of the gradient (twice the word).</summary>
-    private const double Band = 0.3;
+    /// <summary>Wide and strong (owner, 15 November 2026: the sweep was "hardly
+    /// noticeable"): nearly the word's width, full accent over its middle half.</summary>
+    private const double Band = 0.45;
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextBlock, object> Hooked = new();
     private static readonly Dictionary<TextBlock, Gradient> Moving = new();
@@ -86,9 +88,9 @@ public static class TextShimmer
             {
                 // Half-way stops round the band, so it fades in and out softly.
                 new GradientStop(baseColor, 0), new GradientStop(baseColor, 0.5 - Band / 2),
-                new GradientStop(Mix(baseColor, accent, 0.5), 0.5 - Band / 4),
+                new GradientStop(Mix(baseColor, accent, 0.9), 0.5 - Band / 4),
                 new GradientStop(accent, 0.5),
-                new GradientStop(Mix(baseColor, accent, 0.5), 0.5 + Band / 4),
+                new GradientStop(Mix(baseColor, accent, 0.9), 0.5 + Band / 4),
                 new GradientStop(baseColor, 0.5 + Band / 2), new GradientStop(baseColor, 1),
             },
         };
@@ -129,8 +131,8 @@ public static class TextShimmer
     private static void Place(Gradient m)
     {
         // The band's centre travels from just left of the word to just right of
-        // it: the band is 0.6 of the word wide, so it starts and ends just off it.
-        var c = -0.3 + Position() * 1.6;
+        // it: the band is 0.9 of the word wide, so it starts and ends just off it.
+        var c = -Band + Position() * (1 + 2 * Band);
         m.Brush.StartPoint = new RelativePoint(c - 1, 0.5, RelativeUnit.Relative);
         m.Brush.EndPoint = new RelativePoint(c + 1, 0.5, RelativeUnit.Relative);
     }

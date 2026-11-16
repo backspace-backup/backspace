@@ -27,14 +27,8 @@ internal static class CheckRunWording
             : BackupRunStatus.Skipped;
     }
 
-    /// <summary>"45 s", "7 min 50 s", "1 h 05 min".</summary>
-    internal static string Duration(TimeSpan d)
-    {
-        if (d < TimeSpan.Zero) d = TimeSpan.Zero;
-        if (d.TotalSeconds < 60) return $"{Math.Max(0, (int)Math.Round(d.TotalSeconds))} s";
-        if (d.TotalMinutes < 60) return d.Seconds == 0 ? $"{(int)d.TotalMinutes} min" : $"{(int)d.TotalMinutes} min {d.Seconds} s";
-        return $"{(int)d.TotalHours} h {d.Minutes:00} min";
-    }
+    /// <summary>"45s", "7m 50s", "1h 5m".</summary>
+    internal static string Duration(TimeSpan d) => HumanFormat.Duration(d);
 
     internal static string Summary(BackupCheck check, RunRecord run, IReadOnlyCollection<string> waitingFor, bool metered, bool limitIgnored = false)
     {

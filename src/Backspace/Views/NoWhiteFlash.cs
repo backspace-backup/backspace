@@ -39,9 +39,17 @@ internal static class NoWhiteFlash
             if (shown) return;
             shown = true;
             Set(hwnd, false);
-            // U241: the taskbar button of a window revealed this way could come
-            // up without its icon. Hand Windows the icon again once visible.
-            if (window.Icon is { } icon) { window.Icon = null; window.Icon = icon; }
+            // U241, U254: the taskbar button could come up with the generic
+            // icon, seen after updates (1.1.40, 1.1.52), when the first start of
+            // the new version keeps the window busy as Windows asks for its icon.
+            // Setting Avalonia's Icon again did not help (the same icon handle is
+            // not sent again). Windows takes a new handle of the same icon at
+            // once (tried on the owner's window, 15 November 2026), so the icon
+            // is handed over again as copies: now, and twice more once the start
+            // has settled.
+            RefreshTaskbarIcon(hwnd);
+            Avalonia.Threading.DispatcherTimer.RunOnce(() => RefreshTaskbarIcon(hwnd), TimeSpan.FromSeconds(3));
+            Avalonia.Threading.DispatcherTimer.RunOnce(() => RefreshTaskbarIcon(hwnd), TimeSpan.FromSeconds(20));
         }
         window.Opened += (_, _) =>
         {
@@ -52,6 +60,35 @@ internal static class NoWhiteFlash
         };
         window.Closed += (_, _) => shown = true;
     }
+
+    private const uint WmGetIcon = 0x7F, WmSetIcon = 0x80;
+
+    /// <summary>Sends the window's own icons again, as new handles, so the
+    /// taskbar redraws its button with them. The earlier copies are freed.</summary>
+    internal static void RefreshTaskbarIcon(IntPtr hwnd)
+    {
+        try
+        {
+            foreach (var size in new[] { (IntPtr)1, (IntPtr)0 }) // ICON_BIG, ICON_SMALL
+            {
+                var current = SendMessage(hwnd, WmGetIcon, size, IntPtr.Zero);
+                if (current == IntPtr.Zero) continue;
+                var copy = CopyIcon(current);
+                if (copy == IntPtr.Zero) continue;
+                var previous = SendMessage(hwnd, WmSetIcon, size, copy);
+                // Only a copy made here is freed; Avalonia owns its own handles.
+                if (previous != IntPtr.Zero && Copies.Remove(previous)) DestroyIcon(previous);
+                Copies.Add(copy);
+            }
+        }
+        catch (Exception) { /* the icon is cosmetic */ }
+    }
+
+    private static readonly System.Collections.Generic.HashSet<IntPtr> Copies = new();
+
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern IntPtr CopyIcon(IntPtr icon);
+    [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr icon);
 
     private static bool Set(IntPtr hwnd, bool cloaked)
     {

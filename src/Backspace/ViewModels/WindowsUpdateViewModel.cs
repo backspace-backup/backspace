@@ -38,9 +38,9 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _waiting;
 
     /// <summary>The update waits for work to finish, then restarts by itself (U238).</summary>
-    [ObservableProperty] private bool _isWaitingForWork;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowsStatus))] private bool _isWaitingForWork;
     /// <summary>The status is something to act on: drawn as an amber notice.</summary>
-    [ObservableProperty] private bool _statusIsWarning;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowsStatus))] private bool _statusIsWarning;
     private WindowsUpdatePackage.Release? _release;
     private WindowsUpdatePackage.Plan? _prepared;
     private CancellationTokenSource? _operation;
@@ -59,8 +59,8 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private string _status = "Check for a newer version whenever you like.";
     [ObservableProperty] private string _notes = "";
     [ObservableProperty] private string _availableVersion = "";
-    [ObservableProperty] private bool _hasUpdate;
-    [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowsStatus))] [NotifyPropertyChangedFor(nameof(UpdateTitle))] private bool _hasUpdate;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowsStatus))] private bool _isBusy;
     [ObservableProperty] private bool _isDownloading;
     [ObservableProperty] private double _progress;
     public bool CanCheck => !IsBusy;
@@ -96,6 +96,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
 
     internal void RaiseFooter()
     {
+        OnPropertyChanged(nameof(LastCheckedText));
         OnPropertyChanged(nameof(FooterState));
         OnPropertyChanged(nameof(FooterUpdateAvailable));
         OnPropertyChanged(nameof(FooterUpToDate));
@@ -103,6 +104,27 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
     }
 
     public bool CanDownload => HasUpdate && !IsBusy && InstallAvailable && !IsWaitingForWork;
+
+    // ---- Layout (U253, owner 15 November 2026: "make better use of the space
+    // ... avoid redundant stuff and make it more intuitive where you have to
+    // click") ----
+    /// <summary>The update's own card says it is available, so the status line
+    /// only shows when it says something else (checking, downloading, waiting,
+    /// a problem).</summary>
+    public bool ShowsStatus => !HasUpdate || IsBusy || IsWaitingForWork || StatusIsWarning;
+    /// <summary>The update card's title.</summary>
+    public string UpdateTitle => _release is { } r ? "Backspace " + r.Version + (Skipped ? " is available · skipped, automatic checks won’t mention it" : " is available") : "";
+    /// <summary>This version was skipped: it can still be installed by hand.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(UpdateTitle))] private bool _skipped;
+    /// <summary>Under the version: when it was last checked.</summary>
+    public string LastCheckedText
+    {
+        get
+        {
+            var at = ServiceLocator.Config?.Current?.Preferences.LastUpdateCheckUtc ?? DateTime.MinValue;
+            return at > DateTime.UtcNow.AddYears(-5) ? "Checked " + HumanFormat.Ago(at) : "Not checked yet";
+        }
+    }
     public bool CanSkip => HasUpdate && !IsBusy;
 
     public WindowsUpdateViewModel() : this(Http, RequestRestart) { }
@@ -173,7 +195,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
     {
         if (IsBusy || _disposed) return;
         IsBusy = true; Status = "Checking GitHub for updates…"; _lastAttempt = DateTime.UtcNow;
-        HasUpdate = false; _release = null; Notes = ""; AvailableVersion = "";
+        HasUpdate = false; _release = null; Notes = ""; AvailableVersion = ""; Skipped = false;
         _operation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         try
         {
@@ -200,6 +222,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
             if (_release is { } release)
             {
                 var skipped = ServiceLocator.Config.Current.Preferences.SkippedUpdateVersion == release.Version.ToString();
+                Skipped = skipped;
                 if (skipped && !manual) Status += " You skipped this version; you can still install it here.";
                 if (!manual && !skipped)
                     await ServiceLocator.Notifier.NotifyAsync("A Backspace update is available", "Version " + release.Version + ". Open Settings to read what changed and choose when to restart.", NotificationSeverity.Info,
@@ -360,6 +383,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
         if (_release is not { } release) return;
         ServiceLocator.Config.Update(c => c.Preferences.SkippedUpdateVersion = release.Version.ToString());
         Status = "Skipped version " + release.Version + ". Automatic checks won’t notify you about it again.";
+        Skipped = true;
     }
     [RelayCommand]
     private void OpenReleaseNotes()

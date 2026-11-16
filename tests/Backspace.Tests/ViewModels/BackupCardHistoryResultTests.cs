@@ -48,23 +48,23 @@ public sealed class BackupCardHistoryResultTests
 
 public sealed class BackupCardClockLabelTests
 {
-    /// <summary>U136 (4 November 2026): the card kept "1 h ago" for a backup
+    /// <summary>U136 (4 November 2026): the card kept "1h ago" for a backup
     /// that had finished three hours before, until another tab was opened,
-    /// while its health line said "3 h ago". The minute timer now redoes it.</summary>
+    /// while its health line said "3h ago". The minute timer now redoes it.</summary>
     [AvaloniaFact]
     public void The_last_backup_age_follows_the_clock_but_leaves_a_running_label_alone()
     {
         var now = DateTime.UtcNow;
         var backup = new Backup { LastRunStatus = BackupRunStatus.Success, LastRunStartUtc = now.AddHours(-3), LastRunEndUtc = now.AddMinutes(-90), LastRunSummary = "Backup result: STATUS_SUCCESS." };
         using var card = new BackupCardViewModel(backup, false, false);
-        Assert.StartsWith("1 h ago · ", card.LastRunLabel);
+        Assert.StartsWith("1h ago · ", card.LastRunLabel);
 
         // Ninety minutes later: same backup, older.
         var field = typeof(BackupCardViewModel).GetField("_lastRun", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         var last = ((string Summary, DateTime When, BackupRunStatus Status)?)field.GetValue(card);
         field.SetValue(card, ((string, DateTime, BackupRunStatus)?)(last!.Value.Summary, now.AddMinutes(-180), last.Value.Status));
         card.RefreshTimes();
-        Assert.StartsWith("3 h ago · ", card.LastRunLabel);
+        Assert.StartsWith("3h ago · ", card.LastRunLabel);
 
         card.SetRunning();
         card.RefreshTimes();
@@ -89,8 +89,8 @@ public sealed class BackupCardStoppedByYouTests
         // the first line has the stop icon, the completed run is under it.
         Assert.Equal("ok", card.StatusClass);
         Assert.Equal("stopped", card.RunIconClass);
-        Assert.Equal("Stopped by you · 1 min ago", card.LastRunLabel);
-        Assert.StartsWith("1 h ago", card.LastCompletedLabel); // ended 1 h 50 min ago
+        Assert.Equal("Stopped by you · 1m ago", card.LastRunLabel);
+        Assert.StartsWith("1h ago", card.LastCompletedLabel); // ended 1 h 50m ago
         Assert.Equal("ok", card.LastCompletedClass);
         Assert.Equal(BackupRunStatus.Success, card.DisplayedRunStatus); // what the overall status and tray read
 

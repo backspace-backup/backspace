@@ -26,23 +26,38 @@ public static class HumanFormat
     }
 
     /// <summary>Format a duration as the most natural pair of units
-    /// (seconds; minutes+seconds; hours+minutes; days+hours), with a space
-    /// before each unit as everywhere else: "45 s", "4 min 05 s", "1 h 05 min".</summary>
+    /// (seconds; minutes+seconds; hours+minutes; days+hours), compact and
+    /// without padding zeros, as everywhere in Backspace (owner, 15 November
+    /// 2026: "1d ago (no space), 1m ago ... about 10m left", and "don't show
+    /// 07 in time periods"): "45s", "4m 5s", "1h 5m", "2d 3h"; a zero second
+    /// part is left out ("4m", "1h").</summary>
     public static string Duration(TimeSpan d)
     {
-        if (d.TotalSeconds < 60) return $"{d.TotalSeconds:0} s";
-        if (d.TotalMinutes < 60) return $"{(int)d.TotalMinutes} min {d.Seconds:00} s";
-        if (d.TotalHours   < 24) return $"{(int)d.TotalHours} h {d.Minutes:00} min";
-        return $"{(int)d.TotalDays} d {d.Hours:00} h";
+        if (d < TimeSpan.Zero) d = TimeSpan.Zero;
+        if (d.TotalSeconds < 60) return $"{(int)Math.Round(d.TotalSeconds)}s";
+        if (d.TotalMinutes < 60) return Pair((int)d.TotalMinutes, "m", d.Seconds, "s");
+        if (d.TotalHours   < 24) return Pair((int)d.TotalHours, "h", d.Minutes, "m");
+        return Pair((int)d.TotalDays, "d", d.Hours, "h");
     }
 
+    /// <summary>A rough duration, for a time that keeps moving (a run so
+    /// far): "45s", "12m", "1h 5m".</summary>
+    public static string Rough(TimeSpan d)
+    {
+        if (d < TimeSpan.Zero) d = TimeSpan.Zero;
+        if (d.TotalSeconds < 60) return $"{(int)d.TotalSeconds}s";
+        if (d.TotalMinutes < 60) return $"{(int)d.TotalMinutes}m";
+        return Duration(TimeSpan.FromMinutes(Math.Floor(d.TotalMinutes)));
+    }
+
+    private static string Pair(int big, string bigUnit, int small, string smallUnit)
+        => small == 0 ? $"{big}{bigUnit}" : $"{big}{bigUnit} {small}{smallUnit}";
+
     /// <summary>
-    /// "just now" / "5 min ago" / "3 h ago" / "12 d ago": how long ago
-    /// something happened, for every card, tile and helper text. The units
-    /// are written as in durations ("1 h 12 min"), with a space (SI style;
-    /// owner, 15 November 2026: "why does it show 2d ago and 3h ago but for
-    /// the duration it shows with the space"). The one place this wording
-    /// lives.
+    /// "just now" / "5m ago" / "3h ago" / "12d ago": how long ago something
+    /// happened, for every card, tile and helper text, in the same compact
+    /// units as durations (owner, 15 November 2026). The one place this
+    /// wording lives.
     /// </summary>
     public static string Ago(DateTime utc) => Ago(utc, DateTime.UtcNow);
 
@@ -51,8 +66,8 @@ public static class HumanFormat
     {
         var d = nowUtc - utc;
         if (d < TimeSpan.FromMinutes(1)) return "just now";
-        if (d < TimeSpan.FromHours(1))   return $"{(int)d.TotalMinutes} min ago";
-        if (d < TimeSpan.FromDays(1))    return $"{(int)d.TotalHours} h ago";
-        return $"{(int)d.TotalDays} d ago";
+        if (d < TimeSpan.FromHours(1))   return $"{(int)d.TotalMinutes}m ago";
+        if (d < TimeSpan.FromDays(1))    return $"{(int)d.TotalHours}h ago";
+        return $"{(int)d.TotalDays}d ago";
     }
 }

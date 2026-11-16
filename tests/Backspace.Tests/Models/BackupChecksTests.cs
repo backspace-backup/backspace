@@ -170,16 +170,16 @@ public sealed class BackupChecksTests
         var start = new DateTime(2026, 11, 10, 3, 0, 0, DateTimeKind.Utc);
         var run = new RunRecord { StartedUtc = start, EndedUtc = start.AddMinutes(7).AddSeconds(50) };
         run.Cells.Add(new CellOutcome { DestinationName = "Google Drive", Status = BackupRunStatus.Success, Summary = "Backup check result: STATUS_SUCCESS." });
-        Assert.Equal("Data check (1 GiB sample) passed in 7 min 50 s.", CheckRunWording.Summary(check, run, [], metered: false));
+        Assert.Equal("Data check (1 GiB sample) passed in 7m 50s.", CheckRunWording.Summary(check, run, [], metered: false));
         run.Cells[0].Status = BackupRunStatus.Failed; run.Cells[0].LastError = "pack 1a2b is damaged";
         Assert.Equal("Data check (1 GiB sample) did not pass: pack 1a2b is damaged.", CheckRunWording.Summary(check, run, [], metered: false));
         var waiting = new RunRecord { StartedUtc = start, EndedUtc = start };
         waiting.Cells.Add(new CellOutcome { DestinationName = "My Passport", Status = BackupRunStatus.Skipped, DestinationUnavailable = true });
         Assert.Equal("Data check (1 GiB sample) waits for «My Passport»: it runs by itself right after the next backup there.",
             CheckRunWording.Summary(check, waiting, ["My Passport"], metered: false));
-        Assert.Equal("45 s", CheckRunWording.Duration(TimeSpan.FromSeconds(45)));
-        Assert.Equal("20 min 1 s", CheckRunWording.Duration(TimeSpan.FromSeconds(1201.3)));
-        Assert.Equal("1 h 05 min", CheckRunWording.Duration(TimeSpan.FromMinutes(65)));
+        Assert.Equal("45s", CheckRunWording.Duration(TimeSpan.FromSeconds(45)));
+        Assert.Equal("20m 1s", CheckRunWording.Duration(TimeSpan.FromSeconds(1201.3)));
+        Assert.Equal("1h 5m", CheckRunWording.Duration(TimeSpan.FromMinutes(65)));
         Assert.DoesNotContain("parts", CheckRunWording.Summary(check, run, [], metered: false));
     }
 
@@ -197,18 +197,18 @@ public sealed class BackupChecksTests
         };
         var lines = BackupCheckHistory.KindLines(backup, entries, now);
         // A data sample also checks the structure.
-        Assert.Equal(new[] { "Structure check · passed 1 h ago", "Data check · passed 1 h ago", "Restore check · failed 3 h ago" }, lines);
+        Assert.Equal(new[] { "Structure check · passed 1h ago", "Data check · passed 1h ago", "Restore check · failed 3h ago" }, lines);
         // A weekly check last run 20 days ago is due again.
         var old = new[] { new BackupCheckEntry("3", now.AddDays(-20), BackupRunStatus.Success, CheckDepth.RepositoryStructure, "") };
-        Assert.Equal("Structure check · passed 20 d ago · due again", BackupCheckHistory.KindLines(backup, old, now)[0]);
+        Assert.Equal("Structure check · passed 20d ago · due again", BackupCheckHistory.KindLines(backup, old, now)[0]);
         Assert.Equal("Data check · not run yet", BackupCheckHistory.KindLines(backup, old, now)[1]);
         Assert.Equal(lines, BackupCheckHistory.State(backup, entries, now).Kinds);
         // One line on the card in the Checks list's names; a failure wins over a later pass; each check in the hover.
         var state = BackupCheckHistory.State(backup, entries, now);
-        Assert.Equal("Restore check failed · 3 h ago", state.Label);
+        Assert.Equal("Restore check failed · 3h ago", state.Label);
         Assert.EndsWith("Each check:\n" + string.Join("\n", lines), state.Details);
         backup.Checks.RemoveAll(c => c.Kind == CheckKind.TestRestore);
         var ok = BackupCheckHistory.State(backup, new[] { entries[0] }, now);
-        Assert.Equal(("Data check passed · 1 h ago", "ok"), (ok.Label, ok.Tone));
+        Assert.Equal(("Data check passed · 1h ago", "ok"), (ok.Label, ok.Tone));
     }
 }

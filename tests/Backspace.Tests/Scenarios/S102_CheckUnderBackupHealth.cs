@@ -102,7 +102,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         Assert.Equal("ok", cardD.StatusClass);
         var label = view.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "CheckRunText");
         Assert.True(label.IsEffectivelyVisible);
-        Assert.Equal("Data check (1 of 2) · 7 min", label.Text);
+        Assert.Equal("Data check (1 of 2) · 7m", label.Text);
         var bar = view.GetVisualDescendants().OfType<ProgressBar>().Single(b => b.Name == "CheckProgressBar");
         Assert.True(bar.IsEffectivelyVisible);
         Assert.False(bar.IsIndeterminate);
@@ -111,7 +111,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         var summary = view.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "CheckSummary");
         Assert.True(summary.Classes.Contains("running"));
         var tip = Assert.IsType<string>(ToolTip.GetTip(view.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "CheckRunning")));
-        Assert.StartsWith("Data check (1 GiB sample) (1 of 2)\nOn Google Drive\nReading the data sample · 20 of 64 packs\nAbout 52% of this check done\nRunning for 7 min\n\n", tip);
+        Assert.StartsWith("Data check (1 GiB sample) (1 of 2)\nOn Google Drive\nReading the data sample · 20 of 64 packs\nAbout 52% of this check done\nRunning for 7m\n\n", tip);
         Assert.Contains("downloads a sample of the stored data", tip);
         Assert.DoesNotContain("0.0%", tip);
         ctx.Snapshot(host, "a check running under backup health",
@@ -126,7 +126,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         // Before restic gives a count: the bar moves without a percentage.
         progress.ReportActivity(localD.Id, "Restore check (1% of files, at most 1 GiB) (2 of 2)");
         await ctx.Driver.PumpAsync(150);
-        Assert.Equal("Restore check (2 of 2) · 7 min", label.Text);
+        Assert.Equal("Restore check (2 of 2) · 7m", label.Text);
         Assert.True(bar.IsIndeterminate);
         Assert.False(view.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "CheckStepText").IsVisible);
 
@@ -180,7 +180,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         cardDrop.IsVerifying = true;
         await ctx.Driver.PumpAsync(100);
         Assert.True(cardDrop.ShowsTestRestore);
-        Assert.Equal("Restore check · 2 min", cardDrop.CheckRunLabel);
+        Assert.Equal("Restore check · 2m", cardDrop.CheckRunLabel);
         Assert.False(cardDrop.CheckProgressKnown); // nothing counted yet
         Assert.Equal("Preparing the files to restore", cardDrop.CheckStepLine.Replace("Google Drive · ", ""));
         ServiceLocator.ActiveRestores.UpdateProgress(test, 400, 120, 1000, 300);

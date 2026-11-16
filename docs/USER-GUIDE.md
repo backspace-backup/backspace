@@ -541,11 +541,11 @@ that couldn't be unticked; Backspace moved its rules into the Essentials
 group of each saved backup when it first started, leaving out the same files.
 
 After a backup, its card's **Last backup** says when and how much was
-uploaded, for example **15 min ago · 27.4 MB uploaded** (with the number of
+uploaded, for example **15m ago · 27.4 MB uploaded** (with the number of
 warnings, if any; a failed or skipped backup says why). Under 1 MB it counts
-files instead, for example **3 h ago · no changes** or **2 files changed**.
+files instead, for example **3h ago · no changes** or **2 files changed**.
 A backup or check you stop yourself does not change the colour: the line says
-**Stopped by you · 3 min ago** with a stop sign, and the last completed one
+**Stopped by you · 3m ago** with a stop sign, and the last completed one
 is under it with its own mark. Hovering it shows when
 it finished, how long it took, and how many files were new, changed and
 deleted; **Activity** lists them too. While a backup or a check runs, the
@@ -553,12 +553,12 @@ card's **Activity** starts with it ("Running") and **Open live log**, which
 opens Activity & logs on its live output.
 
 While a backup runs, its card says **Running** with a turning icon and the
-time the run has taken so far, for example **Running · 12 min** (counted from
+time the run has taken so far, for example **Running · 12m** (counted from
 the run's start, for a backup run by the background service too, without the
 time it spent queued: see [Simultaneous backups](#simultaneous-backups)). Each source
 and the strip below show the percentage, and the line under the strip says
 what is done, in the order it happens, kept to one line: for example
-"88,211 of ~109,320 files checked · about 40 min left". Hovering it shows
+"88,211 of ~109,320 files checked · about 40m left". Hovering it shows
 everything, one item per line: the size ("30 of ~178 GB"), the new data
 uploaded and its speed ("2.6 GB of new data uploaded, 5.7 MB/s") too. The totals, marked "~", are Backspace's own listing
 of the source with the backup's rules, made as the backup starts (seconds for
@@ -586,7 +586,7 @@ date (in `%LOCALAPPDATA%\Backspace\change-lists`; a cache it rebuilds when
 missing). At the start of the next backup it lists the source again (seconds)
 and compares: a file whose size or date differs is one the engine will read,
 as the engine itself decides. The line then reads, for example, "504,701 of 601,922 files checked ·
-3.1 of ~9.0 GB of changes backed up · about 25 min left" (or "no changed
+3.1 of ~9.0 GB of changes backed up · about 25m left" (or "no changed
 files" when nothing changed); the hover adds the size (190 GB) and "881 MB of
 new data uploaded, 3.8 MB/s". The percentage and the time left are of
 the work: checking the unchanged files counts for a small part, reading and
@@ -810,7 +810,7 @@ sentence and no settings.
 ### Verify
 
 Choose **Verify** on a backup card. Its window lists the backup's own checks,
-ticked, each with its latest result ("Passed 2 d ago"), then the other kinds
+ticked, each with its latest result ("Passed 2d ago"), then the other kinds
 to run once without adding them to the backup. **Run** runs the ticked ones
 one after another; they show under Backup health like scheduled checks, and
 **Stop** ends them. A restore check run once comes last and runs like the
@@ -845,7 +845,7 @@ Checks due at the same time run one after another, never together, cheapest
 first, and backups wait for them on that destination. Each check's run in
 **Activity** says what happened in plain words, such as "Data check (1 GiB
 sample) passed in 7 min 50 s". The card's **Backup health** line names the
-latest result by the same names ("Data check passed · 4 min ago"; a failure
+latest result by the same names ("Data check passed · 4m ago"; a failure
 stays shown until that check passes again), and its hover lists each check's
 latest result. While a check runs, **Backup health** says so with a turning
 icon and the check's name, such as "Data check (1 of 2) · 7 min". Its bar and current

@@ -48,6 +48,9 @@ internal static class DisplayClock
         if (_tried) return;
         _tried = true;
         if (Environment.GetEnvironmentVariable("BACKSPACE_SLEEP_FRAMES") == "1") return;
+        // Only a real Windows window: the test harness draws without one, and
+        // its frames must stay its own.
+        if (top.TryGetPlatformHandle() is not { HandleDescriptor: "HWND" } handle || handle.Handle == IntPtr.Zero) { _tried = false; return; }
         try
         {
             var renderer = typeof(TopLevel).GetProperty("Renderer", Any)?.GetValue(top) ?? throw new InvalidOperationException("no renderer");
@@ -82,16 +85,24 @@ internal static class DisplayClock
         var waiter = new BlankWaiter();
         var sinceScreenCheck = Stopwatch.StartNew();
         waiter.Follow(_window);
+        var idle = 0;
         while (true)
         {
-            // Nothing to draw: Avalonia's thread sleeps until it is needed and
-            // draws the first frame at once; look again shortly.
-            if ((bool)stopped.GetValue(timer)!) { Thread.Sleep(20); continue; }
+            // Avalonia pauses its timer between frames when nothing waits to be
+            // drawn, often for a moment only. Keep following the refreshes
+            // through such pauses, so the next frame still lands on one; after
+            // half a second with nothing to draw, look only ten times a second
+            // (Avalonia's thread draws the first frame at once when needed).
+            if ((bool)stopped.GetValue(timer)!)
+            {
+                if (++idle > 50) { Thread.Sleep(100); continue; }
+            }
+            else idle = 0;
             // Follow the window to another screen.
             if (sinceScreenCheck.Elapsed > TimeSpan.FromSeconds(2)) { waiter.Follow(_window); sinceScreenCheck.Restart(); }
             // A fast screen (120 Hz and more) gets a frame on every second or
-            // third refresh: about 60 a second, always on a refresh.
-            if (waiter.Wait() % waiter.Every == 0) wake.Set();
+            // fourth refresh: 60 to 110 a second, always on a refresh.
+            if (waiter.Wait() % waiter.Every == 0 && !(bool)stopped.GetValue(timer)!) wake.Set();
         }
     }
 
@@ -132,8 +143,9 @@ internal static class DisplayClock
             finally { DeleteDC(dc); }
         }
 
-        /// <summary>Refreshes per frame: the fewest that keep frames at
-        /// most about 12.5 ms apart (80 a second).</summary>
+        /// <summary>Refreshes per frame: every refresh below 120 Hz, every
+        /// second on 120-165 Hz, every fourth on 240 Hz (60 to 110 frames a second;
+        /// 1.1.52 drew only 48 a second on a 96 Hz screen).</summary>
         public int Every { get; private set; } = 1;
         private long _count;
         private double _gapSum;
@@ -161,7 +173,7 @@ internal static class DisplayClock
                         _gapSum += gap; _gaps++;
                         if (_gaps == 60)
                         {
-                            Every = Math.Max(1, (int)Math.Ceiling(12.5 / (_gapSum / _gaps) - 0.05));
+                            Every = Math.Max(1, (int)Math.Floor(17.0 / (_gapSum / _gaps)));
                             Log.Information("Screen refresh {Hz:F0} Hz: a frame every {Every} refreshes", 1000 / (_gapSum / _gaps), Every);
                         }
                     }

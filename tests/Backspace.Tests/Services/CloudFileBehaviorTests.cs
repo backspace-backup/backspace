@@ -195,7 +195,7 @@ public class CloudFileBehaviorTests
 
         var (label, hover) = LastRunLine.For(summary, BackupRunStatus.Success, started.AddSeconds(90), started.AddMinutes(5));
         Assert.Contains(phrase + ", kept only in the cloud", hover);
-        Assert.Contains("took 1 min 30 s", hover);
+        Assert.Contains("took 1m 30s", hover);
         Assert.DoesNotContain("online-only", label);
 
         // Nothing skipped: nothing said.
@@ -204,7 +204,7 @@ public class CloudFileBehaviorTests
         Assert.DoesNotContain("online-only", LastRunLine.For("1 MB uploaded · in 4s", BackupRunStatus.Success, started, started).Hover);
         // A run that did nothing else still reads "Completed in".
         var noop = new RunRecord { StartedUtc = started, EndedUtc = started.AddSeconds(6), Status = BackupRunStatus.Success, CloudOnlySkipped = 1 };
-        Assert.Equal("Completed in 6 s · 1 online-only file skipped", BackupOrchestrator.BuildSummary(noop));
+        Assert.Equal("Completed in 6s · 1 online-only file skipped", BackupOrchestrator.BuildSummary(noop));
         Assert.Contains("1 online-only file skipped, kept only in the cloud", LastRunLine.For(BackupOrchestrator.BuildSummary(noop), BackupRunStatus.Success, started, started).Hover);
     }
 }

@@ -87,14 +87,8 @@ internal sealed class MaintenanceRunLog : IDisposable
         }
     }
 
-    /// <summary>"8 min 8 s", "45 s", "1 h 12 min": how long a part took.</summary>
-    internal static string Took(TimeSpan span)
-    {
-        if (span < TimeSpan.Zero) span = TimeSpan.Zero;
-        if (span.TotalHours >= 1) return $"{(int)span.TotalHours} h {span.Minutes} min";
-        if (span.TotalMinutes >= 1) return $"{(int)span.TotalMinutes} min {span.Seconds} s";
-        return $"{Math.Max(0, (int)Math.Round(span.TotalSeconds))} s";
-    }
+    /// <summary>"8m 8s", "45s", "1h 12m": how long a part took.</summary>
+    internal static string Took(TimeSpan span) => HumanFormat.Duration(span);
 
     /// <summary>A check's progress as log lines, not one a second (U233): a
     /// line when its step changes, at each further tenth, or after a minute

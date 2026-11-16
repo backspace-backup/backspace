@@ -61,7 +61,7 @@ public sealed class S86_ProgressOfTheChanges : ScenarioBase
         long sent = 0;
         var live = new BackupLiveProgress(() => 190_000_000_000, () => sent, () => plan, () => null);
         var start = new DateTime(2026, 11, 5, 10, 34, 0, DateTimeKind.Utc);
-        // U155: the card's "Running · 6 min" follows the simulated clock.
+        // U155: the card's "Running · 6m" follows the simulated clock.
         var clock = start;
         card.UtcNow = () => clock;
         card.SetRunning(start);
@@ -96,16 +96,16 @@ public sealed class S86_ProgressOfTheChanges : ScenarioBase
         Assert.Contains("0 B of ~8.4 GB changed files backed up", card.ProgressDetail);
         Assert.Contains("551,000 of 600,001 files checked (176 GB)", card.ProgressDetail);
         await ctx.Driver.PumpAsync(1_200); // the card's one-second refresh of the time running
-        Assert.Equal("Running · 6 min", card.RunningLabel);
+        Assert.Equal("Running · 6m", card.RunningLabel);
         ctx.Snapshot(host, "unchanged files checked",
             $"Six minutes in, the 551,000 unchanged files before the large one are checked: {checkedAll:0}%, not 91%. Nothing of the 8.4 GB of changes is backed up yet, and the time left counts them at the expected upload pace.");
         await Until(1_800, 370);
         var later = card.Sources.Single().PercentComplete;
         Assert.InRange(later, checkedAll + 25, 95);
-        Assert.Contains("min left", card.ProgressDetail);
+        Assert.Contains("m left", card.ProgressDetail);
         await ctx.Driver.PumpAsync(1_200);
         var runningText = host.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>().Single(t => t.Name == "RunningText");
-        Assert.Equal("Running · 30 min", runningText.Text);
+        Assert.Equal("Running · 30m", runningText.Text);
         // U155: said as the actions, in the order the work happens.
         Assert.Matches(@"^Backing up · 551,000 of 600,001 files checked \(176 GB\) · [0-9.]+ of ~8\.4 GB changed files backed up · [0-9.]+ [KMG]?B of new data uploaded, [0-9.]+ MB/s · about .+ left$", card.ProgressDetail);
         // U193: the card shows the short form on one line; the hover keeps

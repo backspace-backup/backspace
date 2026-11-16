@@ -124,7 +124,7 @@ public sealed class CheckOverdueTests
         var backup = Backup();
         var history = new[] { Run(backup, RunKind.Check, T0, BackupRunStatus.Skipped, Cell(_drive, BackupRunStatus.Skipped, unavailable: true)) };
         var waiting = CheckOverdue.For(backup, history, Destinations);
-        var incomplete = new BackupCheckState("Check incomplete · 3 d ago", "stale", "", "");
+        var incomplete = new BackupCheckState("Check incomplete · 3d ago", "stale", "", "");
         var shown = CheckOverdue.Shown(incomplete, backup, waiting);
         Assert.Equal("Checks overdue: waits for the drive", shown.Label);
         Assert.NotEqual("fail", shown.Tone);
@@ -133,7 +133,7 @@ public sealed class CheckOverdueTests
         backup.Checks.RemoveAll(c => c.Kind == CheckKind.TestRestore);
         Assert.Equal("Structure check overdue: waits for the drive", CheckOverdue.Shown(incomplete, backup, CheckOverdue.For(backup, history, Destinations)).Label);
 
-        var failure = new BackupCheckState("Check needs attention · 3 d ago", "fail", "", "");
+        var failure = new BackupCheckState("Check needs attention · 3d ago", "fail", "", "");
         Assert.Same(failure, CheckOverdue.Shown(failure, backup, waiting));
         Assert.Same(incomplete, CheckOverdue.Shown(incomplete, backup, []));
     }

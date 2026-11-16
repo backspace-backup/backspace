@@ -27,10 +27,10 @@ public sealed class CommandLineTranscriptTests
         text += L("[restic] 00:39:09.512Z\tdebug\tcommand: restic check");
         text += L("[progress] 40% · Reading the data sample · Google Drive");
         transcript.Show(Activity());
-        text += L("[recap] Data check (1 GiB sample) passed on «Google Drive» in 8 min 8 s.");
+        text += L("[recap] Data check (1 GiB sample) passed on «Google Drive» in 8m 8s.");
         transcript.Show(Activity());
         transcript.Show(Activity()); // nothing new: nothing printed twice
-        var record = new RunRecord { BackupId = "b1", Status = BackupRunStatus.Success, Summary = "Data check (1 GiB sample) passed in 8 min 8 s.", StartedUtc = started, EndedUtc = DateTime.UtcNow };
+        var record = new RunRecord { BackupId = "b1", Status = BackupRunStatus.Success, Summary = "Data check (1 GiB sample) passed in 8m 8s.", StartedUtc = started, EndedUtc = DateTime.UtcNow };
         transcript.ShowSummary(Activity("completed", record));
         transcript.ShowSummary(Activity("completed", record));
 
@@ -38,8 +38,8 @@ public sealed class CommandLineTranscriptTests
         {
             "local_d · Data check (1 GiB sample) · Google Drive",
             "  40% · Reading the data sample · Google Drive",
-            "  Data check (1 GiB sample) passed on «Google Drive» in 8 min 8 s.",
-            "=> Data check (1 GiB sample) passed in 8 min 8 s.",
+            "  Data check (1 GiB sample) passed on «Google Drive» in 8m 8s.",
+            "=> Data check (1 GiB sample) passed in 8m 8s.",
         }, printed);
     }
 

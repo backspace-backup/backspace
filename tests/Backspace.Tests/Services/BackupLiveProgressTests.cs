@@ -33,7 +33,7 @@ public sealed class BackupLiveProgressTests
         Assert.Null(live.NextStatus(Operation(0.11, 5_500_000_000, 50_000_000_000, 1_100, 10_000), start.AddSeconds(2)));
         // The totals stayed the same for 30 s: they are final. 150 MB in 30 s,
         // 44.85 GB to go: about 2 h 29 min.
-        Assert.Equal("[progress] 10.3% · Backing up · 1,200 of 10,000 files checked (4.8 of 47 GB) · about 2 h 29 min left",
+        Assert.Equal("[progress] 10.3% · Backing up · 1,200 of 10,000 files checked (4.8 of 47 GB) · about 2h 29m left",
             live.NextStatus(Operation(0.103, 5_150_000_000, 50_000_000_000, 1_200, 10_000), start.AddSeconds(30)));
     }
 
@@ -184,7 +184,7 @@ public sealed class BackupLiveProgressTests
     [Fact]
     public void The_counted_total_is_read_only_once_the_count_is_complete()
     {
-        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 91.6% · Backing up · 504,701 of 601,922 files checked (172 of 190 GB) · 881 MB of new data uploaded, 3.8 MB/s · about 2 min left"));
+        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 91.6% · Backing up · 504,701 of 601,922 files checked (172 of 190 GB) · 881 MB of new data uploaded, 3.8 MB/s · about 2m left"));
         Assert.Equal("1.2 GB", BackupLiveProgress.CountedTotal("Backing up · 12 of 40 files checked (880 MB of 1.2 GB)"));
         Assert.Null(BackupLiveProgress.CountedTotal("[progress] 13.0% · Backing up · 41,135 of 56,281+ files checked (23 of ~177 GB) · 1.6 MB of new data uploaded"));
         Assert.Null(BackupLiveProgress.CountedTotal("[progress] 0.0% · Backing up · 1,000 of 10,000+ files checked (4.7 GB)"));
@@ -196,9 +196,9 @@ public sealed class BackupLiveProgressTests
     [Fact]
     public void Lines_in_the_wording_before_U155_are_still_read()
     {
-        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 91.6% · Backing up · 172 / 190 GB · 504,701 / 601,922 files · 881 MB sent at 3.8 MB/s · about 2 min left"));
+        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 91.6% · Backing up · 172 / 190 GB · 504,701 / 601,922 files · 881 MB sent at 3.8 MB/s · about 2m left"));
         Assert.Equal("1.2 GB", BackupLiveProgress.CountedTotal("Backing up · 880 MB / 1.2 GB · 12 / 40 files"));
-        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal("[progress] 30.0% · Backing up · changes 3.1 / ~9.0 GB · 2,000 / ~20,000 files, ~47 GB · about 5 min left"));
+        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal("[progress] 30.0% · Backing up · changes 3.1 / ~9.0 GB · 2,000 / ~20,000 files, ~47 GB · about 5m left"));
         Assert.Null(BackupLiveProgress.CountedTotal("[progress] 13.0% · Backing up · 23 / ~177 GB · 41,135 / 56,281+ files · 1.6 MB sent"));
         Assert.Null(BackupLiveProgress.CountedTotal("[progress] 0.0% · Backing up · 4.7 GB · 1,000 / 10,000+ files"));
     }
@@ -230,7 +230,7 @@ public sealed class BackupLiveProgressTests
         Assert.Equal("[progress] 10.0% · Backing up · 2,000 of ~20,000 files checked (4.7 of ~47 GB)", second);
         Assert.Equal("47 GB", BackupLiveProgress.CountedTotal(second));
         // The changes' total is never taken for the source's.
-        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal("[progress] 30.0% · Backing up · 2,000 of ~20,000 files checked (~47 GB) · 3.1 of ~9.0 GB changed files backed up · about 5 min left"));
+        Assert.Equal("47 GB", BackupLiveProgress.CountedTotal("[progress] 30.0% · Backing up · 2,000 of ~20,000 files checked (~47 GB) · 3.1 of ~9.0 GB changed files backed up · about 5m left"));
         // Time left from the pace, as with restic's totals.
         var t = start.AddSeconds(5);
         string? line = null;
@@ -255,7 +255,7 @@ public sealed class BackupLiveProgressTests
     public void The_size_a_finished_backup_read_is_taken_from_its_recap()
     {
         Assert.Equal(195L << 30, BackupLiveProgress.CheckedBytes(
-            "[recap] Backup complete: 717,930 files (195 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 388 MB added to the storage · took 14 min 04 s"));
+            "[recap] Backup complete: 717,930 files (195 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 388 MB added to the storage · took 14m 4s"));
         Assert.Equal((long)(5.5 * (1L << 30)), Checked("5.5 GB"));
         Assert.Equal(812, Checked("812 B"));
         Assert.Null(BackupLiveProgress.CheckedBytes("[progress] 10.0% · Backing up · 5.0 GB of 50 GB"));
@@ -289,7 +289,7 @@ public sealed class BackupLiveProgressTests
             message_type = "summary", files_new = 891, files_changed = 12236, files_unmodified = 704803, data_added = 387529000,
             total_files_processed = 717930, total_bytes_processed = 194637000000, total_duration = 844.2, snapshot_id = "abc",
         }))!;
-        Assert.Equal("[recap] Backup complete: 717,930 files (181 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 370 MB added to the storage · took 14 min 04 s",
+        Assert.Equal("[recap] Backup complete: 717,930 files (181 GB) checked · 891 new, 12,236 changed, 704,803 unchanged · 370 MB added to the storage · took 14m 4s",
             BackupLiveProgress.RecapOf(finished));
         // A failed or stopped run has no summary message, so no recap.
         Assert.Null(BackupLiveProgress.FromResticSummary(JsonDocument.Parse("[]").RootElement.Clone()));
@@ -305,9 +305,9 @@ public sealed class BackupLiveProgressTests
         Assert.DoesNotContain("left", live.NextStatus(Operation(0.1, 5_000_000_000, 50_000_000_000, 1_000, 10_000), start));
         // 40 s later, totals unchanged, 1.2 GB more: 30 MB/s on average, 43.8 GB to go, about 25 min.
         var line = live.NextStatus(Operation(0.124, 6_200_000_000, 50_000_000_000, 1_100, 10_000), start.AddSeconds(40))!;
-        Assert.EndsWith(" · about 25 min left", line);
+        Assert.EndsWith(" · about 25m left", line);
         Assert.Equal("under a minute left", BackupLiveProgress.TimeLeft(TimeSpan.FromSeconds(40)));
-        Assert.Equal("about 2 h 05 min left", BackupLiveProgress.TimeLeft(TimeSpan.FromMinutes(125)));
+        Assert.Equal("about 2h 5m left", BackupLiveProgress.TimeLeft(TimeSpan.FromMinutes(125)));
     }
 
     [Fact]
@@ -315,7 +315,7 @@ public sealed class BackupLiveProgressTests
     {
         // local_c, 4 November 2026: the first 88 GB were already stored and
         // went by at hundreds of MB/s; then new data went at about 4.5 MB/s.
-        // The average since the start said "about 23 min left".
+        // The average since the start said "about 23m left".
         var live = new BackupLiveProgress();
         var start = new DateTime(2026, 11, 4, 12, 40, 0, DateTimeKind.Utc);
         const long total = 190_000_000_000;
@@ -326,11 +326,11 @@ public sealed class BackupLiveProgressTests
             line = live.NextStatus(Operation(done / (double)total, done, total, t, 586_638), start.AddSeconds(t)) ?? line;
         }
         // 100.4 GB to go at 4.5 MB/s: about 6 hours, not minutes.
-        Assert.Contains(" · about 6 h ", line);
+        Assert.Contains(" · about 6h ", line);
     }
 
     /// <summary>U140 (5 November 2026): after minutes of unchanged files, local_c
-    /// reached a large changed file and said "about 2 min left" while sending
+    /// reached a large changed file and said "about 2m left" while sending
     /// it at 3.8 MB/s with 18 GB to go. The last minute's slower pace now counts.</summary>
     [Fact]
     public void A_slowdown_lengthens_the_time_left_at_once_and_a_steady_pace_is_unchanged()
@@ -348,9 +348,9 @@ public sealed class BackupLiveProgressTests
             if (t == 440) slow = line;
         }
         // Steady fast pace: the minute and the five minutes agree, 30 GB at 400 MB/s.
-        Assert.EndsWith(" · about 2 min left", fast);
+        Assert.EndsWith(" · about 2m left", fast);
         // 80 s into the slow part, 17.7 GB to go at 3.8 MB/s: over an hour, not 2 min.
-        Assert.Contains(" · about 1 h ", slow);
+        Assert.Contains(" · about 1h ", slow);
     }
 
     [Fact]
@@ -371,7 +371,7 @@ public sealed class BackupLiveProgressTests
             total_files_processed = 6, total_bytes_processed = 5000, total_duration = 61.0,
             snapshot_id = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
         }))!;
-        Assert.EndsWith(" · took 1 min 01 s · snapshot 1a2b3c4d", BackupLiveProgress.RecapOf(finished));
+        Assert.EndsWith(" · took 1m 1s · snapshot 1a2b3c4d", BackupLiveProgress.RecapOf(finished));
     }
 
     [Fact]

@@ -12,8 +12,12 @@ namespace Backspace.Services;
 /// previous backup and reading the backup's index can take minutes and restic
 /// says nothing meanwhile. The first <see cref="Share"/> percent of the bar
 /// fills over the time the last backup of this plan took for it (45 s when
-/// never measured), never quite reaching the end until restic reports; the
-/// card says what happens, for how long so far, and how long it usually takes.
+/// never measured), never quite reaching the end until restic reports. The
+/// card says only "Preparing the backup" and for how long so far (owner, 15
+/// November 2026: "usually about 2 min 07 s" was misleading, since the steps
+/// differ in length; "just show a more generic wording for the initial phase
+/// (the details of each phase are in the logs)"). Each step is written to the
+/// run's log as it starts.
 /// Restic's own progress then fills the rest of the bar.
 /// </summary>
 internal sealed class BackupPreparation : IDisposable
@@ -52,7 +56,16 @@ internal sealed class BackupPreparation : IDisposable
     }
 
     /// <summary>What happens now, said at once.</summary>
-    internal void Step(string text) { _step = text; Report(); }
+    internal void Step(string text)
+    {
+        _step = text;
+        if (Volatile.Read(ref _done) == 0)
+            try { _announce(text + "…"); } catch (Exception) { /* a closed log must not stop the backup */ }
+        Report();
+    }
+
+    /// <summary>What the card says during the preparation.</summary>
+    internal const string Wording = "Preparing the backup";
 
     /// <summary>The line for now: the share of the bar used so far, what
     /// happens, the time so far and the usual time.</summary>
@@ -64,9 +77,8 @@ internal sealed class BackupPreparation : IDisposable
             ? 0.9 * elapsed.TotalSeconds / _expected.TotalSeconds
             : 1 - 0.1 * Math.Exp(-(elapsed - _expected).TotalSeconds / (3 * _expected.TotalSeconds));
         var percent = Share * Math.Clamp(fraction, 0, 0.99);
-        var usual = _measured ? $" (usually about {Duration(_expected)})" : "";
         return BackupLiveProgress.Prefix + percent.ToString("0.0", CultureInfo.InvariantCulture) + "% · "
-            + _step + " · " + Duration(elapsed) + usual;
+            + Wording + " · " + Duration(elapsed);
     }
 
     private void Report()
@@ -96,9 +108,7 @@ internal sealed class BackupPreparation : IDisposable
         return BackupLiveProgress.Prefix + scaled.ToString("0.0", CultureInfo.InvariantCulture) + rest[end..];
     }
 
-    internal static string Duration(TimeSpan span) => span.TotalSeconds < 60
-        ? $"{Math.Max(0, (int)span.TotalSeconds)} s"
-        : $"{(int)span.TotalMinutes} min {span.Seconds:00} s";
+    internal static string Duration(TimeSpan span) => HumanFormat.Duration(span < TimeSpan.Zero ? TimeSpan.Zero : span);
 
     public void Dispose()
     {

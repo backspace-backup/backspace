@@ -36,7 +36,7 @@ public sealed class S107_LiveLogOfServiceCheck : ScenarioBase
         var now = DateTime.UtcNow;
         ServiceLocator.Logs.AppendRun(new RunRecord { BackupId = localD.Id, BackupName = localD.Name, Kind = RunKind.Check, CheckKind = CheckKind.DataSample,
             StartedUtc = now.AddMinutes(-20), EndedUtc = now.AddMinutes(-12), Status = BackupRunStatus.Success,
-            Summary = "Data check (1 GiB sample) passed in 8 min 8 s." });
+            Summary = "Data check (1 GiB sample) passed in 8m 8s." });
         ServiceLocator.Logs.AppendRun(new RunRecord { BackupId = localC.Id, BackupName = localC.Name,
             StartedUtc = now.AddMinutes(-13), EndedUtc = now.AddMinutes(-5), Status = BackupRunStatus.Skipped, Summary = "Stopped after 8m 10s" });
 

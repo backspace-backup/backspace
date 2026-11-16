@@ -388,8 +388,8 @@ internal sealed class BackupLiveProgress
 
     internal static string TimeLeft(TimeSpan left) =>
         left < TimeSpan.FromMinutes(1) ? "under a minute left"
-        : left < TimeSpan.FromHours(1) ? $"about {Math.Ceiling(left.TotalMinutes):0} min left"
-        : $"about {(int)left.TotalHours} h {left.Minutes:00} min left";
+        : left < TimeSpan.FromHours(1) ? $"about {Math.Ceiling(left.TotalMinutes):0}m left"
+        : $"about {HumanFormat.Duration(TimeSpan.FromMinutes(Math.Floor(left.TotalMinutes)))} left";
 
     // In units of 1,024, like the sizes on the backup card and in Windows:
     // the card said "about 177.69 GB" for the 190.8 billion bytes the

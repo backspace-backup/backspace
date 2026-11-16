@@ -834,25 +834,61 @@
         </StackPanel>
       </Border>
 
+      <!-- App updates (U253, owner 15 November 2026: "make better use of the
+           space ... avoid redundant stuff and make it more intuitive where you
+           have to click and see info"). One line says which version you have
+           and when it was checked, with Check now beside it. A newer version
+           is one card: its name, what changed (shown, not folded away), and
+           the two choices beside the name. The status line only appears when
+           it says something else. The schedule of checks comes last. -->
       <Border x:Name="AppUpdatesCard" Classes="settings-card" Padding="20" IsVisible="{Binding Updates.Supported}">
         <StackPanel Spacing="16" DataContext="{Binding Updates}" x:DataType="vm:WindowsUpdateViewModel">
           <Grid ColumnDefinitions="*,Auto">
             <StackPanel Spacing="4">
               <TextBlock Classes="section-title" Text="App updates" Margin="0"/>
-              <TextBlock Classes="helper" Text="{Binding CurrentVersionText}"/>
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Classes="helper" Text="{Binding CurrentVersionText}"/>
+                <TextBlock Classes="helper" Text="·"/>
+                <TextBlock Classes="helper" Name="LastChecked" Text="{Binding LastCheckedText}"/>
+                <TextBlock Classes="helper" Text="·"/>
+                <Button Classes="link-text" FontWeight="Normal" FontSize="13" Name="ReleasePage" Command="{Binding OpenReleaseNotesCommand}"
+                        ToolTip.Tip="Opens Backspace's releases on GitHub">
+                  <TextBlock Text="Release notes"/>
+                </Button>
+              </StackPanel>
             </StackPanel>
             <Button Grid.Column="1" Classes="ghost" Content="Check now" Command="{Binding CheckNowCommand}" VerticalAlignment="Center"/>
           </Grid>
-          <Grid ColumnDefinitions="*,18,180">
-            <StackPanel Spacing="5" VerticalAlignment="Center">
-              <TextBlock Classes="body" FontWeight="SemiBold" Text="Check automatically"/>
-              <TextBlock Classes="helper" TextWrapping="Wrap" Text="We’ll let you know when a stable release is available. You choose when to download and restart."/>
+
+          <!-- A newer version: one card with everything about it. -->
+          <Border Name="UpdateCard" Classes="notice info" Padding="16,14" IsVisible="{Binding HasUpdate}">
+            <StackPanel Spacing="12">
+              <Grid ColumnDefinitions="Auto,12,*,12,Auto">
+                <Border Classes="notice-glyph" VerticalAlignment="Center">
+                  <PathIcon Data="{StaticResource Icon.ArrowDownTray}"/>
+                </Border>
+                <TextBlock Grid.Column="2" Name="UpdateTitle" Classes="body" FontWeight="SemiBold" FontSize="15" VerticalAlignment="Center"
+                           Text="{Binding UpdateTitle}" TextWrapping="Wrap"/>
+                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                  <Button Classes="ghost" Content="Skip this version" Command="{Binding SkipVersionCommand}" IsVisible="{Binding !Skipped}"
+                          ToolTip.Tip="Automatic checks won't mention this version again."/>
+                  <Button Classes="primary" Name="DownloadAndRestart" Content="Download and restart" Command="{Binding DownloadAndRestartCommand}"/>
+                </StackPanel>
+              </Grid>
+              <!-- GitHub release notes, rendered from Markdown (U169), shown
+                   rather than folded away; long notes scroll. -->
+              <Border Background="{DynamicResource BS.Brush.BgElevated}" CornerRadius="8" Padding="14,10">
+                <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
+                  <views:MarkdownView x:Name="ReleaseNotes" Markdown="{Binding Notes}"/>
+                </ScrollViewer>
+              </Border>
+              <TextBlock Classes="helper" Text="{Binding InstallExplanation}" TextWrapping="Wrap"/>
             </StackPanel>
-            <ComboBox Grid.Column="2" ItemsSource="{Binding Frequencies}" SelectedItem="{Binding Frequency}" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
-          </Grid>
-          <!-- Something to act on (an update waiting for running work, U238)
-               is an amber notice with what to do; otherwise a quiet status. -->
-          <Border Name="UpdateStatus" CornerRadius="8" Padding="14" Classes="update-status"
+          </Border>
+
+          <!-- Checking, downloading, waiting for running work (U238, an amber
+               notice with what to do), a problem, or up to date. -->
+          <Border Name="UpdateStatus" CornerRadius="8" Padding="14" Classes="update-status" IsVisible="{Binding ShowsStatus}"
                   Classes.notice="{Binding StatusIsWarning}" Classes.warn="{Binding StatusIsWarning}">
             <StackPanel Spacing="10">
               <Grid ColumnDefinitions="Auto,*">
@@ -871,19 +907,14 @@
               </WrapPanel>
             </StackPanel>
           </Border>
-          <StackPanel IsVisible="{Binding HasUpdate}" Spacing="12">
-            <TextBlock Classes="body" FontWeight="SemiBold" Text="{Binding AvailableVersion}"/>
-            <Expander Header="What changed" IsExpanded="False">
-              <!-- GitHub release notes, rendered from Markdown (U169). -->
-              <views:MarkdownView x:Name="ReleaseNotes" Markdown="{Binding Notes}" Margin="0,12,0,0"/>
-            </Expander>
-            <TextBlock Classes="helper" Text="{Binding InstallExplanation}" TextWrapping="Wrap"/>
-            <WrapPanel Orientation="Horizontal">
-              <Button Classes="primary" Content="Download and restart" Command="{Binding DownloadAndRestartCommand}" Margin="0,0,10,8"/>
-              <Button Classes="ghost" Content="Skip this version" Command="{Binding SkipVersionCommand}" Margin="0,0,10,8"/>
-            </WrapPanel>
-          </StackPanel>
-          <Button Classes="ghost" Content="Open release page" Command="{Binding OpenReleaseNotesCommand}" HorizontalAlignment="Left"/>
+
+          <Grid ColumnDefinitions="*,18,180">
+            <StackPanel Spacing="4" VerticalAlignment="Center">
+              <TextBlock Classes="body" FontWeight="SemiBold" Text="Check automatically"/>
+              <TextBlock Classes="helper" TextWrapping="Wrap" Text="Backspace tells you when a stable release is out. You choose when to restart."/>
+            </StackPanel>
+            <ComboBox Grid.Column="2" ItemsSource="{Binding Frequencies}" SelectedItem="{Binding Frequency}" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+          </Grid>
         </StackPanel>
       </Border>
 

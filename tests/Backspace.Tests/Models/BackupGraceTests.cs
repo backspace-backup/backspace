@@ -77,8 +77,8 @@ public class BackupGraceTests
     [Theory]
     // SAME status repeats are capped within 24h.
     [InlineData(0, BackupRunStatus.Failed, BackupRunStatus.Failed, false)] // never notified → cap doesn't apply
-    [InlineData(1, BackupRunStatus.Failed, BackupRunStatus.Failed, true)]  // notified 1 h ago, same status → cap
-    [InlineData(23, BackupRunStatus.Failed, BackupRunStatus.Failed, true)] // 23 h ago, same status → still cap
+    [InlineData(1, BackupRunStatus.Failed, BackupRunStatus.Failed, true)]  // notified 1h ago, same status → cap
+    [InlineData(23, BackupRunStatus.Failed, BackupRunStatus.Failed, true)] // 23h ago, same status → still cap
     [InlineData(24, BackupRunStatus.Failed, BackupRunStatus.Failed, false)]// exactly 24h → cap released
     [InlineData(48, BackupRunStatus.Failed, BackupRunStatus.Failed, false)]// long past → cap released
     // STATUS TRANSITIONS always break through the cap, even within
@@ -122,7 +122,7 @@ public class BackupGraceTests
         var b = new Backup
         {
             CreatedUtc = AnchorUtc.AddYears(-1),
-            LastNotificationFiredUtc = AnchorUtc.AddHours(-2), // 2 h ago
+            LastNotificationFiredUtc = AnchorUtc.AddHours(-2), // 2h ago
             LastNotifiedStatus = null,                        // upgrade scenario
         };
         Assert.False(b.IsWithinNotificationDailyCap(AnchorUtc, BackupRunStatus.Failed));

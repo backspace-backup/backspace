@@ -15,9 +15,15 @@ namespace Backspace.Views;
 /// frame cost a whole processor core (measured 14 November 2026: 108%
 /// against 8% without motion, in a 2088x1342 window). With the window's kept
 /// frame (RetainedFrames, 15 November 2026) only the changed rectangle is
-/// redrawn and sent, so it moves about 30 times a second; without it (another
-/// platform, or Avalonia changed) about 8 times. It moves on every Nth frame,
-/// chosen once per window so the moves are evenly spaced. Every mover steps
+/// redrawn and sent, so it moves on every frame (the frames follow the
+/// screen's refresh, 60 to 110 a second: DisplayClock); without it (another
+/// platform, or Avalonia changed) about 8 times a second, on every Nth frame.
+/// Moving on every second frame stuttered badly (owner, 15 November 2026:
+/// "spinning and animating text while stuttering"): Avalonia pauses its
+/// frames when one changes nothing, and restarting them came late, so the
+/// moves landed 60 to 250 ms apart (measured: 8 moves a second instead of
+/// 40). On every frame they land 12 ms apart, for about 22% of one core
+/// against 7-13% without motion (82 frames a second, 165 Hz screen). Every mover steps
 /// on the same frames, so the window is redrawn once for all of them. It
 /// stops by itself on the first frame with nothing left to move.
 /// </summary>
@@ -25,8 +31,8 @@ internal static class FrameLoop
 {
     /// <summary>About 8 moves a second, when each redraws the whole window.</summary>
     internal const double TargetGapMs = 125;
-    /// <summary>About 30 moves a second, when the window keeps its frame.</summary>
-    internal const double SmoothGapMs = 33;
+    /// <summary>Every frame, when the window keeps its frame.</summary>
+    internal const double SmoothGapMs = 0;
     /// <summary>For measurements: BACKSPACE_MOTION_GAP_MS overrides it.</summary>
     private static readonly double? GapMs = double.TryParse(Environment.GetEnvironmentVariable("BACKSPACE_MOTION_GAP_MS"), out var g) ? g : null;
     /// <summary>Frames measured before choosing how many to skip.</summary>

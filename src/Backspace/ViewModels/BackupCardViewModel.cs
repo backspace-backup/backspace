@@ -522,11 +522,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>"40 s", "12 min", "1 h 05 min".</summary>
-    internal static string Elapsed(TimeSpan time) =>
-        time < TimeSpan.FromMinutes(1) ? $"{Math.Max(0, (int)time.TotalSeconds)} s"
-        : time < TimeSpan.FromHours(1) ? $"{(int)time.TotalMinutes} min"
-        : $"{(int)time.TotalHours} h {time.Minutes:00} min";
+    /// <summary>"40s", "12m", "1h 5m".</summary>
+    internal static string Elapsed(TimeSpan time) => HumanFormat.Rough(time);
 
     private Avalonia.Threading.DispatcherTimer? _elapsedTimer;
 

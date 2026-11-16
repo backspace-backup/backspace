@@ -24,7 +24,7 @@ public sealed class BackupCheckHistoryTests
     {
         var b = Backup(); var entries = BackupCheckHistory.Entries(b, new[] { Check(b, CheckDepth.RepositoryStructure, BackupRunStatus.Success) });
         var state = BackupCheckHistory.State(b, entries, Now);
-        Assert.Equal("ok", state.Tone); Assert.Contains("1 min ago", state.Label);
+        Assert.Equal("ok", state.Tone); Assert.Contains("1m ago", state.Label);
         Assert.Contains("stored data not read", state.Scope); Assert.Null(b.LastVerifyUtc);
     }
     [Fact] public void New_structure_success_cannot_hide_old_restore_or_saved_data_failure()
@@ -161,7 +161,7 @@ public sealed class CheckStoppedByYouTests
         Assert.True(state.StoppedByYou);
         Assert.StartsWith("Data check stopped by you · ", state.Label);
         Assert.EndsWith(" ago", state.Label);
-        Assert.Equal("Structure check passed · 30 min ago", state.Completed);
+        Assert.Equal("Structure check passed · 30m ago", state.Completed);
         Assert.Equal("ok", state.CompletedTone);
     }
 

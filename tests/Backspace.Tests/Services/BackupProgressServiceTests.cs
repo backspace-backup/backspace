@@ -71,22 +71,24 @@ public class BackupProgressServiceTests
 
         prep.Step("Looking for the previous backup");
         svc.ReportLine("b1", "C:\\", "Dropbox", announced[^1]);
-        Assert.Equal("Looking for the previous backup · 0 s (usually about 40 s)", Detail().Detail);
+        // One plain wording for the whole preparation (owner, 15 November 2026);
+        // each step goes to the run's log as it starts.
+        Assert.Equal("Preparing the backup · 0s", Detail().Detail);
+        Assert.Contains("Looking for the previous backup…", announced);
         Assert.Equal(0, Detail().PercentComplete, 1);
 
         now = now.AddSeconds(20);
         prep.Step(ResticEngine.PreparingText(new Backspace.Models.Backup { UseVss = true }, "C:\\"));
         svc.ReportLine("b1", "C:\\", "Dropbox", announced[^1]);
-        Assert.Equal(System.OperatingSystem.IsWindows()
-                ? "Reading the backup's index, then taking a shadow copy of C: · 20 s (usually about 40 s)"
-                : "Reading the backup's index · 20 s (usually about 40 s)", // no shadow copies off Windows
-            Detail().Detail);
+        Assert.Equal("Preparing the backup · 20s", Detail().Detail);
+        Assert.Contains(announced, l => l.StartsWith("Reading the backup's index", StringComparison.Ordinal) && l.EndsWith('…'));
         Assert.Equal(0.9, Detail().PercentComplete, 1); // half the usual time: 45% of the 2%
 
         // Longer than usual: still moving, never reaching 2%.
         now = now.AddSeconds(160);
         Assert.StartsWith("[progress] 1.9", prep.Line());
-        Assert.Contains("3 min 00 s (usually about 40 s)", prep.Line());
+        Assert.EndsWith("Preparing the backup · 3m", prep.Line());
+        Assert.DoesNotContain("usually", prep.Line());
 
         // Restic reports 0.4%: the bar continues from 2%, and the waiting text is gone.
         svc.ReportLine("b1", "C:\\", "Dropbox", BackupPreparation.Rescale("[progress] 0.4% · Backing up · 2,338 of ~534,749 files checked (~172 GB)"));

@@ -85,14 +85,14 @@ public sealed class S22_BackupCardRunningState : ScenarioBase
         Assert.Equal(startedAt, card.RunStartedUtc);
         var running = summary.GetVisualDescendants().OfType<TextBlock>().First(t => t.Name == "RunningText");
         ctx.Driver.Pump();
-        Assert.Equal("Running · 40 s", running.Text);
+        Assert.Equal("Running · 40s", running.Text);
         card.UtcNow = () => startedAt.AddMinutes(12).AddSeconds(59);
         await ctx.Driver.PumpAsync(1_500); // the card's one-second refresh
-        Assert.Equal("Running · 12 min", running.Text);
-        Assert.Equal("1 h 05 min", BackupCardViewModel.Elapsed(TimeSpan.FromMinutes(65.5)));
-        Assert.Equal("0 s", BackupCardViewModel.Elapsed(TimeSpan.FromSeconds(-2)));
+        Assert.Equal("Running · 12m", running.Text);
+        Assert.Equal("1h 5m", BackupCardViewModel.Elapsed(TimeSpan.FromMinutes(65.5)));
+        Assert.Equal("0s", BackupCardViewModel.Elapsed(TimeSpan.FromSeconds(-2)));
         ctx.Snapshot(host, "card running blue-badge stop-button",
-            "After a real settings refresh, the card still says Running, with the time the run has taken so far (12 min), and offers Stop; yesterday’s skipped result has not replaced it. The engine state is simulated in this visual check.");
+            "After a real settings refresh, the card still says Running, with the time the run has taken so far (12m), and offers Stop; yesterday’s skipped result has not replaced it. The engine state is simulated in this visual check.");
         listVm.Cards[0].SetQueuedReason("waiting for Photos to finish");
         ServiceLocator.Config.Update(cfg => cfg.Backups[0].Name = "Cloud backup — waiting for a destination");
         ctx.Driver.Pump();

@@ -107,7 +107,7 @@ public sealed class S91_BackupsAtOnce : ScenarioBase
             }
             ctx.Driver.Pump();
             Assert.True(Card(localC).IsActuallyRunning);
-            Assert.Equal("Running · 16 min", Card(localC).RunningLabel);
+            Assert.Equal("Running · 16m", Card(localC).RunningLabel);
             Assert.True(Card(localD).IsQueued);
             Assert.Equal("Queued", Card(localD).LastRunLabel);
             Assert.Equal("Queued: waiting for local_c (same destination)", Card(localD).LastRunDetail);
@@ -117,17 +117,17 @@ public sealed class S91_BackupsAtOnce : ScenarioBase
             // The time running stands still while queued (U155's clock).
             clock = clock.AddMinutes(14);
             foreach (var card in new[] { Card(localC), Card(localD) }) card.ApplyBackgroundActivity(ServiceActivity.ForBackup(activity, card.Id), null);
-            Assert.Equal("Running · 30 min", Card(localC).RunningLabel);
+            Assert.Equal("Running · 30m", Card(localC).RunningLabel);
             // The worker reports the time it waited (the orchestrator's QueuedTime).
             var waited = (clock - dQueued.StartedUtc!.Value).TotalSeconds;
             var dRunning = dQueued with { Progress = dQueued.Progress! with { Queued = "", Percent = 3, QueuedSeconds = waited } };
             var after = activity with { Runs = [c with { State = "completed", Progress = c.Progress! with { Result = Finished(localC, started) } }, dRunning] };
             Card(localD).ApplyBackgroundActivity(ServiceActivity.ForBackup(after, localD.Id), null);
             Assert.False(Card(localD).IsQueued);
-            Assert.Equal("Running · 0 s", Card(localD).RunningLabel);
+            Assert.Equal("Running · 0s", Card(localD).RunningLabel);
             clock = clock.AddMinutes(3);
             Card(localD).ApplyBackgroundActivity(ServiceActivity.ForBackup(after, localD.Id), null);
-            Assert.Equal("Running · 3 min", Card(localD).RunningLabel);
+            Assert.Equal("Running · 3m", Card(localD).RunningLabel);
         }
         finally
         {

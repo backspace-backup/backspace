@@ -386,7 +386,7 @@ public class BackupsViewModelTests
         Assert.Empty(vm.AffectedBackups);
     }
 
-    /// <summary>4 November 2026: the banner said "Last activity: 19 min ago" while
+    /// <summary>4 November 2026: the banner said "Last activity: 19m ago" while
     /// local_c was running.</summary>
     [AvaloniaFact]
     public void HealthBanner_says_the_latest_activity_is_now_while_a_backup_runs()

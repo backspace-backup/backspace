@@ -175,7 +175,7 @@ Calm and purposeful. No bounce, no spring, no scale-on-hover.
   icon turns (one turn every 1.5 s); a band of the accent sweeps through
   "Backups" in the sidebar every 3 s (two turns, so they keep in step).
   Moves follow the window's drawn frames at even intervals (`FrameLoop`):
-  about 30 a second where the window keeps its frame (`RetainedFrames`, on
+  on every frame (60 to 110 a second, following the screen) where the window keeps its frame (`RetainedFrames`, on
   Windows), otherwise about 8, since each would redraw the whole window.
   The logo, window and taskbar icons stay still.
 - Success: a soft check-fade-in. No bounce.
@@ -200,7 +200,7 @@ Calm and purposeful. No bounce, no spring, no scale-on-hover.
   unimportant (29 October 2026, U028). A notice is one line where it fits:
   headline, short detail, one action. Headline and detail are runs of one
   text line so they share a baseline (U038). A short phrase such as
-  "Last activity: 21 h ago" is never split: it stays beside the headline or
+  "Last activity: 21h ago" is never split: it stays beside the headline or
   moves whole to a second line. Headlines are status labels, so they take
   no full stop; the detail keeps full stops only between sentences.
 - **Failed**: `Danger` dot + "Here's what happened" line. No red flash,

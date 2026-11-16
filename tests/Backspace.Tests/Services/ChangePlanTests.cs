@@ -146,8 +146,8 @@ public sealed class ChangePlanTests
         Assert.True(pct is >= 5 and <= 40, trace);
         Assert.True(atCheckEnd.Contains("0 B of ~8.4 GB changed files backed up"), trace);
         Assert.True(sending!.Contains(" files checked (176 GB)"), sending); // restic's total, the source's size
-        // 230 s into the large file at 3.8 MB/s, 8.1 GB to go: about 36 min.
-        Assert.True(sending.Contains("about 3") && sending.EndsWith("min left"), sending);
+        // 230 s into the large file at 3.8 MB/s, 8.1 GB to go: about 36m.
+        Assert.True(sending.Contains("about 3") && sending.EndsWith("m left"), sending);
         var later = double.Parse(sendingLater![11..sendingLater.IndexOf('%')], System.Globalization.CultureInfo.InvariantCulture);
         Assert.True(later > pct + 30, sendingLater);
         Assert.NotNull(live.MeasuredPace);
@@ -195,13 +195,13 @@ public sealed class ChangePlanTests
     [Fact]
     public void The_source_shows_the_counted_size_from_the_new_line_too()
     {
-        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 23.4% · Backing up · 504,701 of 601,922 files checked (190 GB) · 3.1 of ~9.0 GB changed files backed up · 881 MB of new data uploaded, 3.8 MB/s · about 25 min left"));
+        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 23.4% · Backing up · 504,701 of 601,922 files checked (190 GB) · 3.1 of ~9.0 GB changed files backed up · 881 MB of new data uploaded, 3.8 MB/s · about 25m left"));
         // "~": Backspace's own listing of the source for this run, which is its count with --no-scan (U145).
         Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 2.0% · Backing up · 4,701 of ~601,922 files checked (~190 GB) · 0 B of ~9.0 GB changed files backed up"));
         // The changed files' total is never taken for the source's.
         Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 2.0% · Backing up · 4,701 of ~601,922 files checked (~190 GB) · 3.1 of ~9.0 GB changed files backed up"));
         // Lines from before U155, by a backup an older version started.
-        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 23.4% · Backing up · changes 3.1 / ~9.0 GB · 504,701 / 601,922 files, 190 GB · 881 MB sent at 3.8 MB/s · about 25 min left"));
+        Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 23.4% · Backing up · changes 3.1 / ~9.0 GB · 504,701 / 601,922 files, 190 GB · 881 MB sent at 3.8 MB/s · about 25m left"));
         Assert.Equal("190 GB", BackupLiveProgress.CountedTotal("[progress] 2.0% · Backing up · changes 0 / ~9.0 GB · 4,701 / ~601,922 files, ~190 GB"));
     }
 }

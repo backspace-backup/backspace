@@ -69,12 +69,12 @@ public sealed class CheckLogReadabilityTests
     [Fact]
     public void A_check_result_line_says_how_it_ended()
     {
-        Assert.Equal("[recap] Data check (1 GiB sample) passed on «Google Drive» in 8 min 8 s.",
+        Assert.Equal("[recap] Data check (1 GiB sample) passed on «Google Drive» in 8m 8s.",
             BackupOrchestrator.ResultLine("Data check (1 GiB sample)", RunKind.Check, "Google Drive", BackupRunStatus.Success, "x", TimeSpan.FromSeconds(488)));
         var failed = BackupOrchestrator.ResultLine("Structure check", RunKind.Check, "USB", BackupRunStatus.Failed, "Pack 1a2b is damaged.\nmore", TimeSpan.FromSeconds(42));
-        Assert.Equal("[error] Structure check failed on «USB» after 42 s: Pack 1a2b is damaged.", failed);
+        Assert.Equal("[error] Structure check failed on «USB» after 42s: Pack 1a2b is damaged.", failed);
         Assert.Equal(ConsoleLineKind.Error, ConsoleLineClassifier.Classify(failed));
-        Assert.Equal(ConsoleLineKind.Summary, ConsoleLineClassifier.Classify("[recap] Data check passed on «USB» in 1 min 0 s."));
+        Assert.Equal(ConsoleLineKind.Summary, ConsoleLineClassifier.Classify("[recap] Data check passed on «USB» in 1m 0s."));
     }
 
     /// <summary>U233: progress in the log at each step and tenth, not each second.</summary>
@@ -133,8 +133,8 @@ public sealed class CheckLogReadabilityTests
         DateTime At(int day, int h, int m) => new DateTime(2026, 11, day, h, m, 0, DateTimeKind.Local).ToUniversalTime();
 
         var data = Row(new RunRecord { Kind = RunKind.Check, CheckKind = CheckKind.DataSample, StartedUtc = At(12, 14, 38), EndedUtc = At(12, 14, 38).AddSeconds(488),
-            Status = BackupRunStatus.Success, Summary = "Data check (1 GiB sample) passed in 8 min 8 s." });
-        Assert.Equal(("Data check (1 GiB sample)", "Today 14:38", "Passed · 8 min 8 s", ""), (data.Title, data.When, data.Outcome, data.Detail));
+            Status = BackupRunStatus.Success, Summary = "Data check (1 GiB sample) passed in 8m 8s." });
+        Assert.Equal(("Data check (1 GiB sample)", "Today 14:38", "Passed · 8m 8s", ""), (data.Title, data.When, data.Outcome, data.Detail));
         Assert.True(data.IsOk);
 
         var running = Row(new RunRecord { Kind = RunKind.Check, StartedUtc = At(12, 14, 38), Status = BackupRunStatus.Running,
@@ -144,7 +144,7 @@ public sealed class CheckLogReadabilityTests
 
         var backup = Row(new RunRecord { Kind = RunKind.Backup, StartedUtc = At(11, 18, 27), EndedUtc = At(11, 18, 29).AddSeconds(6),
             Status = BackupRunStatus.Success, Summary = "296 B uploaded · in 2m 06s" });
-        Assert.Equal(("Backup", "Yesterday 18:27", "Completed · 2 min 6 s", "296 B uploaded"), (backup.Title, backup.When, backup.Outcome, backup.Detail));
+        Assert.Equal(("Backup", "Yesterday 18:27", "Completed · 2m 6s", "296 B uploaded"), (backup.Title, backup.When, backup.Outcome, backup.Detail));
 
         var locked = Row(new RunRecord { Kind = RunKind.Check, CheckKind = CheckKind.DataSample, StartedUtc = At(6, 18, 42), EndedUtc = At(6, 18, 44),
             Status = BackupRunStatus.Failed,

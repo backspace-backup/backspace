@@ -42,11 +42,14 @@ public sealed class S62_WindowsUpdates : ScenarioBase
         Assert.Equal("Update to 99.0.0", updates.AvailableVersion);
         Assert.True(updates.CanDownload);
         card.BringIntoView(); await Settle();
-        ctx.Snapshot(window, "available-update-light", "Settings shows the current version, automatic-check frequency, release notes, and explicit download/restart and skip choices. GitHub response is simulated.");
+        ctx.Snapshot(window, "available-update-light", "App updates (U253): one line with the version, when it was checked and a Release notes link, Check now beside it; the new version in one card with Skip and Download and restart beside its name and what changed shown below; the check frequency last. GitHub response is simulated.");
         Click(updates.SkipVersionCommand); await Settle();
         Assert.Equal("99.0.0", ServiceLocator.Config.Current.Preferences.SkippedUpdateVersion);
         Assert.Contains("Skipped version", updates.Status);
         Assert.True(updates.HasUpdate); // Skipping notifications must not remove manual installation.
+        Assert.True(updates.Skipped);
+        Assert.EndsWith("skipped, automatic checks won’t mention it", updates.UpdateTitle);
+        Assert.True(updates.DownloadAndRestartCommand.CanExecute(null));
         var frequency = card.GetVisualDescendants().OfType<ComboBox>().Single();
         frequency.Focus();
         window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None); window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
@@ -54,7 +57,7 @@ public sealed class S62_WindowsUpdates : ScenarioBase
         Assert.Equal("Never", ServiceLocator.Config.Current.Preferences.UpdateCheckFrequency);
         window.RequestedThemeVariant = ThemeVariant.Dark;
         await Settle(); card.BringIntoView(); await Settle();
-        ctx.Snapshot(window, "skipped-update-dark", "Skipping a version keeps manual installation available. Automatic checks can be disabled, without disabling Check now.");
+        ctx.Snapshot(window, "skipped-update-dark", "After Skip this version: the card says it was skipped, the Skip button is gone and Download and restart stays. Automatic checks can be disabled, without disabling Check now.");
         Assert.True(updates.CheckNowCommand.CanExecute(null));
         var main = ctx.Driver.Show(new MainWindow());
         for (var i = 0; i < 40 && MainWindow.HasAnyRunningOperation(); i++) await Settle();

@@ -10,8 +10,8 @@ public sealed class ProgressCardLineTests
 {
     [Fact]
     public void The_owners_line_fits_one_line_and_keeps_what_moves()
-        => Assert.Equal("122,087 of ~428,634 files checked · 1.2 of ~25 GB of changes backed up · about 9 min left",
-            BackupCardViewModel.CardLine("Backing up · 122,087 of ~428,634 files checked (~164 GB) · 1.2 of ~25 GB changed files backed up · 181 MB of new data uploaded, 2.0 MB/s · about 9 min left"));
+        => Assert.Equal("122,087 of ~428,634 files checked · 1.2 of ~25 GB of changes backed up · about 9m left",
+            BackupCardViewModel.CardLine("Backing up · 122,087 of ~428,634 files checked (~164 GB) · 1.2 of ~25 GB changed files backed up · 181 MB of new data uploaded, 2.0 MB/s · about 9m left"));
 
     [Theory]
     // Before the changes are known: the percentage and the size go, Scanning stays.

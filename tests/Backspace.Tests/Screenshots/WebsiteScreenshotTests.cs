@@ -90,7 +90,7 @@ public class WebsiteScreenshotTests : IDisposable
                 card.OverallPercent = 43;
                 foreach (var source in card.Sources) source.PercentComplete = 43;
                 card.CurrentPhaseLabel = "";
-                card.ProgressDetail = "Backing up · 5,310 of 12,408 files checked (3.9 of 9.1 GB) · 1.2 GB of new data uploaded, 31 MB/s · about 3 min left";
+                card.ProgressDetail = "Backing up · 5,310 of 12,408 files checked (3.9 of 9.1 GB) · 1.2 GB of new data uploaded, 31 MB/s · about 3m left";
             }
         });
     }
@@ -441,9 +441,9 @@ public class WebsiteScreenshotTests : IDisposable
             }
             ServiceLocator.Logs.AppendRun(record);
         }
-        Check("documents", CheckKind.TestRestore, CheckDepth.RestoreSample, 6, "Restore check (1% of files, at most 1 GiB) passed in 6 min 12 s.");
-        Check("documents", CheckKind.DataSample, CheckDepth.SavedDataSample, 2, "Data check (1 GiB sample) passed in 8 min 8 s.");
-        Check("code-and-projects", CheckKind.Structure, CheckDepth.RepositoryStructure, 1, "Structure check passed in 1 min 40 s.");
+        Check("documents", CheckKind.TestRestore, CheckDepth.RestoreSample, 6, "Restore check (1% of files, at most 1 GiB) passed in 6m 12s.");
+        Check("documents", CheckKind.DataSample, CheckDepth.SavedDataSample, 2, "Data check (1 GiB sample) passed in 8m 8s.");
+        Check("code-and-projects", CheckKind.Structure, CheckDepth.RepositoryStructure, 1, "Structure check passed in 1m 40s.");
     }
 
     /// <summary>
@@ -483,7 +483,7 @@ public class WebsiteScreenshotTests : IDisposable
                     $"[progress] {i * 12.5:0.0}% · Backing up · {i * 1_551:N0} of ~12,408 files checked (~8.7 GB) · {i * 46} MB of new data uploaded, 2.1 MB/s · about {8 - i} min left"));
             if (record.Status == BackupRunStatus.Warning)
             {
-                L(330, "[restic] 20:05:30.000Z\twarn\tbackup finished: exit code 3 (some source data could not be read) after 5 min 30 s");
+                L(330, "[restic] 20:05:30.000Z\twarn\tbackup finished: exit code 3 (some source data could not be read) after 5m 30s");
                 L(330, "[restic] {\"item\":\"C:\\\\Users\\\\sam\\\\Music\\\\iTunes Library.itl\",\"during\":\"archival\",\"message\":\"access denied\"}");
             }
             L(340, $"[recap] Backup complete: {record.Summary} · snapshot 4bd48ee6");

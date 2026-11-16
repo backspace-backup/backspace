@@ -31,7 +31,7 @@ public sealed class ConsoleLogTests
     public static TheoryData<string> ProgressLines => new()
     {
         "[progress] 0.0% · Backing up · 129 of ~422,166 files checked (~176 GB) · 0 B of ~17 GB changed files backed up · 461 B of new data uploaded",
-        "[progress] 4.7% · Backing up · 18,483 of ~422,166 files checked (~176 GB) · 19 MB of ~17 GB changed files backed up · 5.4 MB of new data uploaded, 273 KB/s · about 9 min left",
+        "[progress] 4.7% · Backing up · 18,483 of ~422,166 files checked (~176 GB) · 19 MB of ~17 GB changed files backed up · 5.4 MB of new data uploaded, 273 KB/s · about 9m left",
         "[progress] 100% · Backing up · 1 of 1 files checked",
     };
 

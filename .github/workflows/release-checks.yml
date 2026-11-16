@@ -170,6 +170,8 @@ jobs:
 
   # U246 A: the real background service installed for the candidate, a
   # backup run, followed and stopped in it with the window's code, removed.
+  # Runs beside the release; publishing does not wait for it (owner, 15
+  # November 2026: tests must not delay publishing until U190).
   installed-service:
     name: Installed background service
     uses: ./.github/workflows/installed-service.yml
@@ -177,7 +179,7 @@ jobs:
   rehearse-gate:
     name: Rehearse the final checklist gate without publishing
     if: ${{ !inputs.publish }}
-    needs: [windows-release-checks, installed-service]
+    needs: windows-release-checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -201,7 +203,7 @@ jobs:
   publish:
     name: Publish the checked candidate
     if: ${{ inputs.publish }}
-    needs: [windows-release-checks, unix-packages, installed-service]
+    needs: [windows-release-checks, unix-packages]
     runs-on: ubuntu-latest
     environment:
       name: release
