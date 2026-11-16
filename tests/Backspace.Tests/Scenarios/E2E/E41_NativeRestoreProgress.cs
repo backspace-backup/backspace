@@ -30,7 +30,7 @@ public sealed class E41_NativeRestoreProgress : BackupE2EBase
         Directory.CreateDirectory(Path.Combine(source, "nested"));
         var random = new Random(41026);
         var bytes = new byte[8 * 1024 * 1024];
-        var selectedFiles = Enumerable.Range(0, 16).Select(i => $"nested/large[{i}].bin").ToArray();
+        var selectedFiles = Enumerable.Range(0, 32).Select(i => $"nested/large[{i}].bin").ToArray();
         const string selected = "nested/large[0].bin";
         foreach (var file in selectedFiles)
         {
@@ -84,7 +84,7 @@ public sealed class E41_NativeRestoreProgress : BackupE2EBase
             Assert.Equal(File.ReadAllBytes(Path.Combine(source, file)), File.ReadAllBytes(Path.Combine(target, file)));
         Assert.Equal(File.ReadAllText(Path.Combine(source, "small.txt")), File.ReadAllText(Path.Combine(target, "small.txt")));
         Assert.Equal("Keep original", File.ReadAllText(Path.Combine(target, "existing.txt")));
-        Assert.Equal(18, Directory.GetFiles(target, "*", SearchOption.AllDirectories).Length);
+        Assert.Equal(selectedFiles.Length + 2, Directory.GetFiles(target, "*", SearchOption.AllDirectories).Length);
         // The whole source: restic was given no selection at all.
         var whole = Assert.Single(restores);
         Assert.Equal("restore", whole.Arguments[0]);
@@ -106,7 +106,7 @@ public sealed class E41_NativeRestoreProgress : BackupE2EBase
         Assert.Empty(Directory.GetDirectories(cancelledTarget, ".backspace-restore-*"));
         ctx.Driver.Pump();
         ctx.Snapshot(main, "completed and cancelled real restores", "One real restore completed; the second was cancelled after intermediate progress. Existing destination contents survived.");
-        ctx.Report.RecordNote("Cancellation and layout", "The complete source restored 128 MiB across 16 bracket-named files plus a small file byte-for-byte, with the source directory removed from the output layout. Cancelling a nested-folder restore preserved the original destination file and removed only its temporary staging folder.");
+        ctx.Report.RecordNote("Cancellation and layout", "The complete source restored 256 MiB across 32 bracket-named files plus a small file byte-for-byte, with the source directory removed from the output layout. Cancelling a nested-folder restore preserved the original destination file and removed only its temporary staging folder.");
     }
 
     private static async Task<ActiveRestoreSession> WaitForLiveProgress(Task<RestoreOutcome> run, string target,
@@ -118,7 +118,7 @@ public sealed class E41_NativeRestoreProgress : BackupE2EBase
             var session = ServiceLocator.ActiveRestores.Sessions.FirstOrDefault(s => s.TargetPath == target);
             if (session is { IsRunning: true, BytesRestored: > 0 } && session.BytesRestored < session.TotalBytes)
                 return session;
-            await Task.Delay(100, ct);
+            await Task.Delay(15, ct); // A fast disk (GitHub runners) restores it in about a second.
         }
         var result = await run;
         throw new Xunit.Sdk.XunitException($"No intermediate progress arrived: {result.TerminalStatus}, {result.ErrorMessage}");

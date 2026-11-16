@@ -20,6 +20,9 @@ public sealed class E2E_WindowsUpdateBundle
     {
         PlatformTest.WindowsOnly("the Windows update bundle and its native launcher");
         var candidate = Environment.GetEnvironmentVariable("BACKSPACE_UPDATE_CANDIDATE");
+        // Without a candidate (an ordinary suite run) there is nothing to test; the
+        // release workflow sets it and requires a pass (release-update-results.ps1).
+        if (!Directory.Exists(candidate)) Assert.Skip("Set BACKSPACE_UPDATE_CANDIDATE to a published, framework-dependent Windows release folder.");
         Assert.True(OperatingSystem.IsWindows() && Directory.Exists(candidate),
             "Set BACKSPACE_UPDATE_CANDIDATE to a published, framework-dependent Windows release folder.");
         using var ws = new TempWorkspace("native-recovery");
@@ -59,6 +62,7 @@ public sealed class E2E_WindowsUpdateBundle
     {
         PlatformTest.WindowsOnly("the Windows release bundle");
         var candidate = Environment.GetEnvironmentVariable("BACKSPACE_UPDATE_CANDIDATE");
+        if (!Directory.Exists(candidate)) Assert.Skip("Set BACKSPACE_UPDATE_CANDIDATE to a published, framework-dependent Windows release folder.");
         Assert.True(OperatingSystem.IsWindows() && Directory.Exists(candidate),
             "Set BACKSPACE_UPDATE_CANDIDATE to a published, framework-dependent Windows release folder.");
         var product = FileVersionInfo.GetVersionInfo(Path.Combine(candidate!, "Backspace.exe")).ProductVersion!.Split('+')[0];

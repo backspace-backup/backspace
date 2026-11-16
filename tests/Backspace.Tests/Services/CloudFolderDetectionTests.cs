@@ -40,8 +40,9 @@ public sealed class CloudFolderDetectionTests
             var watch = Stopwatch.StartNew();
             var found = RecommendedFilters.DetectCloudSyncFolders();
             Assert.True(watch.Elapsed < TimeSpan.FromSeconds(3), $"Waited {watch.Elapsed.TotalSeconds:0.0} s for a drive that doesn't answer.");
-            Assert.Contains(found, f => f.Path == "Y:\\My Drive");
-            Assert.DoesNotContain(found, f => f.Path == "X:\\My Drive");
+            // Joined as the app joins it, so the test holds on Linux and macOS too.
+            Assert.Contains(found, f => f.Path == System.IO.Path.Combine("Y:\\", "My Drive"));
+            Assert.DoesNotContain(found, f => f.Path == System.IO.Path.Combine("X:\\", "My Drive"));
 
             // Asked again (the editor opening): the kept answer, no drive asked.
             var before = asked;
