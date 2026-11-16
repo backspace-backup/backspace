@@ -27,6 +27,27 @@ public sealed class ServiceActivityTests
         Assert.Equal("private-run.log", run.LogPath); Assert.Equal("private-cell.log", run.Cells[0].LogPath);
     }
 
+    /// <summary>U256 (owner, 16 November 2026: "Cannot reach the background
+    /// backup service" after the night's checks and cleanups). A finished check
+    /// or cleanup reports no live result; the service read it back from its
+    /// history, log paths included, and the window refused the whole report.</summary>
+    [Fact]
+    public void A_result_read_back_from_history_reaches_the_window_without_its_log_paths()
+    {
+        var saved = new RunRecord { Id = Guid.NewGuid().ToString("N"), BackupId = "b", Kind = RunKind.Prune,
+            StartedUtc = DateTime.UtcNow.AddMinutes(-5), EndedUtc = DateTime.UtcNow, Status = BackupRunStatus.Success,
+            LogPath = @"C:\config\service\logs\engine\b\cleanup.log", Cells = { new() { LogPath = @"C:\config\service\logs\engine\b\cleanup.log" } } };
+        // As 1.1.54 sent it: refused.
+        Assert.Throws<InvalidDataException>(() => ServiceActivity.ParseProgress(
+            ServiceActivity.Encode(new ServiceActivity.Progress("b", 0, "", [], [], saved, LogRunId: saved.Id)), "b"));
+        // As sent now: accepted, the history itself unchanged.
+        var copy = ServiceActivity.ParseProgress(
+            ServiceActivity.Encode(new ServiceActivity.Progress("b", 0, "", [], [], ServiceActivity.Metadata(saved), LogRunId: saved.Id)), "b");
+        Assert.Equal(BackupRunStatus.Success, copy.Result!.Status);
+        Assert.Equal("", copy.Result.LogPath);
+        Assert.EndsWith("cleanup.log", saved.LogPath);
+    }
+
     [Theory]
     [InlineData("wrong-backup")]
     [InlineData("negative-percent")]

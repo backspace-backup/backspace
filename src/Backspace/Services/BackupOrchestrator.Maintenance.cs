@@ -229,6 +229,23 @@ public sealed partial class BackupOrchestrator
             Summary = $"{action} starting…",
         };
 
+        // Nothing stored yet: nothing to check or clean up (U257, owner 16
+        // November 2026: local_dropbox, never backed up, showed "Check failed"
+        // after its scheduled check and cleanup ran against a drive with no
+        // backup on it). They wait for the first backup, and nothing is
+        // recorded, so Backup health stays neutral.
+        bool storedSomething;
+        try { storedSomething = RestorableRuns.Any(backup, _logs); }
+        catch (Exception ex) { _log.Warning(ex, "Could not read {Backup}'s history; {Action} runs", backup.Name, action); storedSomething = true; }
+        if (!storedSomething)
+        {
+            _log.Information("{Action} for {Backup} waits for its first backup: nothing is stored yet", action, backup.Name);
+            aggregate.Status = BackupRunStatus.Skipped;
+            aggregate.Summary = $"{action} waits for this backup's first backup: nothing is stored yet.";
+            aggregate.EndedUtc = DateTime.UtcNow;
+            return aggregate;
+        }
+
         // Maintenance gate. Backup + prune/check should not interleave
         // on the same storage; let in-flight backups finish first.
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -336,6 +353,20 @@ public sealed partial class BackupOrchestrator
                             _log.Information("{Check} of {Dest} waits for the destination: {Detail}", action, dest.Name, unavailable);
                             Say($"[skip] {action} of «{dest.Name}» waits: {unavailable}");
                             AddOutcome(aggregate, src, dest.Name, target.StorageName, BackupRunStatus.Skipped, unavailable);
+                            aggregate.Cells[^1].DestinationUnavailable = true;
+                            waitingFor.Add(dest.Name);
+                            continue;
+                        }
+                        // A cleanup of a drive that is not connected waits too: it
+                        // went on to the engine, which tried to create a new
+                        // storage there (U256, 15 November 2026: local_dropbox's
+                        // cleanup with M: not mounted).
+                        if (kind == RunKind.Prune && dest.IsLocalLike
+                            && VolumeDetector.Check(dest.ExpectedDriveLetter, dest.ExpectedVolumeLabel) is { Verdict: not VolumeDetector.Verdict.Mounted } volume)
+                        {
+                            _log.Information("{Action} of {Dest} waits for the destination: {Detail}", action, dest.Name, volume.Detail);
+                            Say($"[skip] {action} of «{dest.Name}» waits: {volume.Detail}");
+                            AddOutcome(aggregate, src, dest.Name, target.StorageName, BackupRunStatus.Skipped, volume.Detail);
                             aggregate.Cells[^1].DestinationUnavailable = true;
                             waitingFor.Add(dest.Name);
                             continue;

@@ -496,7 +496,8 @@ public sealed class DirectBackupTests(ITestOutputHelper output)
         {
             // Restic's own progress, not the preparation's (U252).
             while (!rig.Log.Any(l => l.StartsWith(BackupLiveProgress.Prefix, StringComparison.Ordinal)
-                && (l.Contains("· Backing up", StringComparison.Ordinal) || l.Contains("· Scanning", StringComparison.Ordinal)))) await Task.Delay(50);
+                && (l.Contains("· Backing up", StringComparison.Ordinal) || l.Contains("· Scanning", StringComparison.Ordinal)
+                || l.Contains("· Finishing", StringComparison.Ordinal)))) await Task.Delay(50);
             stop.Cancel();
         });
         var stopped = await rig.BackUpAsync(stop.Token).WaitAsync(TimeSpan.FromMinutes(3));

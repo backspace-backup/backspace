@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Backspace.Models;
 using Backspace.Services;
 using Backspace.Services.Platform;
@@ -16,18 +17,46 @@ public sealed class TrayScheduleStatusTests
     [Fact] public void A_failed_or_never_run_backup_is_not_shown_as_ready()
     {
         var scheduler = new Scheduler(ScheduleReadiness.Ready);
-        var failed = Backup(); failed.LastRunStatus = BackupRunStatus.Failed; failed.LastRunSummary = "The destination refused the password.";
+        var failed = Backup(); failed.Name = "Photos"; failed.LastRunStatus = BackupRunStatus.Failed; failed.LastRunSummary = "The destination refused the password.";
         var status = TrayScheduleStatus.Inspect([Backup(), failed], scheduler, "app.exe", DateTime.UtcNow);
         Assert.Equal(ScheduleReadiness.Attention, status.State);
-        Assert.Equal("Last backup failed", status.Title);
-        Assert.Contains("refused the password", status.Detail);
-        var never = new Backup { Name = "Photos", SourcePaths = { "C:\\Photos" }, Targets = { new BackupTarget() } };
+        Assert.Equal("1 backup needs attention", status.Title);
+        var never = new Backup { Name = "Music", SourcePaths = { @"C:\Music" }, Targets = { new BackupTarget() } };
         status = TrayScheduleStatus.Inspect([Backup(), never], scheduler, "app.exe", DateTime.UtcNow);
         Assert.Equal(ScheduleReadiness.Unknown, status.State);
         Assert.Equal("Not backed up yet", status.Title);
-        // A skipped run after an earlier success is still protected.
-        var skipped = Backup(); skipped.LastRunStatus = BackupRunStatus.Skipped;
-        Assert.Equal(ScheduleReadiness.Ready, TrayScheduleStatus.Inspect([skipped], scheduler, "app.exe", DateTime.UtcNow).State);
+        // A skipped run is orange on its card, so it is not "everything looks good".
+        var skipped = Backup(); skipped.LastRunStatus = BackupRunStatus.Skipped; skipped.LastRunSummary = @"M:\ not mounted · skipped after 1s";
+        Assert.Equal(ScheduleReadiness.Attention, TrayScheduleStatus.Inspect([skipped], scheduler, "app.exe", DateTime.UtcNow).State);
+    }
+
+    /// <summary>U258 (owner, 16 November 2026): "Last backup 2h ago in menu is
+    /// not useful if we don't even know for which backup it is. Try to be as
+    /// consistent as possible with how info is shown on the Backups tab". The
+    /// headline as on the tab, then each backup with its card's Last backup
+    /// line, the ones needing attention first, at most six.</summary>
+    [Fact] public void The_menu_lists_each_backup_as_its_card_says_it()
+    {
+        var scheduler = new Scheduler(ScheduleReadiness.Ready);
+        var now = DateTime.UtcNow;
+        var ok = Backup(); ok.Name = "local_d"; ok.LastRunEndUtc = now.AddHours(-2); ok.LastRunSummary = "27.42 MB uploaded · 150 new / 195 mod / 0 rem · in 1m 29s";
+        var status = TrayScheduleStatus.Inspect([ok], scheduler, "app.exe", now);
+        Assert.Equal("Everything looks good", status.Title);
+        var line = Assert.Single(status.Lines);
+        Assert.Equal(("local_d", "2h ago · 27.42 MB uploaded", "ok"), (line.Name, line.Text, line.Tone));
+
+        var failed = Backup(); failed.Name = "local_c"; failed.LastRunStatus = BackupRunStatus.Failed; failed.LastRunEndUtc = now.AddDays(-1);
+        failed.LastRunSummary = "Google Drive sign-in expired. Sign in again in the destination's settings.";
+        status = TrayScheduleStatus.Inspect([ok, failed], scheduler, "app.exe", now);
+        Assert.Equal("1 backup needs attention", status.Title);
+        Assert.Equal(("local_c", "Google Drive sign-in expired · 1d ago", "fail"), (status.Lines[0].Name, status.Lines[0].Text, status.Lines[0].Tone));
+        Assert.Equal("local_d", status.Lines[1].Name);
+
+        // Many backups: six lines and a count, never a menu taller than the screen.
+        var many = Enumerable.Range(1, 10).Select(i => { var b = Backup(); b.Name = $"b{i:00}"; return b; }).ToArray();
+        status = TrayScheduleStatus.Inspect(many, scheduler, "app.exe", now);
+        Assert.Equal(TrayScheduleStatus.MaxLines, status.Lines.Count);
+        Assert.Equal(4, status.MoreBackups);
     }
     private sealed class Scheduler(ScheduleReadiness result) : IScheduler
     {
@@ -61,7 +90,7 @@ public sealed class TrayScheduleStatusTests
     {
         var b=Backup();var paused=Backup();paused.Schedule.PausedUntilUtc=DateTime.UtcNow.AddHours(1);
         var scheduler=new Scheduler(ScheduleReadiness.Ready);
-        Assert.Equal("1 ready · 1 paused",TrayScheduleStatus.Inspect([b,paused],scheduler,"app.exe",DateTime.UtcNow).Title);
+        Assert.Equal("Everything looks good · 1 paused",TrayScheduleStatus.Inspect([b,paused],scheduler,"app.exe",DateTime.UtcNow).Title);
         b.Targets.Clear();
         Assert.Equal(ScheduleReadiness.Attention,TrayScheduleStatus.Inspect([b,paused],scheduler,"app.exe",DateTime.UtcNow).State);
     }

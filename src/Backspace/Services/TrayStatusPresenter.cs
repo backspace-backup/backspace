@@ -98,7 +98,7 @@ internal sealed class TrayStatusPresenter
         return ico.ToArray();
     }
 
-    internal void Apply(TrayIcon icon, TrayScheduleStatus status, AccentColor accent, bool busy)
+    internal void Apply(TrayIcon icon, TrayScheduleStatus status, AccentColor accent, bool busy, Action? open = null)
     {
         var key = $"{accent}/{status.State}/{busy}";
         if (!_icons.TryGetValue(key, out var image))
@@ -108,8 +108,62 @@ internal sealed class TrayStatusPresenter
         }
         icon.Icon = image;
         icon.ToolTipText = "Backspace · " + (busy ? "Work in progress · " : "") + status.Title;
-        if (icon.Menu?.Items[0] is NativeMenuItem item) item.Header = status.Title;
-        if (icon.Menu?.Items.Count > 1 && icon.Menu.Items[1] is NativeMenuItem detail)
-            detail.Header = status.Detail;
+        if (icon.Menu is { } menu) Fill(menu, status, open);
+    }
+
+    /// <summary>The top of the menu (U258): the headline, as on the Backups
+    /// tab, then each backup with its card's icon and Last backup line; a
+    /// click opens Backspace. Everything above "Open Backspace" is redone.</summary>
+    internal static void Fill(NativeMenu menu, TrayScheduleStatus status, Action? open)
+    {
+        var keep = 0;
+        for (var i = 0; i < menu.Items.Count; i++)
+            if (menu.Items[i] is NativeMenuItem { Header: "Open Backspace" }) { keep = i; break; }
+            else keep = menu.Items.Count;
+        for (var i = keep - 1; i >= 0; i--) menu.Items.RemoveAt(i);
+        var at = 0;
+        NativeMenuItem Item(string header, string? tone)
+        {
+            var item = new NativeMenuItem(header);
+            if (tone is not null) item.Icon = Glyph(tone);
+            if (open is not null) item.Click += (_, _) => open();
+            else item.IsEnabled = false;
+            return item;
+        }
+        menu.Items.Insert(at++, Item(status.Title, null));
+        foreach (var line in status.Lines)
+            menu.Items.Insert(at++, Item(Fit(line.Name + "  ·  " + line.Text), line.Tone));
+        if (status.MoreBackups > 0)
+            menu.Items.Insert(at++, Item(status.MoreBackups == 1 ? "1 more backup" : $"{status.MoreBackups} more backups", null));
+        if (at < menu.Items.Count) menu.Items.Insert(at, new NativeMenuItemSeparator());
+    }
+
+    private static string Fit(string text) => text.Length > 80 ? text[..79].TrimEnd() + "…" : text;
+
+    private static readonly Dictionary<string, Bitmap> Glyphs = new();
+
+    /// <summary>The card's status icon in its colour, for a menu line: a
+    /// disc with a check, an exclamation mark, a cross, a skip or a dash.</summary>
+    internal static Bitmap Glyph(string tone)
+    {
+        if (Glyphs.TryGetValue(tone, out var cached)) return cached;
+        const int size = 32;
+        var output = new RenderTargetBitmap(new PixelSize(size, size), new Vector(96, 96));
+        using (var dc = output.CreateDrawingContext())
+        {
+            var color = tone switch { "ok" => "#15803D", "warn" or "skipped" => "#B45309", "fail" => "#DC2626", _ => "#94A3B8" };
+            dc.DrawEllipse(new SolidColorBrush(Color.Parse(color)), null, new Point(16, 16), 14, 14);
+            var pen = new Pen(Brushes.White, 3.2, lineCap: PenLineCap.Round);
+            switch (tone)
+            {
+                case "ok": dc.DrawLine(pen, new Point(9.5, 16.5), new Point(14, 21)); dc.DrawLine(pen, new Point(14, 21), new Point(22.5, 11.5)); break;
+                case "warn": dc.DrawLine(pen, new Point(16, 8.5), new Point(16, 17.5)); dc.DrawEllipse(Brushes.White, null, new Point(16, 23), 2, 2); break;
+                case "fail": dc.DrawLine(pen, new Point(11, 11), new Point(21, 21)); dc.DrawLine(pen, new Point(21, 11), new Point(11, 21)); break;
+                case "skipped": dc.DrawLine(pen, new Point(11, 10), new Point(18, 16)); dc.DrawLine(pen, new Point(18, 16), new Point(11, 22)); dc.DrawLine(pen, new Point(22, 10), new Point(22, 22)); break;
+                default: dc.DrawLine(pen, new Point(10, 16), new Point(22, 16)); break;
+            }
+        }
+        Glyphs[tone] = output;
+        return output;
     }
 }

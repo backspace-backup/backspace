@@ -329,7 +329,9 @@ public partial class App : Application
         foreach (var backup in backups)
         {
             RunRecord? latest;
-            try { latest = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).FirstOrDefault(r => r.Status != BackupRunStatus.Running && !r.StoppedByYou); }
+            // Backups only: a check or cleanup is not "the last backup" (U258:
+            // the tray said "Last backup failed" for a cleanup).
+            try { latest = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).FirstOrDefault(r => r.Kind == RunKind.Backup && r.Status != BackupRunStatus.Running && !r.StoppedByYou); }
             catch (Exception ex) { AppLogger.For<App>().Debug(ex, "History unavailable for the tray status"); continue; }
             if (latest is null || backup.LastRunStartUtc is { } known && known >= latest.StartedUtc) continue;
             backup.LastRunStartUtc = latest.StartedUtc;
@@ -472,8 +474,14 @@ public partial class App : Application
         });
     }
 
-    private void OnTrayMenuOpening(object? sender, EventArgs e) => RefreshTrayStatus();
-    private void OnTrayRefresh(object? sender, EventArgs e) => RefreshTrayStatus();
+    private void OnTrayMenuOpening(object? sender, EventArgs e)
+    {
+        // Force quit only matters once a quit is under way and stuck (U258).
+        if (sender is NativeMenu menu)
+            foreach (var item in menu.Items.OfType<NativeMenuItem>())
+                if (item.Header == "Force quit…") item.IsVisible = QuitRequested;
+        RefreshTrayStatus();
+    }
 
     private void ApplyTrayStatus()
     {
@@ -481,7 +489,7 @@ public partial class App : Application
         if (icons is null) return;
         foreach (var icon in icons)
             _trayPresenter.Apply(icon, _trayStatus, ServiceLocator.Config.Current.Preferences.Accent,
-                AppStatus.Current == AppActivity.Syncing);
+                AppStatus.Current == AppActivity.Syncing, RestoreMainWindow);
     }
 
     internal async void RefreshTrayStatus()

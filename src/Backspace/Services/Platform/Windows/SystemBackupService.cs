@@ -184,7 +184,7 @@ internal sealed class SystemBackupService : ServiceBase
                 run.State = outcome?.Status == BackupRunStatus.Success ? "completed" : "interrupted";
                 Touched();
                 run.Result = run.State == "completed" ? 0 : 4;
-                if (outcome is not null) run.Progress = new(retained.BackupId, 0, "", [], [], outcome, LogRunId: outcome.Id);
+                if (outcome is not null) run.Progress = new(retained.BackupId, 0, "", [], [], ServiceActivity.Metadata(outcome), LogRunId: outcome.Id);
                 Remember(run);
                 SaveStatus(run);
             }
@@ -636,10 +636,13 @@ internal sealed class SystemBackupService : ServiceBase
                 else if (process.ExitCode == 0 && SavedOutcome(run) is { } saved)
                 {
                     _recovery.TrackHistory(run.RunId, saved.Id); _recovery.Confirm(run.RunId);
-                    run.Progress = new(saved.BackupId, 0, "", [], [], saved, LogRunId: saved.Id);
+                    // Without its log paths (U256): the window refuses a report
+                    // carrying them, and showed "Cannot reach the background
+                    // backup service" from the first finished check or cleanup on.
+                    run.Progress = new(saved.BackupId, 0, "", [], [], ServiceActivity.Metadata(saved), LogRunId: saved.Id);
                 }
                 else if (_recovery.Recover(run.RunId, FailureReason(run)) is { } recovered && run.BackupId is not null)
-                    run.Progress = new(run.BackupId, 0, "", [], [], recovered, LogRunId: recovered.Id);
+                    run.Progress = new(run.BackupId, 0, "", [], [], ServiceActivity.Metadata(recovered), LogRunId: recovered.Id);
             }
             catch (Exception ex) { AppLogger.For<SystemBackupService>().Error(ex, "The interrupted worker outcome remains pending for recovery"); }
             try { SaveStatus(run); } catch (Exception ex) { AppLogger.For<SystemBackupService>().Error(ex, "Could not save service worker exit"); }

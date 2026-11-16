@@ -161,6 +161,12 @@ public static class BackupCheckHistory
     public static BackupCheckState State(Backup backup, IReadOnlyList<BackupCheckEntry> entries, DateTime nowUtc, bool nothingStored = false)
     {
         var kinds = KindLines(backup, entries, nowUtc);
+        // Nothing backed up yet: a check found nothing to check, whatever it
+        // recorded (U257, owner 16 November 2026: "It shouldn't even have run
+        // a backup health (stayed neutral until first backup completed)").
+        if (nothingStored && backup.Checks.Count > 0)
+            return new("No checks yet: nothing backed up so far", "never", "",
+                Hover("This backup has not stored anything yet, so there is nothing to check. Its checks start after its first backup that succeeds.", kinds)) { Kinds = kinds };
         if (entries.Count == 0)
             return backup.Checks.Count == 0
                 ? new("No checks set up", "never", "", "Add checks in this backup's settings, under Checks.") { Kinds = kinds }

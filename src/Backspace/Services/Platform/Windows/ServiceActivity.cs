@@ -51,7 +51,8 @@ internal static class ServiceActivity
             ActivityStep: current?.ActivityStep ?? "", ActivityWhere: current?.ActivityWhere ?? "", ActivityPercent: current?.ActivityPercent ?? -1);
     }
 
-    private static RunRecord Metadata(RunRecord result)
+    /// <summary>A result without its log paths, as the desktop accepts it.</summary>
+    internal static RunRecord Metadata(RunRecord result)
     {
         var copy = JsonSerializer.Deserialize<RunRecord>(JsonSerializer.SerializeToUtf8Bytes(result, ServiceRunAuthorization.Json), ServiceRunAuthorization.Json)!;
         copy.LogPath = "";

@@ -13,13 +13,21 @@ namespace Backspace.Tests.Scenarios;
 [Collection(ScenarioCollection.Name)]
 public sealed class S61_TrayScheduleStates : ScenarioBase
 {
+    private sealed class ReadyScheduler : Backspace.Services.Platform.IScheduler
+    {
+        public void UpsertTask(Backup b, string p) { }
+        public void DeleteTask(Backup b) { }
+        public string TaskNameFor(Backup b) => b.Name;
+        public ScheduleCheck InspectBackup(Backup b, string p) => new(ScheduleReadiness.Ready, "");
+    }
+
     protected override string ScenarioName => "S61-tray-schedule-states";
     [AvaloniaFact] public async Task Run_S61() => await Run();
     protected override Task RunAsync(ScenarioContext ctx)
     {
         var panel = new StackPanel { Spacing=18,Margin=new Thickness(28) };
         panel.Children.Add(new TextBlock { Text="Tray schedule status",FontSize=26 });
-        foreach(var (state,title) in new[]{(ScheduleReadiness.Ready,"Schedules ready"),(ScheduleReadiness.Paused,"Schedules paused"),(ScheduleReadiness.Off,"Schedules off"),(ScheduleReadiness.Attention,"Schedules need attention"),(ScheduleReadiness.Unknown,"Schedules not verified")})
+        foreach(var (state,title) in new[]{(ScheduleReadiness.Ready,"Backups up to date"),(ScheduleReadiness.Paused,"Automatic backups paused"),(ScheduleReadiness.Off,"Automatic backups off"),(ScheduleReadiness.Attention,"local_c: last backup failed"),(ScheduleReadiness.Unknown,"Schedules not verified")})
         {
             using var bitmap=TrayStatusPresenter.RenderIcon(AccentColor.Ocean,state,false);
             // Show the actual pixels used by the native tray, plus a readable
@@ -55,6 +63,44 @@ public sealed class S61_TrayScheduleStates : ScenarioBase
         panel.Children.Add(new TextBlock { Text="Windows tasks are checked. A ready schedule does not guarantee\nthat a drive, network or cloud account will be available later.",FontSize=15 });
         var window=ctx.Driver.Show(new Window { Width=720,Height=600,Content=panel });ctx.Driver.Pump();
         ctx.Snapshot(window,"actual-tray-status-icons","Production tray icons at 20 pixels and enlarged, with the exact menu labels. Ready, paused, off, attention and unverified stay distinct.");
+        // U258: the menu's top, built from real backups as the tray builds it,
+        // drawn here line by line with the same icons (the native menu itself
+        // cannot be drawn headlessly).
+        var now = DateTime.UtcNow;
+        Backup Make(string name, BackupRunStatus status, double hoursAgo, string summary) => new()
+        {
+            Name = name, SourcePaths = { "C:\\" + name }, Targets = { new BackupTarget() }, LastRunStatus = status,
+            LastRunEndUtc = now.AddHours(-hoursAgo), LastSuccessUtc = status == BackupRunStatus.Success ? now.AddHours(-hoursAgo) : now.AddDays(-2), LastRunSummary = summary,
+        };
+        var status = TrayScheduleStatus.Inspect([
+            Make("local_c", BackupRunStatus.Success, 3, "1.2 GB uploaded · 120 new / 40 mod / 0 rem · in 9m 12s"),
+            Make("local_d", BackupRunStatus.Success, 0.5, "293 B uploaded · 0 new / 0 mod / 0 rem · in 12s"),
+            Make("local_dropbox", BackupRunStatus.Skipped, 2, @"M:\ not mounted · skipped after 1s"),
+            Make("photos", BackupRunStatus.Failed, 26, "Google Drive sign-in expired. Sign in again in the destination's settings."),
+        ], new ReadyScheduler(), "app.exe", now);
+        var menu = new NativeMenu();
+        menu.Items.Add(new NativeMenuItem("Open Backspace"));
+        TrayStatusPresenter.Fill(menu, status, () => { });
+        Assert.Equal("2 backups need attention", ((NativeMenuItem)menu.Items[0]).Header);
+        Assert.Equal("photos  ·  Google Drive sign-in expired · 1d ago", ((NativeMenuItem)menu.Items[1]).Header);
+        Assert.NotNull(((NativeMenuItem)menu.Items[1]).Icon);
+        Assert.IsType<NativeMenuItemSeparator>(menu.Items[5]);
+        var preview = new StackPanel { Spacing = 6, Margin = new Thickness(12), Background = Avalonia.Media.Brushes.White };
+        preview.Children.Add(new TextBlock { Text = status.Title, FontSize = 14 });
+        foreach (var line in status.Lines)
+        {
+            var glyph = TrayStatusPresenter.Glyph(line.Tone);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            row.Children.Add(new Image { Source = glyph, Width = 16, Height = 16 });
+            row.Children.Add(new TextBlock { Text = line.Name + "  ·  " + line.Text, FontSize = 14 });
+            preview.Children.Add(row);
+        }
+        preview.Children.Add(new Border { Height = 1, Background = Avalonia.Media.Brushes.LightGray });
+        preview.Children.Add(new TextBlock { Text = "Open Backspace", FontSize = 14 });
+        preview.Children.Add(new TextBlock { Text = "Quit Backspace", FontSize = 14 });
+        var menuWindow = ctx.Driver.Show(new Window { Width = 560, Height = 260, Content = preview });
+        ctx.Driver.Pump();
+        ctx.Snapshot(menuWindow, "tray-menu-lines", "The tray menu's lines as built from four backups (drawn here; the native menu can't be captured headlessly): the headline as on the Backups tab, then each backup with its card's icon and Last backup line, the ones needing attention first.");
         ctx.Report.RecordNote("Scope","Real icon renderer and TrayIcon/menu property updates; actual Windows shell placement and menu opening are separate native checks.");
         return Task.CompletedTask;
     }

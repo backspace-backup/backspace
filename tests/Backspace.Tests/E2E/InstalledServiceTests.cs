@@ -109,6 +109,19 @@ public sealed class InstalledServiceTests(ITestOutputHelper output)
             output.WriteLine($"Completed: {completed.State} · {record.Status} · {record.Summary}");
             Assert.Equal(BackupRunStatus.Success, record.Status);
             Assert.False(record.StoppedByYou);
+
+            // A cleanup, as the schedule or More > Clean up starts it: it reports
+            // no live result, so the service reads it back from its history.
+            // 1.1.54 sent that with its log paths, the window refused every
+            // report from then on and said "Cannot reach the background backup
+            // service" (U256).
+            var binding = ServiceWorkerBinding.LoadForOwner(root);
+            var cleanupCode = await ServiceScheduledRun.RunApprovedAsync(root, binding, Guid.NewGuid().ToString("N"), backup.Id, "prune", deadline.Token);
+            Assert.Equal(0, cleanupCode);
+            var cleanup = await WaitForAsync(monitor, backup.Id, s => s.Operation == "prune" && s.Progress?.Result is not null
+                && s.State is not ("starting" or "running" or "stopping"), TimeSpan.FromMinutes(3), deadline.Token);
+            output.WriteLine($"Cleanup: {cleanup.State} · {cleanup.Progress!.Result!.Status} · {cleanup.Progress.Result.Summary}");
+            Assert.Null(monitor.Error);
         }
         finally
         {
