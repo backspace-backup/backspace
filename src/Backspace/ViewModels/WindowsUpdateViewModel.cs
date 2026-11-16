@@ -212,7 +212,7 @@ public sealed partial class WindowsUpdateViewModel : ViewModelBase, IDisposable
                 Status = _release is null ? "You’re up to date." : "Backspace " + _release.Version + " is available.";
             }
             HasUpdate = _release is not null;
-            Notes = _release?.Notes ?? ""; AvailableVersion = _release is null ? "" : "Update to " + _release.Version;
+            Notes = _release is null ? "" : ReleaseNotes.Since(_release.Notes, WindowsUpdatePackage.CurrentVersion); AvailableVersion = _release is null ? "" : "Update to " + _release.Version;
             ServiceLocator.Config.Update(c =>
             {
                 c.Preferences.LastUpdateCheckUtc = DateTime.UtcNow;

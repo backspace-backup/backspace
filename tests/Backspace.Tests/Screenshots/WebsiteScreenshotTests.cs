@@ -377,8 +377,10 @@ public class WebsiteScreenshotTests : IDisposable
                 // PruneSchedule null = inline prune (model default).
                 Checks =
                 {
-                    new BackupCheck { Kind = CheckKind.DataSample, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Weekly, WeeklyDaysBitmask = 1, TimeOfDay = TimeSpan.FromHours(3) } },
-                    new BackupCheck { Kind = CheckKind.TestRestore, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Monthly, TimeOfDay = TimeSpan.FromHours(3) } },
+                    // After each backup, checked after the last one: the same
+                    // health whatever the day and hour of the screenshots.
+                    new BackupCheck { Kind = CheckKind.DataSample },
+                    new BackupCheck { Kind = CheckKind.TestRestore },
                 },
             });
             cfg.Backups.Add(new Backup
@@ -396,7 +398,10 @@ public class WebsiteScreenshotTests : IDisposable
                 Threads = 8,
                 UseVss  = true,
                 KeepPolicy = "0:365 30:90 7:30 1:7",
-                Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new BackupSchedule { Frequency = ScheduleFrequency.Weekly, WeeklyDaysBitmask = 1, TimeOfDay = TimeSpan.FromHours(3) } } },
+                // After each backup, and checked after the last one: never overdue,
+                // whatever the day and hour the screenshots are taken (a weekly
+                // check read "overdue" or "passed" depending on the clock).
+                Checks = { new BackupCheck { Kind = CheckKind.Structure } },
             });
             cfg.Backups.Add(new Backup
             {
@@ -441,9 +446,9 @@ public class WebsiteScreenshotTests : IDisposable
             }
             ServiceLocator.Logs.AppendRun(record);
         }
-        Check("documents", CheckKind.TestRestore, CheckDepth.RestoreSample, 6, "Restore check (1% of files, at most 1 GiB) passed in 6m 12s.");
-        Check("documents", CheckKind.DataSample, CheckDepth.SavedDataSample, 2, "Data check (1 GiB sample) passed in 8m 8s.");
-        Check("code-and-projects", CheckKind.Structure, CheckDepth.RepositoryStructure, 1, "Structure check passed in 1m 40s.");
+        Check("documents", CheckKind.TestRestore, CheckDepth.RestoreSample, 0.16, "Restore check (1% of files, at most 1 GiB) passed in 6m 12s.");
+        Check("documents", CheckKind.DataSample, CheckDepth.SavedDataSample, 0.15, "Data check (1 GiB sample) passed in 8m 8s.");
+        Check("code-and-projects", CheckKind.Structure, CheckDepth.RepositoryStructure, 0.85, "Structure check passed in 1m 40s.");
     }
 
     /// <summary>
