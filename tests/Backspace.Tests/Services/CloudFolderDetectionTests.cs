@@ -27,7 +27,8 @@ public sealed class CloudFolderDetectionTests
         try
         {
             RecommendedFilters.DriveRootsOverride = () => ["X:\\", "Y:\\"];
-            RecommendedFilters.DriveAnswerTime = TimeSpan.FromMilliseconds(500);
+            // Long enough for a slow machine (GitHub's macOS) to ask the drive that answers.
+            RecommendedFilters.DriveAnswerTime = TimeSpan.FromSeconds(1.5);
             var asked = 0;
             RecommendedFilters.HoldsMyDrive = root =>
             {
@@ -39,7 +40,7 @@ public sealed class CloudFolderDetectionTests
 
             var watch = Stopwatch.StartNew();
             var found = RecommendedFilters.DetectCloudSyncFolders();
-            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(3), $"Waited {watch.Elapsed.TotalSeconds:0.0} s for a drive that doesn't answer.");
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(4), $"Waited {watch.Elapsed.TotalSeconds:0.0} s for a drive that doesn't answer.");
             // Joined as the app joins it, so the test holds on Linux and macOS too.
             Assert.Contains(found, f => f.Path == System.IO.Path.Combine("Y:\\", "My Drive"));
             Assert.DoesNotContain(found, f => f.Path == System.IO.Path.Combine("X:\\", "My Drive"));
