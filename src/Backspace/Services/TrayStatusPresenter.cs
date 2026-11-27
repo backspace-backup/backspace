@@ -36,7 +36,7 @@ internal sealed class TrayStatusPresenter
                 dc.DrawImage(source, new Rect(0, 0, size, size));
             // Drawn on a 64-unit grid, scaled to the size.
             using var scale = dc.PushTransform(Matrix.CreateScale(size / 64.0, size / 64.0));
-            var color = busy ? "#2563EB" : state switch {
+            var color = busy ? "#1E3A8A" : state switch {
                 ScheduleReadiness.Ready => "#15803D", ScheduleReadiness.Attention => "#B45309",
                 ScheduleReadiness.Paused => "#B45309", _ => "#64748B" };
             // A larger badge (U260, owner 26 November 2026: "we can't see the
@@ -46,13 +46,49 @@ internal sealed class TrayStatusPresenter
             using var badge = dc.PushTransform(Matrix.CreateTranslation(-49, -49) * Matrix.CreateScale(1.45, 1.45) * Matrix.CreateTranslation(45, 45));
             dc.DrawEllipse(new SolidColorBrush(Color.Parse(color)), new Pen(Brushes.White, 2.6), new Point(49,49), 13,13);
             var pen = new Pen(Brushes.White, 3.4, lineCap: PenLineCap.Round);
-            if (busy) { dc.DrawLine(pen,new Point(44,49),new Point(54,49)); dc.DrawLine(pen,new Point(50,45),new Point(54,49)); dc.DrawLine(pen,new Point(50,53),new Point(54,49)); }
+            if (busy) DrawSync(dc);
             else if (state == ScheduleReadiness.Ready) { dc.DrawLine(pen,new Point(42,49),new Point(47,54)); dc.DrawLine(pen,new Point(47,54),new Point(56,44)); }
             else if (state == ScheduleReadiness.Paused) { dc.DrawLine(pen,new Point(45,43),new Point(45,55)); dc.DrawLine(pen,new Point(53,43),new Point(53,55)); }
             else if (state == ScheduleReadiness.Attention) { dc.DrawLine(pen,new Point(49,41),new Point(49,50)); dc.DrawEllipse(Brushes.White,null,new Point(49,55),1.6,1.6); }
             else dc.DrawLine(pen,new Point(43,49),new Point(55,49));
         }
         return output;
+    }
+
+    /// <summary>The syncing mark as cloud storage apps show it (U260, owner 27
+    /// November 2026: the arrow "doesn't look like a syncing indicator"): two
+    /// white arrows chasing each other round a circle, on the blue badge.</summary>
+    private static void DrawSync(DrawingContext dc)
+    {
+        const double r = 6.2, cx = 49, cy = 49;
+        var pen = new Pen(Brushes.White, 2.7, lineCap: PenLineCap.Flat);
+        // Clockwise from the left over the top to the right, then from the
+        // right under the bottom to the left; each ends in an arrowhead.
+        foreach (var (from, to) in new[] { (192.0, 330.0), (12.0, 150.0) })
+        {
+            Point At(double degrees) => new(cx + r * Math.Cos(degrees * Math.PI / 180), cy + r * Math.Sin(degrees * Math.PI / 180));
+            var arc = new StreamGeometry();
+            using (var g = arc.Open())
+            {
+                g.BeginFigure(At(from), false);
+                g.ArcTo(At(to), new Size(r, r), 0, false, SweepDirection.Clockwise);
+                g.EndFigure(false);
+            }
+            dc.DrawGeometry(null, pen, arc);
+            var end = At(to);
+            var rad = to * Math.PI / 180;
+            var tangent = new Vector(-Math.Sin(rad), Math.Cos(rad));
+            var outward = new Vector(Math.Cos(rad), Math.Sin(rad));
+            var head = new StreamGeometry();
+            using (var g = head.Open())
+            {
+                g.BeginFigure(end + tangent * 3.6, true);
+                g.LineTo(end + outward * 3.1 - tangent * 0.4);
+                g.LineTo(end - outward * 3.1 - tangent * 0.4);
+                g.EndFigure(true);
+            }
+            dc.DrawGeometry(Brushes.White, null, head);
+        }
     }
 
     /// <summary>The accent's artwork at its largest (256 px), whatever frame a

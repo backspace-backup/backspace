@@ -39,7 +39,7 @@ public sealed class TrayScheduleStatusTests
     {
         var scheduler = new Scheduler(ScheduleReadiness.Ready);
         var now = DateTime.UtcNow;
-        var ok = Backup(); ok.Name = "local_d"; ok.LastRunEndUtc = now.AddHours(-2); ok.LastRunSummary = "27.42 MB uploaded · 150 new / 195 mod / 0 rem · in 1m 29s";
+        var ok = Backup(); ok.Name = "local_d"; ok.Schedule = TestSchedules.DueInAnHour(); ok.LastRunEndUtc = now.AddHours(-2); ok.LastRunSummary = "27.42 MB uploaded · 150 new / 195 mod / 0 rem · in 1m 29s";
         var status = TrayScheduleStatus.Inspect([ok], scheduler, "app.exe", now);
         Assert.Equal("Everything looks good", status.Title);
         var line = Assert.Single(status.Lines);
@@ -75,6 +75,8 @@ public sealed class TrayScheduleStatusTests
         Assert.StartsWith("9d ago", status.Lines[0].Text);
         Assert.Equal(("local_d", "ok"), (status.Lines[1].Name, status.Lines[1].Tone));
         Assert.Equal("Everything looks good", TrayScheduleStatus.Inspect([fresh], scheduler, "app.exe", now).Title);
+        // Running or queued now: its scheduled time is being served.
+        Assert.Equal("Everything looks good", TrayScheduleStatus.Inspect([stale, fresh], scheduler, "app.exe", now, busy: [stale.Id]).Title);
     }
     private sealed class Scheduler(ScheduleReadiness result) : IScheduler
     {

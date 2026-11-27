@@ -8,6 +8,32 @@ namespace Backspace.Tests.ViewModels;
 
 public sealed class BackupCardHistoryResultTests
 {
+    /// <summary>U265: with the window left open, the tile turns orange once a
+    /// scheduled time is more than an hour past without a run, and the banner
+    /// hears of it; a run starting brings it back.</summary>
+    [AvaloniaFact]
+    public void A_scheduled_time_passing_turns_the_open_card_orange()
+    {
+        var now = DateTime.UtcNow;
+        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(), Enabled = true,
+            LastRunStartUtc = now.AddMinutes(-12), LastRunEndUtc = now.AddMinutes(-10), LastSuccessUtc = now.AddMinutes(-10), LastRunSummary = "Backup completed" };
+        using var card = new BackupCardViewModel(backup, false, false);
+        Assert.Equal("ok", card.StatusClass);
+        var changes = new System.Collections.Generic.List<string?>();
+        card.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
+        card.UtcNow = () => now.AddHours(1).AddMinutes(30);
+        card.RefreshTimes();
+        Assert.False(card.MissedSchedule, "Half an hour after its time it may still be starting.");
+        card.UtcNow = () => now.AddHours(2).AddMinutes(30);
+        card.RefreshTimes();
+        Assert.True(card.MissedSchedule);
+        Assert.Equal("warn", card.StatusClass);
+        Assert.Contains(nameof(BackupCardViewModel.MissedSchedule), changes);
+        Assert.Contains("did not happen", card.LastRunDetail);
+        card.SetRunning();
+        Assert.False(card.MissedSchedule);
+    }
+
     [AvaloniaFact]
     public void An_unfinished_record_cannot_end_the_live_card()
     {
@@ -55,7 +81,7 @@ public sealed class BackupCardClockLabelTests
     public void The_last_backup_age_follows_the_clock_but_leaves_a_running_label_alone()
     {
         var now = DateTime.UtcNow;
-        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, LastRunStartUtc = now.AddHours(-3), LastRunEndUtc = now.AddMinutes(-90), LastRunSummary = "Backup result: STATUS_SUCCESS." };
+        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(), LastRunStartUtc = now.AddHours(-3), LastRunEndUtc = now.AddMinutes(-90), LastRunSummary = "Backup result: STATUS_SUCCESS." };
         using var card = new BackupCardViewModel(backup, false, false);
         Assert.StartsWith("1h ago · ", card.LastRunLabel);
 
@@ -81,7 +107,7 @@ public sealed class BackupCardStoppedByYouTests
     public void A_run_you_stopped_is_neutral_and_keeps_the_last_completed_status()
     {
         var now = DateTime.UtcNow;
-        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, LastRunStartUtc = now.AddHours(-2), LastRunEndUtc = now.AddHours(-2).AddMinutes(10), LastRunSummary = "Backup result: STATUS_SUCCESS." };
+        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(), LastRunStartUtc = now.AddHours(-2), LastRunEndUtc = now.AddHours(-2).AddMinutes(10), LastRunSummary = "Backup result: STATUS_SUCCESS." };
         using var card = new BackupCardViewModel(backup, false, false);
         card.Apply(new RunRecord { BackupId = backup.Id, StartedUtc = now.AddMinutes(-5), EndedUtc = now.AddMinutes(-1),
             Status = BackupRunStatus.Skipped, StoppedByYou = true, Summary = "Stopped by you after 4m" });
@@ -106,7 +132,7 @@ public sealed class BackupCardStoppedByYouTests
     public void A_run_stopped_by_backspace_itself_is_still_a_skipped_run()
     {
         var now = DateTime.UtcNow;
-        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, LastRunStartUtc = now.AddHours(-2), LastRunEndUtc = now.AddHours(-2).AddMinutes(10), LastRunSummary = "Backup result: STATUS_SUCCESS." };
+        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(), LastRunStartUtc = now.AddHours(-2), LastRunEndUtc = now.AddHours(-2).AddMinutes(10), LastRunSummary = "Backup result: STATUS_SUCCESS." };
         using var card = new BackupCardViewModel(backup, false, false);
         card.Apply(new RunRecord { BackupId = backup.Id, StartedUtc = now.AddMinutes(-5), EndedUtc = now.AddMinutes(-1),
             Status = BackupRunStatus.Skipped, Summary = "Network became metered (mobile / tethered); backup paused per backup setting. after 4m" });

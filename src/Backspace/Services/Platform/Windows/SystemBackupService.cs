@@ -113,21 +113,54 @@ internal sealed class SystemBackupService : ServiceBase
         Environment.CurrentDirectory = _binding.DataDirectory;
         AppLogger.Initialize(new LoggingSettings());
         var log = AppLogger.For<SystemBackupService>();
-        // Started by Windows while the owner had quit Backspace (a resume
-        // from sleep, or a start trigger): stay stopped until the next sign-in,
-        // restart or Windows start.
+        // Started by Windows while the owner had quit Backspace (a sign-in or
+        // sign-out trigger): stay stopped until that sign-in session ends, or
+        // the next restart or Windows start.
         var mode = SystemServiceLifetime.ModeFor(
             SystemServiceLifetime.StaysQuit(_binding.DataDirectory, out var reason, () => RequestAdditionalTime(2000)), args);
         if (mode == SystemServiceLifetime.StartMode.StayStopped)
         {
             log.Information("Staying stopped: {Reason}", reason);
-            // Not again in this session: no start triggers until the next real start (U261).
+            // While quit, only signing in or out and a start of Windows start it (U261).
             try { SystemServiceTriggers.SetForOwnService(_binding.ServiceName, on: false); }
             catch (Exception ex) { log.Warning(ex, "Could not pause the service's start triggers"); }
             ExitCode = 0;
-            _ = Task.Run(Stop);
+            _ = Task.Run(() => WaitForSignOutAsync(log, args));
             return;
         }
+        Serve(log, mode, reason);
+    }
+
+    /// <summary>How long a start while quit waits for the sign-in session that
+    /// quit to end: Windows starts it as that session begins to sign out.</summary>
+    internal static readonly TimeSpan SignOutWait = TimeSpan.FromSeconds(60), SignOutPoll = TimeSpan.FromSeconds(2);
+
+    /// <summary>Started while the owner's Quit holds, at a sign-in or sign-out
+    /// (U261): signing out ends a Quit, so schedules run while nobody is
+    /// signed in (B023, owner 13 October 2026), but the session is still
+    /// ending when Windows starts the service. It waits up to
+    /// <see cref="SignOutWait"/> for that, then stops.</summary>
+    private async Task WaitForSignOutAsync(Serilog.ILogger log, string[] args)
+    {
+        try
+        {
+            for (var waited = TimeSpan.Zero; waited < SignOutWait; waited += SignOutPoll)
+            {
+                await Task.Delay(SignOutPoll, _stop.Token).ConfigureAwait(false);
+                if (!SystemServiceLifetime.StaysQuit(_binding.DataDirectory, out var reason))
+                {
+                    Serve(log, SystemServiceLifetime.ModeFor(false, args), reason);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex) { log.Warning(ex, "Could not tell whether the sign-in session that quit Backspace has ended"); }
+        Stop();
+    }
+
+    private void Serve(Serilog.ILogger log, SystemServiceLifetime.StartMode mode, string reason)
+    {
         // The owner's command line after Quit (U180): that command only.
         _commandOnly = mode == SystemServiceLifetime.StartMode.CommandOnly;
         if (_commandOnly) log.Information("Started for the owner's command only; scheduled backups stay stopped ({Reason})", reason);

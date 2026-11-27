@@ -338,6 +338,8 @@ public partial class App : Application
             catch (Exception ex) { AppLogger.For<App>().Debug(ex, "History unavailable for the tray status"); continue; }
             if (latest is null || backup.LastRunStartUtc is { } known && known >= latest.StartedUtc) continue;
             backup.LastRunStartUtc = latest.StartedUtc;
+            // Its end too: the menu says how long ago, and a stale end read as a missed schedule (U265).
+            backup.LastRunEndUtc = latest.EndedUtc ?? latest.StartedUtc;
             backup.LastRunStatus = latest.Status;
             backup.LastRunSummary = latest.Summary;
             if (latest.Status == BackupRunStatus.Success) backup.LastSuccessUtc = latest.EndedUtc ?? latest.StartedUtc;
@@ -508,6 +510,18 @@ public partial class App : Application
 #endif
     }
 
+    /// <summary>Backups running or queued, here or in the background service:
+    /// a scheduled time is not missed while its run waits its turn (U265).</summary>
+    private static System.Collections.Generic.HashSet<string> BusyBackups()
+    {
+        var busy = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        try { busy.UnionWith(ServiceLocator.Orchestrator.SnapshotRunningBackupIds()); } catch (Exception) { }
+#if WINDOWS
+        try { busy.UnionWith(Services.Platform.Windows.ServiceActivity.RunningBackups(ServiceLocator.BackgroundActivity?.Current)); } catch (Exception) { }
+#endif
+        return busy;
+    }
+
     internal async void RefreshTrayStatus()
     {
         if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime || QuitRequested) return;
@@ -538,10 +552,11 @@ public partial class App : Application
                 }
                 var scheduler = ServiceLocator.Scheduler;
                 var executable = Environment.ProcessPath ?? "";
+                var busy = BusyBackups();
                 var query = System.Threading.Tasks.Task.Run(() =>
                 {
                     WithLatestRuns(backups);
-                    return TrayScheduleStatus.Inspect(backups, scheduler, executable, DateTime.UtcNow);
+                    return TrayScheduleStatus.Inspect(backups, scheduler, executable, DateTime.UtcNow, busy);
                 });
                 try { _trayStatus = await query.WaitAsync(TimeSpan.FromSeconds(5)); }
                 catch (TimeoutException)

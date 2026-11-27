@@ -32,7 +32,7 @@ public sealed class S73_NoticePillJump : ScenarioBase
         ServiceLocator.Config.Update(cfg =>
         {
             foreach (var name in new[] { "alpha", "bravo", "charlie", "delta", "echo" })
-                cfg.Backups.Add(new Backup { Name = name, SourcePaths = { source }, LastRunStatus = BackupRunStatus.Success, LastRunEndUtc = DateTime.UtcNow.AddHours(-2) });
+                cfg.Backups.Add(new Backup { Name = name, SourcePaths = { source }, LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(), LastRunEndUtc = DateTime.UtcNow.AddHours(-2) });
             cfg.Backups.Add(new Backup { Name = "zulu-music", SourcePaths = { source }, LastRunStatus = BackupRunStatus.Skipped, LastRunEndUtc = DateTime.UtcNow.AddHours(-1) });
         });
 

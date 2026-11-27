@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -36,6 +37,11 @@ internal static class ServiceActivity
             .OrderByDescending(r => r.State is "starting" or "running" or "stopping" or "unknown")
             .ThenByDescending(r => r.StartedUtc).FirstOrDefault() ?? activity;
     }
+
+    /// <summary>The backups with a run going or waiting its turn in the report.</summary>
+    internal static IEnumerable<string> RunningBackups(Snapshot? activity)
+        => activity is null ? [] : (activity.Runs ?? [activity])
+            .Where(r => r.BackupId is not null && r.State is "starting" or "running" or "stopping").Select(r => r.BackupId!);
 
     /// <summary>True while any run of the report is going.</summary>
     internal static bool AnyRunning(Snapshot? activity) => activity is not null

@@ -201,9 +201,9 @@ public class IconAndBadgeAlignmentTests
                     cfg.Backups.Clear();
                     cfg.Backups.Add(new Backup { Name = "zulu-music", LastRunStatus = BackupRunStatus.Skipped,
                         LastRunStartUtc = DateTime.UtcNow.AddHours(-21), LastRunEndUtc = DateTime.UtcNow.AddHours(-21) });
-                    cfg.Backups.Add(new Backup { Name = "documents", LastRunStatus = BackupRunStatus.Success,
+                    cfg.Backups.Add(new Backup { Name = "documents", LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(),
                         LastRunStartUtc = DateTime.UtcNow.AddHours(-22), LastRunEndUtc = DateTime.UtcNow.AddHours(-22) });
-                    cfg.Backups.Add(new Backup { Name = "photos", LastRunStatus = BackupRunStatus.Success,
+                    cfg.Backups.Add(new Backup { Name = "photos", LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(),
                         LastRunStartUtc = DateTime.UtcNow.AddHours(-23), LastRunEndUtc = DateTime.UtcNow.AddHours(-23) });
                 });
                 var vm = new BackupsViewModel();
@@ -313,7 +313,7 @@ public class IconAndBadgeAlignmentTests
             cfg.Backups.Clear();
             cfg.Backups.Add(new Backup { Name = "zulu-music", LastRunStatus = BackupRunStatus.Skipped,
                 LastRunStartUtc = DateTime.UtcNow.AddHours(-21), LastRunEndUtc = DateTime.UtcNow.AddHours(-21) });
-            cfg.Backups.Add(new Backup { Name = "documents", LastRunStatus = BackupRunStatus.Success,
+            cfg.Backups.Add(new Backup { Name = "documents", LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(),
                 LastRunStartUtc = DateTime.UtcNow.AddHours(-22), LastRunEndUtc = DateTime.UtcNow.AddHours(-22) });
         });
         var vm = new BackupsViewModel();

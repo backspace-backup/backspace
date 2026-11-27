@@ -32,8 +32,9 @@ public sealed record TrayScheduleStatus(ScheduleReadiness State, string Title, s
     /// <summary>Backups not listed (beyond <see cref="MaxLines"/>).</summary>
     public int MoreBackups { get; init; }
 
+    /// <param name="busy">Backups running or waiting their turn now: not missed.</param>
     public static TrayScheduleStatus Inspect(IEnumerable<Backup> backups, IScheduler scheduler,
-        string exePath, DateTime nowUtc)
+        string exePath, DateTime nowUtc, IReadOnlyCollection<string>? busy = null)
     {
         var all = backups.ToArray();
         var enabled = all.Where(b => b.Enabled).ToArray();
@@ -76,7 +77,7 @@ public sealed record TrayScheduleStatus(ScheduleReadiness State, string Title, s
                 return new(b.Name, "Not backed up yet", "idle");
             var status = b.LastRunStatus;
             // As on its card (U265): a scheduled run missed is orange.
-            if (status is BackupRunStatus.Success or BackupRunStatus.Warning && b.Schedule.Missed(ended, nowUtc))
+            if (status is BackupRunStatus.Success or BackupRunStatus.Warning && busy?.Contains(b.Id) != true && b.Schedule.Missed(ended, nowUtc))
             {
                 missed.Add(b.Id);
                 return new(b.Name, LastRunLine.For(b.LastRunSummary ?? "", status, ended, nowUtc).Label, "warn");

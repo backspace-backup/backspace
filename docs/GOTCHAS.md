@@ -437,8 +437,14 @@ same sign-in session in the same boot) and stops again within a fraction of a
 second if so (`SystemServiceLifetime`). Seen from the owner's side, that was
 Backspace appearing in Task Manager after Quit, 17 to 35 times a day (U261):
 so while the Quit holds, the service replaces its triggers with Kernel-Boot
-alone (`SystemServiceTriggers.SetForOwnService`), and its next real start
-restores both. Because those starts often coincide
+and Winlogon's sign-in and sign-out events alone
+(`SystemServiceTriggers.SetForOwnService`), and its next real start
+restores both. Only 7001 and 7002 carry both the System-channel keyword
+(0x2000000000000000) and the Telemetry keyword (0x200000000000) in
+Winlogon's manifest; a test reads the manifest to keep that true. A
+sign-out starts the service while the session is still ending, so it waits
+up to a minute for the session to go before deciding (U261, 27 November
+2026: Kernel-Boot alone had dropped the sign-out case that B023 decided). Because those starts often coincide
 with the owner opening Backspace, the service reads the record with delete
 sharing, and the desktop retries deleting it as long as it takes (see below): Dropbox
 also opens it when the portable folder is synced (U121, 4 November 2026: "Scheduled tasks

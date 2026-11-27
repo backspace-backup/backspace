@@ -181,8 +181,13 @@ owner opens Backspace or signs in (the sign-in start resumes it), and after
 start trigger (`SystemServiceTriggers`). On every start the service keeps the
 Quit while the same sign-in session exists in the same boot, which covers
 waking from sleep or hibernation, and otherwise deletes it. While the Quit
-holds, the service keeps only the Kernel-Boot trigger, so lock, unlock and
-wake no longer start it for a moment (U261); its next real start restores both. Updates stop the
+holds, the service keeps Kernel-Boot and only Winlogon's sign-in and sign-out
+events (7001, 7002, selected by keyword: `SystemServiceTriggers.WhileQuit`),
+so lock, unlock and wake no longer start it for a moment (U261); its next
+real start restores both. Windows starts it as the session that quit begins
+to sign out, so a start while the Quit holds waits up to a minute for that
+session to end, then serves (nobody signed in: schedules run, as decided in
+B023) or stops. Updates stop the
 service, replace `Backspace.exe` like any portable copy and start it again
 (`WindowsUpdateRuntime.ApplyPendingAfterExit`).
 

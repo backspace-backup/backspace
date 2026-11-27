@@ -226,7 +226,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
     private void OnCardCheckStateChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(BackupCardViewModel.VerifyClass) or nameof(BackupCardViewModel.DisplayedRunStatus)
-            or nameof(BackupCardViewModel.DisplayedRunEndUtc)) RecomputeHealth(ServiceLocator.Config.Current);
+            or nameof(BackupCardViewModel.DisplayedRunEndUtc) or nameof(BackupCardViewModel.MissedSchedule)) RecomputeHealth(ServiceLocator.Config.Current);
     }
     private void OnCheckHistoryChanged(RunRecord record) => OnUiThread(() =>
     {

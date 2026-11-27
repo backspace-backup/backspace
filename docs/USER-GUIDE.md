@@ -116,12 +116,18 @@ Mount, Restore files and Verify are greyed out.
 Closing the window keeps Backspace in the tray, so schedules keep running.
 **Quit** from the tray menu stops Backspace completely, including the
 background service: active work stops and nothing runs until you open
-Backspace again, sign in again, or start Windows again (a restart, or
-switching the computer on after **Shut down**, Fast Startup included). Sleep,
-hibernation and locking the screen don't bring it back. Scheduled backups
-don't run while Backspace is quit; a backup whose last success is older than
-two of its scheduled periods shows an orange tile saying a scheduled run was
-missed.
+Backspace again, sign out or sign in again, or start Windows again (a
+restart, or switching the computer on after **Shut down**, Fast Startup
+included). With administrator access, backups then run on schedule even
+while nobody is signed in. Sleep, waking, hibernation and locking or
+unlocking the screen don't bring it back, and don't start anything you would
+see in Task Manager. Scheduled backups don't run while Backspace is quit.
+
+When a backup's scheduled time passes by more than an hour without a run (the
+computer was off or asleep, or Backspace was quit), its tile turns orange and
+its hover names the run that did not happen. A failed run is red and a skipped
+one orange straight away; the grace period in a backup's settings only delays
+notifications about skipped runs, never what the card shows.
 
 Backspace registers no Windows scheduled task. Between runs it only waits for
 the next due time, so it uses no CPU while idle. The backup engine runs only

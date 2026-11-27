@@ -81,6 +81,15 @@ public sealed class InstalledServiceTests(ITestOutputHelper output)
                 "The window does not see the service as set up.");
             output.WriteLine($"Installed {system.ServiceName} for {root}");
 
+            // U261: while quit, Windows starts it only at a sign-in, a sign-out
+            // (Winlogon 7001/7002, by keyword) or a start of Windows; at its
+            // next start it has all its triggers again. Read back from Windows.
+            SystemServiceTriggers.SetForOwnService(system.ServiceName, on: false);
+            Assert.Equal(SystemServiceTriggers.WhileQuit, SystemServiceTriggers.Read(system.ServiceName));
+            SystemServiceTriggers.SetForOwnService(system.ServiceName, on: true);
+            Assert.Equal(SystemServiceTriggers.Providers.Select(p => new SystemServiceTriggers.Spec(p)), SystemServiceTriggers.Read(system.ServiceName));
+            output.WriteLine("Start triggers while quit and after a start read back as set");
+
             // An open window follows every change of the service's activity.
             BackgroundServiceActivity.WindowShown = true;
             var monitor = BackgroundServiceActivity.ForDesktop(root);

@@ -91,11 +91,25 @@ public sealed class BackupSchedule
         _ => null,
     };
 
-    /// <summary>A completed backup older than two of its periods (U265, owner
-    /// 26 November 2026: a daily backup showed a green check 9 days after its
-    /// last run): at least one scheduled run was missed.</summary>
-    public bool Missed(DateTime lastCompletedUtc, DateTime nowUtc)
-        => Period is { } p && (PausedUntilUtc is not { } until || until <= nowUtc) && nowUtc - lastCompletedUtc > p * 2;
+    /// <summary>How long after a scheduled time its run may still start before
+    /// the time counts as missed: a run queued behind another, or caught up
+    /// as the computer wakes, starts well within it.</summary>
+    public static readonly TimeSpan MissedAfter = TimeSpan.FromHours(1);
+
+    /// <summary>The first scheduled time after the last completed backup, when
+    /// it passed more than <see cref="MissedAfter"/> ago without a run (U265,
+    /// owner 26 November 2026: a daily backup showed a green check 9 days
+    /// after its last run; 27 November: "Why tolerate...?"). Null when no
+    /// scheduled time was missed. Times inside a pause are not missed.</summary>
+    public DateTime? MissedSlotUtc(DateTime lastCompletedUtc, DateTime nowUtc)
+    {
+        if (PausedUntilUtc is { } until && until > nowUtc) return null;
+        var from = PausedUntilUtc is { } ended && ended > lastCompletedUtc ? ended : lastCompletedUtc;
+        return ComputeNextFire(from.ToLocalTime())?.ToUniversalTime() is { } due && nowUtc - due > MissedAfter ? due : null;
+    }
+
+    /// <summary>A scheduled time passed without a run: <see cref="MissedSlotUtc"/>.</summary>
+    public bool Missed(DateTime lastCompletedUtc, DateTime nowUtc) => MissedSlotUtc(lastCompletedUtc, nowUtc) is not null;
 
     // ----------------------------------------------------------------
     // Human-friendly "next run" formatter

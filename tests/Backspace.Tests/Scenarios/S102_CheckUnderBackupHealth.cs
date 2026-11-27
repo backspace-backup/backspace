@@ -37,7 +37,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         Backup Make(string name, Destination dest, BackupRunStatus status, string summary)
         {
             var b = new Backup { Name = name, SourcePaths = { ctx.MakeSource(name, targetBytes: 4096) },
-                LastRunStatus = status, LastRunStartUtc = now.AddHours(-3), LastRunEndUtc = now.AddHours(-3).AddSeconds(40), LastRunSummary = summary,
+                LastRunStatus = status, Schedule = TestSchedules.DueInAnHour(), LastRunStartUtc = now.AddHours(-3), LastRunEndUtc = now.AddHours(-3).AddSeconds(40), LastRunSummary = summary,
                 LastSuccessUtc = status == BackupRunStatus.Success ? now.AddHours(-3) : null,
                 Checks = { new BackupCheck { Kind = CheckKind.DataSample, MaximumBytes = BackupCheck.OneGiB },
                            new BackupCheck { Kind = CheckKind.TestRestore, SamplePercent = 1, MaximumBytes = BackupCheck.OneGiB } } };

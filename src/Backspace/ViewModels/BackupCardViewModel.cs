@@ -452,6 +452,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     {
         if (!value) _serviceError = null; // the next run starts with no stale "not responding"
         OnPropertyChanged(nameof(CanEditWhileIdle));
+        OnPropertyChanged(nameof(MissedSchedule));
         OnPropertyChanged(nameof(MoreActionsTooltip));
         OnPropertyChanged(nameof(CanUseSnapshots));
         OnPropertyChanged(nameof(RunningActionTooltip));
@@ -895,6 +896,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         _missed = saved.Enabled && end is { } completedAt && status is BackupRunStatus.Success or BackupRunStatus.Warning
             && saved.Schedule.Missed(completedAt, UtcNow());
         if (_missed) StatusClass = "warn";
+        OnPropertyChanged(nameof(MissedSchedule));
         LastCompletedClass = stopped is null ? "" : StatusClass;
         OnPropertyChanged(nameof(RunIconClass));
         StatusLabel = stopped is not null ? RunRecord.StoppedByYouReason
@@ -922,9 +924,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             _lastRunHover = hover;
             completed = label;
         }
-        if (_missed) _lastRunHover = "No backup since " + _lastRun!.Value.When.ToLocalTime().ToString("ddd d MMM, HH:mm", System.Globalization.CultureInfo.CurrentCulture)
-            + ": at least one scheduled run (" + Snapshot.Schedule.DescribePeriod().ToLowerInvariant() + ") was missed. Run now, or open Activity to see why."
-            + (_lastRunHover is { Length: > 0 } h ? "\n\n" + h : "");
+        if (_missed && Snapshot.Schedule.MissedSlotUtc(_lastRun!.Value.When, UtcNow()) is { } slot)
+            _lastRunHover = "No backup since " + When(_lastRun.Value.When) + ": the scheduled run of " + When(slot)
+                + " did not happen (" + Snapshot.Schedule.DescribePeriod().ToLowerInvariant() + "). Run now, or open Activity to see why."
+                + (_lastRunHover is { Length: > 0 } h ? "\n\n" + h : "");
+        static string When(DateTime utc) => utc.ToLocalTime().ToString("ddd d MMM, HH:mm", System.Globalization.CultureInfo.CurrentCulture);
         if (_stoppedByYouAt is not { } stoppedAt) { LastCompletedLabel = ""; return completed; }
         // U242: "Stopped by you · 3 min ago", the last completed run under it
         // with its own icon ("3 h ago · 27.4 MB uploaded").
@@ -935,8 +939,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     private DateTime? _stoppedByYouAt;
     private bool _missed;
-    /// <summary>Its last completed backup is older than two scheduled periods (U265).</summary>
-    internal bool MissedSchedule => _missed;
+    /// <summary>A scheduled time passed without a run (U265); not while it runs or waits its turn.</summary>
+    internal bool MissedSchedule => _missed && !IsRunning;
 
     /// <summary>Under "Stopped by you": the last completed run (U242).</summary>
     [ObservableProperty] private string _lastCompletedLabel = "";
@@ -962,6 +966,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if ((!IsRunning || IsChecking) && _lastRunAgeLabel is not null && LastRunLabel == _lastRunAgeLabel)
             LastRunLabel = _lastRunAgeLabel = LastRunText();
         if (Snapshot.Enabled) NextRunLabel = Snapshot.Schedule.DescribeNextRun(DateTime.Now);
+        // A scheduled time passing without a run turns the tile orange within the
+        // hour, also while the window stays open (U265).
+        if (!IsRunning && _lastRun is { } last && (last.Status is BackupRunStatus.Success or BackupRunStatus.Warning)
+            && Snapshot.Enabled && Snapshot.Schedule.Missed(last.When, UtcNow()) != _missed)
+            ApplyStoredRunState(Snapshot);
     }
 
     public void RefreshCheckAge()
