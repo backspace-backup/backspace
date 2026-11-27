@@ -434,7 +434,11 @@ background service therefore also starts on Winlogon and Kernel-Boot events
 from hibernation, and also at shutdown and on lock and unlock; the service
 then decides from `service\quit.json` whether the owner's Quit still holds (the
 same sign-in session in the same boot) and stops again within a fraction of a
-second if so (`SystemServiceLifetime`). Because those starts often coincide
+second if so (`SystemServiceLifetime`). Seen from the owner's side, that was
+Backspace appearing in Task Manager after Quit, 17 to 35 times a day (U261):
+so while the Quit holds, the service replaces its triggers with Kernel-Boot
+alone (`SystemServiceTriggers.SetForOwnService`), and its next real start
+restores both. Because those starts often coincide
 with the owner opening Backspace, the service reads the record with delete
 sharing, and the desktop retries deleting it as long as it takes (see below): Dropbox
 also opens it when the portable folder is synced (U121, 4 November 2026: "Scheduled tasks

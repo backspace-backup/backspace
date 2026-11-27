@@ -486,6 +486,7 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
         var failedRuns = 0;
         var warned = new System.Collections.Generic.List<Backup>();
         var incompleteChecks = 0;
+        var missedRuns = 0;
         var reasons = new System.Collections.Generic.Dictionary<string, string>();
         var loadingChecks = 0;
         var runningCount = 0;
@@ -530,6 +531,9 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
                 case BackupRunStatus.Failed:  failed.Add(b);  reasons[b.Id] = "Its last run failed"; break;
                 case BackupRunStatus.Warning: warned.Add(b);  reasons[b.Id] = "Its last run finished with warnings"; break;
                 case BackupRunStatus.Skipped: skipped.Add(b); reasons[b.Id] = "Its last run was skipped"; break;
+                case BackupRunStatus.Success when card?.MissedSchedule ?? false:
+                    // Its tile is orange (U265): the banner cannot say all is well.
+                    warned.Add(b); missedRuns++; reasons[b.Id] = "A scheduled backup was missed"; break;
                 case BackupRunStatus.Success:
                     if (checkTone == "loading") loadingChecks++; else okCount++;
                     break;
@@ -595,9 +599,9 @@ public sealed partial class BackupsViewModel : ViewModelBase, IDisposable
             // Several kinds of problem, or a check: "N backups need attention"
             // and the pills, each saying why on hover (U199). The line only
             // points at the pills; reasons beside it wrapped awkwardly.
-            var warnedRuns = warned.Count - incompleteChecks;
-            var kinds = (incompleteChecks > 0 ? 1 : 0) + (warnedRuns > 0 ? 1 : 0) + (skipped.Count > 0 ? 1 : 0);
-            var generic = kinds > 1 || incompleteChecks > 0;
+            var warnedRuns = warned.Count - incompleteChecks - missedRuns;
+            var kinds = (incompleteChecks > 0 ? 1 : 0) + (warnedRuns > 0 ? 1 : 0) + (skipped.Count > 0 ? 1 : 0) + (missedRuns > 0 ? 1 : 0);
+            var generic = kinds > 1 || incompleteChecks > 0 || missedRuns > 0;
             if (generic)
             {
                 var affected = warned.Count + skipped.Count;

@@ -71,7 +71,12 @@ public sealed class S105_SavingWithoutASaveButton : ScenarioBase
             main.Settings.BackupsInTotal = before;
             await ctx.Driver.PumpAsync(100);
             Assert.False(settings.FindControl<Border>("SettingsSaveFailed")!.IsVisible);
+            // Closed as test cleanup, not as the user quitting: a real quit
+            // keeps admission closed until the process exits, which made
+            // every later test in the run fail with "Backspace is closing".
+            Backspace.App.QuitRequested = true;
             host.Close();
+            Backspace.App.QuitRequested = false;
         }
 
         // ---- The backup editor ----

@@ -31,7 +31,8 @@ public sealed class OrchestratorAdmissionRefreshTests
         var secrets = new SecretsStore(); var logs = new LogStore();
         var destination = new Destination { Name = "Removed repository", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("repository") };
         var backup = new Backup { Name = "Waiting scheduled run", UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false,
-            SourcePaths = { workspace.Sub("source") }, Targets = { new() { DestinationId = destination.Id } } };
+            SourcePaths = { workspace.Sub("source") }, Targets = { new() { DestinationId = destination.Id } },
+            LastSuccessUtc = DateTime.UtcNow.AddDays(-1) }; // checks and cleanups wait for a first backup (U257)
         scheduledConfig.Update(c => { c.Backups.Add(backup); c.Destinations.Add(destination);
             c.Notifications.OnSuccess = new(); c.Notifications.OnFailure = new(); c.Notifications.OnSkipped = new(); });
         // Independent store instances reproduce a GUI and a scheduled process
@@ -88,7 +89,8 @@ public sealed class OrchestratorAdmissionRefreshTests
         var secrets = new SecretsStore(); var logs = new LogStore();
         var destination = new Destination { Name = "Unchanged repository", Kind = DestinationKind.LocalFolder, PathOrSubpath = workspace.Sub("repository") };
         var backup = new Backup { Name = "Unreadable settings", UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false,
-            SourcePaths = { workspace.Sub("source") }, Targets = { new() { DestinationId = destination.Id } } };
+            SourcePaths = { workspace.Sub("source") }, Targets = { new() { DestinationId = destination.Id } },
+            LastSuccessUtc = DateTime.UtcNow.AddDays(-1) }; // checks and cleanups wait for a first backup (U257)
         config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(destination);
             c.Notifications.OnSuccess = new(); c.Notifications.OnFailure = new(); c.Notifications.OnSkipped = new(); });
         var engine = new InMemoryBackupEngine();

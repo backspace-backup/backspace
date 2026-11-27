@@ -35,6 +35,7 @@ public sealed class RuntimeGuardCoverageTests
         var first = new Destination { Name = "first", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"\\?\" + workspace.Sub("first") };
         var second = new Destination { Name = "second", Kind = DestinationKind.LocalFolder, PathOrSubpath = @"\\?\" + workspace.Sub("second") };
         var backup = new Backup { Name = "guard-proof", UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = enabled,
+            LastSuccessUtc = DateTime.UtcNow.AddDays(-1), // checks and cleanups wait for a first backup (U257)
             PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(), SourcePaths = { workspace.Sub("source") },
             Targets = { new() { DestinationId = first.Id }, new() { DestinationId = second.Id } } };
         File.WriteAllText(Path.Combine(backup.SourcePaths[0], "fixture.txt"), "isolated guard proof");

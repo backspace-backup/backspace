@@ -262,7 +262,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     /// bar and in its tooltip: bytes and files done of the totals found so far,
     /// and the speed (U114, 3 November 2026).</summary>
     [ObservableProperty] private string _progressDetail = "";
-    public string ProgressTooltip => OverallPercent.ToString("0.0", System.Globalization.CultureInfo.CurrentCulture) + "% done"
+    public string ProgressTooltip => (_serviceError is { } unreachable ? unreachable + "\n\nLast known: " : "")
+        + OverallPercent.ToString("0.0", System.Globalization.CultureInfo.CurrentCulture) + "% done"
         + (ProgressDetail.Length > 0 ? "\n" + ProgressDetail.Replace(" · ", "\n") : "")
         // Why the data uploaded is much less than the changed files backed up (U155).
         + (ProgressDetail.Contains("uploaded", StringComparison.Ordinal) || ProgressDetail.Contains("changed files", StringComparison.Ordinal)
@@ -288,6 +289,10 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             if (part is "Backing up" || part.Contains("new data uploaded", StringComparison.Ordinal)
                 || (part.EndsWith('%') && double.TryParse(part[..^1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _)))
                 continue;
+            // A bare time ("Preparing the backup · 45s"): the time the run has
+            // taken is already beside "Running" above, counted from the same
+            // start; two clocks a few seconds apart said the same thing (U259).
+            if (System.Text.RegularExpressions.Regex.IsMatch(part, @"^\d+[smhd]( \d+[smh])?$")) continue;
             var text = part;
             // "122,087 of ~428,634 files checked (~164 GB)": the size is in the hover.
             if (text.Contains("files checked (", StringComparison.Ordinal) && text.EndsWith(')'))
@@ -445,6 +450,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     partial void OnIsRunningChanged(bool value)
     {
+        if (!value) _serviceError = null; // the next run starts with no stale "not responding"
         OnPropertyChanged(nameof(CanEditWhileIdle));
         OnPropertyChanged(nameof(MoreActionsTooltip));
         OnPropertyChanged(nameof(CanUseSnapshots));
@@ -516,6 +522,8 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     {
         get
         {
+            // The service stopped answering: what it last said is in the hover (U264).
+            if (_serviceError is not null) return "Service not responding";
             var what = RunningOperation switch { "check" => "Checking", "prune" => "Cleaning up", _ => "Running" };
             if (RunningOperation != "backup" && RunningActivity.Length > 0) what += " · " + RunningActivity;
             return RunStartedUtc is { } started ? what + " · " + Elapsed(UtcNow() - started - QueuedTime()) : what;
@@ -882,6 +890,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             BackupRunStatus.Success => "ok", BackupRunStatus.Warning => "warn", BackupRunStatus.Failed => "fail",
             BackupRunStatus.Skipped => "skipped", BackupRunStatus.Running => "running", _ => "idle",
         };
+        // A daily backup last completed 9 days ago is not "OK" (U265): when a
+        // scheduled run was missed, the tile is orange and says so on hover.
+        _missed = saved.Enabled && end is { } completedAt && status is BackupRunStatus.Success or BackupRunStatus.Warning
+            && saved.Schedule.Missed(completedAt, UtcNow());
+        if (_missed) StatusClass = "warn";
         LastCompletedClass = stopped is null ? "" : StatusClass;
         OnPropertyChanged(nameof(RunIconClass));
         StatusLabel = stopped is not null ? RunRecord.StoppedByYouReason
@@ -909,6 +922,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             _lastRunHover = hover;
             completed = label;
         }
+        if (_missed) _lastRunHover = "No backup since " + _lastRun!.Value.When.ToLocalTime().ToString("ddd d MMM, HH:mm", System.Globalization.CultureInfo.CurrentCulture)
+            + ": at least one scheduled run (" + Snapshot.Schedule.DescribePeriod().ToLowerInvariant() + ") was missed. Run now, or open Activity to see why."
+            + (_lastRunHover is { Length: > 0 } h ? "\n\n" + h : "");
         if (_stoppedByYouAt is not { } stoppedAt) { LastCompletedLabel = ""; return completed; }
         // U242: "Stopped by you · 3 min ago", the last completed run under it
         // with its own icon ("3 h ago · 27.4 MB uploaded").
@@ -918,6 +934,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     }
 
     private DateTime? _stoppedByYouAt;
+    private bool _missed;
+    /// <summary>Its last completed backup is older than two scheduled periods (U265).</summary>
+    internal bool MissedSchedule => _missed;
 
     /// <summary>Under "Stopped by you": the last completed run (U242).</summary>
     [ObservableProperty] private string _lastCompletedLabel = "";
@@ -1036,12 +1055,17 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     /// <summary>The status line's hover text: for a queued run, why it waits
     /// and that it starts by itself; otherwise the line itself.</summary>
-    public string LastRunDetail => IsQueued && QueuedReason.Length > 0
+    public string LastRunDetail => IsRunning && _serviceError is { } unreachable
+        ? unreachable + (IsQueued && QueuedReason.Length > 0 ? " Last known: queued, " + QueuedReason + "." : "")
+        : IsQueued && QueuedReason.Length > 0
         ? $"Queued: {QueuedReason}"
         : LastRunLabel == _lastRunAgeLabel && _lastRunHover is { } hover ? hover
         : LastRunLabel;
 
     partial void OnLastRunLabelChanged(string value) => OnPropertyChanged(nameof(LastRunDetail));
+
+    /// <summary>Set while the background service cannot be reached during this card's run.</summary>
+    private string? _serviceError;
 
     public void Apply(RunRecord r)
     {
@@ -1224,7 +1248,12 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
                 if (IsChecking) RunningActivityStep = "Stopping the check…";
                 else LastRunLabel = "Stopping background backup…";
             }
-            if (error is not null) LastRunLabel = error;
+            // Short on the card, the whole story on hover, both saying the same
+            // thing (U264: the long message was cut off while the hover said
+            // "Queued: waiting for local_c").
+            _serviceError = error;
+            if (error is not null) LastRunLabel = "Service not responding";
+            OnPropertyChanged(nameof(LastRunDetail)); OnPropertyChanged(nameof(RunningLabel)); OnPropertyChanged(nameof(ProgressTooltip));
             var progress = activity.Progress;
             OverallPercent = progress?.Percent ?? 0;
             foreach (var source in Sources)

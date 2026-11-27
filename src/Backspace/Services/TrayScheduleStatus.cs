@@ -40,6 +40,7 @@ public sealed record TrayScheduleStatus(ScheduleReadiness State, string Title, s
         var active = enabled.Where(b => b.Schedule.PausedUntilUtc is not { } until || until <= nowUtc).ToArray();
         var checks = active.ToDictionary(b => b.Id, Check);
 
+        var missed = new HashSet<string>();
         var lines = all.Select(b => Line(b)).ToList();
         var ordered = lines.OrderBy(l => l.Tone switch { "fail" => 0, "warn" or "skipped" => 1, "idle" => 2, _ => 3 })
             .ThenBy(l => l.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
@@ -53,7 +54,7 @@ public sealed record TrayScheduleStatus(ScheduleReadiness State, string Title, s
         // As on the Backups tab: a failure or a schedule that cannot run needs
         // attention; warnings and skips are said as such.
         var needs = lines.Where(l => l.Tone is "fail" or "warn" or "skipped").ToList();
-        if (needs.Count > 0 && needs.All(l => l.Tone == "warn"))
+        if (needs.Count > 0 && needs.All(l => l.Tone == "warn") && missed.Count == 0)
             return With(ScheduleReadiness.Attention, needs.Count == 1 ? "1 backup finished with warnings" : $"{needs.Count} backups finished with warnings");
         if (needs.Count > 0)
             return With(ScheduleReadiness.Attention, needs.Count == 1 ? "1 backup needs attention" : $"{needs.Count} backups need attention");
@@ -74,6 +75,12 @@ public sealed record TrayScheduleStatus(ScheduleReadiness State, string Title, s
             if (b.LastRunEndUtc is not { } ended || b.LastRunStatus is BackupRunStatus.NeverRun or BackupRunStatus.Running)
                 return new(b.Name, "Not backed up yet", "idle");
             var status = b.LastRunStatus;
+            // As on its card (U265): a scheduled run missed is orange.
+            if (status is BackupRunStatus.Success or BackupRunStatus.Warning && b.Schedule.Missed(ended, nowUtc))
+            {
+                missed.Add(b.Id);
+                return new(b.Name, LastRunLine.For(b.LastRunSummary ?? "", status, ended, nowUtc).Label, "warn");
+            }
             // The card's Last backup line (LastRunLine), the reason kept short.
             var text = status is BackupRunStatus.Success or BackupRunStatus.Warning
                 ? LastRunLine.For(b.LastRunSummary ?? "", status, ended, nowUtc).Label

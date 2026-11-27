@@ -71,6 +71,11 @@ public sealed class RunRecord
     /// <summary>The reason a Stop you pressed gives the run.</summary>
     public const string StoppedByYouReason = "Stopped by you";
 
+    /// <summary>Nothing to do, so nothing was saved (a check or cleanup of a
+    /// backup that has stored nothing yet, U257). Not kept in any file.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool NotRecorded { get; set; }
+
     /// <summary>Short human-readable summary ("1,234 new, 56 MB uploaded in 2m 11s").</summary>
     public string Summary { get; set; } = "";
 
@@ -164,6 +169,11 @@ public sealed class CellOutcome
 
     /// <summary>The reason a Stop you pressed gives the run.</summary>
     public const string StoppedByYouReason = "Stopped by you";
+
+    /// <summary>Nothing to do, so nothing was saved (a check or cleanup of a
+    /// backup that has stored nothing yet, U257). Not kept in any file.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool NotRecorded { get; set; }
 
     /// <summary>Set when this destination's part waits for the network
     /// (U226): "unmetered" (the connection is metered), "connection" (no

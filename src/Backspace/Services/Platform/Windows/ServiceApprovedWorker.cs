@@ -150,7 +150,8 @@ internal static class ServiceApprovedWorker
             // A fresh temporary name, and no limit on waiting for another
             // program to let go (U135).
             ServiceNotificationQueue.WriteRecord(reportPath, report);
-            return result.Status == BackupRunStatus.Success ? 0 : 4;
+            // Nothing to do (U257): a clean exit, not a failure to explain.
+            return result.Status == BackupRunStatus.Success || result.NotRecorded ? 0 : 4;
         }
         finally
         {

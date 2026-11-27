@@ -58,6 +58,24 @@ public sealed class TrayScheduleStatusTests
         Assert.Equal(TrayScheduleStatus.MaxLines, status.Lines.Count);
         Assert.Equal(4, status.MoreBackups);
     }
+
+    /// <summary>U265: a daily backup last completed 9 days ago is orange in the
+    /// menu as on its card, and the headline asks for attention rather than
+    /// saying it finished with warnings; one completed today stays green.</summary>
+    [Fact] public void A_missed_schedule_is_orange_as_on_the_card()
+    {
+        var scheduler = new Scheduler(ScheduleReadiness.Ready);
+        var now = DateTime.UtcNow;
+        var stale = Backup(); stale.Name = "local_c"; stale.LastRunEndUtc = now.AddDays(-9); stale.LastRunSummary = "Backup completed";
+        var fresh = Backup(); fresh.Name = "local_d";
+        var status = TrayScheduleStatus.Inspect([stale, fresh], scheduler, "app.exe", now);
+        Assert.Equal(ScheduleReadiness.Attention, status.State);
+        Assert.Equal("1 backup needs attention", status.Title);
+        Assert.Equal(("local_c", "warn"), (status.Lines[0].Name, status.Lines[0].Tone));
+        Assert.StartsWith("9d ago", status.Lines[0].Text);
+        Assert.Equal(("local_d", "ok"), (status.Lines[1].Name, status.Lines[1].Tone));
+        Assert.Equal("Everything looks good", TrayScheduleStatus.Inspect([fresh], scheduler, "app.exe", now).Title);
+    }
     private sealed class Scheduler(ScheduleReadiness result) : IScheduler
     {
         public int Reads;

@@ -79,6 +79,7 @@ jobs:
           --logger "trx;LogFileName=results.trx"
           --logger "console;verbosity=normal"
           --results-directory test-results
+          --blame-hang-timeout 15m --blame-hang-dump-type none
         continue-on-error: true
 
       - name: Summary

@@ -243,6 +243,7 @@ public sealed partial class BackupOrchestrator
             aggregate.Status = BackupRunStatus.Skipped;
             aggregate.Summary = $"{action} waits for this backup's first backup: nothing is stored yet.";
             aggregate.EndedUtc = DateTime.UtcNow;
+            aggregate.NotRecorded = true;
             return aggregate;
         }
 

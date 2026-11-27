@@ -189,6 +189,14 @@ public sealed class UiDriver : IDisposable
             _disposed = true;
         }
         if (failures.Count > 0) throw new AggregateException("Scenario window cleanup failed.", failures);
+        // A quit left in progress closes admission for every later test in
+        // this process ("Backspace is closing" in dozens of unrelated tests,
+        // U246): this scenario fails, the next ones start clean.
+        if (Backspace.Services.ServiceLocator.Maintenance.IsShuttingDown)
+        {
+            Backspace.Services.ServiceLocator.Maintenance.ResetShutdownForTests();
+            throw new InvalidOperationException("Scenario cleanup found Backspace still quitting (shutdown admission held). The scenario must cancel or finish its quit.");
+        }
 
         void CloseWindow(Window window)
         {

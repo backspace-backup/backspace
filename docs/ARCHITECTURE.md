@@ -180,7 +180,9 @@ owner opens Backspace or signs in (the sign-in start resumes it), and after
 "Shut down" with Fast Startup, which resumes services as they were, through a
 start trigger (`SystemServiceTriggers`). On every start the service keeps the
 Quit while the same sign-in session exists in the same boot, which covers
-waking from sleep or hibernation, and otherwise deletes it. Updates stop the
+waking from sleep or hibernation, and otherwise deletes it. While the Quit
+holds, the service keeps only the Kernel-Boot trigger, so lock, unlock and
+wake no longer start it for a moment (U261); its next real start restores both. Updates stop the
 service, replace `Backspace.exe` like any portable copy and start it again
 (`WindowsUpdateRuntime.ApplyPendingAfterExit`).
 

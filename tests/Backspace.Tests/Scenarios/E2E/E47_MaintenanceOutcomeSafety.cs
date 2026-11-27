@@ -32,6 +32,9 @@ public sealed class E47_MaintenanceOutcomeSafety : BackupE2EBase
         {
             Name = "Two-source maintenance", UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false,
             PruneSchedule = new(), CheckSchedule = new(),
+            // Backed up below by the engine itself, which Backspace does not
+            // record; checks and cleanups wait for a recorded first backup (U257).
+            LastSuccessUtc = DateTime.UtcNow,
             Targets = { new() { DestinationId = destination.Id } },
         };
         foreach (var name in new[] { "documents", "photos" })

@@ -127,4 +127,25 @@ public class BackupScheduleDescribeTests
         Assert.Contains("(Daily)", label);
         Assert.DoesNotContain("Daily at", label);
     }
+
+    /// <summary>U265: a daily backup whose last success is 9 days old has missed
+    /// runs; one a day and a half old has not; a paused schedule never misses.</summary>
+    [Fact]
+    public void Missed_runs_need_more_than_two_periods_without_a_backup_and_no_pause()
+    {
+        var now = new DateTime(2026, 11, 26, 12, 0, 0, DateTimeKind.Utc);
+        var daily = new BackupSchedule { Frequency = ScheduleFrequency.Daily };
+        Assert.True(daily.Missed(now.AddDays(-9), now));
+        Assert.False(daily.Missed(now.AddHours(-36), now));
+        Assert.False(daily.Missed(now.AddHours(-47), now));
+        var paused = new BackupSchedule { Frequency = ScheduleFrequency.Daily, PausedUntilUtc = now.AddDays(1) };
+        Assert.False(paused.Missed(now.AddDays(-9), now));
+        var hourly = new BackupSchedule { Frequency = ScheduleFrequency.Hourly, HourlyInterval = 4 };
+        Assert.True(hourly.Missed(now.AddHours(-9), now));
+        Assert.False(hourly.Missed(now.AddHours(-7), now));
+        // Mondays only: a week between runs, so 9 days is not yet two periods.
+        var weekly = new BackupSchedule { Frequency = ScheduleFrequency.Weekly, WeeklyDaysBitmask = 0b0000010 };
+        Assert.False(weekly.Missed(now.AddDays(-9), now));
+        Assert.True(weekly.Missed(now.AddDays(-15), now));
+    }
 }

@@ -45,6 +45,10 @@ public sealed class MaintenanceCoordinator
         }
     }
 
+    /// <summary>Tests only: a scenario that quit without cancelling leaves
+    /// admission closed for every later test in the same process.</summary>
+    internal void ResetShutdownForTests() { lock (_sync) _shutdownRequested = false; }
+
     private void ThrowIfShuttingDown()
     {
         if (_shutdownRequested)

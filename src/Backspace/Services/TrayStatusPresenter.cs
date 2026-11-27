@@ -39,8 +39,13 @@ internal sealed class TrayStatusPresenter
             var color = busy ? "#2563EB" : state switch {
                 ScheduleReadiness.Ready => "#15803D", ScheduleReadiness.Attention => "#B45309",
                 ScheduleReadiness.Paused => "#B45309", _ => "#64748B" };
-            dc.DrawEllipse(new SolidColorBrush(Color.Parse(color)), new Pen(Brushes.White, 3), new Point(49,49), 13,13);
-            var pen = new Pen(Brushes.White, 3);
+            // A larger badge (U260, owner 26 November 2026: "we can't see the
+            // indicator clearly"): drawn on the same 13-unit design, enlarged
+            // about its centre and moved into the corner, over most of a
+            // quarter of the icon, with a thicker white ring and marks.
+            using var badge = dc.PushTransform(Matrix.CreateTranslation(-49, -49) * Matrix.CreateScale(1.45, 1.45) * Matrix.CreateTranslation(45, 45));
+            dc.DrawEllipse(new SolidColorBrush(Color.Parse(color)), new Pen(Brushes.White, 2.6), new Point(49,49), 13,13);
+            var pen = new Pen(Brushes.White, 3.4, lineCap: PenLineCap.Round);
             if (busy) { dc.DrawLine(pen,new Point(44,49),new Point(54,49)); dc.DrawLine(pen,new Point(50,45),new Point(54,49)); dc.DrawLine(pen,new Point(50,53),new Point(54,49)); }
             else if (state == ScheduleReadiness.Ready) { dc.DrawLine(pen,new Point(42,49),new Point(47,54)); dc.DrawLine(pen,new Point(47,54),new Point(56,44)); }
             else if (state == ScheduleReadiness.Paused) { dc.DrawLine(pen,new Point(45,43),new Point(45,55)); dc.DrawLine(pen,new Point(53,43),new Point(53,55)); }

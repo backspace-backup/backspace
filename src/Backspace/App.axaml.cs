@@ -156,6 +156,9 @@ public partial class App : Application
             _backgroundNotifications = Services.Platform.Windows.BackgroundServiceNotifications.Start(ServiceLocator.Notifier);
 #endif
             AppStatus.Changed += _ => Dispatcher.UIThread.Post(ApplyTrayStatus);
+#if WINDOWS
+            Services.Platform.Windows.BackgroundServiceActivity.ActivityChanged += () => Dispatcher.UIThread.Post(RefreshTrayStatus);
+#endif
             TaskSchedulerService.Changed += () => Dispatcher.UIThread.Post(RefreshTrayStatus);
             RefreshTrayStatus();
 
@@ -489,7 +492,20 @@ public partial class App : Application
         if (icons is null) return;
         foreach (var icon in icons)
             _trayPresenter.Apply(icon, _trayStatus, ServiceLocator.Config.Current.Preferences.Accent,
-                AppStatus.Current == AppActivity.Syncing, RestoreMainWindow);
+                AppStatus.Current == AppActivity.Syncing || ServiceRunning(), RestoreMainWindow);
+    }
+
+    /// <summary>A run in the background service counts as work in progress for
+    /// the tray icon too (U260: a backup run by the service left the failed
+    /// badge of its previous run on the tray icon).</summary>
+    private static bool ServiceRunning()
+    {
+#if WINDOWS
+        try { return Services.Platform.Windows.ServiceActivity.AnyRunning(ServiceLocator.BackgroundActivity?.Current); }
+        catch (Exception) { return false; }
+#else
+        return false;
+#endif
     }
 
     internal async void RefreshTrayStatus()

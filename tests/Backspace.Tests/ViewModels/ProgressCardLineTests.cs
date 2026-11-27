@@ -19,5 +19,11 @@ public sealed class ProgressCardLineTests
     [InlineData("Backing up · 10 of 20 files checked (1 of 2 GB) · 5 MB of new data uploaded", "10 of 20 files checked")]
     [InlineData("Backing up · 600,001 of 600,001 files checked (176 GB) · no changed files", "600,001 of 600,001 files checked · no changed files")]
     [InlineData("", "")]
+    // U259: the time taken is already beside Running; a second clock went.
+    [InlineData("Preparing the backup · 45s", "Preparing the backup")]
+    [InlineData("Preparing the backup · 4m 5s", "Preparing the backup")]
+    [InlineData("Preparing the backup · 1h 5m", "Preparing the backup")]
+    // ...but not the time left, nor a count that only looks like a time.
+    [InlineData("Backing up · 10 of 20 files checked (1 of 2 GB) · about 10m left", "10 of 20 files checked · about 10m left")]
     public void Other_lines(string detail, string expected) => Assert.Equal(expected, BackupCardViewModel.CardLine(detail));
 }

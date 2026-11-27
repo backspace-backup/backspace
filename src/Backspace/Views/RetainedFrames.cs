@@ -81,7 +81,8 @@ internal static class RetainedFrames
             Installed.Add(replacement, surface);
             innerField.SetValue(rt, replacement);
             inner.Dispose();
-            Log.Information("The window now keeps its frame and sends only what changed to Windows");
+            // The display scale too: text is drawn differently at each (U262).
+            Log.Information("The window now keeps its frame and sends only what changed to Windows (display scale {Scale}%)", GetDpiForWindow(handle.Handle) * 100 / 96);
         }
         catch (Exception ex) { Disable(ex.Message); }
     }

@@ -79,6 +79,24 @@ public sealed class BackupSchedule
     /// <summary>Max execution time before the task is killed. 72h matches original.</summary>
     public TimeSpan ExecutionTimeLimit { get; set; } = TimeSpan.FromHours(72);
 
+    /// <summary>About how often it runs; null for an unknown kind.</summary>
+    public TimeSpan? Period => Frequency switch
+    {
+        ScheduleFrequency.Hourly => TimeSpan.FromHours(Math.Max(1, HourlyInterval)),
+        ScheduleFrequency.Daily => TimeSpan.FromDays(1),
+        // The longest wait between two of its days, about.
+        ScheduleFrequency.Weekly => TimeSpan.FromDays(Math.Ceiling(7.0 / Math.Max(1, System.Numerics.BitOperations.PopCount((uint)(WeeklyDaysBitmask & 0x7F))))),
+        ScheduleFrequency.Monthly => TimeSpan.FromDays(31),
+        ScheduleFrequency.Yearly => TimeSpan.FromDays(366),
+        _ => null,
+    };
+
+    /// <summary>A completed backup older than two of its periods (U265, owner
+    /// 26 November 2026: a daily backup showed a green check 9 days after its
+    /// last run): at least one scheduled run was missed.</summary>
+    public bool Missed(DateTime lastCompletedUtc, DateTime nowUtc)
+        => Period is { } p && (PausedUntilUtc is not { } until || until <= nowUtc) && nowUtc - lastCompletedUtc > p * 2;
+
     // ----------------------------------------------------------------
     // Human-friendly "next run" formatter
     // ----------------------------------------------------------------

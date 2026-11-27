@@ -200,7 +200,7 @@ public sealed class BackupChecksTests
         Assert.Equal(new[] { "Structure check · passed 1h ago", "Data check · passed 1h ago", "Restore check · failed 3h ago" }, lines);
         // A weekly check last run 20 days ago is due again.
         var old = new[] { new BackupCheckEntry("3", now.AddDays(-20), BackupRunStatus.Success, CheckDepth.RepositoryStructure, "") };
-        Assert.Equal("Structure check · passed 20d ago · due again", BackupCheckHistory.KindLines(backup, old, now)[0]);
+        Assert.Equal("Structure check · passed 20d ago, due now", BackupCheckHistory.KindLines(backup, old, now)[0]);
         Assert.Equal("Data check · not run yet", BackupCheckHistory.KindLines(backup, old, now)[1]);
         Assert.Equal(lines, BackupCheckHistory.State(backup, entries, now).Kinds);
         // One line on the card in the Checks list's names; a failure wins over a later pass; each check in the hover.

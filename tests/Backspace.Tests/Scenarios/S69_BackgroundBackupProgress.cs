@@ -41,8 +41,24 @@ public sealed class S69_BackgroundBackupProgress : ScenarioBase
         card.ApplyBackgroundActivity(activity with { BackupId = "another-backup" }, null);
         Assert.Equal(42, card.OverallPercent);
         card.ApplyBackgroundActivity(activity, "Cannot reach the background service. Completion has not been confirmed.");
-        Assert.True(card.IsRunning); Assert.Contains("not been confirmed", card.LastRunLabel);
-        ctx.Snapshot(window, "connection-interrupted", "Losing the connection preserves the running state and explains that completion is unknown; it does not display a false success.");
+        Assert.True(card.IsRunning); Assert.Equal("Service not responding", card.LastRunLabel);
+        Assert.Contains("not been confirmed", card.LastRunDetail);
+        Assert.Equal("Service not responding", card.RunningLabel); // the line shown while it runs
+        Assert.StartsWith("Cannot reach the background service.", card.ProgressTooltip);
+        Assert.Contains("Last known: 42.0% done", card.ProgressTooltip.Replace(",", "."));
+        ctx.Snapshot(window, "connection-interrupted", "Losing the connection preserves the running state; the card says Service not responding in full, the hover explains that completion is unknown; no false success.");
+        // U264: a queued run whose service stops answering: the card line is
+        // short, the hover says the same thing and adds the last known wait.
+        var queued = activity with { Progress = activity.Progress! with { Queued = "waiting for local_c (same destination)" } };
+        card.ApplyBackgroundActivity(queued, "Cannot reach the background service. Completion has not been confirmed.");
+        Assert.Equal("Service not responding", card.LastRunLabel);
+        Assert.StartsWith("Cannot reach the background service.", card.LastRunDetail);
+        Assert.Contains("Last known: queued, waiting for local_c (same destination).", card.LastRunDetail);
+        Assert.DoesNotContain("Queued:", card.LastRunDetail);
+        card.ApplyBackgroundActivity(queued, null);
+        Assert.Equal("Queued: waiting for local_c (same destination)", card.LastRunDetail); // reachable again: no stale error
+        Assert.Equal("Running · 1h 5m", card.RunningLabel);
+        card.ApplyBackgroundActivity(activity, null);
         var result = new RunRecord { BackupId = backup.Id, BackupName = backup.Name, StartedUtc = start, EndedUtc = DateTime.UtcNow,
             Status = BackupRunStatus.Success, Summary = "100 KB backed up" };
         card.ApplyBackgroundActivity(activity with { State = "completed", Progress = activity.Progress with { Result = result } }, null);

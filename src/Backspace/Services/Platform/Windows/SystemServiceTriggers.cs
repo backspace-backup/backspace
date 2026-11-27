@@ -28,23 +28,60 @@ internal static class SystemServiceTriggers
 
     private const uint TriggerInfoLevel = 8, CustomTrigger = 20, StartAction = 1;
 
-    internal static void Apply(IntPtr service)
+    /// <summary>While the owner's Quit holds: Kernel-Boot only. It fires when
+    /// Windows starts from "Shut down" with Fast Startup (a new sign-in
+    /// session, so the Quit no longer holds and backups resume), not at each
+    /// lock, unlock or wake as Winlogon does.</summary>
+    internal static readonly Guid[] WhileQuit = { Providers[1] };
+
+    internal static void Apply(IntPtr service) => Apply(service, Providers);
+
+    internal static void Apply(IntPtr service, Guid[] providers)
     {
         var size = Marshal.SizeOf<Trigger>();
-        var guids = Marshal.AllocHGlobal(16 * Providers.Length);
-        var triggers = Marshal.AllocHGlobal(size * Providers.Length);
+        var guids = Marshal.AllocHGlobal(16 * providers.Length);
+        var triggers = Marshal.AllocHGlobal(size * providers.Length);
         try
         {
-            for (var i = 0; i < Providers.Length; i++)
+            for (var i = 0; i < providers.Length; i++)
             {
-                Marshal.Copy(Providers[i].ToByteArray(), 0, guids + i * 16, 16);
+                Marshal.Copy(providers[i].ToByteArray(), 0, guids + i * 16, 16);
                 Marshal.StructureToPtr(new Trigger { Type = CustomTrigger, Action = StartAction, Subtype = guids + i * 16 }, triggers + i * size, false);
             }
-            var info = new TriggerInfo { Count = (uint)Providers.Length, Triggers = triggers };
+            var info = new TriggerInfo { Count = (uint)providers.Length, Triggers = triggers };
             if (!ChangeServiceConfig2W(service, TriggerInfoLevel, ref info)) throw new Win32Exception(Marshal.GetLastWin32Error());
         }
         finally { Marshal.FreeHGlobal(triggers); Marshal.FreeHGlobal(guids); }
     }
+
+    /// <summary>Run by the service itself (Windows' own account may change
+    /// it): only the Kernel-Boot trigger while the owner's Quit holds, so
+    /// Windows does not start it for a moment at every wake or unlock in that session
+    /// (U261, owner 26 November 2026: "If I'm logged in, I NEVER want to see
+    /// Backspace in the task manager if I have quit"); back at its next real
+    /// start. Opening Backspace starts it again (SessionTaskControl), a full
+    /// restart starts it automatically. A failure leaves the triggers as
+    /// they were: the service then stops again at once, as before.</summary>
+    internal static void SetForOwnService(string serviceName, bool on)
+    {
+        var manager = OpenSCManagerW(null, null, 0x0001);
+        if (manager == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try
+        {
+            var service = OpenServiceW(manager, serviceName, 0x0002); // SERVICE_CHANGE_CONFIG
+            if (service == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try
+            {
+                Apply(service, on ? Providers : WhileQuit);
+            }
+            finally { CloseServiceHandle(service); }
+        }
+        finally { CloseServiceHandle(manager); }
+    }
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr OpenSCManagerW(string? machine, string? database, uint access);
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr OpenServiceW(IntPtr manager, string name, uint access);
+    [DllImport("advapi32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CloseServiceHandle(IntPtr handle);
 
     [StructLayout(LayoutKind.Sequential)] private struct Trigger { public uint Type, Action; public IntPtr Subtype; public uint DataCount; public IntPtr Data; }
     [StructLayout(LayoutKind.Sequential)] private struct TriggerInfo { public uint Count; public IntPtr Triggers; public IntPtr Reserved; }

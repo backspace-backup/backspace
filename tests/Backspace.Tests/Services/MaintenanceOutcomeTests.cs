@@ -180,7 +180,8 @@ public sealed class MaintenanceOutcomeTests
             var config = Config = new ConfigStore(); config.Load();
             var secrets = new SecretsStore();
             var destination = new Destination { Name = "Review repository", Kind = DestinationKind.LocalFolder, PathOrSubpath = _workspace.Sub("repository") };
-            Backup = new Backup { Name = "Maintenance outcome review", AbortOnMeteredNetwork = false };
+            // Checks and cleanups wait for a first backup (U257).
+            Backup = new Backup { Name = "Maintenance outcome review", AbortOnMeteredNetwork = false, LastSuccessUtc = DateTime.UtcNow.AddDays(-1) };
             for (int i = 0; i < (separateRepositories ? 1 : sources); i++) Backup.SourcePaths.Add(_workspace.Sub("source-" + i));
             Backup.Targets.Add(new() { DestinationId = destination.Id });
             if (separateRepositories)

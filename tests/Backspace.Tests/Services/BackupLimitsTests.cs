@@ -225,6 +225,7 @@ public sealed class BackupLimitsTests
             {
                 Name = name, SourcePaths = { source }, UseVss = false, VssDisabledAcknowledged = true, AbortOnMeteredNetwork = false, Threads = 1,
                 PruneSchedule = new BackupSchedule(), CheckSchedule = new BackupSchedule(),
+                LastSuccessUtc = DateTime.UtcNow.AddDays(-1), // checks wait for a first backup (U257)
                 Targets = { new BackupTarget { DestinationId = destination.Id, StorageName = "default" } },
             };
             Config.Update(c => c.Backups.Add(b));

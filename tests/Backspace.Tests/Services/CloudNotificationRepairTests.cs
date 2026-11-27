@@ -278,6 +278,7 @@ public sealed class CloudNotificationRepairTests
         backup.HealthcheckChecksPingUrl = "https://hc-ping.com/33333333-4444-5555-6666-777777777777";
         var check = new BackupCheck { Kind = CheckKind.Structure };
         backup.Checks.Add(check);
+        backup.LastSuccessUtc = DateTime.UtcNow.AddDays(-1); // checks wait for a first backup (U257)
         setup.Config.Update(c => { c.Backups.Clear(); c.Backups.Add(backup); c.Destinations.Add(destination); });
         var pings = new List<string>();
         using var client = new HttpClient(new Handler((r, _) => { lock (pings) pings.Add(r.RequestUri!.AbsolutePath); return Task.FromResult(Json("{}")); }));

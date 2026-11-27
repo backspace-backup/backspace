@@ -118,7 +118,10 @@ Closing the window keeps Backspace in the tray, so schedules keep running.
 background service: active work stops and nothing runs until you open
 Backspace again, sign in again, or start Windows again (a restart, or
 switching the computer on after **Shut down**, Fast Startup included). Sleep,
-hibernation and locking the screen don't bring it back.
+hibernation and locking the screen don't bring it back. Scheduled backups
+don't run while Backspace is quit; a backup whose last success is older than
+two of its scheduled periods shows an orange tile saying a scheduled run was
+missed.
 
 Backspace registers no Windows scheduled task. Between runs it only waits for
 the next due time, so it uses no CPU while idle. The backup engine runs only

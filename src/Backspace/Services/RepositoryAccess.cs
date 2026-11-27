@@ -263,10 +263,22 @@ internal sealed class RepositoryAccess : IDisposable
     {
         string? shown = null;
         var refreshed = DateTime.MinValue;
+        var started = DateTime.UtcNow;
+        var reported = TimeSpan.Zero;
         while (true)
         {
             ct.ThrowIfCancellationRequested();
             if (tryTake()) return;
+            // A wait that lasts says who holds what, and whether that process
+            // still runs (U264: on 24 November a cleanup and a backup each said
+            // they waited for the other, and nothing showed why).
+            var waited = DateTime.UtcNow - started;
+            if (waited - reported >= TimeSpan.FromMinutes(2))
+            {
+                reported = waited;
+                AppLogger.For<RepositoryAccess>().Information("{Holder} has waited {Minutes:F0} min for «{Destination}»: {Gates}",
+                    _holder, waited.TotalMinutes, _destination, CrossProcessGate.Holders.Describe(_gate, BackupLimits.Maximum));
+            }
             if (shown is null || DateTime.UtcNow - refreshed >= ReasonRefresh)
             {
                 var now = reason();

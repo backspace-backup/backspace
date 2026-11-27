@@ -153,7 +153,9 @@ public static class BackupCheckHistory
                 BackupRunStatus.Warning => "incomplete",
                 _ => "not done",
             };
-            return $"{name} · {result} {Ago(nowUtc, latest.When)}" + (Overdue(backup, check, latest, nowUtc) ? " · due again" : "");
+            // ", due now" rather than a third " · " part: hovers put each part
+            // after the second on its own line (U265).
+            return $"{name} · {result} {Ago(nowUtc, latest.When)}" + (Overdue(backup, check, latest, nowUtc) ? ", due now" : "");
         }).Distinct().ToList();
 
     /// <param name="nothingStored">No run of this backup has stored anything

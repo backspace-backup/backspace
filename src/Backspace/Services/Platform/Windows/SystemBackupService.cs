@@ -121,6 +121,9 @@ internal sealed class SystemBackupService : ServiceBase
         if (mode == SystemServiceLifetime.StartMode.StayStopped)
         {
             log.Information("Staying stopped: {Reason}", reason);
+            // Not again in this session: no start triggers until the next real start (U261).
+            try { SystemServiceTriggers.SetForOwnService(_binding.ServiceName, on: false); }
+            catch (Exception ex) { log.Warning(ex, "Could not pause the service's start triggers"); }
             ExitCode = 0;
             _ = Task.Run(Stop);
             return;
@@ -129,6 +132,9 @@ internal sealed class SystemBackupService : ServiceBase
         _commandOnly = mode == SystemServiceLifetime.StartMode.CommandOnly;
         if (_commandOnly) log.Information("Started for the owner's command only; scheduled backups stay stopped ({Reason})", reason);
         else log.Information("The background service started ({Reason})", reason);
+        // Windows may start it again after a shutdown with Fast Startup (U100, U261).
+        try { SystemServiceTriggers.SetForOwnService(_binding.ServiceName, on: true); }
+        catch (Exception ex) { log.Warning(ex, "Could not restore the service's start triggers"); }
         // Windows' own account may read every file; these let its engines
         // open files whatever their permissions, as backup programs do.
         try { ServiceWorkerPrivileges.EnableExistingBackupRights(); }
@@ -630,10 +636,12 @@ internal sealed class SystemBackupService : ServiceBase
             try
             {
                 if (run.Progress?.Result is { } known) { _recovery.TrackHistory(run.RunId, known.Id); _recovery.Confirm(run.RunId); }
-                // A check reports no live result, but saves its own history:
-                // a clean exit is that result, not an interruption (lab VM,
-                // 2 November 2026: a successful check also showed "stopped unexpectedly").
-                else if (process.ExitCode == 0 && SavedOutcome(run) is { } saved)
+                // A check or cleanup reports no live result, but saves its own
+                // history: that is its result, not an interruption, whatever
+                // the exit code (lab VM, 2 November 2026: a successful check
+                // showed "stopped unexpectedly"; owner, November 2026: every
+                // skipped or failed check and cleanup did too, U263).
+                else if (SavedOutcome(run) is { } saved)
                 {
                     _recovery.TrackHistory(run.RunId, saved.Id); _recovery.Confirm(run.RunId);
                     // Without its log paths (U256): the window refuses a report
@@ -641,6 +649,9 @@ internal sealed class SystemBackupService : ServiceBase
                     // backup service" from the first finished check or cleanup on.
                     run.Progress = new(saved.BackupId, 0, "", [], [], ServiceActivity.Metadata(saved), LogRunId: saved.Id);
                 }
+                // A clean exit with nothing saved: it had nothing to do (a
+                // check or cleanup of a backup with nothing stored yet, U257).
+                else if (process.ExitCode == 0) _recovery.Confirm(run.RunId);
                 else if (_recovery.Recover(run.RunId, FailureReason(run)) is { } recovered && run.BackupId is not null)
                     run.Progress = new(run.BackupId, 0, "", [], [], ServiceActivity.Metadata(recovered), LogRunId: recovered.Id);
             }
@@ -753,6 +764,13 @@ internal sealed class SystemBackupService : ServiceBase
     protected override void OnStop()
     {
         _stop.Cancel();
+        // Stopped by Quit: no start triggers while it holds (U261).
+        try
+        {
+            if (SystemServiceLifetime.StaysQuit(_binding.DataDirectory, out _))
+                SystemServiceTriggers.SetForOwnService(_binding.ServiceName, on: false);
+        }
+        catch (Exception ex) { AppLogger.For<SystemBackupService>().Warning(ex, "Could not pause the service's start triggers"); }
         List<Process> children;
         lock (_gate)
         {

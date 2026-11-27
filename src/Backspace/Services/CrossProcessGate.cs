@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 
 namespace Backspace.Services;
@@ -84,9 +85,37 @@ internal sealed class CrossProcessGate(string name, string? holder = null) : IDi
             try
             {
                 System.IO.Directory.CreateDirectory(Directory());
-                File.WriteAllText(PathFor(gate), holder.Length > 512 ? holder[..512] : holder);
+                // The name shown to people, then the process (for the logs, U264).
+                File.WriteAllText(PathFor(gate), (holder.Length > 512 ? holder[..512] : holder) + "\n" + Environment.ProcessId);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+
+        /// <summary>For the logs: each gate of a destination, who holds it and
+        /// whether that process still runs.</summary>
+        internal static string Describe(string destinationGate, int slots)
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var gate in new[] { destinationGate + "#exclusive" }.Concat(Enumerable.Range(0, slots).Select(s => s == 0 ? destinationGate : destinationGate + "#" + s)))
+            {
+                try
+                {
+                    var path = PathFor(gate);
+                    if (!File.Exists(path)) continue;
+                    var lines = File.ReadAllText(path).Split('\n');
+                    var alive = lines.Length > 1 && int.TryParse(lines[1].Trim(), out var pid)
+                        ? (Alive(pid) ? $"process {pid} running" : $"process {pid} gone") : "process unknown";
+                    parts.Add($"{gate[(gate.LastIndexOf('#') + 1)..]} by {lines[0].Trim()} ({alive})");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+            return parts.Count == 0 ? "no holder recorded" : string.Join("; ", parts);
+
+            static bool Alive(int pid)
+            {
+                try { using var p = System.Diagnostics.Process.GetProcessById(pid); return !p.HasExited; }
+                catch (Exception) { return false; }
+            }
         }
 
         internal static string? Read(string gate)
@@ -95,7 +124,7 @@ internal sealed class CrossProcessGate(string name, string? holder = null) : IDi
             {
                 var path = PathFor(gate);
                 if (!File.Exists(path)) return null;
-                var text = File.ReadAllText(path).Trim();
+                var text = File.ReadAllText(path).Split('\n')[0].Trim();
                 return text.Length == 0 ? null : text;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
@@ -107,7 +136,7 @@ internal sealed class CrossProcessGate(string name, string? holder = null) : IDi
             try
             {
                 var path = PathFor(gate);
-                if (File.Exists(path) && File.ReadAllText(path).Trim() == holder.Trim()) File.Delete(path);
+                if (File.Exists(path) && File.ReadAllText(path).Split('\n')[0].Trim() == holder.Trim()) File.Delete(path);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }

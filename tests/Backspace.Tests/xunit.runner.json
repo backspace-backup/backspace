@@ -21,5 +21,10 @@
     "[Fact(Timeout=...)] if they need a tighter or looser deadline."
   ],
   "methodDisplay": "method",
-  "longRunningTestSeconds": 60
+  "//comment-long-running": [
+    "Each test still running after a minute is named in the output (U246:",
+    "the GitHub runs went silent for two hours with no test named)."
+  ],
+  "longRunningTestSeconds": 60,
+  "diagnosticMessages": true
 }

@@ -35,6 +35,7 @@ public sealed class E50_ScheduledDataCheck(ITestOutputHelper output) : BackupE2E
             StoragePasswordRef = ServiceLocator.Secrets.PutNew("e50", Guid.NewGuid().ToString("N")) };
         var backup = new Backup { Name = "Documents", UseVss = false, VssDisabledAcknowledged = true,
             AbortOnMeteredNetwork = false, SourcePaths = { source }, Targets = { new() { DestinationId = destination.Id } },
+            LastSuccessUtc = DateTime.UtcNow, // backed up below by the engine itself: checks wait for a recorded backup (U257)
             PruneSchedule = new(), Checks = { new BackupCheck { Kind = CheckKind.Structure, Schedule = new() { Frequency = ScheduleFrequency.Monthly } } } };
         ServiceLocator.Config.Update(c => { c.Backups.Add(backup); c.Destinations.Add(destination); });
         Assert.Equal(BackupRunStatus.Success,
