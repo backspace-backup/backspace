@@ -36,13 +36,33 @@ jobs:
       - name: Check out source repo
         uses: actions/checkout@v4
 
+      - name: Prepare website bundle
+        run: |
+          cp -r docs _site
+
+      - name: Inject analytics script
+        if: vars.TIDESIGHT_URL != '' && vars.TIDESIGHT_SITE_ID != ''
+        env:
+          ANALYTICS_URL: ${{ vars.TIDESIGHT_URL }}
+          ANALYTICS_SITE: ${{ vars.TIDESIGHT_SITE_ID }}
+        run: |
+          python3 -c '
+          import os, pathlib
+          url, site = os.environ["ANALYTICS_URL"], os.environ["ANALYTICS_SITE"]
+          tag = f"  <script async src=\"{url}\" data-site=\"{site}\"></script>\n"
+          for p in pathlib.Path("_site").glob("*.html"):
+              html = p.read_text(encoding="utf-8")
+              if url not in html:
+                  p.write_text(html.replace("</head>", tag + "</head>", 1), encoding="utf-8")
+          '
+
       - name: Mirror docs/ to backspace-backup.github.io
         uses: peaceiris/actions-gh-pages@v4
         with:
           personal_token: ${{ secrets.WEBSITE_DEPLOY_TOKEN }}
           external_repository: backspace-backup/backspace-backup.github.io
           publish_branch: main
-          publish_dir: ./docs
+          publish_dir: ./_site
           # Force-push so the website repo's history mirrors docs/ exactly
           # rather than accumulating noisy merge commits. The website repo
           # is treated as a build artifact, not a working tree.
