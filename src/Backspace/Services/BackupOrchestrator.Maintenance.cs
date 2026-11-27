@@ -377,12 +377,34 @@ public sealed partial class BackupOrchestrator
                             // Cleanup and checks need the destination alone,
                             // whatever "Backups at once per destination" says:
                             // they wait for the backups running there (U156).
-                            using var access = await AcquireRepositoryAsync(backup, aggregate, dest, target.StorageName,
-                                RepositoryAccess.Kind.Exclusive, linked.Token);
-                            var cell = kind == RunKind.Prune
-                                ? await _engine.RunPruneOnlyAsync(engineBackup, src, dest, target.StorageName, linked.Token, Say)
-                                : await _engine.RunCheckOnlyAsync(engineBackup, src, dest, target.StorageName, linked.Token, Say,
-                                    progress: CheckStepReporter(backup.Id, dest.Name, distinctTargets.IndexOf(target), distinctTargets.Count, progressLines));
+                            // A check gives way to a backup waiting for this
+                            // destination, then runs again after it (U267);
+                            // a cleanup is not interrupted.
+                            RunRecord cell;
+                            while (true)
+                            {
+                                using var access = await AcquireRepositoryAsync(backup, aggregate, dest, target.StorageName,
+                                    RepositoryAccess.Kind.Exclusive, linked.Token);
+                                if (kind == RunKind.Prune)
+                                {
+                                    cell = await _engine.RunPruneOnlyAsync(engineBackup, src, dest, target.StorageName, linked.Token, Say);
+                                    break;
+                                }
+                                using var giveWay = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
+                                using (access.GiveWayToBackups(giveWay))
+                                {
+                                    try
+                                    {
+                                        cell = await _engine.RunCheckOnlyAsync(engineBackup, src, dest, target.StorageName, giveWay.Token, Say,
+                                            progress: CheckStepReporter(backup.Id, dest.Name, distinctTargets.IndexOf(target), distinctTargets.Count, progressLines));
+                                    }
+                                    catch (OperationCanceledException) when (access.GaveWayTo is not null && !linked.IsCancellationRequested) { cell = null!; }
+                                }
+                                // One that passed just as the backup came is kept.
+                                if (access.GaveWayTo is not { } other || linked.IsCancellationRequested || cell?.Status == BackupRunStatus.Success) break;
+                                _log.Information("{Check} of {Dest} paused for {Other}'s backup; it runs again after it", action, dest.Name, other);
+                                Say($"[backspace] {action} of «{dest.Name}» paused for {other}'s backup; it runs again right after it.");
+                            }
                             var status = cell.Status;
                             var summary = cell.Summary;
                             // An absent terminal result cannot establish that the
@@ -627,25 +649,41 @@ public sealed partial class BackupOrchestrator
         var leases = new List<IDisposable>();
         try
         {
-            // Always in the same order, so two checks never hold one each.
-            foreach (var (target, dest) in reachable.OrderBy(r => r.Destination.Id, StringComparer.Ordinal).ThenBy(r => r.Target.StorageName, StringComparer.OrdinalIgnoreCase))
-                leases.Add(await AcquireRepositoryAsync(backup, aggregate, dest, target.StorageName, RepositoryAccess.Kind.Exclusive, linked.Token).ConfigureAwait(false));
             var view = System.Text.Json.JsonSerializer.Deserialize<Backup>(System.Text.Json.JsonSerializer.Serialize(backup))!;
             view.Targets = reachable.Select(r => r.Target).ToList();
             // Its progress, once a second, for the card (U198), and in its log (U233).
             var shortWhere = reachable.Count == 1 ? reachable[0].Destination.Name : $"{reachable.Count} destinations";
-            using var watching = new CancellationTokenSource();
-            var watch = WatchTestRestoreAsync(backup.Id, shortWhere, watching.Token, new MaintenanceRunLog.ProgressLines(say));
             VerifyOutcome outcome;
-            teeing.Value = true;
-            _engine.LineWritten += tee;
-            try { outcome = await ServiceLocator.TestRestores.RunScheduledAsync(view, check.RestoreOptions(), linked.Token, maintenanceLeaseHeld: true,
-                startedByOwner: ChecksStartedByOwner.Value).ConfigureAwait(false); }
-            finally
+            // It gives way to a backup waiting for one of its destinations,
+            // then runs again after it (U267).
+            while (true)
             {
-                _engine.LineWritten -= tee;
-                teeing.Value = false;
-                watching.Cancel(); await watch.ConfigureAwait(false);
+                // Always in the same order, so two checks never hold one each.
+                foreach (var (target, dest) in reachable.OrderBy(r => r.Destination.Id, StringComparer.Ordinal).ThenBy(r => r.Target.StorageName, StringComparer.OrdinalIgnoreCase))
+                    leases.Add(await AcquireRepositoryAsync(backup, aggregate, dest, target.StorageName, RepositoryAccess.Kind.Exclusive, linked.Token).ConfigureAwait(false));
+                using var giveWay = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
+                var watchers = leases.OfType<RepositoryAccess>().Select(a => a.GiveWayToBackups(giveWay)).ToList();
+                using var watching = new CancellationTokenSource();
+                var watch = WatchTestRestoreAsync(backup.Id, shortWhere, watching.Token, new MaintenanceRunLog.ProgressLines(say));
+                teeing.Value = true;
+                _engine.LineWritten += tee;
+                try { outcome = await ServiceLocator.TestRestores.RunScheduledAsync(view, check.RestoreOptions(), giveWay.Token, maintenanceLeaseHeld: true,
+                    startedByOwner: ChecksStartedByOwner.Value).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!linked.IsCancellationRequested && giveWay.IsCancellationRequested) { outcome = null!; }
+                finally
+                {
+                    _engine.LineWritten -= tee;
+                    teeing.Value = false;
+                    watching.Cancel(); await watch.ConfigureAwait(false);
+                    foreach (var watcher in watchers) watcher.Dispose();
+                }
+                var other = leases.OfType<RepositoryAccess>().Select(a => a.GaveWayTo).FirstOrDefault(w => w is not null);
+                // One that passed just as the backup came is kept.
+                if (other is null || linked.IsCancellationRequested || outcome?.OverallPass == true) break;
+                foreach (var lease in leases) lease.Dispose();
+                leases.Clear();
+                _log.Information("{Check} of {Backup} paused for {Other}'s backup; it runs again after it", check.Title, backup.Name, other);
+                say($"[backspace] {check.Title} paused for {other}'s backup; it runs again right after it.");
             }
             var status = outcome.OverallPass ? BackupRunStatus.Success : BackupRunStatus.Failed;
             foreach (var (target, dest) in reachable)

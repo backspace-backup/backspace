@@ -287,9 +287,7 @@ public sealed partial class BackupOrchestrator
     }
 
     /// <summary>Everything that ran succeeded; the rest waits for the network (U226).</summary>
-    internal static bool OnlyNetworkWaits(RunRecord record) =>
-        record.Kind == RunKind.Backup && record.Errors.Count == 0 && record.Cells.Any(c => c.WaitingFor is not null)
-        && record.Cells.All(c => c.Status == BackupRunStatus.Success || c.WaitingFor is not null);
+    internal static bool OnlyNetworkWaits(RunRecord record) => record.OnlyNetworkWaits();
 
     private static bool HasIncompleteBackupCoverage(Backup backup, RunRecord record) =>
         record.Kind == RunKind.Backup && (record.Cells.Any(c => c.Status == BackupRunStatus.Skipped)

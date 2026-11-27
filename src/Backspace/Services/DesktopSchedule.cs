@@ -39,8 +39,11 @@ internal static class DesktopSchedule
         // Due backups start together; the limits decide who waits (U156).
         _loop = new ScheduleLoop(new(StatePath, Plans, RunAsync, Blocked, ScheduleConditions.OnBattery,
             MaxSleep: ScheduleConditions.LongestSleep,
-            MaxParallel: () => Models.BackupLimits.Maximum, Metered: ScheduleConditions.Metered));
+            MaxParallel: () => Models.BackupLimits.Maximum, Metered: ScheduleConditions.Metered,
+            History: backup => ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id)));
         TaskSchedulerService.Changed += _loop.Wake;
+        // A backup you ran ended: a check may follow it now (U266).
+        ServiceLocator.Orchestrator.RunEnded += (_, _) => _loop.Wake();
         ServiceLocator.Config.Changed += (_, _) => _loop.Wake();
 #if WINDOWS
         // Power, network and settings changes wake it (U185).

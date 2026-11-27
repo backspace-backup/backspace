@@ -290,6 +290,8 @@ public class BackupsViewModelTests
                 Id = "id-skip",
                 Name = "multi-2-d4krr4",
                 SourcePaths = { @"C:\" },
+                // Without a quiet period, a skip needs attention (U269).
+                SkipNotificationGraceDays = 0,
                 LastRunStatus = BackupRunStatus.Skipped,
                 LastRunEndUtc = System.DateTime.UtcNow.AddHours(-1),
             });

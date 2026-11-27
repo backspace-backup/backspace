@@ -40,6 +40,8 @@ internal sealed class SystemBackupService : ServiceBase
     private readonly ServiceWorkerBinding _binding;
     private readonly string _installation;
     private readonly CancellationTokenSource _stop = new();
+    /// <summary>The schedule, woken when a run ends (U266: a check after the backup).</summary>
+    private ScheduleLoop? _schedule;
     private readonly object _gate = new();
     private readonly ServiceSizeMeasurements _measurements;
     private readonly ServiceRunRecovery _recovery;
@@ -271,7 +273,9 @@ internal sealed class SystemBackupService : ServiceBase
         var loop = new ScheduleLoop(new(Path.Combine(_binding.DataDirectory, "schedule-state.json"),
             SchedulePlans, RunScheduledAsync, plan => ScheduleConditions.Blocked(plan, _scheduleDestinations,
                 ScheduleConditions.OnBattery, ScheduleConditions.NetworkAvailable, ScheduleConditions.Metered), ScheduleConditions.OnBattery,
-            MaxSleep: ScheduleConditions.LongestSleep, MaxParallel: () => MaxWorkers, Metered: ScheduleConditions.Metered));
+            MaxSleep: ScheduleConditions.LongestSleep, MaxParallel: () => MaxWorkers, Metered: ScheduleConditions.Metered,
+            History: RunHistory));
+        _schedule = loop;
         // Power, network, and the window's settings and Quit state changing
         // wake it (U185); otherwise it sleeps until the next due time.
         ScheduleSignals.Changed += loop.Wake;
@@ -694,7 +698,15 @@ internal sealed class SystemBackupService : ServiceBase
             Touched();
             run.Exited?.TrySetResult(); run.Exited = null;
         }
+        // A run you started ended: a check may follow its backup now (U266).
+        _schedule?.Wake();
     }
+
+    /// <summary>A backup's runs, the service's and the window's (U266, U268).</summary>
+    private IReadOnlyList<RunRecord> RunHistory(Backup backup)
+        => new LogStore(Path.Combine(_binding.DataDirectory, "logs", "engine")).LoadHistoryByBackupId(backup.Id)
+            .Concat(new LogStore(Path.Combine(ServicePortableLayout.Config(_installation), "logs", "engine")).LoadHistoryByBackupId(backup.Id))
+            .GroupBy(r => r.Id).Select(g => g.First()).OrderByDescending(r => r.StartedUtc).ToList();
 
     private RunRecord? SavedOutcome(WorkerRun run)
     {

@@ -25,8 +25,10 @@ public sealed class TrayScheduleStatusTests
         status = TrayScheduleStatus.Inspect([Backup(), never], scheduler, "app.exe", DateTime.UtcNow);
         Assert.Equal(ScheduleReadiness.Unknown, status.State);
         Assert.Equal("Not backed up yet", status.Title);
-        // A skipped run is orange on its card, so it is not "everything looks good".
+        // A skipped run is orange on its card, so it is not "everything looks
+        // good": without a quiet period (U269; QuietSkipTests has the period).
         var skipped = Backup(); skipped.LastRunStatus = BackupRunStatus.Skipped; skipped.LastRunSummary = @"M:\ not mounted · skipped after 1s";
+        skipped.SkipNotificationGraceDays = 0;
         Assert.Equal(ScheduleReadiness.Attention, TrayScheduleStatus.Inspect([skipped], scheduler, "app.exe", DateTime.UtcNow).State);
     }
 

@@ -76,6 +76,20 @@ public sealed record TrayScheduleStatus(ScheduleReadiness State, string Title, s
             if (b.LastRunEndUtc is not { } ended || b.LastRunStatus is BackupRunStatus.NeverRun or BackupRunStatus.Running)
                 return new(b.Name, "Not backed up yet", "idle");
             var status = b.LastRunStatus;
+            // As on its card (U269): within the quiet period a skipped run
+            // (drive not plugged in, no network) warns nowhere; the line says
+            // when the last backup ran, and the slots count from the skip.
+            if (b.IsQuietSkip(status, b.LastRunOnlyNetworkWaits, nowUtc))
+            {
+                if (status == BackupRunStatus.Warning) status = BackupRunStatus.Success;
+                else
+                {
+                    var line = b.LastSuccessUtc is { } success && success < ended
+                        ? "Backed up " + HumanFormat.Ago(success, nowUtc) + " · then skipped" : "Not backed up yet";
+                    if (busy?.Contains(b.Id) != true && b.Schedule.Missed(ended, nowUtc)) { missed.Add(b.Id); return new(b.Name, line, "warn"); }
+                    return new(b.Name, line, line == "Not backed up yet" ? "idle" : "ok");
+                }
+            }
             // As on its card (U265): a scheduled run missed is orange.
             if (status is BackupRunStatus.Success or BackupRunStatus.Warning && busy?.Contains(b.Id) != true && b.Schedule.Missed(ended, nowUtc))
             {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Backspace.Models;
 
@@ -140,6 +141,13 @@ public sealed class RunRecord
     public string? CheckId { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CheckKind? CheckKind { get; set; }
+
+    /// <summary>A backup that stored everything it could reach, its network
+    /// destinations left waiting for the network (U226): as quiet as a
+    /// skipped run during the quiet period (B027, U269).</summary>
+    public bool OnlyNetworkWaits() =>
+        Kind == RunKind.Backup && Errors.Count == 0 && Cells.Any(c => c.WaitingFor is not null)
+        && Cells.All(c => c.Status == BackupRunStatus.Success || c.WaitingFor is not null);
 }
 
 /// <summary>

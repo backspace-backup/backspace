@@ -18,7 +18,7 @@ namespace Backspace.Tests.Services;
 /// waiting for local_c (same destination)", "Queued: 2 backups already
 /// running"); cleanup and checks wait for the destination alone.
 /// </summary>
-public sealed class BackupLimitsTests
+public sealed class BackupLimitsTests(ITestOutputHelper output)
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(20);
 
@@ -128,8 +128,12 @@ public sealed class BackupLimitsTests
         using var second = await b.WaitAsync(Patience);
     }
 
+    /// <summary>U267 (owner, 27 November 2026: "delaying a backup is much
+    /// worse than not checking"; "OK for 1-4"): backups first. A backup
+    /// arriving while a cleanup waits takes a free slot; with none free it
+    /// waits, and the cleanup lets it go first.</summary>
     [Fact]
-    public async Task Cleanup_waits_for_the_backups_on_its_destination_and_new_ones_wait_for_it()
+    public async Task Backups_go_first_a_cleanup_waits_for_the_backups_running_or_waiting_on_its_destination()
     {
         var gate = Gate(); var limits = new BackupLimits { PerDestination = 2, Total = 8 }; var reasons = new ConcurrentQueue<string>();
         var running = await Take(RepositoryAccess.Kind.Backup, gate, "local_d", limits, reasons).WaitAsync(Patience);
@@ -137,16 +141,86 @@ public sealed class BackupLimitsTests
         await Settle();
         Assert.False(cleanup.IsCompleted);
         Assert.Contains("local_c: waiting for local_d (same destination) before cleanup and checks", reasons);
-        // A backup arriving now waits behind the cleanup, though a slot is free.
-        var late = Take(RepositoryAccess.Kind.Backup, gate, "local_e", limits, reasons);
-        await Settle();
-        Assert.False(late.IsCompleted);
+        // A backup arriving now takes the free slot: the cleanup does not hold it back.
+        var late = await Take(RepositoryAccess.Kind.Backup, gate, "local_e", limits, reasons).WaitAsync(Patience);
         running.Dispose();
-        var alone = await cleanup.WaitAsync(Patience);
         await Settle();
-        Assert.False(late.IsCompleted);
+        Assert.False(cleanup.IsCompleted);
+        late.Dispose();
+        using var alone = await cleanup.WaitAsync(Patience);
+    }
+
+    [Fact]
+    public async Task With_one_per_destination_a_waiting_backup_goes_before_a_waiting_cleanup()
+    {
+        var gate = Gate(); var limits = new BackupLimits { PerDestination = 1, Total = 8 }; var reasons = new ConcurrentQueue<string>();
+        var first = await Take(RepositoryAccess.Kind.Backup, gate, "local_c", limits, reasons).WaitAsync(Patience);
+        // The cleanup asks first, then a backup: the backup still goes first.
+        var cleanup = Take(RepositoryAccess.Kind.Exclusive, gate, "cleanup", limits, reasons);
+        await Settle();
+        var second = Take(RepositoryAccess.Kind.Backup, gate, "local_d", limits, reasons);
+        // Long enough for the cleanup's reason to be told again.
+        await Task.Delay(TimeSpan.FromSeconds(2.5));
+        Assert.False(second.IsCompleted);
+        Assert.Contains("cleanup: " + RepositoryAccess.BackupFirstReason("local_d", cleanup: true), reasons);
+        first.Dispose();
+        var backingUp = await second.WaitAsync(Patience);
+        await Settle();
+        Assert.False(cleanup.IsCompleted);
+        backingUp.Dispose();
+        using var alone = await cleanup.WaitAsync(Patience);
+        // The negative case: nothing waiting, a cleanup goes straight in.
         alone.Dispose();
-        using var after = await late.WaitAsync(Patience);
+        using var free = await Take(RepositoryAccess.Kind.Exclusive, gate, "again", limits).WaitAsync(Patience);
+    }
+
+    [Fact]
+    public async Task A_backups_own_cleanup_lets_a_waiting_backup_go_first()
+    {
+        var gate = Gate(); var limits = new BackupLimits { PerDestination = 1, Total = 8 };
+        var a = await Take(RepositoryAccess.Kind.Backup, gate, "A", limits).WaitAsync(Patience);
+        var b = Take(RepositoryAccess.Kind.Backup, gate, "B", limits);
+        await Settle();
+        Assert.False(b.IsCompleted);
+        // A finishes its backup and cleans up: B, waiting, goes first.
+        Task upgrade;
+        using (a.Enter()) upgrade = RepositoryAccess.ExclusiveAsync(CancellationToken.None);
+        var second = await b.WaitAsync(Patience);
+        await Settle();
+        Assert.False(upgrade.IsCompleted);
+        second.Dispose();
+        await upgrade.WaitAsync(Patience);
+        a.Dispose();
+    }
+
+    [Fact]
+    public async Task A_running_check_gives_way_to_a_backup_that_waits_and_not_otherwise()
+    {
+        var poll = RepositoryAccess.GiveWayPoll;
+        RepositoryAccess.GiveWayPoll = TimeSpan.FromMilliseconds(100);
+        try
+        {
+            var gate = Gate(); var limits = new BackupLimits { PerDestination = 1, Total = 8 };
+            var check = await Take(RepositoryAccess.Kind.Exclusive, gate, "local_c", limits).WaitAsync(Patience);
+            using var run = new CancellationTokenSource();
+            using (check.GiveWayToBackups(run))
+            {
+                // Nothing waits: it keeps running.
+                await Task.Delay(500);
+                Assert.False(run.IsCancellationRequested);
+                Assert.Null(check.GaveWayTo);
+                // A backup on another destination does not count.
+                using var elsewhere = await Take(RepositoryAccess.Kind.Backup, Gate(), "photos", limits).WaitAsync(Patience);
+                await Task.Delay(400);
+                Assert.False(run.IsCancellationRequested);
+                var backup = Take(RepositoryAccess.Kind.Backup, gate, "local_d", limits);
+                await WaitFor(() => run.IsCancellationRequested);
+                Assert.Equal("local_d", check.GaveWayTo);
+                check.Dispose();
+                using var backingUp = await backup.WaitAsync(Patience);
+            }
+        }
+        finally { RepositoryAccess.GiveWayPoll = poll; }
     }
 
     [Fact]
@@ -312,7 +386,9 @@ public sealed class BackupLimitsTests
         Assert.All(results, r => Assert.Equal(BackupRunStatus.Success, r.Status));
         Assert.True(bothRunning.Task.IsCompleted, "Both backups were in their backup phase at the same time.");
         Assert.Equal(1, peakCleaning);
-        Assert.Contains(rig.Queued, q => q.Reason.EndsWith("(same destination) before cleanup and checks", StringComparison.Ordinal));
+        // Each lets go of its destination before cleanup, so the other may be
+        // named, or only the destination (U267).
+        Assert.Contains(rig.Queued, q => q.Reason.EndsWith(" before cleanup and checks", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -332,6 +408,47 @@ public sealed class BackupLimitsTests
         await backup.WaitAsync(Patience);
         await checking.WaitAsync(Patience);
         Assert.Equal("", rig.ReasonsOf(check).Last());
+    }
+
+    /// <summary>U267 through the orchestrator: local_c's check is running when
+    /// local_d's backup comes for the same destination. The check stops, says
+    /// it was paused for local_d's backup, runs again after it and passes; no
+    /// failed or stopped result is recorded.</summary>
+    [Fact]
+    public async Task A_check_paused_for_another_backup_runs_again_after_it_and_passes()
+    {
+        var poll = RepositoryAccess.GiveWayPoll;
+        RepositoryAccess.GiveWayPoll = TimeSpan.FromMilliseconds(100);
+        try
+        {
+            using var rig = new Rig(perDestination: 1, total: 2);
+            var drive = rig.Destination("Google Drive");
+            var localC = rig.Backup("local_c", drive); var localD = rig.Backup("local_d", drive);
+            var checks = 0;
+            rig.Engine.HoldCheck = async (_, ct) => { if (Interlocked.Increment(ref checks) == 1) await Task.Delay(Timeout.Infinite, ct); };
+            var lines = new ConcurrentQueue<string>();
+            rig.Engine.LineWritten += lines.Enqueue;
+            var checking = rig.Orchestrator.RunCheckAsync(localC, CancellationToken.None);
+            await WaitFor(() => rig.Engine.Calls.Any(x => x.StartsWith("RunCheckOnly(local_c", StringComparison.Ordinal)));
+            var backup = await rig.Orchestrator.RunBackupAsync(localD, CancellationToken.None).WaitAsync(Patience);
+            Assert.Equal(BackupRunStatus.Success, backup.Status);
+            var checkRecord = await checking.WaitAsync(Patience);
+            Assert.Equal(BackupRunStatus.Success, checkRecord.Status);
+            var calls = rig.Engine.Calls.ToList();
+            Assert.Equal(2, calls.Count(x => x.StartsWith("RunCheckOnly(local_c", StringComparison.Ordinal)));
+            // In order: the check, stopped, local_d's backup, the check again.
+            var stopped = calls.IndexOf("CheckStopped(local_c)");
+            var backedUp = calls.FindIndex(x => x.StartsWith("BackupPruneCheck(local_d", StringComparison.Ordinal));
+            var again = calls.FindLastIndex(x => x.StartsWith("RunCheckOnly(local_c", StringComparison.Ordinal));
+            Assert.True(stopped >= 0 && stopped < backedUp && backedUp < again, string.Join(" | ", calls));
+            foreach (var call in calls) output.WriteLine("engine: " + call);
+            foreach (var line in lines.Where(l => l.Contains("paused", StringComparison.Ordinal))) output.WriteLine("log: " + line);
+            foreach (var reason in rig.ReasonsOf(localC).Where(r => r.Length > 0)) output.WriteLine("local_c card: Queued: " + reason);
+            Assert.Contains(lines, l => l.Contains("paused for local_d's backup; it runs again right after it", StringComparison.Ordinal));
+            Assert.Contains(rig.ReasonsOf(localC), r => r.StartsWith("waiting for local_d", StringComparison.Ordinal));
+            Assert.Single(checkRecord.Cells);
+        }
+        finally { RepositoryAccess.GiveWayPoll = poll; }
     }
 
     private static async Task WaitFor(Func<bool> condition)

@@ -14,8 +14,10 @@ namespace Backspace.Services;
 /// cleanup.</summary>
 /// <param name="OnlyTargets">A backup's destinations that waited for the
 /// network (U226), run on their own once it is back; null for a regular run.</param>
+/// <param name="FollowUp">A check run after its backup, beside its schedule,
+/// and why (U266: "overdue"); null for a run at its scheduled time.</param>
 public sealed record SchedulePlan(Backup Backup, ScheduledTaskKind Kind, BackupSchedule Schedule, BackupCheck? Check = null,
-    IReadOnlyList<string>? OnlyTargets = null)
+    IReadOnlyList<string>? OnlyTargets = null, string? FollowUp = null, DateTime FollowsUtc = default)
 {
     internal string Key => Check is null ? Backup.Id + "/" + Kind : Backup.Id + "/" + Kind + "/" + Check.Id;
     internal string Timing => FormattableString.Invariant(
@@ -130,6 +132,50 @@ internal sealed class ScheduleState
     }
 }
 
+/// <summary>When a scheduled check also runs after its backup, and when its
+/// scheduled time is passed over (owner, 27 November 2026, "OK for 1-4").</summary>
+internal static class CheckTiming
+{
+    /// <summary>U266 ("If after running a backup, a check is overdue, it'd
+    /// make sense to queue it after the backup so it isn't delayed further"):
+    /// a check whose last run was interrupted (stopped, skipped, cut short),
+    /// failed, or is overdue runs once after its backup's next successful run,
+    /// instead of waiting for its next scheduled time. Once per backup: a try
+    /// after that backup, whatever its result, waits for the next one. The
+    /// reason, and the backup it follows, or null.</summary>
+    internal static (string Why, DateTime BackupUtc)? FollowUp(Backup backup, BackupCheck check, IReadOnlyList<RunRecord> history, DateTime nowUtc)
+    {
+        if (check.Schedule is not { } schedule) return null;
+        var backedUp = history.Where(r => r.BackupId == backup.Id && r.Kind == RunKind.Backup && !r.StoppedByYou && r.EndedUtc is not null
+            && r.Status is BackupRunStatus.Success or BackupRunStatus.Warning).Max(r => r.EndedUtc);
+        if (backedUp is not { } after) return null;
+        var latest = BackupCheckHistory.Entries(backup, history).FirstOrDefault(e => BackupCheckHistory.Answers(check.Kind, e.Depth));
+        var attempt = history.Where(r => r.BackupId == backup.Id && r.Kind == RunKind.Check && r.EndedUtc is not null
+                && (r.CheckId == check.Id || r.CheckId is null && r.CheckKind == check.Kind))
+            .OrderByDescending(r => r.EndedUtc).FirstOrDefault();
+        if (latest?.When >= after || attempt?.EndedUtc >= after) return null;
+        if (attempt is { } tried && (tried.StoppedByYou || tried.Status == BackupRunStatus.Skipped)) return ("its last run did not finish", after);
+        if (attempt?.Status == BackupRunStatus.Failed || latest is { Status: not BackupRunStatus.Success }) return ("its last run did not pass", after);
+        if (schedule.ComputeNextFire((latest?.When ?? backup.CreatedUtc).ToLocalTime())?.ToUniversalTime() is { } due && nowUtc > due)
+            return ("it is overdue", after);
+        return null;
+    }
+
+    /// <summary>U268 ("if I run a manual check, a scheduled check within X
+    /// time should be ignored"): the scheduled time <paramref name="dueUtc"/>
+    /// is passed over when the same check (or a deeper one) passed less than
+    /// half its period before it: 3½ days for a weekly check. When it
+    /// passed, or null. A check stopped, skipped or failed does not count.</summary>
+    internal static DateTime? PassedRecently(Backup backup, BackupCheck check, IReadOnlyList<RunRecord> history, DateTime dueUtc)
+    {
+        if (check.Schedule is not { } schedule || SchedulePlanner.NextAfter(schedule, dueUtc) is not { } following) return null;
+        var half = (following - dueUtc) / 2;
+        var passed = BackupCheckHistory.Entries(backup, history)
+            .FirstOrDefault(e => BackupCheckHistory.Answers(check.Kind, e.Depth) && e.Status == BackupRunStatus.Success);
+        return passed is { } p && dueUtc - p.When < half ? p.When : null;
+    }
+}
+
 internal static class SchedulePlanner
 {
     /// <summary>With catch-up off, a run this late counts as missed.</summary>
@@ -212,7 +258,9 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         // Plans started at once; one when not given.
         Func<int>? MaxParallel = null,
         // True while the connection is metered; null where it can't be told.
-        Func<bool>? Metered = null);
+        Func<bool>? Metered = null,
+        // A backup's run history, for its checks (U266, U268); none when not given.
+        Func<Backup, IReadOnlyList<RunRecord>>? History = null);
 
     private readonly SemaphoreSlim _wake = new(0, 1);
     private TaskCompletionSource _signal = NewSignal();
@@ -263,6 +311,9 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     private readonly object _sync = new();
     private readonly Dictionary<string, string> _waiting = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task> _running = new(StringComparer.Ordinal);
+    /// <summary>The backup each check last followed (U266): once per backup,
+    /// even when the try recorded nothing.</summary>
+    private readonly Dictionary<string, DateTime> _followed = new(StringComparer.Ordinal);
     private TimeSpan MaxSleep => options.MaxSleep ?? TimeSpan.FromMinutes(1);
     private TimeSpan RetrySleep => MaxSleep < TimeSpan.FromMinutes(1) ? MaxSleep : TimeSpan.FromMinutes(1);
     private DateTime Now() => options.UtcNow?.Invoke() ?? DateTime.UtcNow;
@@ -320,6 +371,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
             now = Now();
             due = SchedulePlanner.Due(plans, state, now, new DateTime(Interlocked.Read(ref _networkChangedTicks), DateTimeKind.Utc))
                 .Where(p => !_running.ContainsKey(p.Key)).ToList();
+            if (options.History is { } history) PlanChecks(plans, state, now, due, history);
             state.Save();
             foreach (var key in _waiting.Keys.Where(k => due.All(p => p.Key != k)).ToList()) _waiting.Remove(key);
         }
@@ -371,6 +423,37 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         return wait < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : wait > MaxSleep ? MaxSleep : wait;
     }
 
+    /// <summary>Checks after their backup (U266) and scheduled checks passed
+    /// over after a recent pass (U268). Called under the lock.</summary>
+    private void PlanChecks(IReadOnlyList<SchedulePlan> plans, ScheduleState state, DateTime now, List<SchedulePlan> due,
+        Func<Backup, IReadOnlyList<RunRecord>> history)
+    {
+        var read = new Dictionary<string, IReadOnlyList<RunRecord>>(StringComparer.Ordinal);
+        IReadOnlyList<RunRecord>? HistoryOf(Backup backup)
+        {
+            if (read.TryGetValue(backup.Id, out var known)) return known;
+            try { return read[backup.Id] = history(backup); }
+            catch (Exception ex) { Log.Warning(ex, "Could not read {Name}'s history for its checks", backup.Name); return null; }
+        }
+        foreach (var plan in due.Where(p => p is { Kind: ScheduledTaskKind.Check, Check: not null }).ToList())
+        {
+            var dueAt = state.Entries.GetValueOrDefault(plan.Key)?.NextUtc ?? now;
+            if (HistoryOf(plan.Backup) is not { } runs || CheckTiming.PassedRecently(plan.Backup, plan.Check!, runs, dueAt) is not { } passed) continue;
+            Log.Information("The scheduled {Check} for {Name} of {Due:u} is passed over: it passed at {Passed:u}, less than half its period before",
+                plan.Check!.Title, plan.Backup.Name, dueAt, passed);
+            SchedulePlanner.Advance(state, plan, now);
+            due.Remove(plan);
+        }
+        foreach (var plan in plans)
+        {
+            if (plan is not { Kind: ScheduledTaskKind.Check, Check: { } check } || _running.ContainsKey(plan.Key) || due.Any(p => p.Key == plan.Key)
+                || !plan.Backup.Enabled || plan.Backup.Schedule.PausedUntilUtc > now || plan.Schedule.PausedUntilUtc > now) continue;
+            if (HistoryOf(plan.Backup) is not { } runs || CheckTiming.FollowUp(plan.Backup, check, runs, now) is not { } follow) continue;
+            if (_followed.GetValueOrDefault(plan.Key) == follow.BackupUtc) continue;
+            due.Add(plan with { FollowUp = follow.Why, FollowsUtc = follow.BackupUtc });
+        }
+    }
+
     private void NotAdmitted(SchedulePlan plan, bool paused)
     {
         // Not admitted (Quit): it stays due. Wait like any blocked run;
@@ -406,7 +489,9 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         // launch resumes it once (ResumeInterruptedRuns); a resumed slot cut
         // short again waits for the next scheduled time.
         ScheduleState.Entry previous;
-        var pendingRun = plan.OnlyTargets is not null;
+        // Waiting network destinations (U226) and a check after its backup
+        // (U266) run beside the schedule: its times stay as they are.
+        var pendingRun = plan.OnlyTargets is not null || plan.FollowUp is not null;
         lock (_sync)
         {
             // Read again: a run that ended meanwhile saved its own outcome.
@@ -432,6 +517,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         try
         {
             if (quiet) Log.Debug("Trying the paused scheduled {Kind} for {Name} again", plan.Kind, plan.Backup.Name);
+            else if (plan.FollowUp is { } why) Log.Information("Starting the {Check} for {Name} after its backup: {Why}", plan.Check?.Title, plan.Backup.Name, why);
             else Log.Information("Starting scheduled {Kind} for {Name}", plan.Kind, plan.Backup.Name);
             Outcome.Value = outcome;
             ran = await options.Run(plan, run.Token).ConfigureAwait(false);
@@ -466,6 +552,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
             var after = ScheduleState.Load(options.StatePath);
             if (pendingRun)
             {
+                if (ran && plan.FollowUp is not null) _followed[plan.Key] = plan.FollowsUtc;
                 // Only the waiting destinations ran: what still waits, if they
                 // said; the regular time is untouched (U226).
                 if (ran && outcome.Reported && after.Entries.GetValueOrDefault(plan.Key) is { } current)

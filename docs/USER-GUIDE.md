@@ -125,9 +125,14 @@ see in Task Manager. Scheduled backups don't run while Backspace is quit.
 
 When a backup's scheduled time passes by more than an hour without a run (the
 computer was off or asleep, or Backspace was quit), its tile turns orange and
-its hover names the run that did not happen. A failed run is red and a skipped
-one orange straight away; the grace period in a backup's settings only delays
-notifications about skipped runs, never what the card shows.
+its hover names the run that did not happen. A failed run is red straight away.
+A skipped run (the drive not plugged in, no network, on battery) stays quiet
+for the backup's grace period (**Edit → Schedule**, 7 days unless you change
+it, counted from its last backup or from **Reset**): the tile keeps showing the
+last backup in green, its hover says what was skipped and until when it stays
+quiet, and neither a notification, the banner nor the tray warns. A check
+falling due meanwhile is not flagged either. Once the period ends, the tile
+turns orange and the notification says it was skipped, never that it failed.
 
 Backspace registers no Windows scheduled task. Between runs it only waits for
 the next due time, so it uses no CPU while idle. The backup engine runs only
@@ -263,7 +268,12 @@ administrator access, backups the background service runs, together. Cleanup
 and checks of a destination always run alone on it, whatever the limits: a
 backup reaching its cleanup waits for the other backups on that destination
 to finish ("Queued: waiting for local_d (same destination) before cleanup and
-checks"), and no new backup starts there meanwhile. Two checks of one
+checks"). Backups go first: while a backup waits for a destination, no cleanup
+or check starts there, and a running check gives way. It stops, says "paused
+for local_d's backup", waits its turn ("Queued: waiting for local_d to back up
+first"), and runs again from the start right after the backup; it is not
+recorded as failed or stopped. A cleanup already running is not interrupted,
+since stopping one halfway would waste its slowest part. Two checks of one
 destination never run at the same time either: each waits for the other.
 Restore checks are checks too, scheduled or started with **Verify**: they also
 run alone on their destination, so two restore checks of one destination take
@@ -815,6 +825,17 @@ New backups get a weekly cleanup, a weekly data check of a 1 GiB sample
 monthly restore check (1% of files, at most 1 GiB), at 3 AM (Sunday for the
 weekly ones, the 1st for the monthly one). Easy mode shows this as one
 sentence and no settings.
+
+A scheduled check also runs right after its backup's next successful run,
+instead of waiting for its next time, when its last run didn't finish
+(stopped, skipped, cut short), didn't pass, or it is overdue: once per backup,
+whatever it finds, so a check that keeps failing doesn't run in a loop. Its
+scheduled time stays as it is. And a check that passed less than half its
+period before its scheduled time, one you ran with **Verify** included, makes
+that scheduled run unnecessary: it is passed over (3½ days for a weekly
+check, about two weeks for a monthly one). A check that was stopped, skipped
+or failed doesn't count. A deeper check counts for a lighter one (a full data
+read for a data sample), not the other way round.
 
 ### Verify
 

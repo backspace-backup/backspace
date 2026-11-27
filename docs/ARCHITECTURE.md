@@ -265,10 +265,20 @@ test restore). The service passes the check's id to its worker
 the backup in that order. `BackupOrchestrator.RunCheckAsync(backup, check)`
 queues checks of one backup behind each other in the process, the service runs
 one operation per backup at a time, and every check holds its destination
-exclusively (`RepositoryAccess`), so checks due together run one after another
-and backups there wait. Checks after each backup, and scheduled checks that
-waited for a destination (U174, per entry through `RunRecord.CheckId`), run
-right after the backup in `RunChecksAfterBackupAsync`.
+exclusively (`RepositoryAccess`), so checks due together run one after another.
+Checks after each backup, and scheduled checks that waited for a destination
+(U174, per entry through `RunRecord.CheckId`), run right after the backup in
+`RunChecksAfterBackupAsync`. With `ScheduleLoop.Options.History` (the window's
+`LogStore`, or the service's history and the window's), `CheckTiming` adds two
+rules (U266, U268). `FollowUp`: a check whose last run was stopped or
+skipped, failed, or is overdue is due once after its backup's latest successful
+run (`SchedulePlan.FollowUp`), beside its schedule, whose time is untouched;
+any try after that backup, or one started in this process for it
+(`_followed`), waits for the next backup. `PassedRecently`: a scheduled time
+is passed over (`SchedulePlanner.Advance`) when an entry answering the check
+(`BackupCheckHistory.Answers`) passed less than half the gap to the following
+time before it. The service wakes its loop when a worker ends, the window on
+`BackupOrchestrator.RunEnded`.
 
 The engine gets one check at a time through `EngineViewFor`: a copy with
 `CheckReadDataSample` (data read or not) and `DataCheckLimitBytes` (the data
@@ -702,12 +712,21 @@ only those files has no vault, and the first save asks for a password.
    engines creating one new repository at once each wrote their own key and
    left it unreadable). Restic lets backups share a repository but needs it
    alone for forget, prune and check, so before inline cleanup the engine calls
-   `RepositoryAccess.ExclusiveAsync`: the part gives up its total slot and the
-   setup gate, takes the exclusive gate (new backups there wait behind it) and
-   every slot. Stand-alone prune and check take the repository the same way;
-   a part run by the elevated VSS helper, whose cleanup is out of reach, takes
-   it alone from the start. Waiting holds nothing, or only the part's slot
-   (waiting for a total slot), or its slot and total slot (waiting for the
+   `RepositoryAccess.ExclusiveAsync`: the part gives up its total slot, the
+   setup gate and its own slot, takes the exclusive gate (one cleanup or check
+   at a time) and then every slot at once, or none. Stand-alone prune and check
+   take the repository the same way; a part run by the elevated VSS helper,
+   whose cleanup is out of reach, takes it alone from the start. Backups go
+   first (U267): a backup part that has to wait holds one of the destination's
+   eight `#waiting#N` gates meanwhile (the VSS helper's part too). While one
+   is held, cleanup and checks don't take the slots, and a running stand-alone
+   check (`GiveWayToBackups`, polled every 2 s) is cancelled: the orchestrator
+   lets go of the destination, waits again and reruns it from the start; a
+   check that passed as the backup came is kept. A running cleanup is not
+   interrupted. A part run by the VSS helper doesn't give way to other waiting
+   backups (two such parts would each wait for the other). Waiting holds
+   nothing (a waiting gate aside, which nothing waits for), or only the part's
+   slot (waiting for a total slot), or its slot and total slot (waiting for the
    setup gate); slots, total slots and the setup gate are held only by parts at
    work, which let them go before waiting for cleanup, so no wait can close a
    cycle. While a part waits, the run record and the card say "Queued: …"

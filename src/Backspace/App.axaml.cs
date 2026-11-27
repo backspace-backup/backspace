@@ -336,6 +336,9 @@ public partial class App : Application
             // the tray said "Last backup failed" for a cleanup).
             try { latest = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).FirstOrDefault(r => r.Kind == RunKind.Backup && r.Status != BackupRunStatus.Running && !r.StoppedByYou); }
             catch (Exception ex) { AppLogger.For<App>().Debug(ex, "History unavailable for the tray status"); continue; }
+            // Whichever told the last run, the history says whether it only waited for the network (U269).
+            backup.LastRunOnlyNetworkWaits = latest is not null && latest.OnlyNetworkWaits()
+                && latest.StartedUtc >= (backup.LastRunStartUtc ?? DateTime.MinValue);
             if (latest is null || backup.LastRunStartUtc is { } known && known >= latest.StartedUtc) continue;
             backup.LastRunStartUtc = latest.StartedUtc;
             // Its end too: the menu says how long ago, and a stale end read as a missed schedule (U265).

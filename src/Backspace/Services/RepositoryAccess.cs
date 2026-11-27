@@ -18,19 +18,25 @@ namespace Backspace.Services;
 /// A backup takes one free slot below "Backups at once per destination", then
 /// one of the "Backups at once in total" slots. Restic lets backups share a
 /// repository (shared locks), but cleanup (forget, prune) and checks need it
-/// alone: before them the backup gives up its total slot and takes every slot
-/// of the destination, waiting for the other backups there to finish. A
-/// cleanup waiting for that takes the destination's "exclusive" gate first, so
-/// no new backup starts there meanwhile. Stand-alone cleanup and checks take
-/// the destination the same way. Preparing the repository (creating it when
-/// new) takes the destination's "setup" gate, one backup at a time, until the
-/// engine says it is done (<see cref="SetupDone"/>).</para>
+/// alone: before them the backup gives up its slots and takes every slot of
+/// the destination at once, once the other backups there have finished.
+/// Stand-alone cleanup and checks take the destination the same way, one at a
+/// time (the destination's "exclusive" gate). Preparing the repository
+/// (creating it when new) takes the destination's "setup" gate, one backup at
+/// a time, until the engine says it is done (<see cref="SetupDone"/>).</para>
 ///
-/// <para>No deadlock: a part waits only while holding nothing, or holding its
-/// destination slot while waiting for a total slot, or holding both while
-/// waiting for the setup gate. Total slots and the setup gate are held only
-/// by parts actually working; those finish or, for cleanup, let go of them
-/// before waiting for anything.</para>
+/// <para>Backups first (U267, owner 27 November 2026: "delaying a backup is
+/// much worse than not checking"; "OK for 1-4"). A backup that has to wait
+/// for the destination holds one of its "waiting" gates meanwhile. While one
+/// is held, no cleanup or check starts there, and a running check gives way
+/// (<see cref="GiveWayToBackups"/>): it is stopped, waits, and runs again
+/// after the backup. A cleanup already running is not interrupted.</para>
+///
+/// <para>No deadlock: a part waits only while holding nothing (a waiting gate
+/// aside, which nothing waits for), or holding its destination slot while
+/// waiting for a total slot, or holding both while waiting for the setup gate.
+/// Total slots and the setup gate are held only by parts actually working;
+/// those finish or, for cleanup, let go of everything before waiting.</para>
 /// </summary>
 internal sealed class RepositoryAccess : IDisposable
 {
@@ -56,8 +62,11 @@ internal sealed class RepositoryAccess : IDisposable
     private readonly BackupLimits _limits;
     private readonly Action<string> _queued;
     private readonly SortedDictionary<int, CrossProcessGate> _slots = new();
-    private CrossProcessGate? _intent, _total, _setup;
+    private CrossProcessGate? _intent, _total, _setup, _waiting;
     private bool _exclusive, _shownQueued, _disposed;
+    /// <summary>Cleanup and checks give way to backups waiting here; a backup
+    /// alone on the destination (an elevated helper's) does not.</summary>
+    private bool _yieldsToBackups;
 
     private RepositoryAccess(string gate, string holder, string destination, BackupLimits limits, Action<string> queued)
     {
@@ -71,6 +80,13 @@ internal sealed class RepositoryAccess : IDisposable
     internal static string SlotName(string gate, int slot) => slot == 0 ? gate : gate + "#" + slot;
     internal static string ExclusiveName(string gate) => gate + "#exclusive";
     internal static string SetupName(string gate) => gate + "#setup";
+    /// <summary>Held by a backup while it waits for this destination (U267).</summary>
+    internal static string WaitingName(string gate, int slot) => gate + "#waiting#" + slot;
+    /// <summary>Backups that can wait for one destination and be seen as
+    /// waiting; one more still waits, unseen by cleanup and checks.</summary>
+    internal const int WaitingSlots = 8;
+    /// <summary>How often a running check looks for a backup waiting (U267).</summary>
+    internal static TimeSpan GiveWayPoll = TimeSpan.FromSeconds(2);
     internal static string TotalName(int slot) => $@"Local\Backspace-Backups-{slot}";
 
     /// <summary>"Queued: 2 backups already running".</summary>
@@ -91,11 +107,18 @@ internal sealed class RepositoryAccess : IDisposable
     internal static async Task<RepositoryAccess> AcquireAsync(Kind kind, string gate, string holder, string destination,
         BackupLimits limits, Action<string> queued, CancellationToken ct)
     {
-        var access = new RepositoryAccess(gate, holder, destination, limits, queued);
+        var access = new RepositoryAccess(gate, holder, destination, limits, queued) { _yieldsToBackups = kind == Kind.Exclusive };
         try
         {
             if (kind == Kind.Backup) await access.TakeSharedAsync(ct).ConfigureAwait(false);
-            else await access.TakeExclusiveAsync(cleanup: kind == Kind.Exclusive, ct).ConfigureAwait(false);
+            else
+            {
+                // A backup alone on the destination is still a backup: cleanup
+                // and checks let it go first.
+                if (kind == Kind.ExclusiveBackup) access.MarkWaiting();
+                try { await access.TakeExclusiveAsync(cleanup: kind == Kind.Exclusive, ct).ConfigureAwait(false); }
+                finally { access.UnmarkWaiting(); }
+            }
             if (kind != Kind.Exclusive) await access.TakeTotalAsync(ct).ConfigureAwait(false);
             // One backup at a time prepares the repository: two engines
             // creating a new one at once each wrote their own key and left it
@@ -163,18 +186,13 @@ internal sealed class RepositoryAccess : IDisposable
     private async Task UpgradeAsync(CancellationToken ct)
     {
         if (_exclusive || _disposed) return;
-        // Never wait while holding a total slot or the setup gate (see the
-        // class remarks).
+        // Never wait while holding anything (see the class remarks): the
+        // backup's own slot too, which a backup waiting here may take first
+        // (U267). The cleanup then takes the destination as a whole.
         _total?.Dispose(); _total = null;
         ReleaseSetup();
-        var intent = new CrossProcessGate(ExclusiveName(_gate), _holder);
-        if (intent.TryAcquire()) _intent = intent;
-        else
-        {
-            intent.Dispose();
-            // Someone else cleans up here first: hold nothing while waiting.
-            ReleaseSlots();
-        }
+        ReleaseSlots();
+        _yieldsToBackups = true;
         await TakeExclusiveAsync(cleanup: true, ct).ConfigureAwait(false);
         ClearQueued();
     }
@@ -182,22 +200,26 @@ internal sealed class RepositoryAccess : IDisposable
     private async Task TakeSharedAsync(CancellationToken ct)
     {
         var limit = _limits.PerDestinationClamped;
-        await WaitAsync(() =>
+        bool TryShared()
         {
-            // A cleanup waiting for this destination goes first.
-            using var intent = new CrossProcessGate(ExclusiveName(_gate));
-            if (!intent.TryAcquire()) return false;
             for (var slot = 0; slot < limit; slot++)
             {
                 var gate = new CrossProcessGate(SlotName(_gate, slot), _holder);
                 if (TryTake(gate)) { _slots[slot] = gate; return true; }
             }
             return false;
-        }, () => Holders(includeExclusive: true, cleanup: false), ct).ConfigureAwait(false);
+        }
+        if (TryShared()) return;
+        // Backups first (U267): while this one waits, no cleanup or check
+        // starts here, and a running check gives way.
+        MarkWaiting();
+        try { await WaitAsync(TryShared, () => Holders(includeExclusive: false, cleanup: false), ct).ConfigureAwait(false); }
+        finally { UnmarkWaiting(); }
     }
 
     private async Task TakeExclusiveAsync(bool cleanup, CancellationToken ct)
     {
+        // One cleanup or check at a time here.
         if (_intent is null)
         {
             var intent = new CrossProcessGate(ExclusiveName(_gate), _holder);
@@ -208,19 +230,89 @@ internal sealed class RepositoryAccess : IDisposable
             catch { intent.Dispose(); throw; }
             _intent = intent;
         }
-        // In order, so two cleanups can't each hold half of the slots.
-        for (var slot = 0; slot < BackupLimits.Maximum; slot++)
+        // Every slot at once, or none: holding some while waiting for the
+        // rest would hold back the backups that go first (U267).
+        await WaitAsync(() =>
         {
-            if (_slots.ContainsKey(slot)) continue;
-            var gate = new CrossProcessGate(SlotName(_gate, slot), _holder);
+            if (_yieldsToBackups && WaitingBackup() is not null) return false;
+            var taken = new List<(int Slot, CrossProcessGate Gate)>();
+            for (var slot = 0; slot < BackupLimits.Maximum; slot++)
+            {
+                if (_slots.ContainsKey(slot)) continue;
+                var gate = new CrossProcessGate(SlotName(_gate, slot), _holder);
+                if (TryTake(gate)) { taken.Add((slot, gate)); continue; }
+                foreach (var (_, held) in taken) held.Dispose();
+                return false;
+            }
+            foreach (var (slot, gate) in taken) _slots[slot] = gate;
+            return true;
+        }, () => _yieldsToBackups && WaitingBackup() is { } who
+            ? BackupFirstReason(who, cleanup)
+            : Holders(includeExclusive: false, cleanup), ct).ConfigureAwait(false);
+        _exclusive = true;
+    }
+
+    /// <summary>"waiting for local_d to back up first (same destination)".</summary>
+    internal static string BackupFirstReason(string backup, bool cleanup)
+        => $"waiting for {backup} to back up first (same destination)" + (cleanup ? " before cleanup and checks" : "");
+
+    /// <summary>This backup waits here: noted for cleanup and checks (U267).</summary>
+    private void MarkWaiting()
+    {
+        if (_waiting is not null) return;
+        for (var slot = 0; slot < WaitingSlots; slot++)
+        {
+            var gate = new CrossProcessGate(WaitingName(_gate, slot), _holder);
+            if (TryTake(gate)) { _waiting = gate; return; }
+        }
+        AppLogger.For<RepositoryAccess>().Debug("{Holder} waits for «{Destination}» unseen: every waiting gate is taken", _holder, _destination);
+    }
+
+    private void UnmarkWaiting() { _waiting?.Dispose(); _waiting = null; }
+
+    /// <summary>A backup waiting for this destination, by name, or null.</summary>
+    internal string? WaitingBackup()
+    {
+        for (var slot = 0; slot < WaitingSlots; slot++)
+        {
+            var name = WaitingName(_gate, slot);
+            if (_waiting?.Name == name) continue;
+            var probe = new CrossProcessGate(name);
+            if (TryTake(probe)) { probe.Dispose(); continue; }
+            return CrossProcessGate.Holders.Read(name) ?? "another backup";
+        }
+        return null;
+    }
+
+    /// <summary>The backup this check gave way to, once it has (U267).</summary>
+    internal string? GaveWayTo { get; private set; }
+
+    /// <summary>A running check gives way to a backup that waits for this
+    /// destination (U267): <paramref name="run"/> is cancelled, and
+    /// <see cref="GaveWayTo"/> names the backup. The check then lets go of
+    /// the destination and waits for it again, after the backup. Until the
+    /// returned scope is disposed.</summary>
+    internal IDisposable GiveWayToBackups(CancellationTokenSource run)
+    {
+        var stop = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
             try
             {
-                await WaitAsync(() => TryTake(gate), () => Holders(includeExclusive: false, cleanup), ct).ConfigureAwait(false);
+                while (!stop.IsCancellationRequested)
+                {
+                    await Task.Delay(GiveWayPoll, stop.Token).ConfigureAwait(false);
+                    if (_disposed || stop.IsCancellationRequested || WaitingBackup() is not { } who) continue;
+                    GaveWayTo = who;
+                    AppLogger.For<RepositoryAccess>().Information("{Holder} gives way to {Backup}'s backup on «{Destination}»", _holder, who, _destination);
+                    try { run.Cancel(); } catch (ObjectDisposedException) { }
+                    return;
+                }
             }
-            catch { gate.Dispose(); throw; }
-            _slots[slot] = gate;
-        }
-        _exclusive = true;
+            catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { }
+        });
+        return new Scope(() => stop.Cancel());
     }
 
     private async Task TakeTotalAsync(CancellationToken ct)
@@ -306,6 +398,7 @@ internal sealed class RepositoryAccess : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        UnmarkWaiting();
         ReleaseSetup();
         _total?.Dispose(); _total = null;
         ReleaseSlots();

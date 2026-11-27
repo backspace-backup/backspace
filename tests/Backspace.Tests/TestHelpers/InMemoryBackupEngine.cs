@@ -53,6 +53,9 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
     /// <summary>When set, each backup then cleans up like the real engine:
     /// it first waits for the destination alone (RepositoryAccess), U156.</summary>
     public Func<Backup, CancellationToken, Task>? HoldCleanup { get; set; }
+    /// <summary>When set, a stand-alone check waits on it. Stopped, it ends
+    /// like restic's: a Skipped record, not an exception (U267).</summary>
+    public Func<Backup, CancellationToken, Task>? HoldCheck { get; set; }
 
     /// <summary>Backups currently in flight. Incremented at the top of
     /// <see cref="BackupPruneCheckAsync"/> and decremented after the
@@ -372,11 +375,22 @@ internal sealed class InMemoryBackupEngine : IBackupEngine
         return Task.FromResult(SimpleRecord(backup, "prune complete (simulated)"));
     }
 
-    public Task<RunRecord> RunCheckOnlyAsync(Backup backup, string sourcePath, Destination destination, string storageName, CancellationToken ct, Action<string>? lineSink = null, Action<CheckStep, double>? progress = null)
+    public async Task<RunRecord> RunCheckOnlyAsync(Backup backup, string sourcePath, Destination destination, string storageName, CancellationToken ct, Action<string>? lineSink = null, Action<CheckStep, double>? progress = null)
     {
         Calls.Enqueue($"RunCheckOnly({backup.Name},{sourcePath})");
+        if (HoldCheck is { } hold)
+        {
+            try { await hold(backup, ct); }
+            catch (OperationCanceledException)
+            {
+                Calls.Enqueue($"CheckStopped({backup.Name})");
+                var stopped = SimpleRecord(backup, "check stopped (simulated)");
+                stopped.Status = BackupRunStatus.Skipped;
+                return stopped;
+            }
+        }
         lineSink?.Invoke("[fake] check complete (simulated)");
-        return Task.FromResult(SimpleRecord(backup, "check complete (simulated)"));
+        return SimpleRecord(backup, "check complete (simulated)");
     }
 
     public Task<RunRecord> PruneToLatestAsync(Backup backup, string sourcePath, Destination destination, string storageName, CancellationToken ct)

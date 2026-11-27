@@ -160,7 +160,10 @@ public static class BackupCheckHistory
 
     /// <param name="nothingStored">No run of this backup has stored anything
     /// yet: there is nothing to check (U200).</param>
-    public static BackupCheckState State(Backup backup, IReadOnlyList<BackupCheckEntry> entries, DateTime nowUtc, bool nothingStored = false)
+    /// <param name="quietSkip">The card shows the backup's last run as a
+    /// quiet skip (U269), whatever the saved settings say yet.</param>
+    public static BackupCheckState State(Backup backup, IReadOnlyList<BackupCheckEntry> entries, DateTime nowUtc, bool nothingStored = false,
+        bool quietSkip = false)
     {
         var kinds = KindLines(backup, entries, nowUtc);
         // Nothing backed up yet: a check found nothing to check, whatever it
@@ -194,7 +197,9 @@ public static class BackupCheckHistory
         {
             var overdue = BackupCheck.InRunOrder(backup.Checks)
                 .FirstOrDefault(c => Overdue(backup, c, entries.FirstOrDefault(e => Answers(c.Kind, e.Depth)), nowUtc));
-            if (overdue is not null)
+            // Its backup skipped quietly (drive not plugged in, U269): a check
+            // falling due meanwhile is not flagged either until the quiet period ends.
+            if (overdue is not null && !quietSkip && !backup.IsQuietSkip(backup.LastRunStatus, false, nowUtc))
                 return new($"{BackupCheck.Name(overdue.Kind)} overdue · {ago}", "stale", latest.Scope,
                     Hover(latest.Summary + $"\nThe {BackupCheck.Name(overdue.Kind).ToLowerInvariant()} is due. Another kind of check does not replace it.", kinds)) { Kinds = kinds };
         }

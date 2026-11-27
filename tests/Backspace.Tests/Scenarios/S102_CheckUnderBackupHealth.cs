@@ -47,6 +47,7 @@ public sealed class S102_CheckUnderBackupHealth : ScenarioBase
         var localC = Make("local_c", drive, BackupRunStatus.Success, "Backup completed");
         var localD = Make("local_d", drive, BackupRunStatus.Success, "Backup completed");
         var localDropbox = Make("local_dropbox", dropbox, BackupRunStatus.Skipped, "M:\\ not mounted");
+        localDropbox.SkipNotificationGraceDays = 0; // its skip shows at once (U269: within the quiet period it stays quiet)
         localD.Checks.RemoveAt(1); // its data sample alone, passed below
         ServiceLocator.Config.Update(cfg =>
         {

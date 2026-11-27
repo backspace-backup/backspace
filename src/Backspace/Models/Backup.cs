@@ -496,6 +496,30 @@ public sealed class Backup : IJsonOnDeserialized
         return elapsed.TotalDays < SkipNotificationGraceDays;
     }
 
+    /// <summary>The last run stored everything it could reach and only its
+    /// network destinations waited (RunRecord.OnlyNetworkWaits). Read from
+    /// the run history for the tray; never saved.</summary>
+    [JsonIgnore]
+    public bool LastRunOnlyNetworkWaits { get; set; }
+
+    /// <summary>When the quiet period for skipped runs ends; null without one.</summary>
+    [JsonIgnore]
+    public DateTime? SkipGraceEndsUtc => SkipNotificationGraceDays <= 0 ? null : SkipGraceReferenceUtc.AddDays(SkipNotificationGraceDays);
+
+    /// <summary>
+    /// A run skipped for a cause the quiet period tolerates (a drive not
+    /// plugged in, no network, on battery), or one whose network
+    /// destinations waited for the network, within that period: nothing
+    /// warns about it, neither a notification nor the card, the Backups
+    /// banner or the tray (B027, owner's original notes: "a grace period
+    /// number of days selector setting to ignore skipped backups"; U269,
+    /// 27 November 2026: "The goal was to not annoy user with warnings if
+    /// an external drive is not plugged in (up until the grace period)").
+    /// Afterwards it warns as a skip, never as a failure (B029).
+    /// </summary>
+    public bool IsQuietSkip(BackupRunStatus status, bool onlyNetworkWaits, DateTime nowUtc)
+        => (status == BackupRunStatus.Skipped || status == BackupRunStatus.Warning && onlyNetworkWaits) && IsWithinSkipGrace(nowUtc);
+
     /// <summary>
     /// Both editors always offer grace configuration, including before
     /// the first skipped run and after a window expires. The timestamp

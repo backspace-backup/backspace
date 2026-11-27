@@ -83,6 +83,7 @@ public sealed class S61_TrayScheduleStates : ScenarioBase
         {
             Name = name, SourcePaths = { "C:\\" + name }, Targets = { new BackupTarget() }, LastRunStatus = status, Schedule = TestSchedules.DueInAnHour(),
             LastRunEndUtc = now.AddHours(-hoursAgo), LastSuccessUtc = status == BackupRunStatus.Success ? now.AddHours(-hoursAgo) : now.AddDays(-2), LastRunSummary = summary,
+            SkipNotificationGraceDays = 0, // a skip shows at once (U269: within the quiet period it stays quiet)
         };
         var status = TrayScheduleStatus.Inspect([
             Make("local_c", BackupRunStatus.Success, 3, "1.2 GB uploaded · 120 new / 40 mod / 0 rem · in 9m 12s"),

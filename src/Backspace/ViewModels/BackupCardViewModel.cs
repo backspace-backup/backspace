@@ -886,6 +886,25 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         // keeps the last completed run's colour; only the first line's icon
         // says it was stopped.
         _stoppedByYouAt = stopped?.EndedUtc;
+        // Within the quiet period, a run skipped because the drive was not
+        // plugged in (or the network was away) warns nowhere (B027, U269):
+        // the tile shows the last backup that ran, the skip is on hover, and
+        // once the period ends the tile turns orange as a skip.
+        _quiet = null;
+        var now = UtcNow();
+        if (end is { } skippedAt && saved.IsQuietSkip(status, useHistory && latest!.OnlyNetworkWaits(), now))
+        {
+            _quiet = (summary ?? "", skippedAt, saved.SkipGraceEndsUtc ?? now, status == BackupRunStatus.Skipped);
+            if (status == BackupRunStatus.Warning) status = BackupRunStatus.Success;
+            else if (useHistory && ended.FirstOrDefault(r => !r.StoppedByYou && r.StartedUtc < latest!.StartedUtc
+                && r.Status is BackupRunStatus.Success or BackupRunStatus.Warning) is { } good)
+                (status, end, summary) = (good.Status, good.EndedUtc, good.Summary);
+            else if (saved.LastRunStatus is BackupRunStatus.Success or BackupRunStatus.Warning && saved.LastRunEndUtc is { } savedEnd && savedEnd < skippedAt)
+                (status, end, summary) = (saved.LastRunStatus, savedEnd, saved.LastRunSummary);
+            else if (saved.LastSuccessUtc is { } success && success < skippedAt)
+                (status, end, summary) = (BackupRunStatus.Success, success, "Backed up");
+            else (status, end, summary) = (BackupRunStatus.NeverRun, null, null);
+        }
         StatusClass = status switch
         {
             BackupRunStatus.Success => "ok", BackupRunStatus.Warning => "warn", BackupRunStatus.Failed => "fail",
@@ -893,8 +912,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         };
         // A daily backup last completed 9 days ago is not "OK" (U265): when a
         // scheduled run was missed, the tile is orange and says so on hover.
+        // A quiet skip ran at its time: the slots count from it.
         _missed = saved.Enabled && end is { } completedAt && status is BackupRunStatus.Success or BackupRunStatus.Warning
-            && saved.Schedule.Missed(completedAt, UtcNow());
+            && saved.Schedule.Missed(MissedFrom(completedAt), now);
         if (_missed) StatusClass = "warn";
         OnPropertyChanged(nameof(MissedSchedule));
         LastCompletedClass = stopped is null ? "" : StatusClass;
@@ -917,17 +937,24 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     private string LastRunText()
     {
         string completed;
-        if (_lastRun is not { } last) { _lastRunHover = null; completed = "Never run"; }
+        if (_lastRun is not { } last) { _lastRunHover = null; completed = _quiet is null ? "Never run" : "Not backed up yet"; }
         else
         {
             var (label, hover) = LastRunLine.For(last.Summary, last.Status, last.When);
             _lastRunHover = hover;
             completed = label;
         }
-        if (_missed && Snapshot.Schedule.MissedSlotUtc(_lastRun!.Value.When, UtcNow()) is { } slot)
+        if (_missed && Snapshot.Schedule.MissedSlotUtc(MissedFrom(_lastRun!.Value.When), UtcNow()) is { } slot)
             _lastRunHover = "No backup since " + When(_lastRun.Value.When) + ": the scheduled run of " + When(slot)
                 + " did not happen (" + Snapshot.Schedule.DescribePeriod().ToLowerInvariant() + "). Run now, or open Activity to see why."
                 + (_lastRunHover is { Length: > 0 } h ? "\n\n" + h : "");
+        // The quiet skip, first on hover (U269): what was skipped, and until when it stays quiet.
+        if (_quiet is { } quiet)
+            _lastRunHover = (quiet.Skipped ? "Skipped " : "Some destinations waited, ") + When(quiet.At) + ": " + quiet.Summary.TrimEnd('.')
+                + ". Not flagged until " + When(quiet.Until) + ": skipped runs stay quiet for " + Days(Snapshot.SkipNotificationGraceDays)
+                + " after the last backup (this backup's Schedule settings)."
+                + (_lastRunHover is { Length: > 0 } q ? "\n\n" + q : "");
+        static string Days(int days) => days == 1 ? "1 day" : days + " days";
         static string When(DateTime utc) => utc.ToLocalTime().ToString("ddd d MMM, HH:mm", System.Globalization.CultureInfo.CurrentCulture);
         if (_stoppedByYouAt is not { } stoppedAt) { LastCompletedLabel = ""; return completed; }
         // U242: "Stopped by you · 3 min ago", the last completed run under it
@@ -939,6 +966,13 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     private DateTime? _stoppedByYouAt;
     private bool _missed;
+    /// <summary>The run shown quietly (U269): its summary, when it ended, when
+    /// the quiet period ends, and whether it was skipped (or only waited).</summary>
+    private (string Summary, DateTime At, DateTime Until, bool Skipped)? _quiet;
+    /// <summary>A quiet skip ran at its time: missed slots count from it.</summary>
+    private DateTime MissedFrom(DateTime completedUtc) => _quiet is { } q && q.At > completedUtc ? q.At : completedUtc;
+    /// <summary>The latest run is skipped but shown quietly (U269).</summary>
+    internal bool QuietSkip => _quiet is not null;
     /// <summary>A scheduled time passed without a run (U265); not while it runs or waits its turn.</summary>
     internal bool MissedSchedule => _missed && !IsRunning;
 
@@ -969,14 +1003,18 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         // A scheduled time passing without a run turns the tile orange within the
         // hour, also while the window stays open (U265).
         if (!IsRunning && _lastRun is { } last && (last.Status is BackupRunStatus.Success or BackupRunStatus.Warning)
-            && Snapshot.Enabled && Snapshot.Schedule.Missed(last.When, UtcNow()) != _missed)
+            && Snapshot.Enabled && Snapshot.Schedule.Missed(MissedFrom(last.When), UtcNow()) != _missed)
+            ApplyStoredRunState(Snapshot);
+        // The quiet period ending turns a skip orange in an open window too (U269).
+        else if (!IsRunning && _quiet is { } quiet && UtcNow() >= quiet.Until)
             ApplyStoredRunState(Snapshot);
     }
 
     public void RefreshCheckAge()
     {
         if (_checkHistoryReadFailed) return;
-        var state = BackupCheckHistory.State(Snapshot, _checkEntries, DateTime.UtcNow, nothingStored: !HasRestorableRun);
+        var state = BackupCheckHistory.State(Snapshot, _checkEntries, DateTime.UtcNow, nothingStored: !HasRestorableRun,
+            quietSkip: _quiet is { Skipped: true });
         // A check that waits for its drive says so calmly (U174).
         if (ServiceLocator.Config?.Current is { } config)
             state = CheckOverdue.Shown(state, Snapshot, CheckOverdue.For(Snapshot, _checkRuns, config.Destinations));

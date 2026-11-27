@@ -132,7 +132,9 @@ public sealed class BackupCardStoppedByYouTests
     public void A_run_stopped_by_backspace_itself_is_still_a_skipped_run()
     {
         var now = DateTime.UtcNow;
-        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(), LastRunStartUtc = now.AddHours(-2), LastRunEndUtc = now.AddHours(-2).AddMinutes(10), LastRunSummary = "Backup result: STATUS_SUCCESS." };
+        // Without a quiet period; within one it stays quiet (U269, QuietSkipTests).
+        var backup = new Backup { LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(), LastRunStartUtc = now.AddHours(-2), LastRunEndUtc = now.AddHours(-2).AddMinutes(10), LastRunSummary = "Backup result: STATUS_SUCCESS.",
+            SkipNotificationGraceDays = 0 };
         using var card = new BackupCardViewModel(backup, false, false);
         card.Apply(new RunRecord { BackupId = backup.Id, StartedUtc = now.AddMinutes(-5), EndedUtc = now.AddMinutes(-1),
             Status = BackupRunStatus.Skipped, Summary = "Network became metered (mobile / tethered); backup paused per backup setting. after 4m" });
