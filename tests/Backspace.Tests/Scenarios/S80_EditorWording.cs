@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
@@ -86,6 +87,67 @@ public sealed class S80_EditorWording : ScenarioBase
             ctx.Driver.Pump();
             Assert.False(hint.IsEffectivelyVisible);
             unnamedWin.Close();
+        }
+        finally { DestinationEditorViewModel.VolumeLabelReader = reader; }
+
+        // U273, U276 (owner, 28 November 2026): the drive first, then the folder
+        // on it, starting with the letter or with \ when any letter will do;
+        // Browse refuses a folder on another drive; the suggested name shows the
+        // drive as Windows does. The owner's local_dropbox, as saved.
+        try
+        {
+            var dropbox = new DestinationEditorViewModel(new Destination
+            {
+                Name = @"External - …\Backspace\local_dropbox", Kind = DestinationKind.ExternalDrive,
+                PathOrSubpath = @"M:\Backup\Backspace\local_dropbox", ExpectedVolumeLabel = "My Passport", Encrypted = false,
+            }, false);
+            Assert.Equal(@"Backup\Backspace\local_dropbox", dropbox.DriveFolder);
+            Assert.Equal(@"\", dropbox.DriveRootLabel);
+            Assert.True(string.IsNullOrEmpty(dropbox.Name), "The old automatic name gives way to the new suggestion.");
+            Assert.Equal(@"External - \Backup\Backspace\local_dropbox (My Passport)", dropbox.SuggestedName);
+            // A folder on another drive than the one named is refused, one on it is taken.
+            DestinationEditorViewModel.VolumeLabelReader = root => root.StartsWith("M", StringComparison.OrdinalIgnoreCase) ? "My Passport" : "Blue";
+            Assert.Equal("This folder is on the drive named “Blue”, not “My Passport”. Pick a folder on “My Passport”, or change the drive's name above.",
+                dropbox.PickedOnAnotherDrive(@"E:\Backup\Backspace\local_dropbox"));
+            Assert.Null(dropbox.PickedOnAnotherDrive(@"M:\Backup\Other"));
+            // A letter: the folder starts with it, the name says it, another letter is refused.
+            dropbox.ExpectedDriveLetter = "m";
+            Assert.Equal(@"M:\", dropbox.DriveRootLabel);
+            Assert.Equal(@"M:\Backup\Backspace\local_dropbox", dropbox.PathOrSubpath);
+            Assert.Equal(@"External - M:\Backup\Backspace\local_dropbox (My Passport)", dropbox.SuggestedName);
+            Assert.Equal("This folder is on E:, but the drive's letter is set to M:. Pick a folder on M:, or clear the letter.",
+                dropbox.PickedOnAnotherDrive(@"E:\Backup"));
+            // A full path typed into the folder box keeps the folder; another letter is said.
+            dropbox.DriveFolder = @"M:\Backup\Backspace\photos";
+            Assert.Equal(@"Backup\Backspace\photos", dropbox.DriveFolder);
+            Assert.Equal(@"M:\Backup\Backspace\photos", dropbox.PathOrSubpath);
+            dropbox.DriveFolder = @"F:\Elsewhere";
+            Assert.StartsWith("This folder is on F:", dropbox.PathError);
+            Assert.Equal(@"M:\Backup\Backspace\photos", dropbox.PathOrSubpath);
+            dropbox.PathError = null;
+            dropbox.DriveFolder = @"Backup\Backspace\local_dropbox";
+            dropbox.ExpectedDriveLetter = "";
+            Assert.Equal(@"M:\Backup\Backspace\local_dropbox", dropbox.PathOrSubpath);
+            var dropboxWin = new DestinationEditorWindow { DataContext = dropbox, Width = 760, Height = 820 };
+            ctx.Driver.Show(dropboxWin);
+            ctx.Driver.Pump();
+            var folderBox = dropboxWin.FindControl<TextBox>("DriveFolderBox")!;
+            var nameBox = dropboxWin.FindControl<TextBox>("DriveNameBox")!;
+            Assert.True(nameBox.TranslatePoint(new Point(0, 0), dropboxWin)!.Value.Y < folderBox.TranslatePoint(new Point(0, 0), dropboxWin)!.Value.Y,
+                "The drive's name comes before the folder on it.");
+            Assert.Equal(@"\", dropboxWin.FindControl<TextBlock>("DriveRootPrefix")!.Text);
+            dropbox.PathError = dropbox.PickedOnAnotherDrive(@"E:\Backup\Backspace\local_dropbox");
+            ctx.Driver.Pump();
+            folderBox.BringIntoView();
+            ctx.Driver.Pump();
+            ctx.Snapshot(dropboxWin, "external drive folder after the drive",
+                @"local_dropbox: DRIVE NAME My Passport and LETTER Any first, then FOLDER ON THE DRIVE \Backup\Backspace\local_dropbox, and the refusal of a folder picked on the drive named Blue.");
+            dropbox.PathError = null;
+            Assert.True(dropbox.ValidateForm(), dropbox.SummaryError);
+            var saved = dropbox.Save()!;
+            Assert.Equal(@"External - \Backup\Backspace\local_dropbox (My Passport)", saved.Name);
+            Assert.Equal(@"M:\Backup\Backspace\local_dropbox", saved.PathOrSubpath);
+            dropboxWin.Close();
         }
         finally { DestinationEditorViewModel.VolumeLabelReader = reader; }
 

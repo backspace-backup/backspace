@@ -315,8 +315,93 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     /// the letter is fixed by the OS and the guard adds friction
     /// without value. Previously the section showed for both kinds.
     /// </summary>
-    public bool ShowVolumeMatch =>
-        Kind == DestinationKind.ExternalDrive && !string.IsNullOrWhiteSpace(PathOrSubpath);
+    public bool ShowVolumeMatch => Kind == DestinationKind.ExternalDrive;
+
+    /// <summary>The full folder path, for a folder on this PC; an external
+    /// drive has its drive first, then <see cref="DriveFolder"/> (U273).</summary>
+    public bool ShowFolderPath => Kind == DestinationKind.LocalFolder;
+
+    // ---- External drive: the drive first, then the folder on it (U273) ----
+    // Owner, 28 November 2026: "I don't want to have to enter a letter but in
+    // Folder Path I need to enter the subpath ... It should put the drive name
+    // and letter first. then a path that always start with the letter. And
+    // refuse if the user selects in Browse a path that doesn't start with that
+    // letter (if a letter was entered)." The saved path keeps a drive root,
+    // as before: the drive's letter when one is set, otherwise the root the
+    // folder was picked or saved on (the drive is found by its name at run
+    // time and the root replaced, ResticUriResolver).
+
+    /// <summary>The folder on the external drive, without the drive: e.g.
+    /// "Backup\Backspace\local_dropbox".</summary>
+    [ObservableProperty] private string _driveFolder = "";
+    private string? _driveRoot;
+    private bool _syncingDrivePath;
+
+    /// <summary>What the folder starts with: the letter's root ("M:\") when
+    /// a letter is set, otherwise "\": whatever letter the drive gets.</summary>
+    public string DriveRootLabel => LetterRoot() ?? "\\";
+
+    /// <summary>"M:\" for a letter typed as m, M:, M:\ or M; null without one.</summary>
+    private string? LetterRoot()
+    {
+        var l = (ExpectedDriveLetter ?? "").Trim().TrimEnd('\\', '/').TrimEnd(':');
+        return l.Length == 1 && char.IsAsciiLetter(l[0]) ? char.ToUpperInvariant(l[0]) + ":\\" : null;
+    }
+
+    /// <summary>The drive root the saved path starts with.</summary>
+    private string StorageRoot()
+    {
+        if (LetterRoot() is { } letter) return letter;
+        if (_driveRoot is { Length: > 0 } root) return root;
+        if (!string.IsNullOrWhiteSpace(ExpectedVolumeLabel)
+            && VolumeDetector.Check(null, ExpectedVolumeLabel.Trim()) is { Verdict: VolumeDetector.Verdict.Mounted, MountedRoot: { } mounted })
+            return mounted.TrimEnd('\\', '/') + "\\";
+        return "C:\\";
+    }
+
+    private static (string? Root, string Folder) SplitDrivePath(string? path)
+    {
+        var p = (path ?? "").Trim();
+        if (p.Length >= 2 && char.IsAsciiLetter(p[0]) && p[1] == ':')
+            return (char.ToUpperInvariant(p[0]) + ":\\", p[2..].TrimStart('\\', '/').TrimEnd('\\', '/'));
+        return (null, p.TrimStart('\\', '/').TrimEnd('\\', '/'));
+    }
+
+    partial void OnDriveFolderChanged(string value)
+    {
+        if (_syncingDrivePath || Kind != DestinationKind.ExternalDrive) return;
+        // A full path typed or pasted here: keep the folder, check the drive.
+        var (root, folder) = SplitDrivePath(value);
+        if (root is not null)
+        {
+            if (LetterRoot() is { } letter && !string.Equals(letter, root, StringComparison.OrdinalIgnoreCase))
+            {
+                PathError = $"This folder is on {root.TrimEnd('\\')}, but the drive's letter is set to {letter.TrimEnd('\\')}. Enter a folder on {letter.TrimEnd('\\')}, or clear the letter.";
+                return;
+            }
+            _driveRoot = root;
+            _syncingDrivePath = true;
+            try { DriveFolder = folder; } finally { _syncingDrivePath = false; }
+        }
+        SyncPathFromDrive();
+    }
+
+    private void SyncPathFromDrive()
+    {
+        if (Kind != DestinationKind.ExternalDrive) return;
+        _syncingDrivePath = true;
+        try { PathOrSubpath = string.IsNullOrWhiteSpace(DriveFolder) ? "" : StorageRoot() + DriveFolder.Trim().Trim('\\', '/'); }
+        finally { _syncingDrivePath = false; }
+    }
+
+    private void SyncDriveFromPath(string? path)
+    {
+        if (_syncingDrivePath) return;
+        var (root, folder) = SplitDrivePath(path);
+        if (root is not null) _driveRoot = root;
+        _syncingDrivePath = true;
+        try { DriveFolder = folder; } finally { _syncingDrivePath = false; }
+    }
 
     /// <summary>
     /// Title of the folder-picker card. Reads "Folder on the external
@@ -390,6 +475,18 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         _pathOrSubpath = working.PathOrSubpath;
         _expectedDriveLetter = working.ExpectedDriveLetter;
         _expectedVolumeLabel = working.ExpectedVolumeLabel;
+        if (working.Kind == DestinationKind.ExternalDrive)
+        {
+            var (root, folder) = SplitDrivePath(working.PathOrSubpath);
+            _driveRoot = root;
+            _driveFolder = folder;
+            // A name Backspace made in the old form ("External - …\Backspace\x")
+            // is not the owner's: left blank, the new suggestion is saved (U276).
+            if (!string.IsNullOrEmpty(working.PathOrSubpath)
+                && string.Equals(_name?.Trim(), NameGenerator.ForDestination(DestinationKind.LocalFolder, working.PathOrSubpath, null, _ => false)
+                    .Replace("Local - ", "External - "), StringComparison.Ordinal))
+                _name = "";
+        }
         _s3Endpoint = working.S3Endpoint;
         _s3Region = working.S3Region;
         _s3Bucket = working.S3Bucket;
@@ -426,7 +523,9 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         OnPropertyChanged(nameof(ShowNetworkPath));
         OnPropertyChanged(nameof(ShowNetworkCreds));
         OnPropertyChanged(nameof(ShowVolumeMatch));
+        OnPropertyChanged(nameof(ShowFolderPath));
         OnPropertyChanged(nameof(LocalPathSectionTitle));
+        if (value == DestinationKind.ExternalDrive) SyncDriveFromPath(PathOrSubpath);
         OnPropertyChanged(nameof(ShowCloudSubpath));
         OnPropertyChanged(nameof(ShowOAuth));
         OnPropertyChanged(nameof(ShowS3));
@@ -456,6 +555,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     partial void OnNameChanged(string value) { if (AttemptedSave) RevalidateField(nameof(Name)); }
     partial void OnPathOrSubpathChanged(string value)
     {
+        if (Kind == DestinationKind.ExternalDrive) SyncDriveFromPath(value);
         RefreshSuggestedName();
         // Show/hide of the ExpectedDriveLetter + ExpectedVolumeLabel
         // section is gated on a non-empty path so the picker reads as
@@ -496,9 +596,28 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
     partial void OnExpectedVolumeLabelChanged(string? value)
     {
         OnPropertyChanged(nameof(VolumeMatchSummary));
+        RefreshSuggestedName();
         if (!string.IsNullOrWhiteSpace(value)) DriveHasNoName = false;
     }
-    partial void OnExpectedDriveLetterChanged(string? value) => OnPropertyChanged(nameof(VolumeMatchSummary));
+    partial void OnExpectedDriveLetterChanged(string? value)
+    {
+        OnPropertyChanged(nameof(VolumeMatchSummary));
+        OnPropertyChanged(nameof(DriveRootLabel));
+        if (Kind == DestinationKind.ExternalDrive) SyncPathFromDrive();
+        RefreshSuggestedName();
+    }
+
+    /// <summary>An external drive's name as Windows shows a path on a named
+    /// drive (U276, owner 28 November 2026: "If both volume name and drive
+    /// letter are specified it should refer to the drive like windows does
+    /// C:\... (My Passport). If no drive letter specified why not just \ as
+    /// the root?"): "M:\Backup\x (My Passport)", "\Backup\x (My Passport)".</summary>
+    internal string ExternalDriveIdentifier()
+    {
+        var label = ExpectedVolumeLabel?.Trim();
+        var path = DriveRootLabel + DriveFolder.Trim().Trim('\\', '/');
+        return string.IsNullOrEmpty(label) ? path : $"{path} ({label})";
+    }
 
     /// <summary>The picked folder's drive has no volume label (U116): only
     /// its letter can identify it, so the editor fills that in and says how
@@ -566,7 +685,8 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
             var subfolder = ShowCloudSubpath ? PathOrSubpath : null;
             var identifier = Kind switch
             {
-                DestinationKind.LocalFolder or DestinationKind.ExternalDrive
+                DestinationKind.ExternalDrive => ExternalDriveIdentifier(),
+                DestinationKind.LocalFolder
                     => PathOrSubpath,
                 DestinationKind.NetworkShare
                     => PathOrSubpath,
@@ -647,8 +767,37 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         if (picks?.Count > 0)
         {
             var p = picks[0].TryGetLocalPath();
-            if (!string.IsNullOrEmpty(p)) PathOrSubpath = p;
+            if (string.IsNullOrEmpty(p)) return;
+            if (Kind == DestinationKind.ExternalDrive && PickedOnAnotherDrive(p) is { } refused)
+            {
+                PathError = refused;
+                return;
+            }
+            PathError = null;
+            PathOrSubpath = p;
         }
+    }
+
+    /// <summary>Why a folder picked for an external drive is refused: it is
+    /// on another letter than the one set, or on a drive with another name
+    /// than the one set (U273). Null when it fits.</summary>
+    internal string? PickedOnAnotherDrive(string path)
+    {
+        var (root, _) = SplitDrivePath(path);
+        if (root is null) return "Pick a folder on a drive (a path that starts with its letter).";
+        if (LetterRoot() is { } letter && !string.Equals(letter, root, StringComparison.OrdinalIgnoreCase))
+            return $"This folder is on {root.TrimEnd('\\')}, but the drive's letter is set to {letter.TrimEnd('\\')}. Pick a folder on {letter.TrimEnd('\\')}, or clear the letter.";
+        var label = ExpectedVolumeLabel?.Trim();
+        if (!string.IsNullOrEmpty(label))
+        {
+            string? found = null;
+            try { found = VolumeLabelReader(root); } catch { }
+            if (found is not null && !string.Equals(found.Trim(), label, StringComparison.OrdinalIgnoreCase))
+                return found.Length == 0
+                    ? $"This folder is on a drive without a name, not on “{label}”. Pick a folder on “{label}”, or clear the drive's name."
+                    : $"This folder is on the drive named “{found}”, not “{label}”. Pick a folder on “{label}”, or change the drive's name above.";
+        }
+        return null;
     }
 
     /// <summary>
@@ -705,6 +854,22 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         await LocateRepositoryAtPathAsync(owner, newPath);
     }
 
+    /// <summary>The located folder becomes the destination's. On an external
+    /// drive moved to another drive, that drive's name (and letter, when one
+    /// is required) are taken too, or its backups would wait for the old one (U274).</summary>
+    private void UseLocatedPath(string newPath)
+    {
+        if (Kind == DestinationKind.ExternalDrive && SplitDrivePath(newPath).Root is { } root)
+        {
+            if (LetterRoot() is { } letter && !string.Equals(letter, root, StringComparison.OrdinalIgnoreCase))
+                ExpectedDriveLetter = root.TrimEnd('\\');
+            string? found = null;
+            try { found = VolumeLabelReader(root); } catch { }
+            if (!string.IsNullOrWhiteSpace(found)) ExpectedVolumeLabel = found.Trim();
+        }
+        PathOrSubpath = newPath;
+    }
+
     // Shared by the native picker and the real-repository scenario. The
     // scenario supplies the chosen path; validation and dialogs are unchanged.
     internal async Task LocateRepositoryAtPathAsync(Avalonia.Controls.Window owner, string newPath)
@@ -745,7 +910,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                         "Existing backups in either location will not be changed by this selection.",
                     confirmLabel: "Use this repository",
                     cancelLabel: "Cancel");
-                if (ok) PathOrSubpath = newPath;
+                if (ok) UseLocatedPath(newPath);
                 return;
             }
 
@@ -788,7 +953,7 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
                         "it will remain there. Keep it until you have checked that the new backup contains everything you need.",
                     confirmLabel: "Start fresh",
                     cancelLabel: "Cancel");
-                if (ok) PathOrSubpath = newPath;
+                if (ok) UseLocatedPath(newPath);
                 return;
             }
 
@@ -1183,7 +1348,20 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         }
 
         // Type-specific required-field checks.
-        if (Kind is DestinationKind.LocalFolder or DestinationKind.ExternalDrive)
+        if (Kind == DestinationKind.ExternalDrive)
+        {
+            if (string.IsNullOrWhiteSpace(ExpectedVolumeLabel) && LetterRoot() is null)
+            {
+                PathError = "Enter the drive's name (or its letter), so Backspace can recognise the drive.";
+                errors.Add("The drive's name or letter is required.");
+            }
+            else if (string.IsNullOrWhiteSpace(DriveFolder))
+            {
+                PathError = "Enter the folder on the drive, or pick it with Browse.";
+                errors.Add("Folder on the drive is required.");
+            }
+        }
+        else if (Kind == DestinationKind.LocalFolder)
         {
             if (string.IsNullOrWhiteSpace(PathOrSubpath))
             {
@@ -1512,7 +1690,8 @@ public sealed partial class DestinationEditorViewModel : ViewModelBase, IDisposa
         // identifier null and rely on the subfolder slot for disambiguation.
         var generatorIdentifier = Kind switch
         {
-            DestinationKind.LocalFolder or DestinationKind.ExternalDrive
+            DestinationKind.ExternalDrive => ExternalDriveIdentifier(),
+            DestinationKind.LocalFolder
                 => PathOrSubpath,
             DestinationKind.NetworkShare
                 => PathOrSubpath,

@@ -496,6 +496,34 @@
   <Style Selector="Button.field-action:pressed /template/ Border#RootBorder">
     <Setter Property="Background" Value="{DynamicResource BS.Brush.ButtonTonalPressed}"/>
   </Style>
+  <!-- The same look for the password field's show button (a toggle). -->
+  <Style Selector="ToggleButton.field-action">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgSecondary}"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="CornerRadius" Value="6"/>
+    <Setter Property="Padding" Value="4"/>
+    <Setter Property="MinHeight" Value="0"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+  <Style Selector="ToggleButton.field-action /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent"/>
+  </Style>
+  <Style Selector="ToggleButton.field-action:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.ButtonTonalHover}"/>
+    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
+  </Style>
+  <Style Selector="ToggleButton.field-action:checked /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.FgPrimary}"/>
+  </Style>
+  <Style Selector="ToggleButton.field-action:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.ButtonTonalHover}"/>
+  </Style>
+  <Style Selector="ToggleButton.field-action PathIcon">
+    <Setter Property="Width" Value="16"/>
+    <Setter Property="Height" Value="16"/>
+  </Style>
   <Style Selector="Button.field-action PathIcon">
     <Setter Property="Width" Value="16"/>
     <Setter Property="Height" Value="16"/>
@@ -900,7 +928,7 @@
                     MinWidth="{TemplateBinding MinWidth}"
                     MinHeight="{TemplateBinding MinHeight}"/>
             <Border Margin="{TemplateBinding BorderThickness}">
-              <Grid ColumnDefinitions="Auto,*,Auto"
+              <Grid ColumnDefinitions="Auto,*,Auto,Auto"
                     Margin="{TemplateBinding Padding}">
                 <ContentPresenter Grid.Column="0"
                                   Grid.ColumnSpan="1"
@@ -946,7 +974,20 @@
                     </Panel>
                   </ScrollViewer>
                 </DockPanel>
-                <ContentPresenter Grid.Column="2"
+                <!-- U275 (owner, 28 November 2026): every password field can
+                     show what was typed or pasted. Shown only for a field
+                     with a password character (style below). -->
+                <ToggleButton Grid.Column="2" Name="PART_RevealPassword" Classes="field-action"
+                              IsVisible="False" Focusable="False" Margin="4,-6,0,-6" MinWidth="0" Cursor="Hand"
+                              IsChecked="{Binding RevealPassword, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                              AutomationProperties.Name="Show the password"
+                              ToolTip.Tip="Show or hide what you typed or pasted">
+                  <Panel>
+                    <PathIcon Classes="reveal-show" Data="{StaticResource Icon.Eye}"/>
+                    <PathIcon Classes="reveal-hide" Data="{StaticResource Icon.EyeOff}" IsVisible="False"/>
+                  </Panel>
+                </ToggleButton>
+                <ContentPresenter Grid.Column="3"
                                   Grid.ColumnSpan="1"
                                   Content="{TemplateBinding InnerRightContent}"/>
               </Grid>
@@ -955,6 +996,16 @@
         </DataValidationErrors>
       </ControlTemplate>
     </Setter>
+  </Style>
+
+  <Style Selector="TextBox[PasswordChar=•] /template/ ToggleButton#PART_RevealPassword">
+    <Setter Property="IsVisible" Value="True"/>
+  </Style>
+  <Style Selector="ToggleButton#PART_RevealPassword:checked PathIcon.reveal-show">
+    <Setter Property="IsVisible" Value="False"/>
+  </Style>
+  <Style Selector="ToggleButton#PART_RevealPassword:checked PathIcon.reveal-hide">
+    <Setter Property="IsVisible" Value="True"/>
   </Style>
 
   <Style Selector="ComboBox">

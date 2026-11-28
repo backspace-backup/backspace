@@ -119,8 +119,9 @@ public static class NameGenerator
         // verbatim; S3 buckets show bucket name.
         id = kind switch
         {
-            DestinationKind.LocalFolder or DestinationKind.ExternalDrive
+            DestinationKind.LocalFolder
                 => TrimPathToTail(id, maxSegments: 2),
+            // An external drive comes already written as Windows shows it (U276).
             DestinationKind.NetworkShare
                 => id, // keep full UNC so "Network - \\server\share" reads right
             _ => id,

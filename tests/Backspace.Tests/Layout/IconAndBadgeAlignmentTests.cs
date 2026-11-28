@@ -199,7 +199,8 @@ public class IconAndBadgeAlignmentTests
                 ServiceLocator.Config.Update(cfg =>
                 {
                     cfg.Backups.Clear();
-                    cfg.Backups.Add(new Backup { Name = "zulu-music", LastRunStatus = BackupRunStatus.Skipped,
+                    // No quiet period: a skip shows at once (U269; within it, it stays quiet).
+                    cfg.Backups.Add(new Backup { Name = "zulu-music", LastRunStatus = BackupRunStatus.Skipped, SkipNotificationGraceDays = 0,
                         LastRunStartUtc = DateTime.UtcNow.AddHours(-21), LastRunEndUtc = DateTime.UtcNow.AddHours(-21) });
                     cfg.Backups.Add(new Backup { Name = "documents", LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(),
                         LastRunStartUtc = DateTime.UtcNow.AddHours(-22), LastRunEndUtc = DateTime.UtcNow.AddHours(-22) });
@@ -311,7 +312,7 @@ public class IconAndBadgeAlignmentTests
         ServiceLocator.Config.Update(cfg =>
         {
             cfg.Backups.Clear();
-            cfg.Backups.Add(new Backup { Name = "zulu-music", LastRunStatus = BackupRunStatus.Skipped,
+            cfg.Backups.Add(new Backup { Name = "zulu-music", LastRunStatus = BackupRunStatus.Skipped, SkipNotificationGraceDays = 0,
                 LastRunStartUtc = DateTime.UtcNow.AddHours(-21), LastRunEndUtc = DateTime.UtcNow.AddHours(-21) });
             cfg.Backups.Add(new Backup { Name = "documents", LastRunStatus = BackupRunStatus.Success, Schedule = TestSchedules.DueInAnHour(),
                 LastRunStartUtc = DateTime.UtcNow.AddHours(-22), LastRunEndUtc = DateTime.UtcNow.AddHours(-22) });

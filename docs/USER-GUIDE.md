@@ -47,6 +47,13 @@ is matched by its letter until you name it in File Explorer (right-click the
 drive, then **Rename**) and type the same name in Backspace. A backup whose
 drive isn't plugged in is skipped and says so; it doesn't fail.
 
+The destination asks for the drive first (its name, and a letter only if you
+want one), then the folder on it, which starts with the letter (`M:\`) or with
+`\` when any letter will do. **Browse** refuses a folder on another drive than
+the one named, or on another letter than the one set. Its suggested name shows
+the drive as Windows does: `External - \Backup\Backspace (My Passport)`.
+Every password field has an eye that shows what you typed or pasted.
+
 Backspace never starts a backup over on the wrong drive or network share. The
 first backup to one runs when you start it (**Run now** or **Save & Run**).
 After that, a run goes ahead only if the drive or share holds the backup. If

@@ -77,6 +77,26 @@ public sealed class S110_GeneratePassword : ScenarioBase
         Assert.Equal(password, vm.StoragePasswordInput);
         ctx.Snapshot(editor, "password filled in", "The destination editor after typing it back: the storage password is filled in (masked).");
 
+        // U275 (owner, 28 November 2026): every password field can show what
+        // was typed or pasted. The eye beside the key shows it, then hides it.
+        var field = editor.GetVisualDescendants().OfType<TextBox>().Single(t => t.PasswordChar != '\0' && t.Text == password);
+        var eye = field.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().Single(b => b.Name == "PART_RevealPassword");
+        Assert.True(eye.IsEffectivelyVisible, "A password field must offer to show the password.");
+        Assert.False(field.RevealPassword);
+        await ClickAsync(ctx, editor, eye);
+        Assert.True(field.RevealPassword, "The eye must show the password.");
+        ctx.Snapshot(editor, "password shown", "The eye in the storage password field shows the password itself, to check a paste.");
+        await ClickAsync(ctx, editor, eye);
+        Assert.False(field.RevealPassword, "A second click must hide it again.");
+        // An ordinary field has no eye.
+        Assert.All(editor.GetVisualDescendants().OfType<TextBox>().Where(t => t.PasswordChar == '\0' && t.IsEffectivelyVisible),
+            t => Assert.DoesNotContain(t.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(), b => b.Name == "PART_RevealPassword" && b.IsEffectivelyVisible));
+        // Every password field of the app has it: each view's password boxes use "•".
+        var views = System.IO.Directory.GetFiles(System.IO.Path.Combine(RepoRoot(), "src", "Backspace", "Views"), "*.axaml");
+        var passwordChars = views.SelectMany(v => System.Text.RegularExpressions.Regex.Matches(System.IO.File.ReadAllText(v), "PasswordChar=\"([^\"]*)\"").Select(m => m.Groups[1].Value)).ToList();
+        Assert.NotEmpty(passwordChars);
+        Assert.All(passwordChars, c => Assert.Equal("•", c));
+
         // Save with an empty password asks the same way first; closing saves nothing.
         vm.StoragePasswordInput = "";
         await ClickAsync(ctx, editor, editor.GetVisualDescendants().OfType<Button>().First(b => b.IsEffectivelyVisible && b.Content as string == "Save"));
@@ -119,6 +139,13 @@ public sealed class S110_GeneratePassword : ScenarioBase
             await ctx.Driver.PumpAsync(50);
         }
         throw new TimeoutException("The generated-password window did not open.");
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !System.IO.Directory.Exists(System.IO.Path.Combine(dir.FullName, "src", "Backspace"))) dir = dir.Parent;
+        return dir?.FullName ?? throw new InvalidOperationException("Repository root not found");
     }
 
     private static async Task ClickAsync(ScenarioContext ctx, Window window, Control control)

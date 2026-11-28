@@ -319,8 +319,11 @@
                             <TextBlock Text="{Binding DestinationName}"
                                        FontSize="13" FontWeight="SemiBold"
                                        Foreground="{DynamicResource BS.Brush.FgPrimary}"/>
-                            <TextBlock Classes="dim" FontSize="11"
-                                       Text="{Binding StorageName, StringFormat='storage: {0}'}"/>
+                            <!-- No "storage: …" line (owner, 28 November 2026: "Why
+                                 does it show blue_drive, I see no mention of this
+                                 anywhere"). The storage name is an internal key of
+                                 the backup's snapshots, kept from a Duplicacy import
+                                 ("blue_drive") or made by Backspace ("target-…"). -->
                           </StackPanel>
                           <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6"
                                       VerticalAlignment="Center">
