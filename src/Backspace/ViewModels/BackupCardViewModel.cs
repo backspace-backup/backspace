@@ -457,6 +457,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         if (!value) _serviceError = null; // the next run starts with no stale "not responding"
         OnPropertyChanged(nameof(CanEditWhileIdle));
         OnPropertyChanged(nameof(MissedSchedule));
+        OnPropertyChanged(nameof(ShowRunWarnLogs));
         OnPropertyChanged(nameof(MoreActionsTooltip));
         OnPropertyChanged(nameof(CanUseSnapshots));
         OnPropertyChanged(nameof(RunningActionTooltip));
@@ -923,6 +924,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             && saved.Schedule.Missed(MissedFrom(completedAt), now);
         if (_missed) StatusClass = "warn";
         OnPropertyChanged(nameof(MissedSchedule));
+        OnPropertyChanged(nameof(ShowRunWarnLogs));
         LastCompletedClass = stopped is null ? "" : StatusClass;
         OnPropertyChanged(nameof(RunIconClass));
         StatusLabel = stopped is not null ? RunRecord.StoppedByYouReason
@@ -1406,8 +1408,39 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         string.Equals(StatusClass, "warn", StringComparison.OrdinalIgnoreCase)
         || string.Equals(StatusClass, "fail", StringComparison.OrdinalIgnoreCase);
 
-    partial void OnStatusClassChanged(string value) =>
+    partial void OnStatusClassChanged(string value)
+    {
         OnPropertyChanged(nameof(HasAttentionStatus));
+        OnPropertyChanged(nameof(ShowRunWarnLogs));
+        OnPropertyChanged(nameof(ShowRunFailLogs));
+    }
+
+    // "View logs" only where the log explains what the tile says (U265, owner
+    // 28 November 2026: "Why does it show a View logs button under 9 days ago?
+    // ... my instance says Backup health Restore check failed - 4h ago and
+    // there is no View logs button below ... Make sure the view logs button
+    // shows up nicely where really appropriate only").
+
+    /// <summary>The last run finished with warnings: its log says which. Not
+    /// for a missed schedule, which no log explains.</summary>
+    public bool ShowRunWarnLogs => StatusClass == "warn" && (DisplayedRunStatus == BackupRunStatus.Warning || !_missed);
+    /// <summary>The last run failed: its log says why.</summary>
+    public bool ShowRunFailLogs => StatusClass == "fail";
+    /// <summary>A check failed: its own log says why.</summary>
+    public bool ShowCheckLogs => VerifyClass == "fail";
+
+    partial void OnVerifyClassChanged(string value) => OnPropertyChanged(nameof(ShowCheckLogs));
+
+    /// <summary>The failed check's own run in Activity &amp; logs, not the
+    /// backup's latest run; the backup's logs when that run isn't known.</summary>
+    [RelayCommand]
+    private void ViewCheckLogs()
+    {
+        var failed = _checkEntries.Where(e => e.Status == BackupRunStatus.Failed && !string.IsNullOrEmpty(e.RunId))
+            .OrderByDescending(e => e.When).FirstOrDefault();
+        if (failed is not null) AppNavigator.OpenRun(Id, failed.RunId);
+        else ViewLogs();
+    }
 
     /// <summary>Navigate to Activity &amp; logs and pre-select this
     /// backup so the most recent run's persisted log opens
