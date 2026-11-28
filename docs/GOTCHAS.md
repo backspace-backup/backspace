@@ -529,7 +529,7 @@ Left out, the estimates and the run's own listing. Keep the two equal.
   listing does not finish (three minutes), the run says nothing about them.
 - OFFLINE alone counts, as in patch 0003, so a local file some program marks
   offline is skipped too: local_c's one "online-only" file was a 28-byte hidden
-  file in AppDataRoaming, with no cloud provider behind it.
+  file in AppData\Roaming, with no cloud provider behind it.
 - Placeholders are reparse points, so `TreeWalk` hands them to its link
   callback, not the visitor: count them there too.
 - With the option off nothing changes: restic opens online-only files, which
