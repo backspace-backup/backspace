@@ -517,7 +517,8 @@ is downloaded. Backspace recognises them by the marks Windows puts on such a
 file (offline, or downloaded when opened or read). They are not errors and do
 not turn the backup into a warning; the run's log and the **Last backup** hover
 say how many were left out ("8,335 online-only files skipped"), and **Left out**
-says so too. A file that is skipped this way cannot be restored
+says so too. The log names them: up to five on that line, and every one with
+**Verbose**. A file that is skipped this way cannot be restored
 from this backup. Make it available offline in the cloud app if you want it
 backed up.
 

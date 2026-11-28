@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.Versioning;
 
 namespace Backspace.Services;
@@ -73,6 +75,29 @@ public static class CloudFileBehavior
         1 => "1 online-only file skipped",
         _ => $"{count:N0} online-only files skipped",
     };
+
+    /// <summary>Up to this many are named in the log as it reads normally.</summary>
+    internal const int NamedInSummary = 5;
+
+    /// <summary>The run log's lines for the online-only files a backup skipped
+    /// (owner, 28 November 2026: "1 online-only file skipped, which one is it?
+    /// The logs don't provide this info even in verbose"): the count, with the
+    /// files named when there are few, then each one as a [file] line, which
+    /// shows with Verbose.</summary>
+    internal static IReadOnlyList<string> SkippedLines(long count, IReadOnlyList<string> paths)
+    {
+        if (SkippedPhrase(count) is not { } phrase) return [];
+        const string why = "kept only in the cloud, not downloaded and not in this backup";
+        var lines = new List<string>
+        {
+            count <= NamedInSummary && paths.Count == count
+                ? $"[backspace] {phrase}, {why}: {string.Join("; ", paths)}"
+                : $"[backspace] {phrase}, {why}. Verbose lists them.",
+        };
+        lines.AddRange(paths.Select(p => "[file] Online-only, skipped · " + p));
+        if (count > paths.Count) lines.Add($"[file] … and {count - paths.Count:N0} more online-only files, not named");
+        return lines;
+    }
 
     /// <summary>Human-readable explanation for the GUI's tooltip /
     /// docs. Wraps the answer above in one sentence each side of the

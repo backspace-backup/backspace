@@ -143,8 +143,10 @@ public class CloudFileBehaviorTests
         try
         {
             var rules = TreeWalk.Root(root).Replace('\\', '/') + "/cache/";
-            var skipping = ChangePlan.List(root, new SourceSizeRules(rules, true), TimeSpan.FromMinutes(1), CancellationToken.None, out var skipped);
+            var skipping = ChangePlan.List(root, new SourceSizeRules(rules, true), TimeSpan.FromMinutes(1), CancellationToken.None, out var skipped, out var named);
             Assert.Equal(1, skipped); // the excluded folder's file is not counted
+            // Named, so the log can say which (owner, 28 November 2026).
+            Assert.Equal(new[] { offline[0] }, named);
             Assert.Equal(new[] { "here.docx", "there.docx" }, skipping!.Select(f => f.Path).OrderBy(p => p));
 
             var reading = ChangePlan.List(root, new SourceSizeRules(rules, false), TimeSpan.FromMinutes(1), CancellationToken.None, out var none);
@@ -152,6 +154,29 @@ public class CloudFileBehaviorTests
             Assert.Contains(reading!, f => f.Path == "online-only.mp4");
         }
         finally { Restore(offline); }
+    }
+
+    /// <summary>Owner, 28 November 2026: "1 online-only file skipped, which
+    /// one is it? The logs don't provide this info even in verbose."</summary>
+    [Fact]
+    public void The_run_log_names_the_online_only_files_it_skipped()
+    {
+        var one = CloudFileBehavior.SkippedLines(1, [@"C:\Users\Erwin\OneDrive\Report.docx"]);
+        Assert.Equal(@"[backspace] 1 online-only file skipped, kept only in the cloud, not downloaded and not in this backup: C:\Users\Erwin\OneDrive\Report.docx", one[0]);
+        Assert.Equal(@"[file] Online-only, skipped · C:\Users\Erwin\OneDrive\Report.docx", one[1]);
+        Assert.Equal(2, one.Count);
+        // The normal view keeps the count line; each file shows with Verbose.
+        Assert.False(VerboseLogFilter.IsDetailLine(one[0]));
+        Assert.True(VerboseLogFilter.IsDetailLine(one[1]));
+
+        var many = CloudFileBehavior.SkippedLines(7, Enumerable.Range(1, 7).Select(i => $@"D:\Cloud\{i}.mp4").ToList());
+        Assert.Equal("[backspace] 7 online-only files skipped, kept only in the cloud, not downloaded and not in this backup. Verbose lists them.", many[0]);
+        Assert.Equal(8, many.Count);
+
+        // A count beyond the paths kept says how many are not named.
+        var capped = CloudFileBehavior.SkippedLines(12_000, Enumerable.Range(1, 3).Select(i => $@"D:\Cloud\{i}.mp4").ToList());
+        Assert.Equal("[file] … and 11,997 more online-only files, not named", capped[^1]);
+        Assert.Empty(CloudFileBehavior.SkippedLines(0, []));
     }
 
     [Fact]

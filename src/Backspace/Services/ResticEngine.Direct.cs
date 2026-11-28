@@ -92,11 +92,10 @@ public sealed partial class ResticEngine
         if (backup.ExcludeCloudFiles && Platform.PlatformInfo.IsWindows
             && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture != System.Runtime.InteropServices.Architecture.Arm64
             && terminalStatus is TerminalStatus.Success or TerminalStatus.Warning
-            && await changes.CloudOnlySkippedAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false) is { } skippedCount
-            && CloudFileBehavior.SkippedPhrase(skippedCount) is { } skippedPhrase)
+            && await changes.CloudOnlySkippedListAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false) is { Count: > 0 } skipped)
         {
-            cloudOnlySkipped = skippedCount;
-            Announce($"[backspace] {skippedPhrase}: kept only in the cloud, not downloaded and not in this backup", lineSink);
+            cloudOnlySkipped = skipped.Count;
+            foreach (var line in CloudFileBehavior.SkippedLines(skipped.Count, skipped.Paths)) Announce(line, lineSink);
         }
         // Before retention can remove the previous snapshot.
         if (saved && VerboseLogFilter.IsVerboseOn() && !ct.IsCancellationRequested)

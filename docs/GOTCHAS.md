@@ -523,8 +523,13 @@ Left out, the estimates and the run's own listing. Keep the two equal.
 - Folders count only with RECALL_ON_DATA_ACCESS, as in official restic.
 - Restic does not count what it skips. The run's listing of the source
   (`ChangePlanner`, U144) counts the online-only files its rules keep, and the
-  run summary ends "N online-only files skipped". When that listing does not
-  finish (three minutes), the run says nothing about them.
+  run summary ends "N online-only files skipped". The log names them
+  (`CloudFileBehavior.SkippedLines`: up to five on the count line, each one as
+  a `[file]` line shown with Verbose, the first 10,000 kept). When that
+  listing does not finish (three minutes), the run says nothing about them.
+- OFFLINE alone counts, as in patch 0003, so a local file some program marks
+  offline is skipped too: local_c's one "online-only" file was a 28-byte hidden
+  file in AppDataRoaming, with no cloud provider behind it.
 - Placeholders are reparse points, so `TreeWalk` hands them to its link
   callback, not the visitor: count them there too.
 - With the option off nothing changes: restic opens online-only files, which
