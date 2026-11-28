@@ -93,18 +93,25 @@ public sealed class QuietSkipTests
         Assert.Contains("is not plugged in", card.LastRunDetail);
     }
 
-    [Fact]
-    public void The_tray_says_everything_looks_good_within_the_quiet_period_and_needs_attention_after()
+    [AvaloniaFact]
+    public async System.Threading.Tasks.Task The_tray_says_everything_looks_good_within_the_quiet_period_and_needs_attention_after()
     {
         var now = DateTime.UtcNow;
-        var (backup, _, _) = Setup(now);
-        var scheduler = new ReadyScheduler();
-        var quiet = TrayScheduleStatus.Inspect([backup], scheduler, "Backspace.exe", now);
+        var (backup, good, skipped) = Setup(now);
+        // The menu reads the card, as the tray builds it (U258).
+        async System.Threading.Tasks.Task<TrayScheduleStatus> At(DateTime when)
+        {
+            using var card = new BackupCardViewModel(backup, false, false) { UtcNow = () => when };
+            await card.CheckHistoryRead.WaitAsync(TimeSpan.FromSeconds(10));
+            card.Apply(good); card.Apply(skipped);
+            return TrayScheduleStatus.Compose([backup], _ => TrayScheduleStatus.Read(card), when);
+        }
+        var quiet = await At(now);
         Assert.True(quiet.State == ScheduleReadiness.Ready, quiet.Title + " | " + string.Join(" | ", quiet.Lines.Select(l => l.Text + " " + l.Tone)));
         var line = Assert.Single(quiet.Lines);
         Assert.Equal("ok", line.Tone);
-        Assert.Equal("Backed up 2d ago · then skipped", line.Text);
-        var after = TrayScheduleStatus.Inspect([backup], scheduler, "Backspace.exe", now.AddDays(5).AddMinutes(1));
+        Assert.StartsWith("2d ago", line.Text); // the card's Last backup line, as on the Backups tab
+        var after = await At(now.AddDays(5).AddMinutes(1));
         Assert.Equal(ScheduleReadiness.Attention, after.State);
         Assert.Equal("skipped", Assert.Single(after.Lines).Tone);
     }

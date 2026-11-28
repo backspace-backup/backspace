@@ -23,7 +23,7 @@ public sealed class S61_TrayScheduleStates : ScenarioBase
 
     protected override string ScenarioName => "S61-tray-schedule-states";
     [AvaloniaFact] public async Task Run_S61() => await Run();
-    protected override Task RunAsync(ScenarioContext ctx)
+    protected override async Task RunAsync(ScenarioContext ctx)
     {
         var panel = new StackPanel { Spacing=18,Margin=new Thickness(28) };
         panel.Children.Add(new TextBlock { Text="Tray schedule status",FontSize=26 });
@@ -75,29 +75,40 @@ public sealed class S61_TrayScheduleStates : ScenarioBase
         panel.Children.Add(new TextBlock { Text="Windows tasks are checked. A ready schedule does not guarantee\nthat a drive, network or cloud account will be available later.",FontSize=15 });
         var window=ctx.Driver.Show(new Window { Width=720,Height=820,Content=panel });ctx.Driver.Pump();
         ctx.Snapshot(window,"actual-tray-status-icons","Production tray icons at 20 pixels and enlarged, with the exact menu labels. Ready, paused, off, attention and unverified stay distinct.");
-        // U258: the menu's top, built from real backups as the tray builds it,
-        // drawn here line by line with the same icons (the native menu itself
-        // cannot be drawn headlessly).
+        // U258: the menu's top, built from the backups' cards as the tray builds
+        // it, drawn here line by line with the same icons (the native menu itself
+        // cannot be drawn headlessly). The owner's backups of 28 November 2026:
+        // local_c's restore check failed, local_dropbox's drive was away.
         var now = DateTime.UtcNow;
         Backup Make(string name, BackupRunStatus status, double hoursAgo, string summary) => new()
         {
             Name = name, SourcePaths = { "C:\\" + name }, Targets = { new BackupTarget() }, LastRunStatus = status, Schedule = TestSchedules.DueInAnHour(),
-            LastRunEndUtc = now.AddHours(-hoursAgo), LastSuccessUtc = status == BackupRunStatus.Success ? now.AddHours(-hoursAgo) : now.AddDays(-2), LastRunSummary = summary,
+            LastRunEndUtc = now.AddHours(-hoursAgo), LastSuccessUtc = status == BackupRunStatus.Success ? now.AddHours(-hoursAgo) : null, LastRunSummary = summary,
             SkipNotificationGraceDays = 0, // a skip shows at once (U269: within the quiet period it stays quiet)
         };
-        var status = TrayScheduleStatus.Inspect([
-            Make("local_c", BackupRunStatus.Success, 3, "1.2 GB uploaded · 120 new / 40 mod / 0 rem · in 9m 12s"),
-            Make("local_d", BackupRunStatus.Success, 0.5, "293 B uploaded · 0 new / 0 mod / 0 rem · in 12s"),
-            Make("local_dropbox", BackupRunStatus.Skipped, 2, @"M:\ not mounted · skipped after 1s"),
-            Make("photos", BackupRunStatus.Failed, 26, "Google Drive sign-in expired. Sign in again in the destination's settings."),
-        ], new ReadyScheduler(), "app.exe", now);
+        var localC = Make("local_c", BackupRunStatus.Success, 16, "387.14 MB uploaded · 37 new / 201 mod / 0 rem · in 9m 13s");
+        localC.LastVerifyUtc = now.AddHours(-4); localC.LastVerifyPass = false;
+        localC.LastVerifySummary = "Restore check (1% of files)\n«Google Drive»: rev 25 · 4 files could not be recovered correctly.";
+        ServiceLocator.Config.Update(c =>
+        {
+            c.Backups.Clear();
+            c.Backups.Add(localC);
+            c.Backups.Add(Make("local_d", BackupRunStatus.Success, 16, "Completed in 7m 25s · nothing new to upload"));
+            c.Backups.Add(Make("local_dropbox", BackupRunStatus.Skipped, 2, @"M:\ not mounted · skipped after 1s"));
+        });
+        var status = await TrayScheduleStatus.FromCardsAsync(ServiceLocator.Config.Current.Backups, now, null, TimeSpan.FromSeconds(10));
+        using var tab = new Backspace.ViewModels.BackupsViewModel();
+        await Task.WhenAll(System.Linq.Enumerable.Select(tab.Cards, c => c.CheckHistoryRead)).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(tab.HealthHeadline, status.Title);
         var menu = new NativeMenu();
         menu.Items.Add(new NativeMenuItem("Open Backspace"));
         TrayStatusPresenter.Fill(menu, status, () => { });
         Assert.Equal("2 backups need attention", ((NativeMenuItem)menu.Items[0]).Header);
-        Assert.Equal("photos  ·  Google Drive sign-in expired · 1d ago", ((NativeMenuItem)menu.Items[1]).Header);
+        Assert.Matches("^local_c  ·  Restore check.* failed · 4h ago$", ((NativeMenuItem)menu.Items[1]).Header);
         Assert.NotNull(((NativeMenuItem)menu.Items[1]).Icon);
-        Assert.IsType<NativeMenuItemSeparator>(menu.Items[5]);
+        Assert.StartsWith("local_dropbox  ·  ", ((NativeMenuItem)menu.Items[2]).Header);
+        Assert.StartsWith("local_d  ·  16h ago", ((NativeMenuItem)menu.Items[3]).Header);
+        Assert.IsType<NativeMenuItemSeparator>(menu.Items[4]);
         var preview = new StackPanel { Spacing = 6, Margin = new Thickness(12), Background = Avalonia.Media.Brushes.White };
         preview.Children.Add(new TextBlock { Text = status.Title, FontSize = 14 });
         foreach (var line in status.Lines)
@@ -113,8 +124,11 @@ public sealed class S61_TrayScheduleStates : ScenarioBase
         preview.Children.Add(new TextBlock { Text = "Quit Backspace", FontSize = 14 });
         var menuWindow = ctx.Driver.Show(new Window { Width = 560, Height = 260, Content = preview });
         ctx.Driver.Pump();
-        ctx.Snapshot(menuWindow, "tray-menu-lines", "The tray menu's lines as built from four backups (drawn here; the native menu can't be captured headlessly): the headline as on the Backups tab, then each backup with its card's icon and Last backup line, the ones needing attention first.");
+        ctx.Snapshot(menuWindow, "tray-menu-lines", $"The tray menu's lines as built from the cards of three backups like the owner's (drawn here; the native menu can't be captured headlessly): the Backups tab's banner, \"{tab.HealthHeadline}\", then local_c with its failed restore check, local_dropbox skipped, local_d green.");
+        var tabView = new Backspace.Views.BackupsView { DataContext = tab };
+        var tabWindow = ctx.Driver.Show(new Window { Width = 1100, Height = 520, Content = tabView });
+        ctx.Driver.Pump();
+        ctx.Snapshot(tabWindow, "backups-tab-same-backups", "The Backups tab for the same three backups: the same banner and the same order of attention.");
         ctx.Report.RecordNote("Scope","Real icon renderer and TrayIcon/menu property updates; actual Windows shell placement and menu opening are separate native checks.");
-        return Task.CompletedTask;
     }
 }

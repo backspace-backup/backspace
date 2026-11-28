@@ -1,27 +1,35 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Backspace.Models;
 using Backspace.Services.Platform;
+using Backspace.ViewModels;
 
 namespace Backspace.Services;
 
 public enum ScheduleReadiness { Ready, Off, Paused, Attention, Unknown }
 public sealed record ScheduleCheck(ScheduleReadiness State, string Detail);
 
-/// <summary>One backup in the tray menu: its name and its Last backup line,
-/// as on its card, with the tone of the card's icon ("ok", "warn", "fail",
-/// "skipped", "idle").</summary>
+/// <summary>One backup in the tray menu: its name and its card's line, with
+/// the tone of the card's icon ("ok", "warn", "fail", "skipped", "idle").</summary>
 public sealed record TrayBackupLine(string Name, string Text, string Tone);
+
+/// <summary>What the tray menu reads from a backup's card: its Last backup
+/// line and icon, its Backup health line, and what the banner reads.</summary>
+internal sealed record TrayCard(string LastRun, string RunTone, string HealthLine, CardHealth Health);
 
 /// <summary>
 /// What the tray menu says (U258, owner 16 November 2026: "Try to be as
 /// consistent as possible with how info is shown on the Backups tab itself
 /// ... with the absolute essentials ... it should not break if a user has a
-/// lot of backups"). A headline as on the Backups tab ("Everything looks
-/// good", "2 backups need attention"), then each backup with its Last backup
-/// line and its icon, the ones needing attention first, at most
-/// <see cref="MaxLines"/> of them.
+/// lot of backups"). The headline is the Backups tab's banner, computed by
+/// the same code from the same cards (<see cref="BackupHealthSummary"/>; owner
+/// 28 November 2026: "is it normal the context menu doesn't reflect the health
+/// status issue?"). Then each backup with its card's line and icon, the ones
+/// the banner names first, at most <see cref="MaxLines"/> of them. A backup
+/// named for a check shows its Backup health line ("Restore check failed ·
+/// 4h ago"), the others their Last backup line.
 /// </summary>
 public sealed record TrayScheduleStatus(ScheduleReadiness State, string Title, string Detail)
 {
@@ -32,79 +40,54 @@ public sealed record TrayScheduleStatus(ScheduleReadiness State, string Title, s
     /// <summary>Backups not listed (beyond <see cref="MaxLines"/>).</summary>
     public int MoreBackups { get; init; }
 
-    /// <param name="busy">Backups running or waiting their turn now: not missed.</param>
-    public static TrayScheduleStatus Inspect(IEnumerable<Backup> backups, IScheduler scheduler,
-        string exePath, DateTime nowUtc, IReadOnlyCollection<string>? busy = null)
+    /// <summary>The menu from the backups' cards, as the Backups tab shows
+    /// them. <paramref name="schedules"/> is each active backup's schedule as
+    /// registered (null when it could not be read); a schedule that cannot
+    /// run also needs attention.</summary>
+    internal static TrayScheduleStatus Compose(IReadOnlyList<Backup> backups, Func<Backup, TrayCard> card, DateTime nowUtc,
+        IReadOnlyDictionary<string, ScheduleCheck>? schedules = null)
     {
-        var all = backups.ToArray();
-        var enabled = all.Where(b => b.Enabled).ToArray();
+        if (backups.Count == 0) return new(ScheduleReadiness.Off, "No backups set up yet", "");
+        var cards = backups.ToDictionary(b => b.Id, card);
+        var health = BackupHealthSummary.Compute(backups, b => cards[b.Id].Health, nowUtc);
+        var named = health.Affected.Where(a => a.Tone != "idle").ToDictionary(a => a.Backup.Id);
+        var enabled = backups.Where(b => b.Enabled).ToArray();
         var active = enabled.Where(b => b.Schedule.PausedUntilUtc is not { } until || until <= nowUtc).ToArray();
-        var checks = active.ToDictionary(b => b.Id, Check);
+        // A schedule that cannot run (no source or destination, a service
+        // registration that is missing) is not on a card's tiles.
+        var broken = active.Where(b => !named.ContainsKey(b.Id) && Schedule(b).State == ScheduleReadiness.Attention).ToList();
 
-        var missed = new HashSet<string>();
-        var lines = all.Select(b => Line(b)).ToList();
-        var ordered = lines.OrderBy(l => l.Tone switch { "fail" => 0, "warn" or "skipped" => 1, "idle" => 2, _ => 3 })
-            .ThenBy(l => l.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-        TrayScheduleStatus With(ScheduleReadiness state, string title) => new(state, title, "")
-        { Lines = ordered.Take(MaxLines).ToList(), MoreBackups = Math.Max(0, ordered.Count - MaxLines) };
+        var lines = backups.Select(b =>
+        {
+            var c = cards[b.Id];
+            if (named.TryGetValue(b.Id, out var a)) return (Line: new TrayBackupLine(b.Name, a.Check ? c.HealthLine : c.LastRun, a.Tone), Rank: a.Tone == "fail" ? 0 : 1);
+            if (broken.Contains(b)) return (Line: new TrayBackupLine(b.Name, Short(Schedule(b).Detail), "fail"), Rank: 0);
+            if (!b.Enabled) return (Line: new TrayBackupLine(b.Name, "Automatic backups off", "idle"), Rank: 2);
+            if (b.Schedule.PausedUntilUtc is { } until && until > nowUtc) return (Line: new TrayBackupLine(b.Name, "Paused", "idle"), Rank: 2);
+            var tone = c.RunTone is "ok" or "warn" or "fail" or "skipped" ? c.RunTone : "idle";
+            return (Line: new TrayBackupLine(b.Name, c.LastRun, tone), Rank: tone == "ok" ? 3 : 2);
+        }).OrderBy(l => l.Rank).ThenBy(l => l.Line.Name, StringComparer.CurrentCultureIgnoreCase).Select(l => l.Line).ToList();
+        TrayScheduleStatus With(ScheduleReadiness state, string title) => new(state, title, health.Detail)
+        { Lines = lines.Take(MaxLines).ToList(), MoreBackups = Math.Max(0, lines.Count - MaxLines) };
 
-        if (all.Length == 0) return new(ScheduleReadiness.Off, "No backups set up yet", "");
+        if (broken.Count > 0)
+        {
+            var count = named.Count + broken.Count;
+            return With(ScheduleReadiness.Attention, count == 1 ? "1 backup needs attention" : $"{count} backups need attention");
+        }
+        if (health.Class is "fail" or "warn") return With(ScheduleReadiness.Attention, health.Headline);
         if (enabled.Length == 0) return With(ScheduleReadiness.Off, "Automatic backups off");
         if (active.Length == 0) return With(ScheduleReadiness.Paused, "Automatic backups paused");
-
-        // As on the Backups tab: a failure or a schedule that cannot run needs
-        // attention; warnings and skips are said as such.
-        var needs = lines.Where(l => l.Tone is "fail" or "warn" or "skipped").ToList();
-        if (needs.Count > 0 && needs.All(l => l.Tone == "warn") && missed.Count == 0)
-            return With(ScheduleReadiness.Attention, needs.Count == 1 ? "1 backup finished with warnings" : $"{needs.Count} backups finished with warnings");
-        if (needs.Count > 0)
-            return With(ScheduleReadiness.Attention, needs.Count == 1 ? "1 backup needs attention" : $"{needs.Count} backups need attention");
-        if (checks.Values.Any(c => c.State != ScheduleReadiness.Ready))
-            return With(ScheduleReadiness.Unknown, "Schedules not verified");
-        // A ready schedule is not a protected backup (U084).
-        if (active.Any(b => b.LastSuccessUtc is null && b.LastRunStatus is BackupRunStatus.NeverRun or BackupRunStatus.Skipped))
-            return With(ScheduleReadiness.Unknown, "Not backed up yet");
+        if (health.Class == "idle") return With(ScheduleReadiness.Unknown, health.Headline.Length > 0 ? health.Headline : "Backing up now");
+        if (active.Any(b => Schedule(b).State != ScheduleReadiness.Ready)) return With(ScheduleReadiness.Unknown, "Schedules not verified");
         var pausedCount = enabled.Length - active.Length;
-        return With(ScheduleReadiness.Ready, pausedCount > 0 ? $"Everything looks good · {pausedCount} paused" : "Everything looks good");
+        return With(ScheduleReadiness.Ready, pausedCount > 0 ? $"{health.Headline} · {pausedCount} paused" : health.Headline);
 
-        TrayBackupLine Line(Backup b)
+        ScheduleCheck Schedule(Backup b)
         {
-            if (checks.TryGetValue(b.Id, out var check) && check.State == ScheduleReadiness.Attention)
-                return new(b.Name, Short(check.Detail), "fail");
-            if (!b.Enabled) return new(b.Name, "Automatic backups off", "idle");
-            if (b.Schedule.PausedUntilUtc is { } until && until > nowUtc) return new(b.Name, "Paused", "idle");
-            if (b.LastRunEndUtc is not { } ended || b.LastRunStatus is BackupRunStatus.NeverRun or BackupRunStatus.Running)
-                return new(b.Name, "Not backed up yet", "idle");
-            var status = b.LastRunStatus;
-            // As on its card (U269): within the quiet period a skipped run
-            // (drive not plugged in, no network) warns nowhere; the line says
-            // when the last backup ran, and the slots count from the skip.
-            if (b.IsQuietSkip(status, b.LastRunOnlyNetworkWaits, nowUtc))
-            {
-                if (status == BackupRunStatus.Warning) status = BackupRunStatus.Success;
-                else
-                {
-                    var line = b.LastSuccessUtc is { } success && success < ended
-                        ? "Backed up " + HumanFormat.Ago(success, nowUtc) + " · then skipped" : "Not backed up yet";
-                    if (busy?.Contains(b.Id) != true && b.Schedule.Missed(ended, nowUtc)) { missed.Add(b.Id); return new(b.Name, line, "warn"); }
-                    return new(b.Name, line, line == "Not backed up yet" ? "idle" : "ok");
-                }
-            }
-            // As on its card (U265): a scheduled run missed is orange.
-            if (status is BackupRunStatus.Success or BackupRunStatus.Warning && busy?.Contains(b.Id) != true && b.Schedule.Missed(ended, nowUtc))
-            {
-                missed.Add(b.Id);
-                return new(b.Name, LastRunLine.For(b.LastRunSummary ?? "", status, ended, nowUtc).Label, "warn");
-            }
-            // The card's Last backup line (LastRunLine), the reason kept short.
-            var text = status is BackupRunStatus.Success or BackupRunStatus.Warning
-                ? LastRunLine.For(b.LastRunSummary ?? "", status, ended, nowUtc).Label
-                : Short(b.LastRunSummary) + " · " + HumanFormat.Ago(ended, nowUtc);
-            return new(b.Name, text, status switch
-            {
-                BackupRunStatus.Success => "ok", BackupRunStatus.Warning => "warn",
-                BackupRunStatus.Failed => "fail", BackupRunStatus.Skipped => "skipped", _ => "idle",
-            });
+            if (b.SourcePaths.Count == 0 || b.Targets.Count == 0)
+                return new(ScheduleReadiness.Attention, "Choose at least one source and destination.");
+            return schedules?.TryGetValue(b.Id, out var check) == true ? check : new(ScheduleReadiness.Ready, "");
         }
 
         // The first sentence of a reason, short enough for a menu line.
@@ -114,16 +97,38 @@ public sealed record TrayScheduleStatus(ScheduleReadiness State, string Title, s
             var end = t.IndexOf(". ", StringComparison.Ordinal);
             if (end > 0) t = t[..end];
             t = t.TrimEnd('.');
-            if (t.Length == 0) t = "The last run did not finish";
             return t.Length > 60 ? t[..59].TrimEnd() + "…" : t;
         }
-
-        ScheduleCheck Check(Backup b)
-        {
-            if (b.SourcePaths.Count == 0 || b.Targets.Count == 0)
-                return new(ScheduleReadiness.Attention, "Choose at least one source and destination.");
-            try { return scheduler.InspectBackup(b, exePath); }
-            catch { return new(ScheduleReadiness.Unknown, "The operating system could not be queried."); }
-        }
     }
+
+    /// <summary>Each active backup's registered schedule (off the UI thread:
+    /// it may ask Windows).</summary>
+    internal static Dictionary<string, ScheduleCheck> Schedules(IEnumerable<Backup> backups, IScheduler scheduler, string exePath, DateTime nowUtc)
+        => backups.Where(b => b.Enabled && (b.Schedule.PausedUntilUtc is not { } until || until <= nowUtc)
+                && b.SourcePaths.Count > 0 && b.Targets.Count > 0)
+            .ToDictionary(b => b.Id, b =>
+            {
+                try { return scheduler.InspectBackup(b, exePath); }
+                catch { return new ScheduleCheck(ScheduleReadiness.Unknown, "The operating system could not be queried."); }
+            });
+
+    /// <summary>The menu from cards made as the Backups tab makes them, once
+    /// each has read its check history (at most <paramref name="wait"/>).
+    /// On the UI thread.</summary>
+    internal static async Task<TrayScheduleStatus> FromCardsAsync(IReadOnlyList<Backup> backups, DateTime nowUtc,
+        IReadOnlyDictionary<string, ScheduleCheck>? schedules, TimeSpan wait)
+    {
+        var cards = backups.Select(b => new BackupCardViewModel(b, showActions: false, showProgress: false)).ToList();
+        try
+        {
+            try { await Task.WhenAll(cards.Select(c => c.CheckHistoryRead)).WaitAsync(wait); }
+            catch (TimeoutException) { }
+            var byId = cards.ToDictionary(c => c.Id);
+            return Compose(backups, b => Read(byId[b.Id]), nowUtc, schedules);
+        }
+        finally { foreach (var c in cards) c.Dispose(); }
+    }
+
+    internal static TrayCard Read(BackupCardViewModel c)
+        => new(c.LastRunLabel, c.StatusClass, c.VerifyLabel, c.Health);
 }

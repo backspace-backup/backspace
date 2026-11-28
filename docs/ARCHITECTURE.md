@@ -815,8 +815,12 @@ only those files has no vault, and the first save asks for a password.
    The tray's schedule badge checks each enabled backup: with the service, its
    settings, start mode, running state and settings task; without it, the
    in-app schedule is ready. Paused, off, attention and unverified states
-   remain distinct. Checks run on startup, focus, menu opening and settings
-   changes, and once when a snooze expires.
+   remain distinct. Checks run on startup, focus, menu opening, settings
+   changes and each recorded run or check, and once when a snooze expires.
+   The tray menu's headline and lines come from backup cards made as the
+   Backups tab makes them (`TrayScheduleStatus.FromCardsAsync`), and the
+   headline from the tab's own banner code (`BackupHealthSummary`), so a
+   failed check shows in the menu as on the tab.
    Quit saves a pause for this Windows sign-in session (`SessionTaskControl`,
    with the session ID and logon time). Closing to the tray does not pause.
    The tray app's scheduled runs, like `--run`, are admitted through the same

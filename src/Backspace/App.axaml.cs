@@ -160,6 +160,9 @@ public partial class App : Application
             Services.Platform.Windows.BackgroundServiceActivity.ActivityChanged += () => Dispatcher.UIThread.Post(RefreshTrayStatus);
 #endif
             TaskSchedulerService.Changed += () => Dispatcher.UIThread.Post(RefreshTrayStatus);
+            // A check's result changes the Backups tab's banner, so the menu too (U258).
+            ServiceLocator.Logs.RunAppended += _ => Dispatcher.UIThread.Post(RefreshTrayStatus);
+            ServiceLocator.Logs.HistoryRefreshed += _ => Dispatcher.UIThread.Post(RefreshTrayStatus);
             RefreshTrayStatus();
 
             // Wire the WinFSP install-consent prompt: shown the first
@@ -322,31 +325,6 @@ public partial class App : Application
         foreach (var icon in icons) icon.IsVisible = ServiceLocator.Config.Current.Preferences.ShowTrayIcon;
         if (!ServiceLocator.Config.Current.Preferences.ShowTrayIcon && _windowHost?.Window is null && _windowHost is not null)
             RestoreMainWindow();
-    }
-
-    /// <summary>Runs made by the background service are in its history, not
-    /// in these settings: the tray showed "Not backed up yet" after a
-    /// successful background run (lab VM, 2 November 2026).</summary>
-    private static void WithLatestRuns(System.Collections.Generic.List<Backup> backups)
-    {
-        foreach (var backup in backups)
-        {
-            RunRecord? latest;
-            // Backups only: a check or cleanup is not "the last backup" (U258:
-            // the tray said "Last backup failed" for a cleanup).
-            try { latest = ServiceLocator.Logs.LoadHistoryByBackupId(backup.Id).FirstOrDefault(r => r.Kind == RunKind.Backup && r.Status != BackupRunStatus.Running && !r.StoppedByYou); }
-            catch (Exception ex) { AppLogger.For<App>().Debug(ex, "History unavailable for the tray status"); continue; }
-            // Whichever told the last run, the history says whether it only waited for the network (U269).
-            backup.LastRunOnlyNetworkWaits = latest is not null && latest.OnlyNetworkWaits()
-                && latest.StartedUtc >= (backup.LastRunStartUtc ?? DateTime.MinValue);
-            if (latest is null || backup.LastRunStartUtc is { } known && known >= latest.StartedUtc) continue;
-            backup.LastRunStartUtc = latest.StartedUtc;
-            // Its end too: the menu says how long ago, and a stale end read as a missed schedule (U265).
-            backup.LastRunEndUtc = latest.EndedUtc ?? latest.StartedUtc;
-            backup.LastRunStatus = latest.Status;
-            backup.LastRunSummary = latest.Summary;
-            if (latest.Status == BackupRunStatus.Success) backup.LastSuccessUtc = latest.EndedUtc ?? latest.StartedUtc;
-        }
     }
 
 #if WINDOWS
@@ -513,18 +491,6 @@ public partial class App : Application
 #endif
     }
 
-    /// <summary>Backups running or queued, here or in the background service:
-    /// a scheduled time is not missed while its run waits its turn (U265).</summary>
-    private static System.Collections.Generic.HashSet<string> BusyBackups()
-    {
-        var busy = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
-        try { busy.UnionWith(ServiceLocator.Orchestrator.SnapshotRunningBackupIds()); } catch (Exception) { }
-#if WINDOWS
-        try { busy.UnionWith(Services.Platform.Windows.ServiceActivity.RunningBackups(ServiceLocator.BackgroundActivity?.Current)); } catch (Exception) { }
-#endif
-        return busy;
-    }
-
     internal async void RefreshTrayStatus()
     {
         if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime || QuitRequested) return;
@@ -537,8 +503,9 @@ public partial class App : Application
             do
             {
                 version = _trayRefreshVersion;
-                _trayStatus = new(ScheduleReadiness.Unknown, "Checking schedules…", "");
-                ApplyTrayStatus();
+                // The menu keeps what it said until the new status is ready:
+                // opening it refreshes it, and a menu emptied meanwhile showed
+                // only "Checking schedules…".
                 // Freeze this configuration before querying COM off the UI thread.
                 var backups = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.List<Backup>>(
                     System.Text.Json.JsonSerializer.Serialize(ServiceLocator.Config.Current.Backups))!;
@@ -555,13 +522,14 @@ public partial class App : Application
                 }
                 var scheduler = ServiceLocator.Scheduler;
                 var executable = Environment.ProcessPath ?? "";
-                var busy = BusyBackups();
-                var query = System.Threading.Tasks.Task.Run(() =>
+                var query = System.Threading.Tasks.Task.Run(() => TrayScheduleStatus.Schedules(backups, scheduler, executable, DateTime.UtcNow));
+                // The menu says what the Backups tab says (U258): its cards,
+                // made from the saved settings as the tab makes them.
+                try
                 {
-                    WithLatestRuns(backups);
-                    return TrayScheduleStatus.Inspect(backups, scheduler, executable, DateTime.UtcNow, busy);
-                });
-                try { _trayStatus = await query.WaitAsync(TimeSpan.FromSeconds(5)); }
+                    var schedules = await query.WaitAsync(TimeSpan.FromSeconds(5));
+                    _trayStatus = await TrayScheduleStatus.FromCardsAsync(ServiceLocator.Config.Current.Backups.ToList(), DateTime.UtcNow, schedules, TimeSpan.FromSeconds(5));
+                }
                 catch (TimeoutException)
                 {
                     _trayStatus = new(ScheduleReadiness.Unknown, "Schedules not verified", "Windows did not answer in time.");

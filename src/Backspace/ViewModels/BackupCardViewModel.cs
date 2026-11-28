@@ -115,6 +115,10 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     private IReadOnlyList<BackupCheckEntry> _checkEntries = Array.Empty<BackupCheckEntry>();
     private IReadOnlyList<RunRecord> _checkRuns = Array.Empty<RunRecord>();
     private bool _checkHistoryLoaded;
+    private readonly TaskCompletionSource _checkHistoryRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    /// <summary>Done once the card has read its check history (or failed to):
+    /// before that, its Backup health is "loading". The tray menu waits for it.</summary>
+    internal Task CheckHistoryRead => _checkHistoryRead.Task;
     private int _checkGeneration;
     private bool _checkHistoryReadFailed;
     /// <summary>
@@ -845,6 +849,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
                     _ = task.Exception; VerifyLabel = "Check history could not be read"; VerifyClass = "stale";
                     _checkHistoryReadFailed = true;
                     VerifyDetails = "The saved files were preserved. Open History again to see the error.";
+                    _checkHistoryRead.TrySetResult();
                     return;
                 }
                 // A live service result may arrive before the history page
@@ -855,6 +860,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
                 _checkHistoryReadFailed = false;
                 _checkEntries = BackupCheckHistory.Entries(Snapshot, _checkRuns);
                 RefreshCheckAge();
+                _checkHistoryRead.TrySetResult();
             });
         });
     }
@@ -975,6 +981,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     internal bool QuietSkip => _quiet is not null;
     /// <summary>A scheduled time passed without a run (U265); not while it runs or waits its turn.</summary>
     internal bool MissedSchedule => _missed && !IsRunning;
+
+    /// <summary>What the Backups tab's banner reads from this card (U258).</summary>
+    internal CardHealth Health => new(VerifyClass, DisplayedRunStatus, DisplayedRunEndUtc ?? Snapshot.LastRunEndUtc, MissedSchedule);
 
     /// <summary>Under "Stopped by you": the last completed run (U242).</summary>
     [ObservableProperty] private string _lastCompletedLabel = "";
