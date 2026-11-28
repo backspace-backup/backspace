@@ -201,6 +201,13 @@ public sealed class BackupChecksTests
         // A weekly check last run 20 days ago is due again.
         var old = new[] { new BackupCheckEntry("3", now.AddDays(-20), BackupRunStatus.Success, CheckDepth.RepositoryStructure, "") };
         Assert.Equal("Structure check · passed 20d ago, due now", BackupCheckHistory.KindLines(backup, old, now)[0]);
+        // How long each took, on hover (owner, 28 November 2026: "the duration
+        // of each last check is missing on hover").
+        var timed = new[] { new BackupCheckEntry("4", now.AddDays(-20), BackupRunStatus.Success, CheckDepth.RepositoryStructure, "", TimeSpan.FromSeconds(127)) };
+        Assert.Equal("Structure check · passed 20d ago, took 2m 7s, due now", BackupCheckHistory.KindLines(backup, timed, now)[0]);
+        var run = new RunRecord { Id = "r", BackupId = "b", Kind = RunKind.Check, CheckKind = CheckKind.TestRestore, Status = BackupRunStatus.Success,
+            StartedUtc = now.AddHours(-2), EndedUtc = now.AddHours(-2).AddMinutes(37), QueuedFor = TimeSpan.FromMinutes(5), Summary = "passed" };
+        Assert.Equal(TimeSpan.FromMinutes(32), Assert.Single(BackupCheckHistory.Entries(backup, [run])).Took);
         Assert.Equal("Data check · not run yet", BackupCheckHistory.KindLines(backup, old, now)[1]);
         Assert.Equal(lines, BackupCheckHistory.State(backup, entries, now).Kinds);
         // One line on the card in the Checks list's names; a failure wins over a later pass; each check in the hover.

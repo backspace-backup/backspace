@@ -158,9 +158,9 @@
                            TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
               </Grid>
               <WrapPanel>
-                <Button Classes="row-action-warn" Name="RunWarnLogs" IsVisible="{Binding ShowRunWarnLogs}"
+                <Button Classes="band-action" Name="RunWarnLogs" IsVisible="{Binding ShowRunWarnLogs}"
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
-                <Button Classes="row-action-danger" Name="RunFailLogs" IsVisible="{Binding ShowRunFailLogs}"
+                <Button Classes="band-action fail" Name="RunFailLogs" IsVisible="{Binding ShowRunFailLogs}"
                         Command="{Binding ViewLogsCommand}" Content="View logs" ToolTip.Tip="Open this backup's run log."/>
               </WrapPanel>
             </StackPanel>
@@ -210,7 +210,7 @@
               <TextBlock Grid.Column="2" Text="{Binding CheckCompletedLabel}" Classes="meta-value" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
             </Grid>
             <WrapPanel IsVisible="{Binding !ShowsHealthActivity}">
-              <Button Classes="row-action-danger" Name="CheckFailLogs" IsVisible="{Binding ShowCheckLogs}"
+              <Button Classes="band-action fail" Name="CheckFailLogs" IsVisible="{Binding ShowCheckLogs}"
                       Command="{Binding ViewCheckLogsCommand}" Content="View logs" ToolTip.Tip="Open the failed check's log."/>
             </WrapPanel>
 

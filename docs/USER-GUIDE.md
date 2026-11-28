@@ -141,6 +141,14 @@ last backup in green, its hover says what was skipped and until when it stays
 quiet, and neither a notification, the banner nor the tray warns. A check
 falling due meanwhile is not flagged either. Once the period ends, the tile
 turns orange and the notification says it was skipped, never that it failed.
+A backup that has never stored anything is different: a day after it was made,
+its tile turns orange ("Not backed up yet"), and the banner and the tray say it
+needs attention, whatever its grace period, since nothing can be restored yet.
+
+The **Last backup** line keeps to when and what: a run's duration, and the time
+it waited for its turn, are on its hover, for a failed or skipped run too.
+**View logs** sits under the line when a log explains it (a run with warnings,
+a failed run, a failed check), as a button outlined in the tile's colour.
 
 Backspace registers no Windows scheduled task. Between runs it only waits for
 the next due time, so it uses no CPU while idle. The backup engine runs only
@@ -886,7 +894,7 @@ first, and backups wait for them on that destination. Each check's run in
 sample) passed in 7 min 50 s". The card's **Backup health** line names the
 latest result by the same names ("Data check passed · 4m ago"; a failure
 stays shown until that check passes again), and its hover lists each check's
-latest result. While a check runs, **Backup health** says so with a turning
+latest result and how long it took. While a check runs, **Backup health** says so with a turning
 icon and the check's name, such as "Data check (1 of 2) · 7 min". Its bar and current
 step ("Reading the data sample · 20 of 64 packs", or "Restoring and comparing
 files · 120 of 400 files") show below the sources and destinations, where a

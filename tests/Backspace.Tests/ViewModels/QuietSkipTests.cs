@@ -81,16 +81,46 @@ public sealed class QuietSkipTests
     }
 
     [AvaloniaFact]
-    public void A_backup_never_backed_up_whose_drive_is_unplugged_stays_neutral_not_orange()
+    public void A_backup_never_backed_up_whose_drive_is_unplugged_stays_neutral_for_its_first_day_only()
     {
         var now = DateTime.UtcNow;
         var (backup, _, skipped) = Setup(now);
-        backup.LastSuccessUtc = null; backup.CreatedUtc = now.AddDays(-1);
-        using var card = new BackupCardViewModel(backup, false, false) { UtcNow = () => now };
-        card.Apply(skipped);
-        Assert.Equal("idle", card.StatusClass);
-        Assert.Equal("Not backed up yet", card.LastRunLabel);
-        Assert.Contains("is not plugged in", card.LastRunDetail);
+        backup.LastSuccessUtc = null; backup.CreatedUtc = now.AddHours(-2);
+        using (var card = new BackupCardViewModel(backup, false, false) { UtcNow = () => now })
+        {
+            card.Apply(skipped);
+            Assert.Equal("idle", card.StatusClass);
+            Assert.Equal("Not backed up yet", card.LastRunLabel);
+            Assert.Contains("is not plugged in", card.LastRunDetail);
+            Assert.False(card.Health.NeverBackedUp);
+        }
+        // U257 (owner, 28 November 2026): "shouldn't Last backup show a warning
+        // right away if the backup never ran (regardless of the grace period),
+        // or maybe 24h later? As zero backup means zero security." A day after
+        // it was made, it is orange whatever its grace period, and the banner
+        // and tray say so.
+        backup.CreatedUtc = now.AddDays(-2);
+        using (var late = new BackupCardViewModel(backup, false, false) { UtcNow = () => now })
+        {
+            late.Apply(skipped);
+            Assert.Equal("warn", late.StatusClass);
+            Assert.Equal("Not backed up yet", late.LastRunLabel);
+            Assert.StartsWith("Not backed up yet: this backup was made", late.LastRunDetail);
+            Assert.Contains("is not plugged in", late.LastRunDetail);
+            Assert.False(late.ShowRunWarnLogs, "No log explains a backup that never ran.");
+            var banner = BackupHealthSummary.Compute([backup], _ => late.Health, now);
+            Assert.Equal("warn", banner.Class);
+            Assert.Equal("1 backup needs attention", banner.Headline);
+            Assert.Equal("It has not been backed up yet", Assert.Single(banner.Affected).Reason);
+        }
+        // Automatic backups off: nothing is expected of it.
+        backup.Enabled = false;
+        using (var off = new BackupCardViewModel(backup, false, false) { UtcNow = () => now })
+        {
+            off.Apply(skipped);
+            Assert.NotEqual("warn", off.StatusClass);
+        }
+        backup.Enabled = true;
     }
 
     [AvaloniaFact]

@@ -8,7 +8,8 @@ namespace Backspace.ViewModels;
 /// <summary>What a card shows that decides the Backups tab's banner: its
 /// Backup health tone, its last run as shown, and whether a scheduled run was
 /// missed.</summary>
-internal sealed record CardHealth(string? CheckTone, BackupRunStatus RunStatus, DateTime? RunEndUtc, bool Missed);
+/// <param name="NeverBackedUp">Nothing stored a day after the backup was made (U257).</param>
+internal sealed record CardHealth(string? CheckTone, BackupRunStatus RunStatus, DateTime? RunEndUtc, bool Missed, bool NeverBackedUp = false);
 
 /// <summary>A backup the banner names, with its pill's tone and why.</summary>
 internal sealed record HealthAffected(Backup Backup, string Tone, string Reason, bool Check = false);
@@ -31,6 +32,7 @@ internal sealed record BackupHealthSummary(string Class, string Headline, string
         var warned = new List<Backup>();
         var incompleteChecks = 0;
         var missedRuns = 0;
+        var notBackedUp = 0;
         var reasons = new Dictionary<string, string>();
         var checks = new HashSet<string>();
         var loadingChecks = 0;
@@ -78,6 +80,9 @@ internal sealed record BackupHealthSummary(string Class, string Headline, string
             {
                 case BackupRunStatus.Failed:  failed.Add(b);  reasons[b.Id] = "Its last run failed"; break;
                 case BackupRunStatus.Warning: warned.Add(b);  reasons[b.Id] = "Its last run finished with warnings"; break;
+                // Never backed up a day after it was made (U257): orange, whatever its skips.
+                case BackupRunStatus.NeverRun or BackupRunStatus.Skipped when facts.NeverBackedUp:
+                    warned.Add(b); notBackedUp++; reasons[b.Id] = "It has not been backed up yet"; break;
                 case BackupRunStatus.Skipped: skipped.Add(b); reasons[b.Id] = "Its last run was skipped"; break;
                 case BackupRunStatus.Success when facts.Missed:
                     // Its tile is orange (U265): the banner cannot say all is well.
@@ -129,9 +134,9 @@ internal sealed record BackupHealthSummary(string Class, string Headline, string
         {
             // Several kinds of problem, or a check: "N backups need attention"
             // and the pills, each saying why on hover (U199).
-            var warnedRuns = warned.Count - incompleteChecks - missedRuns;
-            var kinds = (incompleteChecks > 0 ? 1 : 0) + (warnedRuns > 0 ? 1 : 0) + (skipped.Count > 0 ? 1 : 0) + (missedRuns > 0 ? 1 : 0);
-            var generic = kinds > 1 || incompleteChecks > 0 || missedRuns > 0;
+            var warnedRuns = warned.Count - incompleteChecks - missedRuns - notBackedUp;
+            var kinds = (incompleteChecks > 0 ? 1 : 0) + (warnedRuns > 0 ? 1 : 0) + (skipped.Count > 0 ? 1 : 0) + (missedRuns > 0 ? 1 : 0) + (notBackedUp > 0 ? 1 : 0);
+            var generic = kinds > 1 || incompleteChecks > 0 || missedRuns > 0 || notBackedUp > 0;
             string headline;
             if (generic)
             {

@@ -72,6 +72,27 @@ public sealed class LastRunLineTests
         Assert.Equal("about 1h 5m left", BackupLiveProgress.TimeLeft(TimeSpan.FromMinutes(65.4)));
     }
 
+    /// <summary>U258 (owner, 28 November 2026): "For local_dropbox it shows in
+    /// 1s as part of its Last backup line while for local_c and local_d it
+    /// doesn't show a duration ... no duration in Last backup or Backup health
+    /// but it should show in the hover."</summary>
+    [Fact]
+    public void A_failed_or_skipped_run_keeps_its_reason_on_the_card_and_its_duration_on_hover()
+    {
+        var failed = LastRunLine.For("1 error · in 1s", BackupRunStatus.Failed, Now.AddHours(-9), Now);
+        Assert.Equal("1 error · 9h ago", failed.Label);
+        Assert.Contains("took 1s", failed.Hover);
+        var skipped = LastRunLine.For(@"M:\ not mounted · skipped after 0s", BackupRunStatus.Skipped, Now.AddDays(-2), Now);
+        Assert.Equal(@"M:\ not mounted · 2d ago", skipped.Label);
+        var waited = LastRunLine.For("The destination could not be written · in 2m 3s · waited 1h 32m", BackupRunStatus.Failed, Now.AddHours(-1), Now);
+        Assert.Equal("The destination could not be written · 1h ago", waited.Label);
+        Assert.Contains("took 2m 3s", waited.Hover);
+        Assert.Contains("waited 1h 32m", waited.Hover);
+        // A reason that only mentions a time keeps it: only whole duration parts go.
+        Assert.Equal("Stopped after the drive went away in the night · 1h ago",
+            LastRunLine.For("Stopped after the drive went away in the night", BackupRunStatus.Failed, Now.AddHours(-1), Now).Label);
+    }
+
     [Fact]
     public void Nothing_uploaded_says_so()
         => Assert.Equal("Just now · nothing new to upload", LastRunLine.For("Completed in 6m 10s", BackupRunStatus.Success, Now.AddSeconds(-20), Now).Label);

@@ -139,6 +139,10 @@
       <SolidColorBrush x:Key="BS.Brush.BandFailBg"   Color="#FFFEE4E2"/>
       <SolidColorBrush x:Key="BS.Brush.BandFailFg"   Color="#FF991B1B"/>
       <SolidColorBrush x:Key="BS.Brush.BandFailIcon" Color="#FFDC2626"/>
+      <!-- Outline of a button on a warning or failure tile (View logs, U265):
+           4.5:1 and 4.0:1 against the tile, so the button reads as one. -->
+      <SolidColorBrush x:Key="BS.Brush.BandWarnBorder" Color="#FFC2410C"/>
+      <SolidColorBrush x:Key="BS.Brush.BandFailBorder" Color="#FFDC2626"/>
       <SolidColorBrush x:Key="BS.Brush.BandIdleBg"   Color="#FFF1F2F5"/>
       <SolidColorBrush x:Key="BS.Brush.BandIdleFg"   Color="#FF454A54"/>
       <SolidColorBrush x:Key="BS.Brush.BandIdleIcon" Color="#FF8A909A"/>
@@ -251,6 +255,9 @@
       <SolidColorBrush x:Key="BS.Brush.BandFailBg"   Color="#FF321718"/>
       <SolidColorBrush x:Key="BS.Brush.BandFailFg"   Color="#FFFCA5A5"/>
       <SolidColorBrush x:Key="BS.Brush.BandFailIcon" Color="#FFF87171"/>
+      <!-- 7.0:1 and 6.0:1 against the dark tiles (U265). -->
+      <SolidColorBrush x:Key="BS.Brush.BandWarnBorder" Color="#FFFB923C"/>
+      <SolidColorBrush x:Key="BS.Brush.BandFailBorder" Color="#FFF87171"/>
       <SolidColorBrush x:Key="BS.Brush.BandIdleBg"   Color="#FF232529"/>
       <SolidColorBrush x:Key="BS.Brush.BandIdleFg"   Color="#FFB4B8C0"/>
       <SolidColorBrush x:Key="BS.Brush.BandIdleIcon" Color="#FF6B7079"/>

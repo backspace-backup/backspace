@@ -5,8 +5,10 @@ using Backspace.Models;
 
 namespace Backspace.Services;
 
+/// <param name="Took">How long the check took, when it ran on its own: a
+/// check inside a backup run has no time of its own.</param>
 public sealed record BackupCheckEntry(string RunId, DateTime When, BackupRunStatus Status,
-    CheckDepth Depth, string Summary)
+    CheckDepth Depth, string Summary, TimeSpan? Took = null)
 {
     public string Scope => BackupCheckHistory.Describe(Depth);
 }
@@ -81,7 +83,8 @@ public static class BackupCheckHistory
                     }
                     var detail = string.Join("\n", checks.Select(c => string.IsNullOrEmpty(c.DestinationName) ? c.Summary : c.DestinationName + ": " + c.Summary));
                     if (status == BackupRunStatus.Warning) detail += "\nThis check did not establish success for every configured destination.";
-                    entries.Add(new(run.Id, checks.Max(c => c.EndedUtc), status, group.Key, detail));
+                    entries.Add(new(run.Id, checks.Max(c => c.EndedUtc), status, group.Key, detail,
+                        run.Kind is RunKind.Check or RunKind.TestRestore ? TookOf(run) : null));
                 }
             }
             // A sample test restore entry (U179): its test restore saved its
@@ -91,14 +94,14 @@ public static class BackupCheckHistory
             {
                 if (kind == CheckKind.TestRestore && run.Cells.Any(c => !c.DestinationUnavailable && c.Status is BackupRunStatus.Success)) continue;
                 if (run.Cells.Count > 0 && run.Cells.All(c => c.DestinationUnavailable)) continue;
-                entries.Add(new(run.Id, run.EndedUtc!.Value, run.Status, DepthOf(kind), run.Summary));
+                entries.Add(new(run.Id, run.EndedUtc!.Value, run.Status, DepthOf(kind), run.Summary, TookOf(run)));
             }
             else if (run.Kind is RunKind.Check or RunKind.TestRestore)
             {
                 // Old restore records did not preserve sample/full scope.
                 entries.Add(new(run.Id, run.EndedUtc!.Value, run.Status,
                     run.Kind == RunKind.TestRestore ? CheckDepth.RestoreUnspecified : CheckDepth.Unknown,
-                    run.Summary + (run.Kind == RunKind.TestRestore ? "\nHistorical record: the sample/full setting was not saved." : "")));
+                    run.Summary + (run.Kind == RunKind.TestRestore ? "\nHistorical record: the sample/full setting was not saved." : ""), TookOf(run)));
             }
         }
         if (backup.LastVerifyUtc is { } when && backup.LastVerifyPass is { } passed
@@ -110,6 +113,11 @@ public static class BackupCheckHistory
     }
 
     private static string Ago(DateTime nowUtc, DateTime when) => HumanFormat.Ago(when, nowUtc);
+
+    /// <summary>The time the check worked, its wait for its turn left out.</summary>
+    private static TimeSpan? TookOf(RunRecord run)
+        => run.EndedUtc is { } ended && run.StartedUtc > DateTime.MinValue && run.WorkingTime(ended) is { } worked && worked > TimeSpan.Zero
+            ? worked : null;
 
     /// <summary>When this check was last due and has not run since, or null:
     /// a scheduled check past its next time after its latest result, or one
@@ -155,7 +163,11 @@ public static class BackupCheckHistory
             };
             // ", due now" rather than a third " · " part: hovers put each part
             // after the second on its own line (U265).
-            return $"{name} · {result} {Ago(nowUtc, latest.When)}" + (Overdue(backup, check, latest, nowUtc) ? ", due now" : "");
+            // How long it took, on hover only (owner, 28 November 2026: "the
+            // duration of each last check is missing on hover").
+            return $"{name} · {result} {Ago(nowUtc, latest.When)}"
+                + (latest.Took is { } took ? ", took " + HumanFormat.Duration(took) : "")
+                + (Overdue(backup, check, latest, nowUtc) ? ", due now" : "");
         }).Distinct().ToList();
 
     /// <param name="nothingStored">No run of this backup has stored anything

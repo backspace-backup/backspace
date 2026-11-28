@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Text.RegularExpressions;
 using Backspace.Models;
 
@@ -23,6 +24,11 @@ public static partial class LastRunLine
     // "waited 51m 46s": time queued behind another backup (U173).
     [GeneratedRegex(@"(?:^|· )waited (?<dur>\d[^·]*?)\s*(?:·|$)")]
     private static partial Regex Waited();
+    // One " · " part that is only a duration: "in 1s", "Completed in 2m", "waited 3m".
+    [GeneratedRegex(@"^(?:(?:Completed |skipped after |failed after )?in \d[\w ]*|skipped after \d[\w ]*|waited \d[\w ]*)$")]
+    private static partial Regex TookPart();
+    [GeneratedRegex(@"^waited \d[\w ]*$")]
+    private static partial Regex WaitedPart();
     [GeneratedRegex(@"(?<n>\d+) (?<kind>warning|error)s?")]
     private static partial Regex Problems();
     // "8,335 online-only files skipped" (U168), in any digit grouping.
@@ -35,8 +41,18 @@ public static partial class LastRunLine
         var ago = Ago(endedUtc, nowUtc ?? DateTime.UtcNow);
         if (status is not (BackupRunStatus.Success or BackupRunStatus.Warning))
         {
-            var full = $"{summary} · {ago}";
-            return (full, full);
+            // The reason stays on the card, the time it took goes to the hover,
+            // as for a finished run (owner, 28 November 2026: local_dropbox's
+            // line said "1 error · in 1s" where the others show no duration).
+            var parts = summary.Split(" · ");
+            var timed = parts.Where(p => TookPart().IsMatch(p) || WaitedPart().IsMatch(p)).ToList();
+            var reason = string.Join(" · ", parts.Where(p => !timed.Contains(p)));
+            if (reason.Length == 0) reason = summary;
+            var reasonLine = $"{reason} · {ago}";
+            var details = new System.Collections.Generic.List<string> { reason, "ended " + endedUtc.ToLocalTime().ToString("ddd d MMM, HH:mm", CultureInfo.CurrentCulture) };
+            if (Took().Match(summary) is { Success: true } tookFailed) details.Add("took " + tookFailed.Groups["dur"].Value.Trim());
+            if (Waited().Match(summary) is { Success: true } waitedFailed) details.Add("waited " + waitedFailed.Groups["dur"].Value.Trim() + " for its turn before that");
+            return (reasonLine, string.Join(" · ", details));
         }
         var size = Uploaded().Match(summary) is { Success: true } u ? u.Groups["size"].Value : null;
         var counts = Counts().Match(summary);

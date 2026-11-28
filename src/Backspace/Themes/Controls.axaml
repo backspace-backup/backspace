@@ -2571,6 +2571,52 @@
     <Setter Property="Opacity" Value="0.45"/>
   </Style>
 
+  <!-- A button on a warning or failure tile of a backup card (View logs,
+       U265, owner 28 November 2026: "Are these View logs button respecting
+       UX standards? The coloring seems poor. In dark mode there is not even
+       any outline."). The tinted row actions had the tile's own colour, and
+       no outline in the dark theme, so the button vanished into the tile.
+       An outlined secondary button: the card's surface, an outline in the
+       tile's tone at 3:1 or more against the tile, text in the tone at 7:1
+       or more on the surface; the tone's wash on hover. -->
+  <Style Selector="Button.band-action">
+    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.BandWarnFg}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BS.Brush.BandWarnBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="6"/>
+    <Setter Property="Padding" Value="12,5"/>
+    <Setter Property="FontFamily" Value="{DynamicResource BS.Font.Body}"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Cursor" Value="Hand"/>
+  </Style>
+  <Style Selector="Button.band-action /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.BgSurface}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BS.Brush.BandWarnBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="6"/>
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.14" Easing="QuadraticEaseOut"/>
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.band-action:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.WarnLightBgHover}"/>
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource BS.Brush.BandWarnFg}"/>
+  </Style>
+  <Style Selector="Button.band-action.fail">
+    <Setter Property="Foreground" Value="{DynamicResource BS.Brush.BandFailFg}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource BS.Brush.BandFailBorder}"/>
+  </Style>
+  <Style Selector="Button.band-action.fail /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="BorderBrush" Value="{DynamicResource BS.Brush.BandFailBorder}"/>
+  </Style>
+  <Style Selector="Button.band-action.fail:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource BS.Brush.DangerLightBgHover}"/>
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource BS.Brush.BandFailFg}"/>
+  </Style>
+
   <!-- Inline text link — used for the engine attribution in the
        sidebar footer ("Powered by restic"). Looks like normal
        copy at rest (subtle accent foreground, no chrome),

@@ -365,7 +365,7 @@ public class WebsiteScreenshotTests : IDisposable
                 SourcePaths = { @"C:\Users\me\Documents", @"C:\Users\me\Pictures" },
                 LastRunStatus = BackupRunStatus.Success,
                 LastRunSummary = "12,408 files · 8.7 GB",
-                LastRunEndUtc = DateTime.UtcNow.AddHours(-2),
+                LastRunEndUtc = NotMissed(2),
                 Targets =
                 {
                     new BackupTarget { DestinationId = dropboxId,  StorageName = "default" },
@@ -389,7 +389,7 @@ public class WebsiteScreenshotTests : IDisposable
                 SourcePaths = { @"C:\Users\me\Projects" },
                 LastRunStatus = BackupRunStatus.Success,
                 LastRunSummary = "284,510 files · 142.1 GB",
-                LastRunEndUtc = DateTime.UtcNow.AddHours(-19),
+                LastRunEndUtc = NotMissed(19),
                 Targets =
                 {
                     new BackupTarget { DestinationId = dropboxId, StorageName = "default" },
@@ -420,6 +420,17 @@ public class WebsiteScreenshotTests : IDisposable
             });
         });
         SeedCheckHistory();
+    }
+
+    /// <summary>A successful run this many hours ago, or just after the daily
+    /// 20:00 run it would otherwise have missed: a missed run turns the tile
+    /// orange (U265), so "19h ago" made code-and-projects orange or green
+    /// depending on the hour the screenshots were taken.</summary>
+    private static DateTime NotMissed(double hoursAgo)
+    {
+        var now = DateTime.UtcNow;
+        var end = now.AddHours(-hoursAgo);
+        return new BackupSchedule().MissedSlotUtc(end, now) is { } slot ? slot.AddMinutes(1) : end;
     }
 
     /// <summary>Recent passed checks for the demo backups, so their cards

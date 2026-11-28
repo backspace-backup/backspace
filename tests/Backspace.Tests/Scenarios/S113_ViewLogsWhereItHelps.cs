@@ -82,6 +82,37 @@ public sealed class S113_ViewLogsWhereItHelps : ScenarioBase
         ctx.Snapshot(host, "view-logs-where-it-helps",
             "local_c: Backup health 'Restore check failed' with View logs under it; local_d: missed schedule (9d ago), orange, no View logs; music: failed run with View logs; photos: run with warnings with View logs.");
 
+        // U265 (owner, 28 November 2026): "The coloring seems poor. In dark
+        // mode there is not even any outline." The button is the card's
+        // surface with an outline in the tile's tone, in both themes, never
+        // the tile's own colour.
+        Button Of(Backup b, string name) => backups.GetVisualDescendants().OfType<BackupCard>()
+            .Single(c => (c.DataContext as BackupCardViewModel)?.Id == b.Id).GetVisualDescendants().OfType<Button>().Single(x => x.Name == name);
+        foreach (var theme in new[] { Avalonia.Styling.ThemeVariant.Light, Avalonia.Styling.ThemeVariant.Dark })
+        {
+            host.RequestedThemeVariant = theme;
+            Screenshots.ScreenshotDiffTests.SettleInitialTransitions(host);
+            await ctx.Driver.PumpAsync(150);
+            foreach (var (backup, name) in new[] { (checkFailed, "CheckFailLogs"), (warned, "RunWarnLogs"), (failed, "RunFailLogs") })
+            {
+                var button = Of(backup, name);
+                var presenter = button.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>().First(p => p.Name == "PART_ContentPresenter");
+                var outline = Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(presenter.BorderBrush).Color;
+                var fill = Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(presenter.Background).Color;
+                var tile = Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(button.GetVisualAncestors().OfType<Border>().First(c => c.Classes.Contains("check-summary")).Background).Color;
+                Assert.True(outline.A == 255 && presenter.BorderThickness.Left >= 1, $"{name} has a visible outline in the {theme} theme.");
+                Assert.True(Contrast(outline, tile) >= 3, $"{name}'s outline stands out from its tile in the {theme} theme ({Contrast(outline, tile):0.0}:1).");
+                Assert.NotEqual(tile, fill);
+                var text = Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(button.Foreground).Color;
+                Assert.True(Contrast(text, fill) >= 4.5, $"{name}'s text reads on the button in the {theme} theme ({Contrast(text, fill):0.0}:1).");
+            }
+        }
+        ctx.Snapshot(host, "view-logs-dark",
+            "The same cards in the dark theme: each View logs is a dark button with an orange or red outline on its orange or red tile.");
+        host.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
+        Screenshots.ScreenshotDiffTests.SettleInitialTransitions(host);
+        await ctx.Driver.PumpAsync(150);
+
         // The check's View logs opens Activity & logs.
         NavItem? went = null;
         void OnGo(NavItem item) => went = item;
@@ -89,5 +120,16 @@ public sealed class S113_ViewLogsWhereItHelps : ScenarioBase
         try { vm.Cards.Single(c => c.Id == checkFailed.Id).ViewCheckLogsCommand.Execute(null); }
         finally { AppNavigator.Requested -= OnGo; }
         Assert.Equal(NavItem.Logs, went);
+    }
+
+    private static double Contrast(Avalonia.Media.Color a, Avalonia.Media.Color b)
+    {
+        static double L(Avalonia.Media.Color c)
+        {
+            static double C(byte v) { var s = v / 255.0; return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4); }
+            return 0.2126 * C(c.R) + 0.7152 * C(c.G) + 0.0722 * C(c.B);
+        }
+        var (x, y) = (L(a), L(b));
+        return (Math.Max(x, y) + 0.05) / (Math.Min(x, y) + 0.05);
     }
 }

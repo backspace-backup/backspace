@@ -923,6 +923,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
         _missed = saved.Enabled && end is { } completedAt && status is BackupRunStatus.Success or BackupRunStatus.Warning
             && saved.Schedule.Missed(MissedFrom(completedAt), now);
         if (_missed) StatusClass = "warn";
+        // Never backed up a day after it was made: orange, whatever the grace
+        // period (U257, owner 28 November 2026: "zero backup means zero
+        // security, unlike a delayed backup within the grace period").
+        _neverBackedUp = NeverBackedUp(saved, status, _displayedRunStoredSomething, now);
+        if (_neverBackedUp) StatusClass = "warn";
         OnPropertyChanged(nameof(MissedSchedule));
         OnPropertyChanged(nameof(ShowRunWarnLogs));
         LastCompletedClass = stopped is null ? "" : StatusClass;
@@ -962,6 +967,11 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
                 + ". Not flagged until " + When(quiet.Until) + ": skipped runs stay quiet for " + Days(Snapshot.SkipNotificationGraceDays)
                 + " after the last backup (this backup's Schedule settings)."
                 + (_lastRunHover is { Length: > 0 } q ? "\n\n" + q : "");
+        // First on hover (U257): nothing is protected yet, whatever was skipped.
+        if (_neverBackedUp)
+            _lastRunHover = "Not backed up yet: this backup was made " + When(Snapshot.CreatedUtc)
+                + " and has stored nothing, so nothing can be restored. Choose Run now."
+                + (_lastRunHover is { Length: > 0 } n ? "\n\n" + n : "");
         static string Days(int days) => days == 1 ? "1 day" : days + " days";
         static string When(DateTime utc) => utc.ToLocalTime().ToString("ddd d MMM, HH:mm", System.Globalization.CultureInfo.CurrentCulture);
         if (_stoppedByYouAt is not { } stoppedAt) { LastCompletedLabel = ""; return completed; }
@@ -974,6 +984,21 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     private DateTime? _stoppedByYouAt;
     private bool _missed;
+    private bool _neverBackedUp;
+
+    /// <summary>How long a new backup may go without its first backup before
+    /// its tile turns orange (U257): time to start it, or for its first
+    /// scheduled run.</summary>
+    internal static readonly TimeSpan FirstBackupDue = TimeSpan.FromHours(24);
+
+    /// <summary>An automatic backup that has stored nothing a day after it was
+    /// made, however its runs were skipped (U257).</summary>
+    internal static bool NeverBackedUp(Backup saved, BackupRunStatus shown, bool storedSomething, DateTime nowUtc)
+        => saved.Enabled && !storedSomething && shown is BackupRunStatus.NeverRun or BackupRunStatus.Skipped
+           && nowUtc - saved.CreatedUtc >= FirstBackupDue;
+
+    /// <summary>Never backed up a day after it was made (U257); not while it runs.</summary>
+    internal bool NotBackedUpYet => _neverBackedUp && !IsRunning;
     /// <summary>The run shown quietly (U269): its summary, when it ended, when
     /// the quiet period ends, and whether it was skipped (or only waited).</summary>
     private (string Summary, DateTime At, DateTime Until, bool Skipped)? _quiet;
@@ -985,7 +1010,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
     internal bool MissedSchedule => _missed && !IsRunning;
 
     /// <summary>What the Backups tab's banner reads from this card (U258).</summary>
-    internal CardHealth Health => new(VerifyClass, DisplayedRunStatus, DisplayedRunEndUtc ?? Snapshot.LastRunEndUtc, MissedSchedule);
+    internal CardHealth Health => new(VerifyClass, DisplayedRunStatus, DisplayedRunEndUtc ?? Snapshot.LastRunEndUtc, MissedSchedule, NotBackedUpYet);
 
     /// <summary>Under "Stopped by you": the last completed run (U242).</summary>
     [ObservableProperty] private string _lastCompletedLabel = "";
@@ -1018,6 +1043,9 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
             ApplyStoredRunState(Snapshot);
         // The quiet period ending turns a skip orange in an open window too (U269).
         else if (!IsRunning && _quiet is { } quiet && UtcNow() >= quiet.Until)
+            ApplyStoredRunState(Snapshot);
+        // So does the first day passing without a backup (U257).
+        else if (!IsRunning && !_neverBackedUp && NeverBackedUp(Snapshot, DisplayedRunStatus, _displayedRunStoredSomething, UtcNow()))
             ApplyStoredRunState(Snapshot);
     }
 
@@ -1423,7 +1451,7 @@ public sealed partial class BackupCardViewModel : ObservableObject, IDisposable
 
     /// <summary>The last run finished with warnings: its log says which. Not
     /// for a missed schedule, which no log explains.</summary>
-    public bool ShowRunWarnLogs => StatusClass == "warn" && (DisplayedRunStatus == BackupRunStatus.Warning || !_missed);
+    public bool ShowRunWarnLogs => StatusClass == "warn" && DisplayedRunStatus == BackupRunStatus.Warning;
     /// <summary>The last run failed: its log says why.</summary>
     public bool ShowRunFailLogs => StatusClass == "fail";
     /// <summary>A check failed: its own log says why.</summary>
