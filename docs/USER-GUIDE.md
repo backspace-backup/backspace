@@ -55,8 +55,9 @@ the drive as Windows does: `External - \Backup\Backspace (My Passport)`.
 Every password field has an eye that shows what you typed or pasted.
 
 Backspace never starts a backup over on the wrong drive or network share. The
-first backup to one runs when you start it (**Run now** or **Save & Run**).
-After that, a run goes ahead only if the drive or share holds the backup. If
+first backup to one runs when you start it (**Run now** or **Save & Run**);
+until then, scheduled runs fail with "Waiting for you: … has not backed up to …
+yet", naming the folder on the drive they found. After that, a run goes ahead only if the drive or share holds the backup. If
 it doesn't (another drive with the same name, a replaced or erased NAS, or
 the same drive erased), **Run now** asks: **Start a new backup here**, **Don't
 use this drive** (or share), or **Not now**, and scheduled runs fail with

@@ -61,10 +61,11 @@ public class ConfigMigratorTests
         Assert.Equal("Apps/Backups/me", dest.PathOrSubpath);
         Assert.True(dest.Encrypted);
 
-        // Backup.Target points at the imported destination, with the legacy storage name.
+        // Backup.Target points at the imported destination, named as a target
+        // added in Backspace, not after the Duplicacy storage (U277).
         var target = Assert.Single(backup.Targets);
         Assert.Equal(dest.Id, target.DestinationId);
-        Assert.Equal("default", target.StorageName);
+        Assert.Equal("target-" + dest.Id[..8], target.StorageName);
 
         var reopened = CreateLoadedStore();
         Assert.Equal(backup.Id, Assert.Single(reopened.Current.Backups).Id);

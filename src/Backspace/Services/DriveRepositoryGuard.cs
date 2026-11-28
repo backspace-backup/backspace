@@ -144,14 +144,25 @@ internal static class DriveRepositoryGuard
         return backup.LastSuccessUtc is not null && backup.Targets.Count == 1 && backup.Targets[0].DestinationId == destination.Id;
     }
 
-    /// <summary>Why an unattended run was skipped.</summary>
-    internal static string SkipReason(State state, Backup backup, Destination destination)
+    /// <summary>Why an unattended run did not start. <paramref name="firstBackup"/>:
+    /// this backup never succeeded there, so nothing is missing; the first
+    /// backup waits for Run now. The path is the one checked: a drive found
+    /// by its name at another letter is named at that letter (owner, 28
+    /// November 2026: "M:\…" while My Passport was E:, and "the drive was
+    /// erased" for a backup that never ran).</summary>
+    internal static string SkipReason(State state, Backup backup, Destination destination, bool firstBackup = false)
     {
         var share = destination.Kind == DestinationKind.NetworkShare;
         var place = share ? "network share" : "drive attached";
-        return state == State.Declined
-            ? $"Skipped: you chose not to back up «{backup.Name}» to the {place} now used for «{destination.Name}». Choose Run now to use it again."
-            : $"Waiting for you: the {place} for «{destination.Name}» has no backup of «{backup.Name}» at {destination.PathOrSubpath}. "
+        var where = RepositoryPath(destination) ?? destination.PathOrSubpath;
+        if (state == State.Declined)
+            return $"Skipped: you chose not to back up «{backup.Name}» to the {place} now used for «{destination.Name}». Choose Run now to use it again.";
+        if (firstBackup)
+            return $"Waiting for you: «{backup.Name}» has not backed up to «{destination.Name}» yet. "
+                + $"Backspace starts the first backup on a {(share ? "network share" : "drive")} only when you ask, "
+                + (share ? "in case another drive answers at that address. " : "in case it is another drive with the same name. ")
+                + $"The {(share ? "share is reachable" : "drive is connected")}: open Backspace and choose Run now to start it at {where}.";
+        return $"Waiting for you: the {place} for «{destination.Name}» has no backup of «{backup.Name}» at {where}. "
               + (share ? "It may be a different or erased network drive at the same address."
                        : "It may be a different drive with the same name, or the drive was erased.")
               + " Open Backspace and choose Run now to decide.";

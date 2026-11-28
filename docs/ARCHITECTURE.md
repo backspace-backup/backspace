@@ -85,7 +85,8 @@ listings, the mounted drive's reads and every restore
 - A repository this computer has not used yet is opened with
   `restic cat --no-lock config` (no lock: a lock left by a stopped run must reach the
   backup's own stale-lock recovery, U188), and created with `restic init` only when restic says
-  there is none (exit code 10). The repositories this computer knows are in
+  there is none (exit code 10), and only by a backup: a check or cleanup there fails with
+  "There is no backup at this destination" (`ResticEngine.NoRepositoryMessage`, E71). The repositories this computer knows are in
   repositories.json in its engine folder (`KnownRepositories`), so later
   backups skip that step.
 - The parent: the snapshot each plan's last finished backup made is remembered

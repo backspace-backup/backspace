@@ -219,7 +219,10 @@ public sealed class ConfigMigrator
             backup.Targets.Add(new BackupTarget
             {
                 DestinationId = dest.Id,
-                StorageName = string.IsNullOrEmpty(p.Name) ? "default" : p.Name,
+                // Named as a target added in Backspace: Duplicacy's storage
+                // name ("blue_drive") names no restic snapshots, and showed
+                // as an unexplained "storage: blue_drive" (U277).
+                StorageName = ViewModels.OnboardingViewModel.StorageNameForDestination(dest),
                 ThreadsOverride = LookupThreadsOverride(repoYaml, p.Name),
             });
         }

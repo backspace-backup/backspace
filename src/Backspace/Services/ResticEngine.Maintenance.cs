@@ -39,8 +39,8 @@ public sealed partial class ResticEngine
     /// <summary>What every direct operation on a destination starts with: this
     /// build's restic, the destination's drive identity and connection, its
     /// repository description, and the repository itself when
-    /// <paramref name="create"/> (opened, or created when restic says there is
-    /// none).</summary>
+    /// <paramref name="create"/> (opened; a check or cleanup never creates
+    /// one, only a backup does).</summary>
     private async Task<(string Restic, string RepoId, ResticRepository Repository)> PrepareDirectAsync(
         Backup? backup, Destination destination, string storageName, bool checkConnection, bool create,
         CancellationToken ct, Action<string>? lineSink)
@@ -50,7 +50,7 @@ public sealed partial class ResticEngine
         await new RcloneConfigBuilder(_secrets).EnsureDriveIdentityAsync(destination, ct, ServiceLocator.Config).ConfigureAwait(false);
         if (checkConnection) await new CloudDestinationPreflight(_secrets).CheckAsync(destination, ct).ConfigureAwait(false);
         var repository = BuildResticRepository(destination, backup);
-        if (create) await EnsureRepositoryAsync(restic, repoId, repository, destination, ct, lineSink).ConfigureAwait(false);
+        if (create) await EnsureRepositoryAsync(restic, repoId, repository, destination, ct, lineSink, mayCreate: false).ConfigureAwait(false);
         return (restic, repoId, repository);
     }
 

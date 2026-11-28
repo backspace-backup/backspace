@@ -225,7 +225,8 @@ it).
 
 A repository this computer has not used yet is opened with `restic cat
 config`; only when restic says there is none (exit code 10) does
-`restic init` create one. A password that does not open the repository (exit
+`restic init` create one, and only for a backup: a check or cleanup
+fails instead (E71). A password that does not open the repository (exit
 code 12) is "this folder already holds another backup" (U045), never a new
 repository beside it. The repositories this computer has opened or created
 are in repositories.json in its engine folder (`KnownRepositories`), with

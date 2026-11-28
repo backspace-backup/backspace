@@ -1543,6 +1543,10 @@ public sealed partial class ResticEngine : IBackupEngine
         return Slug($"{backup.Id}-{destination.Id}-{name}-{sourceTag}");
     }
 
+    /// <summary>A check or cleanup found no repository: they never create one.</summary>
+    internal const string NoRepositoryMessage =
+        "There is no backup at this destination, so there is nothing to check or clean up. A backup creates it. Details: ";
+
     /// <summary>An interrupted repository setup left keys without a
     /// configuration: setup stops, never repeated or replaced.</summary>
     internal const string UnfinishedSetupMessage =

@@ -375,7 +375,7 @@ public sealed partial class ResticEngine
     /// once failed it outright, before the backup's own lock recovery
     /// (<see cref="RunResticAsync"/>) could remove it.</summary>
     private async Task EnsureRepositoryAsync(string restic, string repoId, ResticRepository repository, Destination destination,
-        CancellationToken ct, Action<string>? lineSink)
+        CancellationToken ct, Action<string>? lineSink, bool mayCreate = true)
     {
         if (KnownRepositories.Knows(repoId, ct)) return;
         var config = await RunResticAsync(repoId, new ResticCommand(restic, repository, ["cat", "--no-lock", "config"]) { CaptureOutput = 64 * 1024 },
@@ -385,6 +385,10 @@ public sealed partial class ResticEngine
         // U045: a repository this backup's password does not open.
         if (config.ExitCode == 12) throw new EngineRepositoryInitializationException(AnotherBackupMessage + config.ErrorText, new IOException(config.ErrorText));
         if (config.ExitCode != 10) throw ResticFailure("The backup engine could not open this destination's repository.", config);
+        // Only a backup creates a repository: a check or cleanup of a place
+        // without one says so (local_dropbox's cleanups ran restic init on a
+        // drive that was not connected, 16, 17 and 24 November 2026).
+        if (!mayCreate) throw new IOException(NoRepositoryMessage + config.ErrorText);
         // One backup at a time prepares a repository (RepositoryAccess's setup
         // gate): two creating one at once each wrote their own key (E64).
         var init = await RunResticAsync(repoId, new ResticCommand(restic, repository, ["init", "--json"]) { CaptureOutput = 64 * 1024 },

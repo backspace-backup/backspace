@@ -594,6 +594,13 @@ alone and checks that a decoy folder, named as the unescaped pattern would
 read once restic expanded `$community`, stays out. Without `$$` in the include
 file it fails with "6 files could not be recovered correctly".
 
+`E71_MaintenanceNeverCreatesRepository` runs a check and a cleanup with the
+real restic against an empty folder, for a backup that succeeded before: both
+fail with "There is no backup at this destination" and the folder stays
+empty. A backup then creates the repository and succeeds. Before this, a check
+or cleanup ran `restic init` there (the owner's local_dropbox cleanups of 16,
+17 and 24 November 2026, on a drive that was not connected).
+
 `E40_BracketFolderRestore` uses a real encrypted local repository. It restores
 2,397 files from a folder containing brackets through one folder pattern,
 compares every file's bytes, rejects a similarly named wildcard match, and

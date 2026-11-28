@@ -111,6 +111,11 @@ public sealed class DriveRepositoryGuardTests : IDisposable
         var waiting = await orchestrator.RunBackupAsync(backup, CancellationToken.None);
         Assert.Equal(BackupRunStatus.Failed, waiting.Status);
         Assert.StartsWith("Waiting for you:", Assert.Single(waiting.Cells).Summary);
+        // Never backed up there: a first backup waiting for Run now, not a
+        // drive "erased" (owner, 28 November 2026).
+        Assert.Contains("has not backed up to", waiting.Cells[0].Summary);
+        Assert.Contains("choose Run now to start it at " + drive.PathOrSubpath, waiting.Cells[0].Summary);
+        Assert.DoesNotContain("erased", waiting.Cells[0].Summary);
         Assert.Equal(0, counting.Calls);
 
         // Declined: skipped for this backup with a way back.
@@ -134,7 +139,35 @@ public sealed class DriveRepositoryGuardTests : IDisposable
         var erased = await orchestrator.RunBackupAsync(backup, CancellationToken.None);
         Assert.Equal(BackupRunStatus.Failed, erased.Status);
         Assert.StartsWith("Waiting for you:", Assert.Single(erased.Cells).Summary);
+        Assert.Contains("has no backup of", erased.Cells[0].Summary);
+        Assert.DoesNotContain("has not backed up to", erased.Cells[0].Summary);
         Assert.Equal(2, counting.Calls);
+    }
+
+    /// <summary>A drive found by its name at another letter is named at the
+    /// letter checked (owner's log, 28 November 2026: "at M:\Backup\…" while
+    /// My Passport was E:).</summary>
+    [Fact]
+    public void The_reason_names_the_path_checked_on_a_drive_found_by_its_name()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Path.GetPathRoot(_workspace.Root)!;
+        var label = new DriveInfo(root).VolumeLabel;
+        // Needs a drive whose name no other drive has.
+        if (string.IsNullOrWhiteSpace(label) || DriveInfo.GetDrives().Count(d => d.IsReady && d.VolumeLabel == label) != 1) return;
+        var free = Enumerable.Range('M', 14).Select(c => (char)c + ":").First(l => !Directory.Exists(l + "\\"));
+        var relative = Path.GetRelativePath(root, Path.Combine(_workspace.Root, "found-by-name"));
+        var drive = new Destination { Name = "My Passport", Kind = DestinationKind.ExternalDrive, ExpectedVolumeLabel = label,
+            PathOrSubpath = free + "\\" + relative };
+        var backup = new Backup { Name = "local_dropbox" };
+        Assert.Equal(DriveRepositoryGuard.State.Missing, DriveRepositoryGuard.Check(backup, drive));
+        var first = DriveRepositoryGuard.SkipReason(DriveRepositoryGuard.State.Missing, backup, drive, firstBackup: true);
+        var missing = DriveRepositoryGuard.SkipReason(DriveRepositoryGuard.State.Missing, backup, drive);
+        var checkedPath = Path.Combine(root, relative);
+        Assert.Contains(checkedPath, first);
+        Assert.Contains(checkedPath, missing);
+        Assert.DoesNotContain(free + "\\", first);
+        Assert.DoesNotContain(free + "\\", missing);
     }
 
     [Fact]

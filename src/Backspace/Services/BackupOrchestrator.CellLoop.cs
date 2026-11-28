@@ -268,7 +268,8 @@ public sealed partial class BackupOrchestrator
                     var guard = DriveRepositoryGuard.Check(backup, dest);
                     if (guard is DriveRepositoryGuard.State.Missing or DriveRepositoryGuard.State.Declined)
                     {
-                        var reason = DriveRepositoryGuard.SkipReason(guard, backup, dest);
+                        var reason = DriveRepositoryGuard.SkipReason(guard, backup, dest,
+                            firstBackup: guard == DriveRepositoryGuard.State.Missing && !DriveRepositoryGuard.SucceededBefore(backup, dest, _logs));
                         var missing = guard == DriveRepositoryGuard.State.Missing;
                         _log.Information("Not running cell {Src}→{Dest}: drive guard {State}", sourcePath, dest.Name, guard);
                         final.Cells.Add(new CellOutcome
