@@ -45,16 +45,45 @@ jobs:
         env:
           ANALYTICS_URL: ${{ vars.TIDESIGHT_URL }}
           ANALYTICS_SITE: ${{ vars.TIDESIGHT_SITE_ID }}
+          ANALYTICS_ROOT: _site
         run: |
-          python3 -c '
-          import os, pathlib
+          python3 - <<'PY'
+          # Tags every HTML page published from ANALYTICS_ROOT. A page without </head>
+          # fails the deploy instead of going out untracked; a small redirect page is
+          # left alone (the page it leads to is counted).
+          import os, pathlib, re, sys
           url, site = os.environ["ANALYTICS_URL"], os.environ["ANALYTICS_SITE"]
-          tag = f"  <script async src=\"{url}\" data-site=\"{site}\"></script>\n"
-          for p in pathlib.Path("_site").glob("*.html"):
+          root = pathlib.Path(os.environ["ANALYTICS_ROOT"])
+          tag = f'  <script async src="{url}" data-site="{site}"></script>\n'
+          redirect = re.compile(r"""http-equiv=["']?refresh|location\.replace\(""", re.I)
+          tagged, redirects, missing = [], [], []
+          for p in sorted(root.rglob("*.html")):
+              rel = p.relative_to(root)
+              if any(part.startswith(".") or part == "node_modules" for part in rel.parts):
+                  continue
               html = p.read_text(encoding="utf-8")
-              if url not in html:
-                  p.write_text(html.replace("</head>", tag + "</head>", 1), encoding="utf-8")
-          '
+              if url in html:
+                  tagged.append(rel.as_posix())
+                  continue
+              if redirect.search(html) and len(html) < 4000:
+                  redirects.append(rel.as_posix())
+                  continue
+              head = re.search(r"</head\s*>", html, re.I)
+              if not head:
+                  missing.append(rel.as_posix())
+                  continue
+              p.write_text(html[:head.start()] + tag + html[head.start():], encoding="utf-8")
+              tagged.append(rel.as_posix())
+          print("Tagged:", *tagged, sep="\n  ")
+          if redirects:
+              print("Redirect pages, not tagged:", *redirects, sep="\n  ")
+          if missing:
+              print("::error::No </head> to tag in: " + ", ".join(missing))
+              sys.exit(1)
+          if not tagged:
+              print("::error::No page was tagged under " + str(root))
+              sys.exit(1)
+          PY
 
       - name: Mirror docs/ to backspace-backup.github.io
         uses: peaceiris/actions-gh-pages@v4
