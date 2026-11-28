@@ -586,6 +586,14 @@ does not prove Windows task logon or live cloud execution. `BackupCheckHistoryTe
 covers scope, due times, incomplete destinations, retained history across renames,
 and changed-original eligibility in both timestamp directions.
 
+`E70_DollarNamesRestoreCheck` backs up Chocolatey and NuGet cache names with
+`$` (the owner's failed restore check of 27 November 2026), `$NAME`, `${NAME}`,
+`$$` and a bracket, clicks Verify for a restore check of every file and
+requires all of them restored and identical. It then restores one of them
+alone and checks that a decoy folder, named as the unescaped pattern would
+read once restic expanded `$community`, stays out. Without `$$` in the include
+file it fails with "6 files could not be recovered correctly".
+
 `E40_BracketFolderRestore` uses a real encrypted local repository. It restores
 2,397 files from a folder containing brackets through one folder pattern,
 compares every file's bytes, rejects a similarly named wildcard match, and

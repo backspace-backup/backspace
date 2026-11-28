@@ -248,7 +248,7 @@ internal sealed class TestRestoreContext
     {
         var cells = Journal.Cells;
         ServiceLocator.ActiveRestores.UpdateProgress(_session, cells.Sum(c => c.Files.Count),
-            cells.Sum(c => c.Results.Count(r => r.Path != "(restore operation)")),
+            cells.Sum(c => c.Results.Count(r => r.Path != BackupVerifier.OperationRow)),
             cells.Sum(c => c.Files.Sum(f => Math.Max(0, f.SizeBytes))),
             cells.Sum(c => c.Results.Sum(r => Math.Max(0, r.ExpectedBytes))) + inFlightBytes);
     }

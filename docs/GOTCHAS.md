@@ -342,6 +342,14 @@ pattern `[]]`. Our earlier claim that neither bracket could be matched
 literally was wrong. Actual restic 0.19.1 tests cover these patterns,
 including unpaired brackets, Unicode and similarly named siblings.
 
+The selection goes to restic in an `--include-file`, which restic reads
+like an exclude file: it expands `$NAME` (write `$$` for a `$`) and trims
+each line's ends. A path with `$` in it (NuGet's and Chocolatey's caches
+have many) matched nothing until 1.1.60, so a restore check counted the
+file as not restored. `ResticEngine.ResticIncludeLine` writes `$$`, and
+`[*]`, `[?]` and `[[]` for the wildcards, and puts a trailing space or tab
+in a class.
+
 Every Backspace restore writes into an isolated staging directory first.
 Only validated requested paths
 are published to the target after a successful or explicitly partial

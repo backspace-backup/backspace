@@ -275,6 +275,8 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
         public bool Reported;
         public string[]? Waiting;
         public bool WaitingNeedsChange;
+        /// <summary>Why the run did not start, when the runner said.</summary>
+        public string? NotStarted;
     }
 
     /// <summary>Called by a backup run: these network destinations wait for
@@ -302,6 +304,14 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     /// or finished with warnings): a battery or metered connection that
     /// begins right after it then doesn't run it again (U185, owner,
     /// 11 November 2026: "Yes do it").</summary>
+    /// <summary>Called by a runner that refuses a plan: why it did not
+    /// start. The owner's log of 27 November 2026 read "paused (Quit)" for a
+    /// check refused because its backup's previous check was still running.</summary>
+    internal static void ReportNotStarted(string why)
+    {
+        if (Outcome.Value is { } box) box.NotStarted = why;
+    }
+
     internal static void ReportCompleted()
     {
         if (Outcome.Value is { } box) box.Completed = true;
@@ -311,6 +321,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     private readonly object _sync = new();
     private readonly Dictionary<string, string> _waiting = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task> _running = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _notStarted = new(StringComparer.Ordinal);
     /// <summary>The backup each check last followed (U266): once per backup,
     /// even when the try recorded nothing.</summary>
     private readonly Dictionary<string, DateTime> _followed = new(StringComparer.Ordinal);
@@ -458,8 +469,9 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
     {
         // Not admitted (Quit): it stays due. Wait like any blocked run;
         // retrying at once would spin until the pause ends.
-        if (!paused) Log.Information("{Name} ({Kind}) is due and waits: automatic backups are paused (Quit)", plan.Backup.Name, plan.Kind);
-        lock (_sync) _waiting[plan.Key] = "paused";
+        string? why;
+        lock (_sync) { _notStarted.Remove(plan.Key, out why); _waiting[plan.Key] = "paused"; }
+        if (!paused) Log.Information("{Name} ({Kind}) is due and waits: {Reason}", plan.Backup.Name, plan.Kind, why ?? "automatic backups are paused (Quit)");
     }
 
     private async Task RunInBackgroundAsync(SchedulePlan plan, DateTime now, CancellationToken stop, bool quiet)
@@ -521,6 +533,7 @@ internal sealed class ScheduleLoop(ScheduleLoop.Options options)
             else Log.Information("Starting scheduled {Kind} for {Name}", plan.Kind, plan.Backup.Name);
             Outcome.Value = outcome;
             ran = await options.Run(plan, run.Token).ConfigureAwait(false);
+            if (!ran && outcome.NotStarted is { } refusal) lock (_sync) _notStarted[plan.Key] = refusal;
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
         catch (Exception ex) { Log.Error(ex, "The scheduled {Kind} for {Name} could not run", plan.Kind, plan.Backup.Name); }

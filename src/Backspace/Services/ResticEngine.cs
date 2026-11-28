@@ -780,7 +780,7 @@ public sealed partial class ResticEngine : IBackupEngine
         try
         {
             ReportStaging(staging);
-            var includeLines = includeFile is null ? null : includes.Select(p => "/" + EscapeBracketsForResticPattern(p)).ToArray();
+            var includeLines = includeFile is null ? null : includes.Select(ResticIncludeLine).ToArray();
             if (includeFile is not null)
                 await File.WriteAllLinesAsync(includeFile, includeLines!, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
@@ -1188,15 +1188,35 @@ public sealed partial class ResticEngine : IBackupEngine
         }
     }
 
-    /// <summary>
-    /// Go filepath.Match accepts <c>[[]</c> for a literal opening bracket,
-    /// including on Windows where backslash escaping is disabled. A closing
-    /// bracket outside a character class is already literal; <c>[]]</c> would
-    /// be an invalid empty class. This keeps a picked bracket name exact and
-    /// avoids downloading similarly named files into the temporary folder.
-    /// The final staging allowlist remains an independent protection.
-    /// </summary>
-    internal static string EscapeBracketsForResticPattern(string rel) => rel.Replace("[", "[[]", StringComparison.Ordinal);
+    /// <summary>One line of a restore's <c>--include-file</c>: the exact path,
+    /// nothing else. restic reads such a file like an exclude file. It expands
+    /// <c>$NAME</c> (<c>$$</c> is a literal <c>$</c>), so a NuGet or Chocolatey
+    /// cache file with <c>$</c> in its path matched nothing and a restore check
+    /// reported it as not restored (owner's local_c, 27 November 2026). It
+    /// trims a line's ends, and <c>*</c>, <c>?</c> and <c>[</c> are wildcards:
+    /// each is written as a class that matches only itself. Go's
+    /// filepath.Match takes <c>[[]</c> for a literal bracket, also on Windows
+    /// where a backslash escapes nothing; a closing bracket outside a class is
+    /// already literal. The staging allowlist remains an independent
+    /// protection against a pattern that matches more.</summary>
+    internal static string ResticIncludeLine(string rel)
+    {
+        var line = new System.Text.StringBuilder("/", rel.Length + 8);
+        for (var i = 0; i < rel.Length; i++)
+        {
+            var c = rel[i];
+            line.Append(c switch
+            {
+                '$' => "$$",
+                '[' => "[[]",
+                '*' => "[*]",
+                '?' => "[?]",
+                ' ' or '\t' when rel.AsSpan(i).Trim(" \t").IsEmpty => "[" + c + "]",
+                _ => c.ToString(),
+            });
+        }
+        return line.ToString();
+    }
 
     // ---- snapshots: listing and resolution ----
 

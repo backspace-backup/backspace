@@ -49,6 +49,41 @@ public sealed class BackupSchedulerTests : IDisposable
         => new DateTime(2026, 11, day, hour, minute, second, DateTimeKind.Local).ToUniversalTime();
 
     [Fact]
+    public async Task A_run_refused_because_the_backup_is_busy_says_so_not_Quit()
+    {
+        // Owner's log, 27 November 2026: a check refused because its backup's
+        // previous check was still running read "paused (Quit)".
+        var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var capture = AppLogger.CaptureForTests(lines.Enqueue);
+        var calls = 0;
+        var busy = Daily("local_c");
+        var loop = new ScheduleLoop(new(_state, () => SchedulePlan.From(new AppConfig { Backups = [busy] }),
+            (_, _) => { calls++; ScheduleLoop.ReportNotStarted("another run of this backup is still going"); return Task.FromResult(false); },
+            _ => null, () => false, () => _now, TimeSpan.FromMinutes(1), TimeSpan.FromMilliseconds(20)));
+        await loop.TickAsync(default);
+        _now = Local(4, 20, 0);
+        await loop.TickAsync(default);
+        await loop.TickAsync(default); // tried again quietly
+        var waits = lines.Where(l => l.Contains("local_c") && l.Contains("is due and waits")).ToList();
+        Assert.Equal(2, calls);
+        Assert.Single(waits);
+        Assert.Contains("another run of this backup is still going", waits[0]);
+        Assert.DoesNotContain("Quit", waits[0]);
+
+        // A refusal that gives no reason is still the Quit pause.
+        lines.Clear();
+        var quit = Daily("local_d");
+        var paused = new ScheduleLoop(new(_state + ".2", () => SchedulePlan.From(new AppConfig { Backups = [quit] }),
+            (_, _) => Task.FromResult(false), _ => null, () => false, () => _now, TimeSpan.FromMinutes(1), TimeSpan.FromMilliseconds(20)));
+        _now = Local(4, 19, 0);
+        await paused.TickAsync(default);
+        _now = Local(4, 20, 0);
+        await paused.TickAsync(default);
+        Assert.Contains(lines, l => l.Contains("local_d") && l.Contains("automatic backups are paused (Quit)"));
+        try { File.Delete(_state + ".2"); } catch { }
+    }
+
+    [Fact]
     public async Task A_backup_runs_once_at_its_time_and_not_before()
     {
         var loop = Loop(Daily());

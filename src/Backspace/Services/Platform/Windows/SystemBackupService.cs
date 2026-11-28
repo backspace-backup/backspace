@@ -768,7 +768,11 @@ internal sealed class SystemBackupService : ServiceBase
         WorkerRun run;
         lock (_gate)
         {
-            if (Busy(plan.Backup.Id)) return false;
+            if (Busy(plan.Backup.Id))
+            {
+                ScheduleLoop.ReportNotStarted("another run of this backup is still going; it starts when that one ends");
+                return false;
+            }
             var operation = plan.Kind.ToString().ToLowerInvariant();
             var approved = SystemServiceRuns.Authorize(_installation, plan.Backup.Id, operation, ownerCommand: false);
             run = StartWorker(new ServiceHostRequest(1, "scheduled", null, plan.Backup.Id, operation), approved, plan.Check?.Id, plan.OnlyTargets);

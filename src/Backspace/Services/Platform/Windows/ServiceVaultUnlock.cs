@@ -93,7 +93,10 @@ internal static class ServiceVaultUnlock
             if (secrets.Refresh() != VaultState.Unlocked) return;
             if (SystemService.Status(system.ServiceName) != System.ServiceProcess.ServiceControllerStatus.Running) return;
             var error = Push(system, secrets);
-            if (error is not null) AppLogger.For(nameof(ServiceVaultUnlock)).Warning("The background service did not take the vault key: {Error}", error);
+            // "busy": a run is going and the service keeps the key it has;
+            // not a problem (owner's log, 27 November 2026).
+            if (error == "busy") AppLogger.For(nameof(ServiceVaultUnlock)).Information("The background service is running a backup or check and keeps the vault key it has");
+            else if (error is not null) AppLogger.For(nameof(ServiceVaultUnlock)).Warning("The background service did not take the vault key: {Error}", error);
         }
         catch (Exception ex)
         {

@@ -70,8 +70,14 @@ internal static class UiStallWatchdog
             using var process = Process.Start(start);
             if (process is null) return;
             _ = process.StandardOutput.ReadToEndAsync(); _ = process.StandardError.ReadToEndAsync();
-            process.WaitForExit(60_000);
-            AppLogger.For(nameof(UiStallWatchdog)).Warning("Saved a thread snapshot of the stall: {Path}", path);
+            var exited = process.WaitForExit(60_000);
+            // Said only when the file is there: the owner's log of 27 November
+            // 2026 named a snapshot that had not been written.
+            if (exited && process.ExitCode == 0 && File.Exists(path))
+                AppLogger.For(nameof(UiStallWatchdog)).Warning("Saved a thread snapshot of the stall: {Path}", path);
+            else
+                AppLogger.For(nameof(UiStallWatchdog)).Information("No thread snapshot of the stall: createdump {Result}",
+                    exited ? $"ended with code {process.ExitCode}" : "did not finish within a minute");
         }
         catch (Exception ex) { AppLogger.For(nameof(UiStallWatchdog)).Information(ex, "No thread snapshot of the stall"); }
     }

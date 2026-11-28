@@ -345,10 +345,7 @@ public sealed class BackupVerifier
                 else
                 {
                     destinationsFailed++;
-                    var differences = perDestResults.Count(r => r.Status == FileVerifyStatus.BytesMismatch);
-                    failedItems.Add(differences == failedHere
-                        ? $"«{dest.Name}»: {revStamp} · Files recovered successfully, but {differences} differ from today's originals. This does not establish which copy changed."
-                        : $"«{dest.Name}»: {revStamp} · {failedHere - differences} files could not be recovered correctly. {differences} additional files differ from today's originals.");
+                    failedItems.Add(FailureLine(dest.Name, revStamp, perDestResults));
                 }
             }
             catch (OperationCanceledException) { throw; }
@@ -800,7 +797,7 @@ public sealed class BackupVerifier
             if (outcome.TerminalStatus == RestoreTerminalStatus.Cancelled)
                 throw new OperationCanceledException("Restore check stopped.", ct);
             if (outcome.TerminalStatus is RestoreTerminalStatus.Error or RestoreTerminalStatus.Warning)
-                results.Add(new FileVerifyResult("(restore operation)", 0, 0, FileVerifyStatus.RestoreFailed,
+                results.Add(new FileVerifyResult(OperationRow, 0, 0, FileVerifyStatus.RestoreFailed,
                     outcome.ErrorMessage ?? $"The restore engine returned {outcome.TerminalStatus}."));
             if (cell is not null) context!.Checkpoint(cell, results);
             // These copies have been checked and removed. Do not retain one
@@ -815,6 +812,28 @@ public sealed class BackupVerifier
     /// 5,209-file sample take about 35 minutes (U183). The patterns go in an
     /// include file, so a longer list costs no command-line length.</summary>
     internal const int MaxFilesPerBatch = 1024;
+
+    /// <summary>The row a batch adds when its restore reported a problem;
+    /// not a file.</summary>
+    internal const string OperationRow = "(restore operation)";
+
+    /// <summary>A destination's line in a failed restore check. Files are
+    /// counted, not <see cref="OperationRow"/> rows: counted as files, 4 files
+    /// not restored read "8 files" (owner's local_c, 27 November 2026).</summary>
+    internal static string FailureLine(string destination, string revStamp, IReadOnlyCollection<FileVerifyResult> results)
+    {
+        bool Failed(FileVerifyResult r) => r.Status is FileVerifyStatus.SizeMismatch or FileVerifyStatus.BytesMismatch or FileVerifyStatus.RestoreFailed;
+        var files = results.Where(r => r.Path != OperationRow).ToList();
+        var differences = files.Count(r => r.Status == FileVerifyStatus.BytesMismatch);
+        var notRecovered = files.Count(Failed) - differences;
+        var problem = results.FirstOrDefault(r => r.Path == OperationRow && r.Status == FileVerifyStatus.RestoreFailed);
+        if (notRecovered == 0 && differences == 0)
+            return $"«{destination}»: {revStamp} · Every file was recovered, but the restore reported a problem: {problem?.Detail}";
+        if (notRecovered == 0)
+            return $"«{destination}»: {revStamp} · Files recovered successfully, but {differences} differ from today's originals. This does not establish which copy changed."
+                + (problem is null ? "" : $" The restore also reported a problem: {problem.Detail}");
+        return $"«{destination}»: {revStamp} · {notRecovered} {(notRecovered == 1 ? "file" : "files")} could not be recovered correctly. {differences} additional files differ from today's originals.";
+    }
 
     internal static IEnumerable<RevisionFile[]> VerificationBatches(IEnumerable<RevisionFile> files)
     {
